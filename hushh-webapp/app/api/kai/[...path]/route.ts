@@ -27,9 +27,25 @@ const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
 });
+const AGENT_VOICE_STT_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(35_000, {
+  developmentFloorMs: 35_000,
+  overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS",
+});
+const AGENT_VOICE_TTS_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
+  overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS",
+});
+const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
+  developmentFloorMs: 120_000,
+  overrideEnvKey: "HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS",
+});
 
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
+}
+
+function isBinaryTtsPath(path: string): boolean {
+  return path === "voice/tts" || path === "agent/voice/tts";
 }
 
 function isUpstreamTimeoutError(error: unknown): boolean {
@@ -45,6 +61,48 @@ function isUpstreamTimeoutError(error: unknown): boolean {
     normalizedMessage.includes("timeout") ||
     causeCode === "UND_ERR_HEADERS_TIMEOUT"
   );
+}
+
+function isClientAbortError(error: unknown): boolean {
+  const name =
+    typeof (error as { name?: unknown })?.name === "string"
+      ? (error as { name: string }).name
+      : "";
+  const message = error instanceof Error ? error.message : String(error);
+  const normalizedMessage = message.toLowerCase();
+  return name === "AbortError" || normalizedMessage.includes("abort");
+}
+
+function resolveUpstreamSignal(
+  requestSignal: AbortSignal,
+  timeoutMs: number | null
+): AbortSignal {
+  if (!timeoutMs) {
+    return requestSignal;
+  }
+
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const anySignal = (AbortSignal as typeof AbortSignal & {
+    any?: (signals: AbortSignal[]) => AbortSignal;
+  }).any;
+  if (typeof anySignal === "function") {
+    return anySignal([requestSignal, timeoutSignal]);
+  }
+
+  const controller = new AbortController();
+  const abortFrom = (signal: AbortSignal) => {
+    if (controller.signal.aborted) return;
+    controller.abort(signal.reason);
+  };
+  if (requestSignal.aborted) {
+    abortFrom(requestSignal);
+  } else if (timeoutSignal.aborted) {
+    abortFrom(timeoutSignal);
+  } else {
+    requestSignal.addEventListener("abort", () => abortFrom(requestSignal), { once: true });
+    timeoutSignal.addEventListener("abort", () => abortFrom(timeoutSignal), { once: true });
+  }
+  return controller.signal;
 }
 
 function buildUpstreamFailurePayload(path: string, error: unknown) {
@@ -101,6 +159,15 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
+  if (path === "agent/voice/stt") {
+    return AGENT_VOICE_STT_PROXY_TIMEOUT_MS;
+  }
+  if (path === "agent/voice/tts") {
+    return AGENT_VOICE_TTS_PROXY_TIMEOUT_MS;
+  }
+  if (path === "agent/chat/stream") {
+    return AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS;
+  }
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
   }
@@ -148,6 +215,14 @@ export async function POST(
 }
 
 export async function GET(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  const params = await props.params;
+  return proxyRequest(request, params);
+}
+
+export async function PATCH(
   request: NextRequest,
   props: { params: Promise<{ path: string[] }> }
 ) {
@@ -222,28 +297,37 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers: headers,
       body: body,
-      ...(upstreamTimeoutMs ? { signal: AbortSignal.timeout(upstreamTimeoutMs) } : {}),
+      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs),
     });
 
     // Check for SSE stream response
     const responseContentType = response.headers.get("content-type");
     if (responseContentType?.includes("text/event-stream")) {
       console.log(`[Kai API] request_id=${requestId} sse_pass_through=true`);
+      const headers: Record<string, string> = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Content-Encoding": "none",
+        "X-Accel-Buffering": "no",
+        "x-request-id": requestId,
+      };
+      const agentConversationId = response.headers.get("x-agent-conversation-id");
+      const agentModel = response.headers.get("x-agent-model");
+      if (agentConversationId) {
+        headers["X-Agent-Conversation-Id"] = agentConversationId;
+      }
+      if (agentModel) {
+        headers["X-Agent-Model"] = agentModel;
+      }
       // Return SSE stream directly without parsing
       return new Response(response.body, {
         status: response.status,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "Content-Encoding": "none",
-          "X-Accel-Buffering": "no",
-          "x-request-id": requestId,
-        },
+        headers,
       });
     }
 
-    if (path === "voice/tts") {
+    if (isBinaryTtsPath(path)) {
       console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
       return withRequestIdResponse(requestId, response);
     }
@@ -273,6 +357,18 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     return withRequestIdJson(requestId, data);
   } catch (error) {
+    if (isClientAbortError(error)) {
+      console.info(`[Kai API] request_id=${requestId} client_aborted path=${path}`);
+      return withRequestIdJson(
+        requestId,
+        {
+          error: "Request cancelled",
+          message: "The request was cancelled.",
+        },
+        { status: 499 }
+      );
+    }
+
     console.error(
       `[Kai API] request_id=${requestId} proxy_error path=${path}`,
       summarizeProxyError(error)

@@ -4,6 +4,11 @@ Agent chat endpoints for Kai Financial agent.
 
 Note: Food & Dining and Professional Profile agents have been deprecated
 in favor of the dynamic world model architecture.
+
+Canonical attach points
+-----------------------
+api.routes.agents.validate_token_endpoint -> POST /api/validate-token
+api.routes.agents.kai_chat                -> POST /api/agents/kai/chat
 """
 
 import logging
@@ -37,7 +42,7 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
 
         if not valid:
             # SECURITY: Return generic message, log detailed reason server-side
-            logger.warning(f"Token validation failed: {reason}")
+            logger.warning("agents.validate_token.failed: %s", reason)
             return {"valid": False, "reason": "Token validation failed"}
 
         if token_obj is None:
@@ -52,7 +57,7 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
         }
     except Exception as e:
         # SECURITY: Never expose exception details to client (CodeQL fix)
-        logger.error(f"Token validation error: {e}")
+        logger.error("agents.validate_token.error: %s", e)
         return {"valid": False, "reason": "Token validation failed"}
 
 
@@ -71,9 +76,9 @@ async def kai_chat(request: ChatRequest):
     - Sentiment Analysis
     - Valuation Analysis
 
-    Orchestrates tools via Gemini 3 Flash.
+    Orchestrates multi-agent investment analysis (fundamental, sentiment, valuation).
     """
-    logger.info(f"📈 Kai Agent: user={request.userId}, msg='{request.message[:50]}...'")
+    logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
 
     try:
         result = get_kai_agent().handle_message(
@@ -94,8 +99,11 @@ async def kai_chat(request: ChatRequest):
             options=[],
         )
     except Exception as e:
-        logger.error(f"📈 Kai Agent Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # SECURITY: Never expose internal exception details to the client.
+        # str(e) from a Gemini/DB call can leak model IDs, internal endpoints,
+        # API key fragments, table/column names, or file paths with user IDs.
+        logger.error("kai_chat.error user=%s: %s", request.userId, e)
+        raise HTTPException(status_code=500, detail="Internal error processing chat")
 
 
 @router.get("/agents/kai/info")

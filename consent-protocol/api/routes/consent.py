@@ -2,7 +2,7 @@
 """
 Consent management endpoints (pending, approve, deny, revoke, history, active).
 
-NOTE: Uses dynamic attr.{domain}.* scopes instead of legacy vault.read.*/vault.write.* scopes.
+NOTE: Uses dynamic attr.{domain}.* scopes instead of legacy vault wildcard scopes.
 Legacy scopes are mapped to dynamic scopes for backward compatibility.
 
 SECURITY: All consent management endpoints require VAULT_OWNER token authentication.
@@ -13,14 +13,16 @@ This ensures consistent consent-first architecture throughout the system.
 import logging
 import re
 import time
-from typing import Dict
+from datetime import datetime, timezone
+from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.consent_schemas import ConsentExpiredError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -41,6 +43,40 @@ router = APIRouter(prefix="/api/consent", tags=["Consent Management"])
 # NOTE: Export data is now persisted to database via ConsentDBService.store_consent_export()
 # The in-memory dict is kept as a fast cache but database is the source of truth
 _consent_exports: Dict[str, Dict] = {}
+
+# Consent tokens are valid for 24 hours.  Keep cache entries for the token
+# lifetime plus a one-hour grace period, then drop them.  Without this bound,
+# tokens that expire naturally (without explicit revocation) leave stale blobs
+# in the process heap indefinitely.
+_CONSENT_EXPORT_TTL_MS: int = 25 * 60 * 60 * 1000  # 24 h token lifetime + 1 h grace
+
+
+def _evict_stale_consent_exports() -> int:
+    """Remove entries whose token has certainly expired (created_at older than TTL).
+
+    Caller does NOT need to hold any lock — dict mutation in CPython is protected
+    by the GIL for single operations, and this sweep is only triggered from
+    request-handling coroutines (one event-loop thread).
+
+    Returns the number of entries evicted.
+    """
+    now_ms = int(time.time() * 1000)
+    stale = [
+        k
+        for k, v in _consent_exports.items()
+        if now_ms - int(v.get("created_at") or 0) >= _CONSENT_EXPORT_TTL_MS
+    ]
+    for k in stale:
+        del _consent_exports[k]
+    if stale:
+        logger.debug(
+            "consent_exports.ttl_eviction evicted=%s remaining=%s",
+            len(stale),
+            len(_consent_exports),
+        )
+    return len(stale)
+
+
 _UUID_LIKE_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -53,6 +89,29 @@ _CONSENT_STORAGE_ERROR_PATTERNS = (
     "timeout",
 )
 _CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+
+
+async def _owned_consent_identifiers(user_id: str) -> list[str]:
+    try:
+        identifiers = await ActorIdentityService().list_account_identifiers(user_id)
+    except Exception as exc:
+        logger.debug(
+            "consent.identifier_expansion_skipped user_id=%s error=%s",
+            user_id,
+            exc,
+        )
+        identifiers = []
+    return identifiers or [user_id]
+
+
+def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
+    normalized_user_id = str(user_id or "").strip()
+    normalized_identifiers = [
+        str(item or "").strip() for item in identifiers if str(item or "").strip()
+    ]
+    if set(normalized_identifiers) <= {normalized_user_id}:
+        return {}
+    return {"user_ids": normalized_identifiers}
 
 
 def _clean_text(value: object | None) -> str:
@@ -72,6 +131,23 @@ def _expected_connector_key_id(metadata: dict | None) -> str:
 
 def _expected_connector_wrapping_alg(metadata: dict | None) -> str:
     return _clean_text((metadata or {}).get("connector_wrapping_alg")) or _CONNECTOR_WRAPPING_ALG
+
+
+def _resolve_approval_expiry_hours(
+    *,
+    metadata: dict | None,
+    requested_duration_hours: int | None,
+    is_developer_request: bool,
+) -> int:
+    try:
+        requested_expiry_hours = int((metadata or {}).get("expiry_hours", 24))
+    except (TypeError, ValueError):
+        requested_expiry_hours = 24
+    expiry_hours = requested_expiry_hours
+    if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
+        max_duration_hours = requested_expiry_hours if is_developer_request else 24 * 365
+        expiry_hours = min(requested_duration_hours, max_duration_hours)
+    return expiry_hours
 
 
 def _build_verified_wrapped_key_bundle(
@@ -211,59 +287,59 @@ async def _hydrate_pending_requester_labels(pending_items: list[dict]) -> list[d
 
 
 class CancelConsentRequest(BaseModel):
-    userId: str
-    requestId: str
+    userId: str = Field(min_length=1, max_length=128)
+    requestId: str = Field(min_length=1, max_length=128)
 
 
 class PendingConsentOpenedRequest(BaseModel):
-    userId: str
-    requestId: str | None = None
-    bundleId: str | None = None
-    openedVia: str | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    requestId: str | None = Field(default=None, max_length=128)
+    bundleId: str | None = Field(default=None, max_length=128)
+    openedVia: str | None = Field(default=None, max_length=64)
 
 
 class GenericConsentRequestCreate(BaseModel):
-    subject_user_id: str
-    requester_actor_type: str = "ria"
-    subject_actor_type: str = "investor"
-    scope_template_id: str
-    selected_scope: str | None = None
-    duration_mode: str = "preset"
-    duration_hours: int | None = None
-    firm_id: str | None = None
-    reason: str | None = None
+    subject_user_id: str = Field(min_length=1, max_length=128)
+    requester_actor_type: str = Field(default="ria", max_length=64)
+    subject_actor_type: str = Field(default="investor", max_length=64)
+    scope_template_id: str = Field(min_length=1, max_length=256)
+    selected_scope: str | None = Field(default=None, max_length=256)
+    duration_mode: str = Field(default="preset", max_length=64)
+    duration_hours: int | None = Field(default=None, ge=1, le=8760)
+    firm_id: str | None = Field(default=None, max_length=128)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class RelationshipDisconnectRequest(BaseModel):
-    investor_user_id: str | None = None
-    ria_profile_id: str | None = None
+    investor_user_id: str | None = Field(default=None, max_length=128)
+    ria_profile_id: str | None = Field(default=None, max_length=128)
 
 
 class RefreshExportUploadRequest(BaseModel):
-    userId: str
-    consentToken: str
-    encryptedData: str
-    encryptedIv: str
-    encryptedTag: str
-    wrappedExportKey: str
-    wrappedKeyIv: str
-    wrappedKeyTag: str
-    senderPublicKey: str
-    wrappingAlg: str | None = None
-    connectorKeyId: str | None = None
-    sourceContentRevision: int | None = None
-    sourceManifestRevision: int | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    consentToken: str = Field(min_length=1, max_length=2048)
+    encryptedData: str = Field(min_length=1, max_length=10_000_000)
+    encryptedIv: str = Field(min_length=1, max_length=256)
+    encryptedTag: str = Field(min_length=1, max_length=256)
+    wrappedExportKey: str = Field(min_length=1, max_length=8192)
+    wrappedKeyIv: str = Field(min_length=1, max_length=256)
+    wrappedKeyTag: str = Field(min_length=1, max_length=256)
+    senderPublicKey: str = Field(min_length=1, max_length=8192)
+    wrappingAlg: str | None = Field(default=None, max_length=64)
+    connectorKeyId: str | None = Field(default=None, max_length=128)
+    sourceContentRevision: int | None = Field(default=None, ge=1)
+    sourceManifestRevision: int | None = Field(default=None, ge=1)
 
 
 class RefreshExportFailureRequest(BaseModel):
-    userId: str
-    consentToken: str
-    lastError: str | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    consentToken: str = Field(min_length=1, max_length=2048)
+    lastError: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/pending")
 async def get_pending_consents(
-    userId: str,
+    userId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -277,7 +353,11 @@ async def get_pending_consents(
 
     service = ConsentDBService()
     try:
-        pending_from_db = await service.get_pending_requests(userId)
+        owned_identifiers = await _owned_consent_identifiers(userId)
+        pending_from_db = await service.get_pending_requests(
+            userId,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
         pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
         logger.info("consent.pending_fetched count=%s", len(pending_from_db))
         return {"pending": pending_from_db}
@@ -292,6 +372,63 @@ async def get_pending_consents(
         raise
 
 
+@router.get("/pending/lookup")
+async def lookup_pending_consents(
+    userId: str = Query(..., max_length=128),
+    request_id: list[str] | None = Query(default=None),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Resolve specific pending consent requests by canonical request id.
+
+    This is intentionally uncached and request-id scoped so product surfaces that
+    hold cross-links to consent requests do not reconstruct consent payloads from
+    feature-local workflow state.
+    """
+    if token_data["user_id"] != userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    request_ids = []
+    seen: set[str] = set()
+    for value in request_id or []:
+        normalized = _clean_text(value)
+        if not normalized or normalized in seen:
+            continue
+        if len(normalized) > 128:
+            raise HTTPException(status_code=400, detail="request_id is too long.")
+        seen.add(normalized)
+        request_ids.append(normalized)
+
+    if not request_ids:
+        raise HTTPException(status_code=400, detail="At least one request_id is required.")
+    if len(request_ids) > 25:
+        raise HTTPException(status_code=400, detail="At most 25 request ids can be looked up.")
+
+    service = ConsentDBService()
+    owned_identifiers = await _owned_consent_identifiers(userId)
+    items = []
+    missing_request_ids = []
+    for request_id_value in request_ids:
+        pending = await service.get_pending_by_request_id(
+            userId,
+            request_id_value,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
+        if pending:
+            items.append(pending)
+        else:
+            missing_request_ids.append(request_id_value)
+
+    logger.info(
+        "consent.pending_lookup user_id=%s requested=%s found=%s missing=%s",
+        userId,
+        len(request_ids),
+        len(items),
+        len(missing_request_ids),
+    )
+    return {"items": items, "missing_request_ids": missing_request_ids}
+
+
 @router.post("/pending/opened")
 async def mark_pending_consent_opened(
     body: PendingConsentOpenedRequest,
@@ -301,21 +438,107 @@ async def mark_pending_consent_opened(
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
     service = ConsentDBService()
+    owned_identifiers = await _owned_consent_identifiers(body.userId)
     opened = await service.mark_pending_request_opened(
         user_id=body.userId,
         request_id=body.requestId,
         bundle_id=body.bundleId,
         opened_via=body.openedVia,
+        **_identifier_filter_kwargs(body.userId, owned_identifiers),
     )
     if opened is None:
         return {"ok": True, "acknowledged": False}
     return {"ok": True, "acknowledged": True, **opened}
 
 
+class ConsentApprovalPayload(BaseModel):
+    """Versioned, field-validated consent-approval request body.
+
+    Field constraints and the agent_id/X-Client-Id identity check ensure
+    callers supply well-formed, consistent data before any DB or token
+    logic runs.  FastAPI returns 422 on field violations; the handler
+    returns 403 on identity mismatch.
+
+    agent_id
+        Optional identifier the calling agent declares about itself.
+        When present AND the ``X-Client-Id`` header is also present, the
+        two values MUST match — a mismatch returns HTTP 403
+        ``AGENT_ID_CLIENT_ID_MISMATCH`` before any further processing.
+
+    Canonical surface: api.routes.consent — no separate validation service.
+    Integrated by Abdul Gaffar — canonical field-level validation logic.
+    """
+
+    # Reject unknown fields with HTTP 422 rather than silently storing them.
+    # extra="allow" let callers inject arbitrary keys into __pydantic_extra__,
+    # which propagated to downstream DB writes and log entries (CWE-915 / DoS).
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(default=1, ge=1, le=2)
+
+    userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
+    requestId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
+
+    # Temporal expiry guard — rejects payloads whose approval window has closed.
+    # Prevents stale consent replay.  Integrated by Abdul Gaffar — canonical
+    # temporal-consent boundary (hushh_mcp/consent/consent_schemas.py).
+    expiresAt: datetime | None = Field(
+        default=None,
+        description=(
+            "UTC datetime after which this approval payload is rejected. "
+            "Stale payloads are refused before any DB or token logic runs. "
+            "[Temporal Governance by Abdul Gaffar]"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_not_expired(self) -> "ConsentApprovalPayload":
+        if self.expiresAt is not None:
+            dt = self.expiresAt
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > dt:
+                raise ConsentExpiredError(dt)
+        return self
+
+    agent_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        pattern=r"^\S+$",
+        description=(
+            "Agent identifier declared by the caller. "
+            "Must equal the X-Client-Id header when both are present."
+        ),
+    )
+
+    encryptedData: str | None = Field(default=None, max_length=10_000_000)
+    encryptedIv: str | None = Field(default=None, max_length=512)
+    encryptedTag: str | None = Field(default=None, max_length=512)
+    wrappedExportKey: str | None = Field(default=None, max_length=10_000_000)
+    wrappedKeyIv: str | None = Field(default=None, max_length=512)
+    wrappedKeyTag: str | None = Field(default=None, max_length=512)
+    senderPublicKey: str | None = Field(default=None, max_length=4096)
+    connectorPublicKey: str | None = Field(default=None, max_length=8192)
+    wrappingAlg: str | None = Field(default=None, max_length=64)
+    connectorKeyId: str | None = Field(default=None, max_length=256)
+    durationHours: int | None = Field(default=None, ge=1, le=8760)
+    sourceContentRevision: int | None = Field(default=None, ge=0)
+    sourceManifestRevision: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stamp_missing_version(cls, values: Any) -> Any:
+        if isinstance(values, dict) and "version" not in values:
+            values = {**values, "version": 1}
+        return values
+
+
 @router.post("/pending/approve")
 async def approve_consent(
     request: Request,
     token_data: dict = Depends(require_vault_owner_token),
+    x_client_id: str | None = Header(None, alias="X-Client-Id"),
 ):
     """
     User approves a pending consent request (Zero-Knowledge).
@@ -326,21 +549,48 @@ async def approve_consent(
     For connector-backed approvals, the export key is wrapped to the connector public key
     and the backend never persists a plaintext decrypt key.
     """
-    body = await request.json()
-    userId = body.get("userId")
-    requestId = body.get("requestId")
-    encryptedData = body.get("encryptedData")  # Base64 ciphertext
-    encryptedIv = body.get("encryptedIv")  # Base64 IV
-    encryptedTag = body.get("encryptedTag")  # Base64 auth tag
-    wrappedExportKey = body.get("wrappedExportKey")
-    wrappedKeyIv = body.get("wrappedKeyIv")
-    wrappedKeyTag = body.get("wrappedKeyTag")
-    senderPublicKey = body.get("senderPublicKey")
-    wrappingAlg = body.get("wrappingAlg")
-    connectorKeyId = body.get("connectorKeyId")
-    requested_duration_hours = body.get("durationHours")
-    source_content_revision = body.get("sourceContentRevision")
-    source_manifest_revision = body.get("sourceManifestRevision")
+    try:
+        _body = ConsentApprovalPayload.model_validate(await request.json())
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False))
+
+    # Granular field-level validation: agent_id in payload must match
+    # X-Client-Id header when both are supplied.  A mismatch indicates the
+    # caller is misrepresenting its identity and is rejected before any
+    # further auth or DB logic runs.
+    # Integrated by Abdul Gaffar — canonical field-level validation logic.
+    if _body.agent_id is not None and x_client_id is not None:
+        if _body.agent_id != x_client_id:
+            logger.warning(
+                "consent.approve.agent_id_mismatch payload=%s header=%s",
+                _body.agent_id,
+                x_client_id,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": "AGENT_ID_CLIENT_ID_MISMATCH",
+                    "message": (
+                        "agent_id in payload does not match X-Client-Id header. "
+                        "Ensure both values identify the same agent."
+                    ),
+                },
+            )
+
+    userId = _body.userId
+    requestId = _body.requestId
+    encryptedData = _body.encryptedData  # Base64 ciphertext
+    encryptedIv = _body.encryptedIv  # Base64 IV
+    encryptedTag = _body.encryptedTag  # Base64 auth tag
+    wrappedExportKey = _body.wrappedExportKey
+    wrappedKeyIv = _body.wrappedKeyIv
+    wrappedKeyTag = _body.wrappedKeyTag
+    senderPublicKey = _body.senderPublicKey
+    wrappingAlg = _body.wrappingAlg
+    connectorKeyId = _body.connectorKeyId
+    requested_duration_hours = _body.durationHours
+    source_content_revision = _body.sourceContentRevision
+    source_manifest_revision = _body.sourceManifestRevision
 
     # Verify user is approving their own consent
     if token_data["user_id"] != userId:
@@ -351,18 +601,24 @@ async def approve_consent(
 
     # Get pending request from database
     service = ConsentDBService()
-    pending_request = await service.get_pending_by_request_id(userId, requestId)
+    owned_identifiers = await _owned_consent_identifiers(userId)
+    pending_request = await service.get_pending_by_request_id(
+        userId,
+        requestId,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
+    )
 
     if not pending_request:
         raise HTTPException(status_code=404, detail="Consent request not found")
+    subject_user_id = str(pending_request.get("user_id") or userId).strip() or userId
 
     # Issue consent token - map scope to ConsentScope enum using centralized resolver
     requested_scope = pending_request["scope"]
     try:
         _consent_scope = resolve_scope_to_enum(requested_scope)
     except Exception as e:
-        logger.error("consent.scope_resolution_failed: %s", e)
-        raise HTTPException(status_code=400, detail=f"Invalid scope: {requested_scope}")
+        logger.error("consent.scope_resolution_failed scope=%r: %s", requested_scope, e)
+        raise HTTPException(status_code=400, detail="Invalid consent scope")
 
     # Optional metadata on pending request (used for expiry hints)
     metadata = pending_request.get("metadata", {})
@@ -382,9 +638,11 @@ async def approve_consent(
             )
         )
     )
-    expiry_hours = metadata.get("expiry_hours", 24)
-    if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
-        expiry_hours = min(requested_duration_hours, 24 * 365)
+    expiry_hours = _resolve_approval_expiry_hours(
+        metadata=metadata if isinstance(metadata, dict) else None,
+        requested_duration_hours=requested_duration_hours,
+        is_developer_request=is_developer_request,
+    )
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -395,6 +653,7 @@ async def approve_consent(
         userId,
         agent_id=pending_request["developer"],
         requested_scope=requested_scope,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
     )
     if existing_token and is_developer_request:
         existing_export = await service.get_consent_export_metadata(
@@ -419,6 +678,15 @@ async def approve_consent(
         elif existing_export.get("refresh_status") != "current":
             logger.info(
                 "consent.token_reuse_skipped_stale_export scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
+        elif requested_scope.startswith("attr.") and not isinstance(
+            existing_export.get("source_content_revision"), int
+        ):
+            logger.info(
+                "consent.token_reuse_skipped_missing_source_revision scope=%s token=%s",
                 requested_scope,
                 str(existing_token.get("token_id") or "")[:32],
             )
@@ -448,6 +716,18 @@ async def approve_consent(
 
         reuse_metadata = dict(metadata) if isinstance(metadata, dict) else {}
         reuse_metadata["reused_consent_token"] = True
+        if subject_user_id != userId:
+            await service.insert_event(
+                user_id=subject_user_id,
+                agent_id=pending_request["developer"],
+                scope=requested_scope,
+                action="CONSENT_GRANTED",
+                token_id=existing_token.get("token_id"),
+                request_id=requestId,
+                scope_description=get_scope_description(requested_scope),
+                expires_at=existing_token.get("expires_at"),
+                metadata=reuse_metadata,
+            )
         await service.insert_event(
             user_id=userId,
             agent_id=pending_request["developer"],
@@ -482,20 +762,13 @@ async def approve_consent(
             else "superset",
         }
 
-    # CRITICAL FIX: Pass original scope STRING to issue_token, not enum
-    # This ensures token contains 'attr.financial.*' not 'pkm.read'
-    # The enum was validated above, but the token must preserve the exact scope
-    token = issue_token(
-        user_id=userId,
-        # Keep token agent_id aligned with consent_audit agent_id so DB revocation
-        # checks are deterministic across instances.
-        agent_id=pending_request["developer"],
-        scope=requested_scope,  # ✅ Pass string, not enum
-        expires_in_ms=expiry_hours * 60 * 60 * 1000,
-    )
+    # SECURITY: Validate the export payload BEFORE issuing a token.  If we
+    # issued the token first and a validation or storage step then raised an
+    # HTTP exception, a cryptographically valid token would already exist but
+    # would have no DB audit record and no way to revoke it.  All validation
+    # must complete successfully before any token string is materialised.
 
-    # Store encrypted export linked to token
-    # Persist to database for cross-instance consistency
+    # Build the wrapped key bundle (validation-only, no side effects yet)
     wrapped_key_bundle = None
     if connector_public_key:
         wrapped_key_bundle = _build_verified_wrapped_key_bundle(
@@ -527,6 +800,18 @@ async def approve_consent(
             encrypted_tag=encryptedTag,
         )
 
+    # All validation passed - now safe to issue the token.  Scope is passed as
+    # the original string (not the enum) so that 'attr.financial.*' is preserved
+    # verbatim in the signed payload rather than being collapsed to 'pkm.read'.
+    token = issue_token(
+        user_id=userId,
+        # Keep agent_id aligned with consent_audit so DB revocation checks are
+        # deterministic across Cloud Run instances.
+        agent_id=pending_request["developer"],
+        scope=requested_scope,
+        expires_in_ms=expiry_hours * 60 * 60 * 1000,
+    )
+
     if encryptedData and wrapped_key_bundle:
         payload_data, payload_iv, payload_tag = encrypted_export_payload or (
             _clean_text(encryptedData),
@@ -555,7 +840,8 @@ async def approve_consent(
         if not stored:
             raise HTTPException(status_code=500, detail="Failed to store encrypted consent export")
 
-        # Also cache in memory for fast access
+        # Also cache in memory for fast access; sweep stale entries first.
+        _evict_stale_consent_exports()
         _consent_exports[token.token] = {
             "encrypted_data": payload_data,
             "iv": payload_iv,
@@ -573,8 +859,20 @@ async def approve_consent(
         logger.info("   Stored encrypted export for token (DB + cache)")
 
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    granted_event_metadata["approved_duration_hours"] = expiry_hours
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
+    if subject_user_id != userId:
+        await service.insert_event(
+            user_id=subject_user_id,
+            agent_id=pending_request["developer"],
+            scope=requested_scope,
+            action="CONSENT_GRANTED",
+            token_id=token.token,
+            request_id=requestId,
+            expires_at=token.expires_at,
+            metadata=granted_event_metadata,
+        )
     await service.insert_event(
         user_id=userId,
         agent_id=pending_request["developer"],
@@ -592,6 +890,7 @@ async def approve_consent(
         userId,
         agent_id=pending_request["developer"],
         requested_scope=requested_scope,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
     )
     for index, superseded_token in enumerate(superseded_tokens):
         superseded_scope = str(superseded_token.get("scope") or "").strip()
@@ -610,7 +909,7 @@ async def approve_consent(
             "superseded_by_token_id": token.token,
         }
         await service.insert_event(
-            user_id=userId,
+            user_id=str(superseded_token.get("user_id") or subject_user_id),
             agent_id=pending_request["developer"],
             scope=superseded_scope,
             action="REVOKED",
@@ -649,8 +948,8 @@ async def approve_consent(
 
 @router.post("/pending/deny")
 async def deny_consent(
-    userId: str,
-    requestId: str,
+    userId: str = Query(..., min_length=1, max_length=128),
+    requestId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -666,10 +965,16 @@ async def deny_consent(
 
     # Get pending request from database
     service = ConsentDBService()
-    pending_request = await service.get_pending_by_request_id(userId, requestId)
+    owned_identifiers = await _owned_consent_identifiers(userId)
+    pending_request = await service.get_pending_by_request_id(
+        userId,
+        requestId,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
+    )
 
     if not pending_request:
         raise HTTPException(status_code=404, detail="Consent request not found")
+    subject_user_id = str(pending_request.get("user_id") or userId).strip() or userId
 
     metadata = pending_request.get("metadata", {})
     developer_label = (
@@ -678,7 +983,7 @@ async def deny_consent(
 
     # Log CONSENT_DENIED to database
     await service.insert_event(
-        user_id=userId,
+        user_id=subject_user_id,
         agent_id=pending_request["developer"],
         scope=pending_request["scope"],
         action="CONSENT_DENIED",
@@ -717,12 +1022,20 @@ async def cancel_consent(
     logger.info("consent.cancel_requested")
 
     service = ConsentDBService()
-    pending_request = await service.get_pending_by_request_id(payload.userId, payload.requestId)
+    owned_identifiers = await _owned_consent_identifiers(payload.userId)
+    pending_request = await service.get_pending_by_request_id(
+        payload.userId,
+        payload.requestId,
+        **_identifier_filter_kwargs(payload.userId, owned_identifiers),
+    )
     if not pending_request:
         raise HTTPException(status_code=404, detail="Consent request not found")
+    subject_user_id = (
+        str(pending_request.get("user_id") or payload.userId).strip() or payload.userId
+    )
 
     await service.insert_event(
-        user_id=payload.userId,
+        user_id=subject_user_id,
         agent_id=pending_request["developer"],
         scope=pending_request["scope"],
         action="CANCELLED",
@@ -749,8 +1062,8 @@ async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth))
 
 @router.get("/center/summary")
 async def get_consent_center_summary(
-    actor: str = Query(default="investor"),
-    mode: str = Query(default="consents"),
+    actor: str | None = Query(default=None, max_length=50),
+    mode: str = Query(default="consents", max_length=50),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
@@ -759,12 +1072,12 @@ async def get_consent_center_summary(
 
 @router.get("/center/list")
 async def get_consent_center_list(
-    actor: str = Query(default="investor"),
-    surface: str = Query(default="pending"),
-    mode: str = Query(default="consents"),
-    q: str | None = Query(default=None),
+    actor: str | None = Query(default=None, max_length=50),
+    surface: str = Query(default="pending", max_length=50),
+    mode: str = Query(default="consents", max_length=50),
+    q: str | None = Query(default=None, max_length=200),
     top: int | None = Query(default=None, ge=1, le=10),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -822,9 +1135,9 @@ async def create_generic_consent_request(
 
 @router.get("/handshake/history")
 async def get_handshake_history(
-    counterpart_id: str = Query(..., min_length=1),
-    actor: str = Query(default="investor"),
-    page: int = Query(default=1, ge=1),
+    counterpart_id: str = Query(..., min_length=1, max_length=128),
+    actor: str = Query(default="investor", max_length=50),
+    page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=50, ge=1, le=200),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -1000,7 +1313,11 @@ async def revoke_consent(
 
         # Get the active token for this scope from the correct ledger.
         service = ConsentDBService()
-        active_tokens = await service.get_active_tokens(userId)
+        owned_identifiers = await _owned_consent_identifiers(userId)
+        active_tokens = await service.get_active_tokens(
+            userId,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
         internal_tokens = await service.get_active_internal_tokens(userId)
         all_active_tokens = [*internal_tokens, *active_tokens]
         logger.info("consent.revoke_active_token_count=%s", len(all_active_tokens))
@@ -1013,7 +1330,7 @@ async def revoke_consent(
 
         if not token_to_revoke:
             raise HTTPException(
-                status_code=404, detail=f"No active consent found for scope: {scope}"
+                status_code=404, detail="No active consent found for the requested scope"
             )
 
         # CRITICAL: Add the actual token to in-memory revocation set
@@ -1040,8 +1357,9 @@ async def revoke_consent(
         logger.info("consent.revoke_persist_event")
 
         # Log REVOKED event to database (link to original request_id for trail)
+        subject_user_id = str(token_to_revoke.get("user_id") or userId).strip() or userId
         await service.insert_event(
-            user_id=userId,
+            user_id=subject_user_id,
             agent_id=agent_id,
             scope=scope,
             action="REVOKED",
@@ -1081,7 +1399,7 @@ async def revoke_consent(
 @router.get("/data")
 async def get_consent_export_data(
     request: Request,
-    consent_token: str | None = Query(default=None),
+    consent_token: str | None = Query(default=None, max_length=500),
 ):
     """
     Retrieve encrypted export data for a consent token (Zero-Knowledge).
@@ -1120,28 +1438,34 @@ async def get_consent_export_data(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Try in-memory cache first (fast path)
+    # Try in-memory cache first (fast path); skip entries whose token has expired.
+    now_ms = int(time.time() * 1000)
     if consent_token in _consent_exports:
         export_data = _consent_exports[consent_token]
-        if not export_data.get("wrapped_key_bundle"):
+        entry_age_ms = now_ms - int(export_data.get("created_at") or 0)
+        if entry_age_ms >= _CONSENT_EXPORT_TTL_MS:
+            # Token has certainly expired — drop the stale cache entry and fall
+            # through to the DB path (which will return 404 for expired tokens).
+            del _consent_exports[consent_token]
+            logger.debug("consent_exports.lazy_evict token expired from cache")
+        elif not export_data.get("wrapped_key_bundle"):
             raise HTTPException(
                 status_code=410,
                 detail="Legacy plaintext export format is no longer supported. Request consent again.",
             )
-        logger.info(
-            f"✅ Returning encrypted export from cache for scope: {export_data.get('scope')}"
-        )
-        return {
-            "status": "success",
-            "encrypted_data": export_data["encrypted_data"],
-            "iv": export_data["iv"],
-            "tag": export_data["tag"],
-            "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
-            "scope": export_data["scope"],
-            "export_revision": export_data.get("export_revision", 1),
-            "export_generated_at": export_data.get("export_generated_at"),
-            "export_refresh_status": export_data.get("refresh_status", "current"),
-        }
+        else:
+            logger.info("consent.export_served_from_cache scope=%s", export_data.get("scope"))
+            return {
+                "status": "success",
+                "encrypted_data": export_data["encrypted_data"],
+                "iv": export_data["iv"],
+                "tag": export_data["tag"],
+                "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
+                "scope": export_data["scope"],
+                "export_revision": export_data.get("export_revision", 1),
+                "export_generated_at": export_data.get("export_generated_at"),
+                "export_refresh_status": export_data.get("refresh_status", "current"),
+            }
 
     # Fall back to database (cross-instance consistency)
     service = ConsentDBService()
@@ -1156,7 +1480,8 @@ async def get_consent_export_data(
             detail="Legacy plaintext export format is no longer supported. Request consent again.",
         )
 
-    # Cache for future requests
+    # Cache for future requests; sweep stale entries first.
+    _evict_stale_consent_exports()
     _consent_exports[consent_token] = export_data
 
     logger.info("consent.export_served_from_db")
@@ -1176,7 +1501,7 @@ async def get_consent_export_data(
 
 @router.get("/export-refresh/jobs")
 async def list_export_refresh_jobs(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != userId:
@@ -1237,9 +1562,10 @@ async def upload_refreshed_export(
 
     valid, reason, token_obj = await validate_token_with_db(request.consentToken)
     if not valid or token_obj is None:
+        logger.warning("consent.export_refresh.token_invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid consent token for export refresh: {reason or 'unknown'}",
+            detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if str(token_obj.user_id) != request.userId:
@@ -1292,6 +1618,7 @@ async def upload_refreshed_export(
     if not stored:
         raise HTTPException(status_code=500, detail="Failed to store refreshed encrypted export")
 
+    _evict_stale_consent_exports()
     _consent_exports[request.consentToken] = {
         "encrypted_data": request.encryptedData,
         "iv": request.encryptedIv,

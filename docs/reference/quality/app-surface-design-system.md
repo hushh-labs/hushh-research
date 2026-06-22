@@ -1,6 +1,5 @@
 # App Surface Design System
 
-
 ## Visual Context
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
@@ -35,15 +34,33 @@ Rules:
    - deletion and revocation
    - suspicious-access or trust-state warnings
 5. Route navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions, not navigation.
-6. KYC owns explicit identity/KYC workflow copy:
-   - requirements and missing-document state
+6. Email Helper owns approval-gated email replies:
+   - plain-language information-needed state
+   - selectable data sections
    - approval-gated drafts
-   - workflow status
-   - structured PKM writeback summaries
+   - sent-reply summaries
+   - hidden workflow/writeback metadata
+   - Gmail-safe plaintext and HTML generated through the shared client renderer
 7. Local voice/action contracts must set `speaker_persona` to `one`, `kai`, `nav`, or `kyc` using the same ownership rules.
 8. Actions executed by a specialist on behalf of One should set `delegate_agent_id` to `kai`, `nav`, or `kyc`.
 9. Persona switching changes the workspace context. It does not change the top relationship agent; One stays the default shell voice.
 10. Canonical app copy uses neutral voice descriptors. Do not encode celebrity references or personal numeric preferences in maintained UI copy or docs.
+
+## Consumer Copy Contract
+
+Persona-facing surfaces are for everyday users, not implementers.
+
+Rules:
+
+1. Use plain labels such as `Personal Data`, `saved details`, `sharing`, and `access`.
+2. Do not expose implementation terms in consumer UI, including `PKM`, `manifest`, `schema`, `export`, `token`, `runtime`, `debug`, `dummy save`, route names, correlation ids, thread ids, workflow ids, consent ids, hashes, timings, or raw provider errors.
+3. Background notifications must summarize what the user can understand or do. Diagnostics belong in logs, metadata, developer routes, or an explicit debug-only view.
+4. Error copy should explain the next user action. Keep low-level failure details out of visible app text unless the route is explicitly developer-facing.
+5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
+6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
+7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
+8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
+9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
 ## Shell Contract
 
@@ -63,13 +80,17 @@ Rules:
 12. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
 13. `AppPageShell` owns route width and horizontal gutters for signed-in routes.
 14. The canonical shell widths are:
-   - `reading`
-   - `standard`
-   - `expanded`
+
+- `reading`
+- `standard`
+- `expanded`
+
 15. The canonical container tokens are:
-   - `--app-shell-reading: 54rem`
-   - `--app-shell-standard: 90rem`
-   - `--app-shell-expanded: 96rem`
+
+- `--app-shell-reading: 54rem`
+- `--app-shell-standard: 90rem`
+- `--app-shell-expanded: 96rem`
+
 16. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
 17. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
 18. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
@@ -108,14 +129,50 @@ Rules:
 12. `leading` is reserved for semantic non-icon content such as badges, avatars, or endpoint method pills; it must not be used to recreate a custom route-header icon well.
 13. The chosen `accent` must match the surface identity, not the broader product parent. For example, a market workspace uses `marketplace`, not `kai`.
 14. Standard mobile route headers should default to a three-row composition when they include both description and actions:
-   - title block
-   - actions
-   - full-width description
+
+- title block
+- actions
+- full-width description
+
 15. `actionsInlineMobile` is reserved for short utility headers; do not use it on primary route headers with full-width descriptive copy.
 16. The three-part eyebrow/title/description composition belongs to the primary page header only. Body sections must not recreate page-header hierarchy.
 17. Body section subheaders must use the shared compact section scale through `SectionHeader` or `SettingsGroup`: larger than row/body text, smaller than the page title, and independent of global `h1`/`h2` element rules.
 18. Shared body section primitives must expose accessible compact headings with `role="heading"` and `aria-level`; they must not render raw `h2` elements that can inherit page-scale global heading rules.
 19. Settings-style body sections may show a short eyebrow inline with the section title and one optional supporting line. They must not stack eyebrow, title, and description as three separate lines.
+
+## Search and Filter Surface Contract
+
+Use the shared command/search surface for app-wide agent search and route action discovery.
+
+Rules:
+
+1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal` / `KaiSearchBar`, not route-local floating search bars.
+2. Route-local search is allowed only when it filters a visible local collection such as a table, receipt list, holdings list, CRM record list, or settings list.
+3. Local filters must stay inside the surface they filter and must not replace the global command/search surface.
+4. Persist query state only when it is part of the route contract, shareable URL, or recovery path; otherwise keep transient filter state local to the component.
+5. Search empty/loading/error states should use existing list/table/surface primitives and Sonner for transient failures, not page-level banners that shift layout.
+6. Mobile search overlays must respect `--top-shell-reserved-height`, bottom command chrome, and the shared scroll root; do not add raw viewport or safe-area math in route files.
+7. Search inputs, command pickers, and filter controls must use shared app-ui or Morphy primitives before adding feature-local styling.
+
+## Bottom Navigation Contract
+
+The signed-in bottom navigation is a shared shell surface, not a route-local tab bar.
+
+Rules:
+
+1. The segmented bottom bar is contextual route-family navigation. Do not include global destinations such as `One`, `Search`, or `Profile` on every route.
+2. The bottom bar uses fixed five-item sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch two-tab bars wider.
+3. `/one` and `/profile` show the compact root switch `One / Connect / Profile` because that is the dashboard/connection/account shell relationship, not a feature-family tab list.
+4. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
+5. `Connect` is the people and relationship-consent entry point for One. Investor/RIA matching is a specialization of that relationship model, not the definition of the tab.
+6. Generic One sub-app routes such as `/one/gmail`, `/one/pkm`, `/one/connected-systems`, and `/consents` may show `One / current context / Connect / Profile` when the current context is meaningful.
+7. Investor finance routes own finance-family actions such as `Market`, `Portfolio`, `Connect`, and `Analysis`.
+8. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
+9. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
+10. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
+11. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
+12. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
+13. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 
 ## Row and Card Interaction Contract
 
@@ -275,6 +332,14 @@ Use the `Subtle Apple` depth model:
    - critical params
 4. Visibility and interval refreshes should be stale-aware, not unconditional.
 5. Unlock warmup can seed cache, but route loaders must still own stale-refresh policy.
+6. New or changed screens must stay covered by `cd hushh-webapp && npm run audit:cache-coherence`.
+7. Performance is part of the UX contract:
+   - use the safest available render path before showing a blocking loader
+   - preserve stale safe content while refresh runs
+   - avoid bounce or blank reload effects when a warm snapshot exists
+   - emit bounded route/cache KPI metadata for route readiness and refresh outcomes
+8. Cache and performance events must be consumer-safe metadata only. Never log raw user values, PKM payloads, workflow IDs, portfolio values, prompts, or cache keys.
+9. If a route cannot render from cache safely, the loading state must explain the real user-facing reason, such as locked vault, first setup, or reconnect needed.
 
 ## Icon Policy
 
@@ -310,7 +375,7 @@ Rules:
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. The RIA bottom navigation is `Home / Clients / Picks / Profile`.
+2. The RIA bottom navigation is scoped to the RIA route family: `RIA / Clients / Connect / Picks`.
 3. `/consents` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/consents`, not as a second consent system.
 5. The shell should contextualize `/consents` as `Profile > Privacy` for breadcrumb and primary-nav highlighting while preserving `/consents` as the canonical URL.

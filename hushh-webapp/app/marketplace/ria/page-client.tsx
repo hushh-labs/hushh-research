@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Building2, ShieldCheck } from "lucide-react";
 
@@ -46,12 +46,10 @@ function verificationBadge(status: string) {
   }
 }
 
-export default function MarketplaceRiaProfilePageClient({
-  riaId,
-}: {
-  riaId: string;
-}) {
+export default function MarketplaceRiaProfilePageClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const riaId = String(searchParams.get("riaId") || "").trim();
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
   const [profile, setProfile] = useState<MarketplaceRia | null>(null);
@@ -310,7 +308,7 @@ export default function MarketplaceRiaProfilePageClient({
                 <a
                   href={profile.disclosures_url}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   data-voice-control-id="marketplace_ria_public_disclosure"
                   className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground"
                 >

@@ -1,7 +1,7 @@
 # Mobile Development (iOS & Android)
 
 > Native mobile deployment with Capacitor 8 and local-first architecture.
-> Last verified: March 2026.
+> Last verified: May 25, 2026.
 
 
 ## Visual Map
@@ -120,21 +120,29 @@ Before calling iOS/Android parity complete, run:
 
 That release gate includes:
 
+- frontend/native surface-map verification
 - native microphone permission metadata verification
-- full route-contract verification
+- native route-inventory verification
 - native plugin parity verification
-- Capacitor route classification verification
 - Capacitor runtime config verification
-- mobile Firebase artifact verification
-- docs/runtime parity verification
-- browser-API/native compatibility audit
 - iOS project sanity (`xcodebuild -list`)
 - Android project sanity (`./gradlew tasks --all`)
+- iOS simulator route audit
+- Android emulator route audit
+- native report freshness against the current route inventory
+
+Current tracked route evidence is green on both simulator targets:
+
+- iOS simulator: 36 audited / 36 passed / 0 failed.
+- Android emulator: 36 audited / 36 passed / 0 failed.
+
+The dynamic route audits require the reviewer test identity env values used by the existing iOS audit, a bootable simulator/emulator, and the normal untracked native Firebase artifacts for platform builds.
 
 Accepted parity exceptions currently documented in the registry:
 
 - None. Full parity requires the registry and runtime to stay exception-free for visible route behavior.
-- Accepted direct browser-API usage that remains intentional must stay documented in this guide and the parity audit docs, especially for route recovery/navigation mutation and IndexedDB-backed cache services.
+- Internal route recovery/navigation must use Next.js routing (`router.push` / `router.replace`) or the shared internal navigation event in `app/providers.tsx`; do not use direct `window.location` mutation for internal routes because it can discard the in-memory BYOK vault key.
+- Accepted direct browser-API usage that remains intentional must stay documented in this guide and the parity audit docs, especially for external navigation wrappers and IndexedDB-backed cache services.
 
 ### Firebase artifact safety (no secret leak in git)
 
@@ -155,10 +163,10 @@ Accepted parity exceptions currently documented in the registry:
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Capacitor.call()                     │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │       Native Plugins (10 per platform)                    │  │
+│  │       Native Plugins (11 per platform)                    │  │
 │  │  HushhAuth · HushhVault · HushhConsent · Kai             │  │
 │  │  HushhSync · HushhSettings · HushhKeystore · PKM         │  │
-│  │  HushhAccount · HushhNotifications                       │  │
+│  │  HushhAccount · HushhNotifications · HushhLocation       │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Native HTTP                          │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -170,9 +178,9 @@ Accepted parity exceptions currently documented in the registry:
 
 ---
 
-## Native Plugins (10 Verified)
+## Native Plugins (11 Verified)
 
-All 10 plugins exist on both platforms with matching methods:
+All 11 plugins exist on both platforms with matching methods:
 
 | Plugin            | jsName          | Purpose                        | iOS                         | Android                  |
 | ----------------- | --------------- | ------------------------------ | --------------------------- | ------------------------ |
@@ -186,6 +194,7 @@ All 10 plugins exist on both platforms with matching methods:
 | **PKM**           | `PersonalKnowledgeModel` | Domain metadata/index access | `PersonalKnowledgeModelPlugin.swift` | `PersonalKnowledgeModelPlugin.kt` |
 | **HushhAccount**  | `HushhAccount`  | Account lifecycle actions      | `HushhAccountPlugin.swift`  | `HushhAccountPlugin.kt`  |
 | **HushhNotifications** | `HushhNotifications` | Push token registration | `HushhNotificationsPlugin.swift` | `HushhNotificationsPlugin.kt` |
+| **HushhLocation** | `HushhLocation` | Foreground location capture | `HushhLocationPlugin.swift` | `HushhLocationPlugin.kt` |
 
 > Note: HushhKeystore uses jsName `HushhKeychain` for historical compatibility.
 
@@ -193,7 +202,7 @@ All 10 plugins exist on both platforms with matching methods:
 
 Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
-- product routes (`/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
+- product routes (`/one/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
 - `/developers`
 - public/auth content pages (`/`, `/login`, `/logout`)
 - visible lab routes
@@ -560,6 +569,7 @@ Native plugins call Python backend directly, bypassing Next.js:
 | Vault Get        | `POST /db/vault/get`                 | `GET /api/vault/get`                      | Python  |
 | Vault Setup      | `POST /db/vault/setup`               | `POST /api/vault/setup`                   | Python  |
 | Vault Wrapper Upsert | `POST /db/vault/wrapper/upsert`   | `POST /api/vault/wrapper/upsert`          | Python  |
+| Vault Wrapper Delete | `POST /db/vault/wrapper/delete`   | `POST /api/vault/wrapper/delete`          | Python  |
 | Vault Primary Set | `POST /db/vault/primary/set`        | `POST /api/vault/primary/set`             | Python  |
 | Food Get         | `POST /api/food/preferences`         | `GET /api/vault/food/preferences`         | Python  |
 | Professional Get | `POST /api/professional/preferences` | `GET /api/vault/professional/preferences` | Python  |
@@ -677,8 +687,8 @@ The app follows a **Layered Navigation** model:
 
 | Level  | Description | Examples                      | Back Button        |
 | ------ | ----------- | ----------------------------- | ------------------ |
-| **1**  | Root Tabs   | `/kai`, `/consents`, `/profile` | Exit/Lock Dialog |
-| **2+** | Sub Pages   | `/kai/onboarding`, `/kai/import`, `/kai/portfolio` | Navigate to Parent |
+| **1**  | Root Tabs   | `/one/kai`, `/consents`, `/profile` | Exit/Lock Dialog |
+| **2+** | Sub Pages   | `/one/onboarding`, `/one/kai/import`, `/one/kai/portfolio` | Navigate to Parent |
 
 ### Exit Dialog Security
 
@@ -768,7 +778,7 @@ For `CAPACITOR_BUILD=true` (`output: "export"`), treat App Router files as the o
 
 Required rule:
 - Do not depend on legacy alias redirects for mobile navigation.
-- Keep only canonical pages: `/`, `/login`, `/kai`, `/kai/onboarding`, `/kai/import`, `/kai/plaid/oauth/return`, `/kai/portfolio`.
+- Keep only canonical pages: `/`, `/login`, `/one`, `/one/onboarding`, `/one/kai`, `/one/kai/import`, `/one/kai/plaid/oauth/return`, `/one/kai/portfolio`.
 - Any removed alias route must stay removed from both `app/` and `next.config.ts`.
 
 ---
@@ -792,6 +802,101 @@ Repo-level wrappers remain the canonical contributor path:
 ```
 
 Manual smoke on a simulator/device is still required after the build/sync checks.
+
+---
+
+## App Store Direct Release Checklist
+
+Use this checklist when preparing a direct App Store submission for bundle ID
+`com.hushh.app`. Direct release still means upload to App Store Connect and
+submit for Apple review; it is not a way to bypass review.
+
+Operator prerequisites:
+
+- Confirm Apple Developer Program membership is active and the operator has
+  Account Holder, Admin, or App Manager access for submission. Apple lists those
+  roles as required for app submission in [Submit an app][apple-submit-app].
+- Create or verify the App Store Connect app record with bundle ID
+  `com.hushh.app`, app name, SKU, category, availability, support URL, and
+  privacy policy URL. Apple marks the privacy policy URL as required for iOS and
+  macOS apps in [App information][apple-app-information].
+- Prepare signing assets: Apple Distribution certificate, App Store provisioning
+  profile, Apple Team ID, and App Store Connect API key. In this repo, hydrate
+  local signing with `./bin/hushh bootstrap`, then verify native release secrets
+  against `docs/reference/operations/env-secrets-key-matrix.md`.
+- Confirm release config points to production runtime and production Firebase,
+  not UAT, unless the build is intentionally UAT-branded. Increment both
+  marketing and build versions before upload.
+
+Local verification:
+
+```bash
+cd hushh-webapp
+npm run typecheck
+npm run ios:test
+```
+
+`ios:test` runs `ios:prepare:uat` before building so simulator validation uses
+the same UAT backend target as the archive path. `ios:prepare:uat` loads the
+maintainer-only UAT profile, regenerates the static web bundle, syncs Capacitor
+iOS, and verifies that the generated native `capacitor.config.json` is not
+pointing at localhost.
+
+Run the connected-device UI lane before archiving when native permissions,
+contacts, vault unlock, or role sync behavior changed:
+
+```bash
+cd hushh-webapp
+npm run ios:device:ui:test
+```
+
+Archive and upload:
+
+- Immediately before creating the Xcode archive, rerun:
+  ```bash
+  cd hushh-webapp
+  npm run ios:prepare:uat
+  ```
+  This is intentionally repeated because any later generic `cap:sync:ios` can
+  replace the ignored generated native config. Xcode Release archives for
+  physical iPhoneOS also run a build-phase guard that blocks archives when the
+  bundled native plugin backend is local.
+- In Xcode, archive the app and use Organizer distribution with
+  `TestFlight & App Store` / App Store Connect upload, including symbols. Apple
+  documents this flow in [Distributing your app for beta testing and releases][apple-xcode-distribution].
+- Before distributing the archive, verify or repair embedded Firebase/Google
+  framework dSYM bundles:
+  ```bash
+  cd hushh-webapp
+  npm run ios:verify-archive-symbols -- --repair "<path-to.xcarchive>"
+  ```
+- Wait for App Store Connect processing; Apple notes that uploaded builds must
+  be processed before they appear for selection in [Upload builds][apple-upload-builds].
+
+App Store metadata:
+
+- Prepare screenshots, description, keywords, age rating, review notes, demo
+  credentials, support URL, privacy policy URL, app privacy answers, and
+  encryption/export compliance answers.
+- Complete privacy detail disclosure for collected data. Apple lists data types
+  and privacy policy URL requirements in [App privacy][apple-app-privacy].
+- Complete encryption/export compliance determination for the app. Apple states
+  that apps using, accessing, containing, implementing, or incorporating
+  encryption need export compliance determination in
+  [Overview of export compliance][apple-export-compliance].
+
+Submission:
+
+- Select the processed build on the app version, add it for review, and submit
+  the draft submission for App Review in App Store Connect. Apple describes this
+  final submission sequence in [Submit an app][apple-submit-app].
+
+[apple-submit-app]: https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-app
+[apple-app-information]: https://developer.apple.com/help/app-store-connect/reference/app-information/app-information
+[apple-xcode-distribution]: https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases/
+[apple-upload-builds]: https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/
+[apple-app-privacy]: https://developer.apple.com/help/app-store-connect/reference/app-information/app-privacy
+[apple-export-compliance]: https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance
 
 ---
 

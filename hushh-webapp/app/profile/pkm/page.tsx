@@ -1,10 +1,6 @@
-import { redirect } from "next/navigation";
-
-import { resolveAppEnvironment } from "@/lib/app-env";
+import { ClientRedirect } from "@/components/navigation/client-redirect";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function PkmViewerPage() {
-  if (resolveAppEnvironment() === "production") {
-    redirect("/profile?panel=my-data");
-  }
-  redirect("/profile/pkm-agent-lab");
+  return <ClientRedirect to={ROUTES.PKM} />;
 }

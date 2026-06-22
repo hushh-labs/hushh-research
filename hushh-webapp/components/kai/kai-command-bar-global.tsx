@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -18,6 +19,7 @@ import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
 import { resolveGroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
+import { isRiaActionBarRoute } from "@/lib/navigation/routes";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { isVoiceEligibleRouteScreen } from "@/lib/voice/voice-route-eligibility";
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
@@ -127,9 +129,11 @@ function computeAnalyzeEligibilityFromHolding(holding: Record<string, unknown>):
 }
 
 export function KaiCommandBarGlobal() {
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const agentPopover = useOptionalAgentPopover();
   const { user, loading } = useAuth();
   const {
     activePersona,
@@ -167,6 +171,10 @@ export function KaiCommandBarGlobal() {
     enabled: false,
     reason: null,
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -232,6 +240,9 @@ export function KaiCommandBarGlobal() {
 
   const reviewScreenActive = Boolean(
     busyOperations["portfolio_review_active"] || busyOperations["portfolio_save"]
+  );
+  const portfolioImportSurfaceActive = Boolean(
+    busyOperations["portfolio_import_surface"]
   );
   const reviewDirty = Boolean(
     busyOperations["portfolio_review_active"] && busyOperations["portfolio_review_dirty"]
@@ -299,7 +310,13 @@ export function KaiCommandBarGlobal() {
     () => deriveVoiceRouteScreen(pathname || "", routeQuery),
     [pathname, routeQuery]
   );
+  const useRiaActionBar = useMemo(
+    () => isRiaActionBarRoute(pathname),
+    [pathname]
+  );
   const voiceEligibleRoute = isVoiceEligibleRouteScreen(routeInfo.screen, chromeState.hideCommandBar);
+  const agentWindowOpen =
+    agentPopover?.expanded || agentPopover?.motionState === "opening";
 
   useEffect(() => {
     if (!voiceEligibleRoute) {
@@ -713,11 +730,11 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
-  if (loading || !user || reviewScreenActive) {
+  if (!mounted || loading || !user || reviewScreenActive || portfolioImportSurfaceActive) {
     return null;
   }
 
-  if (chromeState.hideCommandBar) {
+  if (chromeState.hideCommandBar || agentWindowOpen) {
     return null;
   }
 
@@ -791,6 +808,8 @@ export function KaiCommandBarGlobal() {
       onTtsPlayingChange={setTtsPlaying}
       appRuntimeState={appRuntimeState}
       voiceContext={voiceContext}
+      surfaceVariant={useRiaActionBar ? "ria" : "kai"}
+      showAgent={localVoiceReady}
       portfolioTickers={portfolioTickers}
     />
   );

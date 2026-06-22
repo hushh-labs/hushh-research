@@ -63,6 +63,17 @@ describe("investor-kai-action-registry", () => {
     });
     expect(voiceAction?.id).toBe("analysis.resume_active");
     expect(voiceAction?.wiring.status).toBe("wired");
+
+    const pkmCaptureAction = getInvestorKaiActionByVoiceToolCall({
+      tool_name: "capture_pkm_memory",
+      args: {
+        message: "I prefer quiet hotel rooms away from elevators.",
+        mode: "direct_save",
+        direct_save: true,
+      },
+    });
+    expect(pkmCaptureAction?.id).toBe("profile.pkm.preview_capture");
+    expect(pkmCaptureAction?.wiring.status).toBe("wired");
   });
 
   it("marks legacy/dead actions explicitly", () => {
@@ -154,9 +165,9 @@ describe("investor-kai-action-registry", () => {
 
     expect(gmailActions).toEqual(
       expect.arrayContaining([
-        "route.profile_gmail_panel",
         "profile.gmail.connect",
         "profile.gmail.sync_now",
+        "profile.gmail.disconnect",
       ])
     );
 
@@ -168,7 +179,6 @@ describe("investor-kai-action-registry", () => {
 
     expect(pkmActions).toEqual(
       expect.arrayContaining([
-        "route.profile_pkm_agent_lab",
         "profile.pkm.preview_capture",
         "profile.pkm.save_capture",
       ])

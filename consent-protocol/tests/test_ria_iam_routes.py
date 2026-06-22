@@ -142,6 +142,187 @@ def test_marketplace_rias_public_read(monkeypatch):
     assert data["items"][0]["display_name"] == "RIA Alpha"
 
 
+def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch):
+    async def _mock_search(self, **kwargs):  # noqa: ANN003
+        assert kwargs.get("limit") == 20
+        assert kwargs.get("persona") == "ria"
+        assert kwargs.get("deck") == "qualified"
+        assert kwargs.get("location") is None
+        return [
+            {
+                "id": "public_sec:42",
+                "source_type": "public_sec",
+                "user_id": None,
+                "public_profile_id": "42",
+                "display_name": "Morgan Public",
+                "headline": "Managing Partner at Public Capital Partners",
+                "location_hint": "Kirkland, WA 98033",
+                "strategy_summary": "Public investor profile assembled from public filings.",
+                "connectable": False,
+                "admission_status": "qualified",
+                "curation_tier": "showcase",
+                "quality_score": 95,
+                "actions": ["shortlist", "view_more"],
+                "evidence": {
+                    "confidence": "official_public_records",
+                    "sources": ["SEC EDGAR", "Form 13F"],
+                    "business_address": {
+                        "city": "KIRKLAND",
+                        "state": "WA",
+                        "zip": "98033",
+                    },
+                },
+                "is_test_profile": False,
+            }
+        ]
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investors", _mock_search)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/marketplace/investors")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["source_type"] == "public_sec"
+    assert item["user_id"] is None
+    assert item["connectable"] is False
+    assert item["admission_status"] == "qualified"
+    assert item["actions"] == ["shortlist", "view_more"]
+    assert item["location_hint"] == "Kirkland, WA 98033"
+    assert item["evidence"]["confidence"] == "official_public_records"
+
+
+def test_marketplace_investors_forwards_deck_and_location_filters(monkeypatch):
+    async def _mock_search(self, **kwargs):  # noqa: ANN003
+        assert kwargs == {
+            "query": "98033",
+            "limit": 32,
+            "persona": "ria",
+            "deck": "showcase",
+            "location": "Kirkland",
+        }
+        return []
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investors", _mock_search)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/marketplace/investors",
+        params={
+            "query": "98033",
+            "limit": "32",
+            "persona": "ria",
+            "deck": "showcase",
+            "location": "Kirkland",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_marketplace_investor_deck_is_authenticated_and_returns_metadata(monkeypatch):
+    async def _mock_deck(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {
+            "query": "98033",
+            "limit": 12,
+            "persona": "ria",
+            "deck": "qualified",
+            "location": None,
+        }
+        return {
+            "items": [
+                {
+                    "id": "public_sec:42",
+                    "source_type": "public_sec",
+                    "display_name": "GATES FOUNDATION TRUST",
+                    "connectable": False,
+                    "actions": ["shortlist", "view_more"],
+                }
+            ],
+            "remaining_count": 1,
+            "handled_count": 8,
+            "deck_complete": False,
+        }
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investor_deck", _mock_deck)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/marketplace/investors/deck",
+        params={"query": "98033", "limit": "12"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["id"] == "public_sec:42"
+    assert payload["remaining_count"] == 1
+    assert payload["handled_count"] == 8
+    assert payload["deck_complete"] is False
+
+
+def test_marketplace_investor_action_routes_are_authenticated_and_forwarded(
+    monkeypatch,
+):
+    async def _mock_record(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {
+            "action": "shortlist",
+            "source_type": "public_sec",
+            "public_profile_id": "42",
+            "target_user_id": None,
+            "metadata": {"gesture": "right_swipe"},
+        }
+        return {
+            "id": "action_1",
+            "actor_user_id": user_id,
+            "source_type": "public_sec",
+            "target_key": "public_sec:42",
+            "public_profile_id": "42",
+            "action": "shortlist",
+            "status": "shortlisted",
+        }
+
+    async def _mock_list(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {"status": "shortlisted", "action": None, "limit": 20}
+        return [
+            {
+                "id": "action_1",
+                "actor_user_id": user_id,
+                "source_type": "public_sec",
+                "target_key": "public_sec:42",
+                "public_profile_id": "42",
+                "action": "shortlist",
+                "status": "shortlisted",
+            }
+        ]
+
+    monkeypatch.setattr(RIAIAMService, "record_marketplace_investor_action", _mock_record)
+    monkeypatch.setattr(RIAIAMService, "list_marketplace_investor_actions", _mock_list)
+
+    client = TestClient(_build_app())
+    post_response = client.post(
+        "/api/marketplace/investors/actions",
+        json={
+            "action": "shortlist",
+            "source_type": "public_sec",
+            "public_profile_id": "42",
+            "metadata": {"gesture": "right_swipe"},
+        },
+    )
+    assert post_response.status_code == 200
+    assert post_response.json()["target_key"] == "public_sec:42"
+
+    get_response = client.get(
+        "/api/marketplace/investors/actions",
+        params={"status": "shortlisted", "limit": "20"},
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["items"][0]["status"] == "shortlisted"
+
+
 def test_marketplace_query_filters_are_bounded():
     client = TestClient(_build_app())
 
@@ -345,7 +526,11 @@ def test_ria_client_picks_share_toggle(monkeypatch):
         assert user_id == "user_test_123"
         assert investor_user_id == "investor_1"
         assert enabled is False
-        return {"enabled": False, "status": "revoked", "grant_key": "ria_active_picks_feed_v1"}
+        return {
+            "enabled": False,
+            "status": "revoked",
+            "grant_key": "ria_active_picks_feed_v1",
+        }
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "set_ria_pick_share_state", _mock_toggle)
@@ -436,6 +621,41 @@ def test_public_invite_lookup(monkeypatch):
     assert response.json()["ria"]["display_name"] == "RIA Alpha"
 
 
+def test_public_invite_lookup_omits_target_pii(monkeypatch):
+    async def _mock_get(self, invite_token: str):
+        assert invite_token == TEST_INVITE_VALUE
+        return {
+            "invite_token": invite_token,
+            "status": "sent",
+            "target_display_name": "Taylor Investor",
+            "target_email": "taylor.investor@example.com",
+            "target_phone": "+16505550123",
+            "accepted_by_user_id": "investor_user_123",
+            "accepted_request_id": "request_123",
+            "ria": {"display_name": "RIA Alpha"},
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_ria_invite", _mock_get)
+
+    client = TestClient(_build_app())
+    response = client.get(f"/api/invites/{TEST_INVITE_VALUE}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ria"]["display_name"] == "RIA Alpha"
+
+    serialized_payload = response.text
+    assert "target_display_name" not in payload
+    assert "target_email" not in payload
+    assert "target_phone" not in payload
+    assert "accepted_by_user_id" not in payload
+    assert "accepted_request_id" not in payload
+    assert "Taylor Investor" not in serialized_payload
+    assert "taylor.investor@example.com" not in serialized_payload
+    assert "+16505550123" not in serialized_payload
+    assert "investor_user_123" not in serialized_payload
+
+
 def test_accept_invite(monkeypatch):
     async def _mock_accept(self, invite_token: str, user_id: str):
         assert invite_token == TEST_INVITE_VALUE
@@ -510,6 +730,32 @@ def test_consent_center_summary_route_returns_actor_counts(monkeypatch):
     assert payload["counts"] == {"pending": 3, "active": 4, "previous": 5}
 
 
+def test_consent_center_summary_route_allows_missing_actor(monkeypatch):
+    async def _mock_summary(self, user_id: str, *, actor: str | None, mode: str = "consents"):
+        assert user_id == "user_test_123"
+        assert actor is None
+        assert mode == "consents"
+        return {
+            "user_id": user_id,
+            "actor": "investor",
+            "counts": {
+                "pending": 1,
+                "active": 0,
+                "previous": 0,
+            },
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "get_center_summary", _mock_summary)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/consent/center/summary")
+
+    assert response.status_code == 200
+    assert response.json()["actor"] == "investor"
+
+
 def test_consent_center_list_route_returns_page_contract(monkeypatch):
     async def _mock_list(
         self,
@@ -557,6 +803,51 @@ def test_consent_center_list_route_returns_page_contract(monkeypatch):
     assert payload["limit"] == 20
     assert payload["total"] == 21
     assert payload["items"][0]["kind"] == "incoming_request"
+
+
+def test_consent_center_list_route_treats_actor_one_as_compatible(monkeypatch):
+    async def _mock_list(
+        self,
+        user_id: str,
+        *,
+        actor: str | None,
+        surface: str,
+        mode: str = "consents",
+        query: str | None = None,
+        top: int | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ):
+        assert user_id == "user_test_123"
+        assert actor == "one"
+        assert surface == "pending"
+        assert query is None
+        assert top is None
+        assert page == 1
+        assert limit == 20
+        return {
+            "user_id": user_id,
+            "actor": "investor",
+            "surface": surface,
+            "query": "",
+            "page": page,
+            "limit": limit,
+            "total": 0,
+            "has_more": False,
+            "items": [],
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "list_center", _mock_list)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/consent/center/list?actor=one&surface=pending")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["actor"] == "investor"
+    assert payload["items"] == []
 
 
 def test_consent_center_list_route_supports_top_preview(monkeypatch):

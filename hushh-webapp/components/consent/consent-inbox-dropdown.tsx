@@ -6,14 +6,13 @@ import { ExternalLink, Loader2, Shield } from "lucide-react";
 
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   TOP_SHELL_DROPDOWN_BODY_CLASSNAME,
-  TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
   TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME,
   TOP_SHELL_DROPDOWN_HEADER_CLASSNAME,
+  TopShellDropdownContent,
 } from "@/components/app-ui/top-shell-dropdown";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -26,6 +25,10 @@ import {
   buildRiaConsentManagerHref,
 } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
+import {
+  emailHelperConsentSummary,
+  isEmailHelperConsent,
+} from "@/lib/consent/email-helper-consent";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -39,6 +42,8 @@ import {
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 
 function entrySummary(entry: ConsentCenterEntry) {
+  if (isEmailHelperConsent(entry.metadata))
+    return emailHelperConsentSummary(entry.metadata);
   if (entry.additional_access_summary) return entry.additional_access_summary;
   if (entry.scope_description) return entry.scope_description;
   if (entry.reason) return entry.reason;
@@ -69,17 +74,17 @@ function formatRelative(value?: string | number | null) {
   return `${Math.ceil(totalHours / 24)} days left`;
 }
 
-function entryHref(actor: ConsentCenterActor, entry: ConsentCenterEntry) {
+function entryHref(actor: ConsentCenterActor, entry: ConsentCenterEntry): string {
   const requestId = entry.request_id || entry.id;
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending", { requestId })
-    : buildConsentCenterHref("pending", { actor: "investor", requestId });
+    : buildConsentCenterHref("pending", { requestId });
 }
 
-function managerHref(actor: ConsentCenterActor) {
+function managerHref(actor: ConsentCenterActor): string {
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending")
-    : buildConsentCenterHref("pending", { actor: "investor" });
+    : buildConsentCenterHref("pending");
 }
 
 export function ConsentInboxDropdown({
@@ -229,10 +234,7 @@ export function ConsentInboxDropdown({
         )}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent
-        align="end"
-        className={TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME}
-      >
+      <TopShellDropdownContent align="end">
         <div className={TOP_SHELL_DROPDOWN_HEADER_CLASSNAME}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -267,32 +269,37 @@ export function ConsentInboxDropdown({
           ) : null}
 
           {items.length > 0 ? (
-            <div className="divide-y divide-border/45">
+            <div
+              role="list"
+              aria-label="Pending consents"
+              className="divide-y divide-border/45"
+            >
               {items.map((entry) => (
-                <Link
-                  key={entry.id}
-                  href={entryHref(actor, entry)}
-                  prefetch={false}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"
-                >
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium tracking-tight text-foreground">
-                        {entryLabel(entry)}
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
-                        {entrySummary(entry)}
-                      </p>
+                <div key={entry.id} role="listitem">
+                  <Link
+                    href={entryHref(actor, entry)}
+                    prefetch={false}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-medium tracking-tight text-foreground">
+                          {entryLabel(entry)}
+                        </p>
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+                          {entrySummary(entry)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {formatRelative(entry.expires_at) ||
+                          entry.counterpart_email ||
+                          entry.counterpart_secondary_label ||
+                          ""}
+                      </span>
                     </div>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
-                      {formatRelative(entry.expires_at) ||
-                        entry.counterpart_email ||
-                        entry.counterpart_secondary_label ||
-                        ""}
-                    </span>
-                  </div>
-                </Link>
+                  </Link>
+                </div>
               ))}
             </div>
           ) : null}
@@ -323,7 +330,7 @@ export function ConsentInboxDropdown({
             ) : null}
           </div>
         </div>
-      </DropdownMenuContent>
+      </TopShellDropdownContent>
     </DropdownMenu>
   );
 }

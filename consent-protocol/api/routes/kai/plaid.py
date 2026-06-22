@@ -6,10 +6,10 @@ import json
 import logging
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_consent_scope, require_vault_owner_token
+from api.middleware import require_consent_scope, require_firebase_auth, require_vault_owner_token
 from hushh_mcp.integrations.alpaca import AlpacaApiError
 from hushh_mcp.services.broker_funding_service import (
     FundingOrchestrationError,
@@ -28,123 +28,151 @@ require_transfer_scope_token = require_consent_scope("brokerage.transfer.write")
 
 
 class PlaidLinkTokenRequest(BaseModel):
-    user_id: str
-    item_id: Optional[str] = None
-    redirect_uri: Optional[str] = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    item_id: Optional[str] = Field(default=None, max_length=512)
+    redirect_uri: Optional[str] = Field(default=None, max_length=2048)
 
 
 class PlaidPublicTokenExchangeRequest(BaseModel):
-    user_id: str
-    public_token: str
+    user_id: str = Field(..., min_length=1, max_length=256)
+    public_token: str = Field(..., min_length=1, max_length=1024)
     metadata: dict[str, Any] | None = None
-    resume_session_id: Optional[str] = None
-    terms_version: str | None = None
-    consent_timestamp: str | None = None
-    alpaca_account_id: str | None = None
+    resume_session_id: Optional[str] = Field(default=None, max_length=256)
+    terms_version: str | None = Field(default=None, max_length=64)
+    consent_timestamp: str | None = Field(default=None, max_length=64)
+    alpaca_account_id: str | None = Field(default=None, max_length=256)
 
 
 class PlaidOAuthResumeRequest(BaseModel):
-    user_id: str
-    resume_session_id: str = Field(min_length=1)
+    user_id: str = Field(..., min_length=1, max_length=256)
+    resume_session_id: str = Field(..., min_length=1, max_length=256)
 
 
 class PlaidRefreshRequest(BaseModel):
-    user_id: str
-    item_id: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    item_id: str | None = Field(default=None, max_length=512)
+
+
+class PlaidItemRemoveRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256)
 
 
 class PlaidSourcePreferenceRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=256)
     active_source: Literal["statement", "plaid"]
 
 
 class PlaidRefreshCancelRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=256)
 
 
 class PlaidFundingTransactionsSyncRequest(BaseModel):
-    user_id: str
-    item_id: str = Field(min_length=1)
-    cursor: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    item_id: str = Field(..., min_length=1, max_length=512)
+    cursor: str | None = Field(default=None, max_length=2048)
 
 
 class PlaidFundingDefaultAccountRequest(BaseModel):
-    user_id: str
-    item_id: str = Field(min_length=1)
-    account_id: str = Field(min_length=1)
+    user_id: str = Field(..., min_length=1, max_length=256)
+    item_id: str = Field(..., min_length=1, max_length=512)
+    account_id: str = Field(..., min_length=1, max_length=512)
 
 
 class PlaidFundingBrokerageAccountRequest(BaseModel):
-    user_id: str
-    alpaca_account_id: str | None = Field(default=None, min_length=1)
+    user_id: str = Field(..., min_length=1, max_length=256)
+    alpaca_account_id: str | None = Field(default=None, min_length=1, max_length=256)
     set_default: bool = True
 
 
 class PlaidTransferCreateRequest(BaseModel):
-    user_id: str
-    funding_item_id: str = Field(min_length=1)
-    funding_account_id: str = Field(min_length=1)
-    amount: float = Field(gt=0)
-    user_legal_name: str = Field(min_length=1)
+    user_id: str = Field(..., min_length=1, max_length=256)
+    funding_item_id: str = Field(..., min_length=1, max_length=512)
+    funding_account_id: str = Field(..., min_length=1, max_length=512)
+    amount: float = Field(..., gt=0, le=1000000000)
+    user_legal_name: str = Field(..., min_length=1, max_length=256)
     direction: Literal["to_brokerage", "from_brokerage"] = "to_brokerage"
-    network: str = "ach"
-    ach_class: str = "web"
-    description: str | None = None
-    idempotency_key: str | None = None
-    brokerage_item_id: str | None = None
-    brokerage_account_id: str | None = None
-    relationship_id: str | None = None
-    redirect_uri: str | None = None
+    network: str = Field(default="ach", min_length=1, max_length=64)
+    ach_class: str = Field(default="web", min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=512)
+    idempotency_key: str | None = Field(default=None, max_length=256)
+    brokerage_item_id: str | None = Field(default=None, max_length=512)
+    brokerage_account_id: str | None = Field(default=None, max_length=512)
+    relationship_id: str | None = Field(default=None, max_length=256)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
 
 
 class PlaidFundingReconciliationRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=256)
     max_rows: int = Field(default=200, ge=1, le=1000)
-    trigger_source: str = "manual"
+    trigger_source: str = Field(default="manual", min_length=1, max_length=64)
 
 
 class PlaidFundingEscalationRequest(BaseModel):
-    user_id: str
-    transfer_id: str | None = None
-    relationship_id: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    transfer_id: str | None = Field(default=None, max_length=256)
+    relationship_id: str | None = Field(default=None, max_length=256)
     severity: Literal["low", "normal", "high", "urgent"] = "normal"
-    notes: str = Field(min_length=1)
-    created_by: str | None = None
+    notes: str = Field(..., min_length=1, max_length=2048)
+    created_by: str | None = Field(default=None, max_length=256)
 
 
 class AlpacaConnectStartRequest(BaseModel):
-    user_id: str
-    redirect_uri: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
 
 
 class AlpacaConnectCompleteRequest(BaseModel):
-    user_id: str
-    state: str = Field(min_length=1)
-    code: str = Field(min_length=1)
+    user_id: str = Field(..., min_length=1, max_length=256)
+    state: str = Field(..., min_length=1, max_length=512)
+    code: str = Field(..., min_length=1, max_length=2048)
 
 
 class PlaidFundedTradeCreateRequest(BaseModel):
-    user_id: str
-    funding_item_id: str = Field(min_length=1)
-    funding_account_id: str = Field(min_length=1)
-    symbol: str = Field(min_length=1)
-    user_legal_name: str = Field(min_length=1)
-    notional_usd: float = Field(gt=0)
+    user_id: str = Field(..., min_length=1, max_length=256)
+    funding_item_id: str = Field(..., min_length=1, max_length=512)
+    funding_account_id: str = Field(..., min_length=1, max_length=512)
+    symbol: str = Field(..., min_length=1, max_length=20)
+    user_legal_name: str = Field(..., min_length=1, max_length=256)
+    notional_usd: float = Field(..., gt=0, le=1000000000)
     side: Literal["buy", "sell"] = "buy"
     order_type: Literal["market", "limit"] = "market"
     time_in_force: Literal["day", "gtc", "opg", "cls", "ioc", "fok"] = "day"
-    limit_price: float | None = Field(default=None, gt=0)
-    brokerage_account_id: str | None = None
-    transfer_idempotency_key: str | None = None
-    trade_idempotency_key: str | None = None
+    limit_price: float | None = Field(default=None, gt=0, le=1000000000)
+    brokerage_account_id: str | None = Field(default=None, max_length=512)
+    transfer_idempotency_key: str | None = Field(default=None, max_length=256)
+    trade_idempotency_key: str | None = Field(default=None, max_length=256)
 
 
 class PlaidFundedTradeRefreshRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=256)
 
 
 def _verify_user(token_data: dict[str, Any], requested_user_id: str) -> None:
     if token_data["user_id"] != requested_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+
+
+async def _resolve_plaid_connection_user(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None,
+) -> str:
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not token.startswith("HCT:"):
+        return await require_firebase_auth(background_tasks, authorization)
+
+    token_data = await require_vault_owner_token(
+        request=request,
+        authorization=authorization,
+    )
+    return str(token_data["user_id"])
+
+
+def _verify_resolved_user(resolved_user_id: str, requested_user_id: str) -> None:
+    if resolved_user_id != requested_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User ID does not match token",
@@ -238,18 +266,25 @@ async def get_plaid_status(
 
 @router.post("/plaid/link-token")
 async def create_plaid_link_token(
-    request: PlaidLinkTokenRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    payload: PlaidLinkTokenRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(None),
 ):
-    _verify_user(token_data, request.user_id)
+    resolved_user_id = await _resolve_plaid_connection_user(
+        request,
+        background_tasks,
+        authorization,
+    )
+    _verify_resolved_user(resolved_user_id, payload.user_id)
     try:
         return await get_plaid_portfolio_service().create_link_token(
-            user_id=request.user_id,
-            item_id=request.item_id,
-            redirect_uri=request.redirect_uri,
+            user_id=payload.user_id,
+            item_id=payload.item_id,
+            redirect_uri=payload.redirect_uri,
         )
     except Exception as exc:
-        logger.exception("kai.plaid.link_token_failed user_id=%s", request.user_id)
+        logger.exception("kai.plaid.link_token_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc) from exc
 
 
@@ -280,19 +315,26 @@ async def create_plaid_update_link_token(
 
 @router.post("/plaid/exchange-public-token")
 async def exchange_plaid_public_token(
-    request: PlaidPublicTokenExchangeRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    payload: PlaidPublicTokenExchangeRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(None),
 ):
-    _verify_user(token_data, request.user_id)
+    resolved_user_id = await _resolve_plaid_connection_user(
+        request,
+        background_tasks,
+        authorization,
+    )
+    _verify_resolved_user(resolved_user_id, payload.user_id)
     try:
         return await get_plaid_portfolio_service().exchange_public_token(
-            user_id=request.user_id,
-            public_token=request.public_token,
-            metadata=request.metadata,
-            resume_session_id=request.resume_session_id,
+            user_id=payload.user_id,
+            public_token=payload.public_token,
+            metadata=payload.metadata,
+            resume_session_id=payload.resume_session_id,
         )
     except Exception as exc:
-        _raise_logged_http_exception("kai.plaid.exchange_failed", request.user_id, exc)
+        _raise_logged_http_exception("kai.plaid.exchange_failed", payload.user_id, exc)
 
 
 @router.post("/plaid/funding/link-token")
@@ -687,6 +729,34 @@ async def refresh_plaid_connections(
         _raise_logged_http_exception("kai.plaid.refresh_failed", request.user_id, exc)
 
 
+@router.post("/plaid/items/{item_id}/remove")
+async def remove_plaid_item(
+    item_id: str,
+    request: PlaidItemRemoveRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        result = await get_plaid_portfolio_service().remove_item(
+            user_id=request.user_id,
+            item_id=item_id,
+        )
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "PLAID_ITEM_NOT_FOUND",
+                    "message": "No Plaid portfolio connection was found for this user.",
+                    "item_id": item_id,
+                },
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.item_remove_failed", request.user_id, exc)
+
+
 @router.get("/plaid/refresh/{run_id}")
 async def get_plaid_refresh_run(
     run_id: str,
@@ -772,9 +842,13 @@ async def plaid_webhook(request: Request):
         raw_body = await request.body()
         payload = json.loads(raw_body.decode("utf-8"))
     except Exception as exc:
+        logger.warning("kai.plaid.webhook.invalid_json: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "PLAID_WEBHOOK_INVALID_JSON", "message": str(exc)},
+            detail={
+                "code": "PLAID_WEBHOOK_INVALID_JSON",
+                "message": "Webhook payload is not valid JSON.",
+            },
         ) from exc
 
     if not isinstance(payload, dict):

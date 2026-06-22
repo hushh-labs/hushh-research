@@ -8,8 +8,19 @@ import {
 } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+const { mockOpenAgent } = vi.hoisted(() => ({
+  mockOpenAgent: vi.fn(),
+}));
+
 vi.mock("lucide-react", () => ({
+  Bot: () => createElement("span", { "data-testid": "bot-icon" }),
   Bug: () => null,
+  MessageCircle: () =>
+    createElement("span", { "data-testid": "message-circle-icon" }),
+  Mic: () => createElement("span", { "data-testid": "mic-icon" }),
+  Search: () => createElement("span", { "data-testid": "search-icon" }),
+  Sparkles: () => createElement("span", { "data-testid": "sparkles-icon" }),
+  X: () => createElement("span", { "data-testid": "x-icon" }),
 }));
 
 vi.mock("@/components/kai/kai-command-palette", () => ({
@@ -57,6 +68,40 @@ vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
 
 vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
   VoiceDebugDrawer: () => null,
+}));
+
+vi.mock("@/components/app-ui/shell-action-surface", () => ({
+  ShellActionSurface: ({
+    children,
+    onClick,
+    disabled,
+    "aria-label": ariaLabel,
+    "aria-disabled": ariaDisabled,
+  }: {
+    children: ReactNode;
+    onClick?: (event: unknown) => void;
+    disabled?: boolean;
+    "aria-label"?: string;
+    "aria-disabled"?: boolean;
+  }) =>
+    createElement(
+      "button",
+      {
+        type: "button",
+        disabled,
+        "aria-label": ariaLabel,
+        "aria-disabled": ariaDisabled,
+        onClick,
+      },
+      children,
+    ),
+}));
+
+vi.mock("@/components/agent/agent-popover-provider", () => ({
+  useOptionalAgentPopover: () => ({
+    available: true,
+    openAgent: mockOpenAgent,
+  }),
 }));
 
 vi.mock("@/lib/morphy-ux/button", () => ({
@@ -221,6 +266,13 @@ const {
   shouldTriggerVoiceBargeIn,
 } = await import("@/components/kai/kai-search-bar");
 
+function openSearchAndStartVoice() {
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open Kai command search" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Start Kai voice" }));
+}
+
 describe("kai-search-bar helpers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -240,6 +292,7 @@ describe("kai-search-bar helpers", () => {
       lastError: null,
     });
     sessionListener = null;
+    mockOpenAgent.mockClear();
     mockVoiceSessionStore.appendDebugEvent.mockClear();
     mockVoiceSessionStore.setLastAssistantReply.mockClear();
     mockVoiceSessionStore.setPendingConfirmation.mockClear();
@@ -367,6 +420,77 @@ describe("kai-search-bar helpers", () => {
     expect(acquireMock).not.toHaveBeenCalled();
   });
 
+  it("renders the compact RIA action bar instead of the ticker-first voice surface", () => {
+    vi.useRealTimers();
+
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        surfaceVariant: "ria",
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+        voiceAvailable: false,
+        voiceVisibilityMode: "disabled",
+        voiceUnavailableReason: "Unlock your vault to use voice",
+        showAgent: true,
+      }),
+    );
+
+    expect(screen.getByTestId("ria-action-bar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-ambient-search-surface")).toBeNull();
+    expect(screen.getByRole("button", { name: "Search RIA workspace" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+    expect(mockOpenAgent).not.toHaveBeenCalled();
+  });
+
+  it("hides Agent action until the shell marks Agent ready", () => {
+    vi.useRealTimers();
+
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        surfaceVariant: "ria",
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+        voiceAvailable: false,
+        voiceVisibilityMode: "disabled",
+        showAgent: false,
+      }),
+    );
+
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+  });
+
+  it("keeps Kai voice inside the compact search surface", () => {
+    vi.useRealTimers();
+
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      }),
+    );
+
+    expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Open Kai command search" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start Kai voice" })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Kai command search" }),
+    );
+
+    expect(screen.getByRole("button", { name: "Start Kai voice" })).toBeTruthy();
+  });
+
   it("acquires on explicit mic tap and releases on cancel", async () => {
     vi.useRealTimers();
     render(
@@ -378,7 +502,7 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(acquireMock).toHaveBeenCalledWith(
@@ -391,10 +515,10 @@ describe("kai-search-bar helpers", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
+      expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText("cancel voice"));
+    fireEvent.click(screen.getByRole("button", { name: "End Kai voice" }));
 
     await waitFor(() => {
       expect(releaseMock).toHaveBeenCalled();
@@ -416,7 +540,7 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(acquireMock).toHaveBeenCalled();
@@ -425,7 +549,7 @@ describe("kai-search-bar helpers", () => {
     await waitFor(() => {
       expect(
         screen
-          .getByTestId("voice-ambient-search-surface")
+          .getByTestId("kai-compact-search-surface")
           .getAttribute("data-mode"),
       ).toBe("idle");
       expect(
@@ -458,10 +582,10 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
-      const surface = screen.getByTestId("voice-ambient-search-surface");
+      const surface = screen.getByTestId("kai-compact-search-surface");
       expect(surface).toBeTruthy();
       expect(surface.getAttribute("data-mode")).toBe("connecting");
       expect(screen.getByTestId("voice-ambient-preview").textContent).toContain(
@@ -498,10 +622,10 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
+      expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
     });
 
     await act(async () => {
@@ -557,7 +681,7 @@ describe("kai-search-bar helpers", () => {
       });
     });
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(setMutedMock).toHaveBeenCalledWith(false);
@@ -590,7 +714,7 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(acquireMock).toHaveBeenCalled();
@@ -599,7 +723,7 @@ describe("kai-search-bar helpers", () => {
     await waitFor(() => {
       expect(
         screen
-          .getByTestId("voice-ambient-search-surface")
+          .getByTestId("kai-compact-search-surface")
           .getAttribute("data-mode"),
       ).toBe("idle");
       expect(

@@ -1,21 +1,32 @@
 # api/routes/session.py
 """
 Session token and user management endpoints.
+
+Canonical attach point (pagination offset cap):
+    api.routes.session.get_consent_history -> GET /api/session/consent/history
+    page is capped at 1_000 (was 10_000) so the maximum DB offset is
+    page_max * limit_max = 1_000 * 200 = 200_000 rows.  The previous cap
+    of 10_000 allowed offsets of up to 2_000_000 rows, creating a
+    denial-of-service vector via expensive full-table-scan queries.
 """
 
+import hmac
 import logging
 import os
+import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.token import revoke_token
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
+from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +84,16 @@ async def issue_session_token(
             expires_in_ms=24 * 60 * 60 * 1000,  # 24 hours
         )
 
+        try:
+            VaultKeysService().ensure_actor_profile(request.userId)
+            await ActorIdentityService().sync_from_firebase(request.userId, force=False)
+        except Exception as identity_error:
+            logger.debug(
+                "session_token.identity_shadow_sync_skipped user=%s error=%s",
+                request.userId,
+                identity_error,
+            )
+
         logger.info("session_token.issued")
 
         return SessionTokenResponse(
@@ -87,31 +108,65 @@ async def issue_session_token(
 
 
 @router.post("/consent/logout")
-async def logout_session(request: LogoutRequest):
+async def logout_session(
+    request: LogoutRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
     """
     Destroy all session tokens for a user.
 
-    Called when user logs out. Invalidates all active session tokens.
-    External API tokens are NOT affected.
+    REQUIRES: VAULT_OWNER consent token (via Authorization header).
+    Only revokes session tokens (agent_id="self"). External API tokens are
+    NOT affected so third-party integrations survive user logout.
     """
+    if str(token_data["user_id"]) != request.userId:
+        raise HTTPException(status_code=403, detail="Token user mismatch")
 
-    logger.info("session.logout")
+    logger.info("session.logout user=%s", request.userId)
 
-    # In production, this would query the database for all session tokens
-    # and revoke them. For now, we just log the action.
-    # The frontend should also clear sessionStorage.
+    try:
+        service = ConsentDBService()
+        active_tokens = await service.get_active_tokens(request.userId, agent_id="self")
 
-    return {
-        "status": "success",
-        "message": "Session tokens marked for revocation",
-    }
+        revoked_count = 0
+        for tok in active_tokens:
+            token_id = tok.get("token_id")
+            tok_scope = tok.get("scope", "vault.owner")
+            tok_agent = tok.get("agent_id", "self")
+            if token_id:
+                # In-memory revocation: fast path on this instance.
+                revoke_token(token_id)
+                # DB revocation: cross-instance consistency via event-sourcing.
+                revoke_event_id = f"REVOKED_SESSION_{int(time.time() * 1000)}_{revoked_count}"
+                await service.insert_event(
+                    user_id=request.userId,
+                    agent_id=tok_agent,
+                    scope=tok_scope,
+                    action="REVOKED",
+                    token_id=revoke_event_id,
+                    metadata={"reason": "logout"},
+                )
+                revoked_count += 1
+
+        logger.info("session.logout.revoked count=%s user=%s", revoked_count, request.userId)
+
+        return {
+            "status": "success",
+            "message": "Session tokens revoked. Clear sessionStorage on the client.",
+            "revoked_count": revoked_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("session.logout.failed user=%s error=%s", request.userId, e)
+        raise HTTPException(status_code=500, detail="Failed to revoke session tokens")
 
 
 @router.get("/consent/history")
 async def get_consent_history(
-    userId: str,
-    page: int = 1,
-    limit: int = 50,
+    userId: str = Query(..., max_length=128),
+    page: int = Query(1, ge=1, le=1_000),
+    limit: int = Query(50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -148,22 +203,13 @@ async def get_consent_history(
             "grouped": grouped,
         }
     except Exception as e:
-        # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_history.fetch_failed: %s", e)
-        return {
-            "userId": userId,
-            "page": page,
-            "limit": limit,
-            "total": 0,
-            "items": [],
-            "grouped": {},
-            "error": "Failed to fetch consent history",
-        }
+        raise HTTPException(status_code=500, detail="Failed to fetch consent history")
 
 
 @router.get("/consent/active")
 async def get_active_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -201,18 +247,17 @@ async def get_active_consents(
 
         return {"grouped": grouped, "active": active_tokens}
     except Exception as e:
-        # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_active.fetch_failed: %s", e)
-        return {"grouped": {}, "active": [], "error": "Failed to fetch active consents"}
+        raise HTTPException(status_code=500, detail="Failed to fetch active consents")
 
 
 @router.get("/user/lookup")
 async def lookup_user(
-    identifier: Optional[str] = None,
-    email: Optional[str] = None,
-    phone_number: Optional[str] = None,
-    country_iso2: Optional[str] = None,
-    country: Optional[str] = None,
+    identifier: Optional[str] = Query(default=None, max_length=128),
+    email: Optional[str] = Query(default=None, max_length=320),
+    phone_number: Optional[str] = Query(default=None, max_length=32),
+    country_iso2: Optional[str] = Query(default=None, max_length=2),
+    country: Optional[str] = Query(default=None, max_length=64),
     x_mcp_developer_token: Optional[str] = Header(None, alias="X-MCP-Developer-Token"),
 ):
     """
@@ -238,7 +283,7 @@ async def lookup_user(
     required_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
     if not required_token:
         raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
-    if not x_mcp_developer_token or x_mcp_developer_token != required_token:
+    if not x_mcp_developer_token or not hmac.compare_digest(x_mcp_developer_token, required_token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
@@ -250,7 +295,11 @@ async def lookup_user(
             country=country,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.warning("user_lookup.invalid_identifier: %s", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid lookup identifier. Provide a valid email, phone number, or user ID.",
+        ) from exc
 
     logger.info("user_lookup.requested kind=%s", lookup_kind)
 

@@ -29,8 +29,8 @@
       ],
       "reachability": {
         "routes": [
-          "/kai",
-          "/kai/home"
+          "/one/kai",
+          "/one/kai/home"
         ],
         "screens": [
           "kai_market"

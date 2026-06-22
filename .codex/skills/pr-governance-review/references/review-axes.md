@@ -40,7 +40,7 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 
 - Does `main` already implement the concept in a different file family or route family?
 - Is the PR adding a second architecture path for the same product concept instead of extending the canonical one?
-- Is the right outcome `patch_then_merge` or `block` even though exact file overlap is zero?
+- Is the right outcome `maintainer_patch_then_merge` or `block` even though exact file overlap is zero?
 
 ## 6. Deploy and Runtime Integrity
 
@@ -70,9 +70,9 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 ## Decision Rule
 
 - Block merge if any high-severity finding remains.
-- Do not use `merge_now` for a PR that is directionally right but overbuilt; use `patch_then_merge` for bounded cleanup or `block` for split/product-decision/duplicate-closure cases.
+- Do not use `merge_now` for a PR that is directionally right but overbuilt; use `maintainer_patch_then_merge` for bounded cleanup or `block` for split/product-decision/duplicate-closure cases.
 - Do not thank, approve, or recommend merge while blockers remain.
-- For `merge_now` and `patch_then_merge`, always prepare the contributor-facing acknowledgment draft before the merge action.
+- For `merge_now` and `maintainer_patch_then_merge`, always prepare the contributor-facing acknowledgment draft before the merge action.
 - Post that note only after the monitored merge path reaches the required terminal state.
 - Once this policy is in force, do not require an extra confirmation step for posting the note.
 - When the merge affects a reusable subsystem or trust boundary, include a compact `Related Surfaces` section so the PR history points to the canonical files and higher-level docs that define the surrounding contract. Prefer clickable GitHub links when the target can be resolved safely, and add a one-line reason for every linked entry.
@@ -89,7 +89,7 @@ Use only when:
 - no blocker findings remain
 - any residual risk is low and already documented by the existing contract
 
-### 2. `patch_then_merge`
+### 2. `maintainer_patch_then_merge`
 
 Use when:
 - the direction is good

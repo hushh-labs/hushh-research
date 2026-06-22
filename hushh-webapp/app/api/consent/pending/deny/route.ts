@@ -33,8 +33,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Denying consent request: ${requestId}`);
-
+   if (process.env.NODE_ENV !== "production") {
+  console.log(`[API] Denying consent request: ${requestId}`);
+}
     const response = await fetch(
       `${BACKEND_URL}/api/consent/pending/deny?userId=${userId}&requestId=${requestId}`,
       {
@@ -56,7 +57,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    console.log(`[API] Consent denied: ${JSON.stringify(data)}`);
+    if (process.env.NODE_ENV !== "production") {
+  console.log(`[API] Consent denied: ${JSON.stringify(data)}`);
+}
 
     return NextResponse.json(data);
   } catch (error) {

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ROUTES } from "@/lib/navigation/routes";
+
 const toastInfoMock = vi.fn();
 const toastErrorMock = vi.fn();
 
@@ -32,7 +34,7 @@ describe("executeKaiCommand", () => {
     vi.clearAllMocks();
   });
 
-  it("starts live analysis intent for voice analyze commands", () => {
+  it("opens the comparison preview for voice analyze commands", () => {
     const input = baseInput();
 
     const result = executeKaiCommand({
@@ -43,12 +45,8 @@ describe("executeKaiCommand", () => {
       },
     });
 
-    expect(input.setAnalysisParams).toHaveBeenCalledWith({
-      ticker: "NVDA",
-      userId: "user_1",
-      riskProfile: "balanced",
-    });
-    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?focus=active&ticker=NVDA");
+    expect(input.setAnalysisParams).toHaveBeenCalledWith(null);
+    expect(input.router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=NVDA`);
     expect(result).toEqual({
       status: "executed",
       reason: undefined,
@@ -56,10 +54,10 @@ describe("executeKaiCommand", () => {
         status: "started",
         actionId: "analysis.start",
         routeBefore: "/profile",
-        routeAfter: "/kai/analysis?focus=active&ticker=NVDA",
+        routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
         screenBefore: "profile_account",
         screenAfter: "kai_analysis",
-        resultSummary: "Started analysis for NVDA in the Kai analysis workspace.",
+        resultSummary: "Opened the NVDA comparison preview before starting the debate.",
         data: {
           command: "analyze",
           symbol: "NVDA",
@@ -85,12 +83,16 @@ describe("executeKaiCommand", () => {
     expect(toastErrorMock).toHaveBeenCalledWith("A debate is already running.", {
       description: "Open analysis to continue with the active run.",
     });
-    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?focus=active&ticker=MSFT");
-    expect(result.actionResult.routeAfter).toBe("/kai/analysis?focus=active&ticker=MSFT");
+    expect(input.router.push).toHaveBeenCalledWith(
+      `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=MSFT`
+    );
+    expect(result.actionResult.routeAfter).toBe(
+      `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=MSFT`
+    );
     expect(result.actionResult.screenAfter).toBe("kai_analysis");
   });
 
-  it("starts analysis even when portfolio data has not been imported yet", () => {
+  it("opens preview even when portfolio data has not been imported yet", () => {
     const input = baseInput();
 
     const result = executeKaiCommand({
@@ -102,11 +104,12 @@ describe("executeKaiCommand", () => {
       },
     });
 
-    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?focus=active&ticker=AMD");
+    expect(input.setAnalysisParams).toHaveBeenCalledWith(null);
+    expect(input.router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=AMD`);
     expect(result.actionResult).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: "/kai/analysis?focus=active&ticker=AMD",
+      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=AMD`,
       screenAfter: "kai_analysis",
     });
   });
@@ -120,11 +123,11 @@ describe("executeKaiCommand", () => {
       command: "history",
     });
 
-    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?tab=history");
+    expect(input.router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?tab=history`);
     expect(result.actionResult).toMatchObject({
       status: "succeeded",
       actionId: "route.analysis_history",
-      routeAfter: "/kai/analysis?tab=history",
+      routeAfter: `${ROUTES.KAI_ANALYSIS}?tab=history`,
       screenAfter: "kai_analysis",
     });
   });

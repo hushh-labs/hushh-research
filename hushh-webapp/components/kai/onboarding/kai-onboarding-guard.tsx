@@ -58,7 +58,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
     const onOnboardingRoute = chromeState.isOnboardingRoute;
     const preserveOnboardingAuditRoute =
       nativeTestConfig.enabled &&
-      nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING;
+      nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING;
 
     async function run() {
       if (authLoading) return;
@@ -127,7 +127,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
 
           if (onboardingIncomplete && !onOnboardingRoute) {
-            router.replace(ROUTES.KAI_ONBOARDING);
+            router.replace(ROUTES.ONE_ONBOARDING);
             return;
           }
 
@@ -164,7 +164,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           writeOnboardingCompletionHint(user.uid, onboardingResolved);
 
           if (!onOnboardingRoute && onboardingExplicitlyIncomplete) {
-            router.replace(ROUTES.KAI_ONBOARDING);
+            router.replace(ROUTES.ONE_ONBOARDING);
             return;
           }
           if (onboardingResolved && onOnboardingRoute) {
@@ -232,7 +232,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
 
         if (onboardingIncomplete && !onOnboardingRoute) {
-          router.replace(ROUTES.KAI_ONBOARDING);
+          router.replace(ROUTES.ONE_ONBOARDING);
           return;
         }
 

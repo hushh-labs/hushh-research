@@ -12,6 +12,10 @@ Authentication:
 - All endpoints require VAULT_OWNER token (consent-first architecture)
 - Token contains user_id, proving both identity and consent
 - Firebase is only used for bootstrap (issuing VAULT_OWNER token)
+
+Canonical attach points
+-----------------------
+api.routes.kai.portfolio.import_portfolio -> POST /kai/portfolio/import
 """
 
 import asyncio
@@ -19,13 +23,24 @@ import io
 import json
 import logging
 import math
+import os
 import re
 import time
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -43,7 +58,9 @@ from api.routes.kai.import_run_manager import (
 from hushh_mcp.constants import (
     KAI_LLM_TEMPERATURE,
     KAI_LLM_THINKING_ENABLED,
+    KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
     KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS,
+    KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
     KAI_PORTFOLIO_IMPORT_THINKING_LEVEL,
 )
 from hushh_mcp.kai_import import (
@@ -75,6 +92,14 @@ _PICK_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _MAX_PROFILE_PICKS = 8
 _MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024
 _MAX_IMPORT_FILE_SIZE_MESSAGE = "File too large. Maximum size is 25MB."
+
+# Sticky cache of symbol -> sector. Sector is essentially static metadata, so
+# once resolved we keep it. This decouples profile-pick determinism from live
+# quote-provider availability: when providers are in cooldown a fresh lookup may
+# return no sector, which would silently drop that holding from the dominant-
+# sector blend and reshuffle the picks for the SAME portfolio. Caching the last
+# known sector keeps "same portfolio -> same picks" stable across quote flaps.
+_HOLDING_SECTOR_CACHE: dict[str, str] = {}
 
 _NUMERIC_STRIP_RE = re.compile(r"[$,\s]")
 _FILENAME_DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
@@ -110,6 +135,17 @@ _HOLDING_KEY_HINTS = frozenset(
         "security_type",
     }
 )
+
+
+def _resolve_portfolio_import_model() -> str:
+    """Resolve operator override while keeping the documented Flash default."""
+    for key in ("KAI_PORTFOLIO_IMPORT_MODEL", "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"):
+        candidate = os.getenv(key, "").strip()
+        if candidate:
+            return candidate
+    return KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+
+
 _POSITIONS_PAGE_KEYWORDS = (
     "holdings",
     "positions",
@@ -1898,13 +1934,13 @@ class PortfolioImportResponse(BaseModel):
     """Response from portfolio import endpoint."""
 
     success: bool
-    holdings_count: int = 0
-    total_value: float = 0.0
+    holdings_count: int = Field(default=0, ge=0)
+    total_value: float = Field(default=0.0, ge=0.0)
     losers: list[dict] = Field(default_factory=list)
     winners: list[dict] = Field(default_factory=list)
     kpis_stored: list[str] = Field(default_factory=list)
-    error: Optional[str] = None
-    source: str = "unknown"
+    error: Optional[str] = Field(default=None, max_length=512)
+    source: str = Field(default="unknown", max_length=64)
     # Comprehensive financial data (LLM-extracted)
     portfolio_data: Optional[dict] = None
     account_info: Optional[dict] = None
@@ -1919,40 +1955,40 @@ class PortfolioImportResponse(BaseModel):
 class PortfolioSummaryResponse(BaseModel):
     """Response for portfolio summary endpoint."""
 
-    user_id: str
+    user_id: str = Field(..., max_length=256)
     has_portfolio: bool
-    holdings_count: Optional[int] = None
-    portfolio_value_bucket: Optional[str] = None
-    portfolio_risk_bucket: Optional[str] = None
-    preference_risk_profile: Optional[str] = None
-    losers_count: Optional[int] = None
-    winners_count: Optional[int] = None
+    holdings_count: Optional[int] = Field(default=None, ge=0)
+    portfolio_value_bucket: Optional[str] = Field(default=None, max_length=64)
+    portfolio_risk_bucket: Optional[str] = Field(default=None, max_length=64)
+    preference_risk_profile: Optional[str] = Field(default=None, max_length=64)
+    losers_count: Optional[int] = Field(default=None, ge=0)
+    winners_count: Optional[int] = Field(default=None, ge=0)
     total_gain_loss_pct: Optional[float] = None
 
 
 class DashboardProfilePick(BaseModel):
     """Profile-personalized ticker candidate for dashboard recommendations."""
 
-    symbol: str
-    company_name: str
-    sector: Optional[str] = None
-    tier: Optional[str] = None
-    conviction_weight: float = 0.0
-    price: Optional[float] = None
+    symbol: str = Field(..., max_length=10)
+    company_name: str = Field(..., max_length=256)
+    sector: Optional[str] = Field(default=None, max_length=64)
+    tier: Optional[str] = Field(default=None, max_length=32)
+    conviction_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    price: Optional[float] = Field(default=None, ge=0.0)
     change_percent: Optional[float] = None
-    recommendation_bias: Optional[str] = None
-    rationale: str
+    recommendation_bias: Optional[str] = Field(default=None, max_length=64)
+    rationale: str = Field(..., max_length=512)
     source_tags: list[str] = Field(default_factory=list)
     degraded: bool = False
-    as_of: Optional[str] = None
+    as_of: Optional[str] = Field(default=None, max_length=64)
 
 
 class DashboardProfilePicksResponse(BaseModel):
     """Response payload for profile-based picks on Kai dashboard."""
 
-    user_id: str
-    generated_at: str
-    risk_profile: str
+    user_id: str = Field(..., max_length=256)
+    generated_at: str = Field(..., max_length=64)
+    risk_profile: str = Field(..., max_length=64)
     picks: list[DashboardProfilePick] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -2008,7 +2044,8 @@ def _candidate_rank(
     sector: str,
     dominant_sectors: list[str],
     tier_rank: Optional[int],
-) -> tuple[float, int, str]:
+    symbol: str = "",
+) -> tuple[float, int, str, str]:
     tier_upper = str(tier or "").strip().upper()
     sector_clean = str(sector or "").strip()
     score = float(TIER_WEIGHTS.get(tier_upper, 0.5))
@@ -2018,7 +2055,11 @@ def _candidate_rank(
         elif sector_clean in dominant_sectors:
             score += 0.12
     tie_breaker = tier_rank if isinstance(tier_rank, int) else 999_999
-    return (score, -tie_breaker, tier_upper)
+    # Final, fully deterministic tiebreaker: the symbol. With identical inputs
+    # the ordering is now independent of dict/iteration/async-completion order.
+    # (Callers sort with reverse=True, so equal-scored candidates fall back to
+    # descending symbol order — arbitrary but stable, which is what we need.)
+    return (score, -tie_breaker, tier_upper, str(symbol or "").strip().upper())
 
 
 def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[str]) -> str:
@@ -2036,7 +2077,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 @router.post("/portfolio/import", response_model=PortfolioImportResponse)
 async def import_portfolio(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioImportResponse:
     """
@@ -2076,7 +2117,11 @@ async def import_portfolio(
     """
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != user_id:
-        logger.warning(f"User ID mismatch: token={token_data['user_id']}, request={user_id}")
+        logger.warning(
+            "portfolio.upload.user_id_mismatch token_uid=%s req_uid=%s",
+            token_data["user_id"],
+            user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
         )
@@ -2134,7 +2179,7 @@ async def import_portfolio(
 
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioSummaryResponse:
     """
@@ -2189,9 +2234,10 @@ async def get_portfolio_summary(
 
 @router.get("/dashboard/profile-picks/{user_id}", response_model=DashboardProfilePicksResponse)
 async def get_dashboard_profile_picks(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     symbols: Optional[str] = Query(
         default=None,
+        max_length=2048,
         description="Optional comma-separated ticker symbols from current holdings context.",
     ),
     limit: int = Query(default=4, ge=1, le=_MAX_PROFILE_PICKS),
@@ -2246,11 +2292,18 @@ async def get_dashboard_profile_picks(
         sector_sem = asyncio.Semaphore(4)
 
         async def resolve_holding_sector(symbol: str) -> Optional[str]:
+            symbol_key = symbol.strip().upper()
             async with sector_sem:
                 try:
                     quote = await fetch_market_data(symbol, user_id, consent_token)
                     sector = str(quote.get("sector") or "").strip()
-                    return sector or None
+                    if sector:
+                        # Persist last-known sector so future calls stay stable
+                        # even when quote providers are in cooldown.
+                        _HOLDING_SECTOR_CACHE[symbol_key] = sector
+                        return sector
+                    # Live lookup returned no sector — fall back to last known.
+                    return _HOLDING_SECTOR_CACHE.get(symbol_key)
                 except Exception as exc:
                     logger.warning(
                         "[Kai Picks] failed to resolve holding sector for %s (%s): %s",
@@ -2258,16 +2311,29 @@ async def get_dashboard_profile_picks(
                         user_id,
                         exc,
                     )
-                    return None
+                    # On hard failure, reuse the last known sector if we have one
+                    # so the dominant-sector blend (and thus picks) stays stable.
+                    return _HOLDING_SECTOR_CACHE.get(symbol_key)
 
+        # Resolve in a deterministic (sorted) order so Counter.most_common ties
+        # break the same way every call.
+        ordered_symbols = sorted(requested_symbols)
         sector_rows = await asyncio.gather(
-            *(resolve_holding_sector(symbol) for symbol in requested_symbols)
+            *(resolve_holding_sector(symbol) for symbol in ordered_symbols)
         )
         for sector in sector_rows:
             if sector:
                 holdings_sector_counter[sector] += 1
 
-    dominant_sectors = [sector for sector, _ in holdings_sector_counter.most_common(2)]
+    # most_common is order-stable, but make tie-breaks fully deterministic by
+    # sorting on (-count, sector_name) so equal-count sectors always resolve the
+    # same way regardless of insertion order.
+    dominant_sectors = [
+        sector
+        for sector, _count in sorted(
+            holdings_sector_counter.items(), key=lambda kv: (-kv[1], kv[0])
+        )[:2]
+    ]
     dominant_sector = dominant_sectors[0] if dominant_sectors else None
 
     renaissance_service = get_renaissance_service()
@@ -2294,6 +2360,7 @@ async def get_dashboard_profile_picks(
             sector=str(getattr(stock, "sector", "")),
             dominant_sectors=dominant_sectors,
             tier_rank=getattr(stock, "tier_rank", None),
+            symbol=str(getattr(stock, "ticker", "")),
         ),
         reverse=True,
     )
@@ -2635,13 +2702,8 @@ async def _portfolio_import_stream_generator(
     from google.genai import types
     from google.genai.types import HttpOptions
 
-    from hushh_mcp.constants import (
-        KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
-        KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
-    )
-
     thinking_enabled = KAI_PORTFOLIO_IMPORT_ENABLE_THINKING and KAI_LLM_THINKING_ENABLED
-    extraction_model = KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+    extraction_model = _resolve_portfolio_import_model()
 
     try:
         async with asyncio.timeout(hard_timeout_seconds):
@@ -2753,7 +2815,7 @@ async def _portfolio_import_stream_generator(
             )
             parse_diagnostics["pass_token_counts"]["extract_full"] = {
                 "chunks": extract_full_result.get("chunk_count", 0),
-                "thoughts": 0,
+                "thoughts": extract_full_result.get("thought_count", 0),
             }
             parse_diagnostics["pass_content_sources"]["extract_full"] = extract_full_result.get(
                 "source"
@@ -2949,7 +3011,7 @@ async def _portfolio_import_stream_generator(
             parse_diagnostics["combined_stream"] = {
                 "response_chars": len(str(extract_full_result.get("text") or "")),
                 "chunk_count": int(extract_full_result.get("chunk_count") or 0),
-                "thought_count": 0,
+                "thought_count": int(extract_full_result.get("thought_count") or 0),
             }
 
             quality_report = build_holdings_quality_report_v2(
@@ -3118,7 +3180,7 @@ async def _portfolio_import_stream_generator(
                     "success": True,
                     "parse_fallback": parse_fallback_used,
                     "quality_gate": quality_gate,
-                    "thought_count": 0,
+                    "thought_count": int(extract_full_result.get("thought_count") or 0),
                     "holdings_raw_count": raw_count,
                     "holdings_validated_count": len(validated_holdings),
                     "holdings_aggregated_count": len(holdings),
@@ -3166,10 +3228,17 @@ def _portfolio_import_stream_factory(
     )
 
 
+class _AlwaysConnectedImportStreamRequest:
+    """Disconnect shim for initial upload streams proxied through Next.js."""
+
+    async def is_disconnected(self) -> bool:
+        return False
+
+
 @router.post("/portfolio/import/run/start")
 async def start_portfolio_import_run(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3217,7 +3286,7 @@ async def start_portfolio_import_run(
 
 @router.get("/portfolio/import/run/active")
 async def get_active_portfolio_import_run(
-    user_id: str,
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3231,8 +3300,8 @@ async def get_active_portfolio_import_run(
 @router.get("/portfolio/import/run/{run_id}/stream")
 async def stream_portfolio_import_run(
     request: Request,
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     cursor: Optional[int] = 0,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -3275,8 +3344,8 @@ async def stream_portfolio_import_run(
 
 @router.post("/portfolio/import/run/{run_id}/cancel")
 async def cancel_portfolio_import_run(
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3300,7 +3369,7 @@ async def cancel_portfolio_import_run(
 async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Backward-compatible import stream endpoint.
@@ -3344,6 +3413,6 @@ async def import_portfolio_stream(
         _IMPORT_RUN_MANAGER.stream_run_events(
             run=run,
             start_cursor=0,
-            request=request,
+            request=_AlwaysConnectedImportStreamRequest(),
         )
     )

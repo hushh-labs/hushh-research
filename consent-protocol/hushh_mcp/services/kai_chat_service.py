@@ -10,6 +10,12 @@ This service handles:
 5. Persistent chat history
 6. Proactive onboarding (portfolio import prompts)
 7. Intent classification for workflow triggers
+
+Canonical attach points
+-----------------------
+hushh_mcp.services.kai_chat_service.KaiChatService.process_message       -> POST /kai/chat
+hushh_mcp.services.kai_chat_service.KaiChatService.get_initial_chat_state -> GET /kai/chat/initial-state/{user_id}
+hushh_mcp.services.kai_chat_service.KaiChatService.analyze_portfolio_loser -> POST /kai/chat/analyze-loser
 """
 
 import asyncio
@@ -17,7 +23,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
 
@@ -472,7 +478,7 @@ class KaiChatService:
             )
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}")
+            logger.error("kai_chat_service.process_message.error: %s", e)
             # Return a graceful error response
             return KaiChatResponse(
                 conversation_id=conversation_id or "error",
@@ -487,25 +493,27 @@ class KaiChatService:
         user_message: str,
         assistant_response: str,
     ) -> None:
-        task = asyncio.create_task(
-            self.attribute_learner.extract_and_store(
-                user_id=user_id,
-                user_message=user_message,
-                assistant_response=assistant_response,
-            ),
-            name=f"attr_learn:{user_id}",
-        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("kai_chat.attribute_learning_skipped user_id=%s; no active loop", user_id)
+            return
 
-        def _log_attribute_learning_failure(done: asyncio.Task) -> None:
+        async def _run_attribute_learning() -> None:
             try:
-                done.result()
-            except Exception:
-                logger.exception(
-                    "kai_chat.attribute_learning_failed user_id=%s",
-                    user_id,
+                await self.attribute_learner.extract_and_store(
+                    user_id=user_id,
+                    user_message=user_message,
+                    assistant_response=assistant_response,
                 )
+            except Exception:
+                logger.exception("kai_chat.attribute_learning_failed user_id=%s", user_id)
 
-        task.add_done_callback(_log_attribute_learning_failure)
+        # Retain a strong reference until completion so the loop does not garbage
+        # collect this background extraction mid-execution, and log any failure.
+        task = loop.create_task(_run_attribute_learning(), name=f"attr_learn:{user_id}")
+        _attribute_learning_tasks.add(task)
+        task.add_done_callback(_attribute_learning_tasks.discard)
 
     async def _should_prompt_portfolio(
         self,
@@ -616,7 +624,7 @@ class KaiChatService:
             }
 
         except Exception as e:
-            logger.error(f"Error checking data completeness: {e}")
+            logger.error("kai_chat_service.check_data_completeness.error: %s", e)
             return {
                 "has_portfolio": False,
                 "missing_attributes": [],
@@ -758,10 +766,16 @@ class KaiChatService:
         user_id: str,
         conversation_id: Optional[str],
     ) -> Conversation:
-        """Get existing conversation or create a new one."""
+        """Get existing conversation or create a new one.
+
+        The caller-supplied conversation_id is verified against the requesting
+        user_id before use. An ID that belongs to a different user is silently
+        ignored and a new conversation is created, so that neither the existence
+        of the ID nor its ownership is revealed to the caller.
+        """
         if conversation_id:
             conversation = await self.chat_db.get_conversation(conversation_id)
-            if conversation:
+            if conversation and conversation.user_id == user_id:
                 return conversation
 
         # Create new conversation
@@ -855,7 +869,7 @@ class KaiChatService:
             return response.text.strip(), tokens
 
         except Exception as e:
-            logger.error(f"Error generating response: {e}")
+            logger.error("kai_chat_service.generate_response.error: %s", e)
             return "I'm having trouble generating a response right now. Please try again.", None
 
     def _build_generation_prompt(
@@ -1090,7 +1104,7 @@ class KaiChatService:
             }
 
         except Exception as e:
-            logger.error(f"Error getting initial chat state: {e}")
+            logger.error("kai_chat_service.get_initial_chat_state.error: %s", e)
             # Return safe defaults for new user
             return {
                 "is_new_user": True,
@@ -1215,7 +1229,7 @@ REASONING: [2-3 sentences]
             # Store decision as a non-sensitive summary in the PKM index
             saved = False
             try:
-                analyzed_at = datetime.now().isoformat()
+                analyzed_at = datetime.now(UTC).isoformat()
                 ticker_upper = str(ticker or "").upper()
                 await self.pkm_service.update_domain_summary(
                     user_id=user_id,
@@ -1233,7 +1247,7 @@ REASONING: [2-3 sentences]
                 saved = True
 
             except Exception as e:
-                logger.warning(f"Failed to save analysis to PKM: {e}")
+                logger.warning("kai_chat_service.save_analysis_to_pkm.error: %s", e)
 
             # Store in chat history
             await self.chat_db.add_message(
@@ -1271,12 +1285,19 @@ REASONING: [2-3 sentences]
             }
 
         except Exception as e:
-            logger.error(f"Error analyzing loser {ticker}: {e}")
+            logger.error("kai_chat_service.analyze_portfolio_loser.error ticker=%s: %s", ticker, e)
             raise
 
 
 # Singleton instance
 _kai_chat_service: Optional[KaiChatService] = None
+
+# Strong references to in-flight background attribute learning tasks.
+# asyncio only keeps weak references to tasks created with create_task, so a
+# task that is not referenced elsewhere can be garbage collected before it
+# finishes. Holding the task here until its done callback fires keeps the
+# background attribute extraction alive for its full duration.
+_attribute_learning_tasks: set[asyncio.Task] = set()
 
 
 def get_kai_chat_service() -> KaiChatService:

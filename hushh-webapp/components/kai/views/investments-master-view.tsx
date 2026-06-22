@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
@@ -50,12 +51,16 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  PlaidPortfolioService,
+  requirePlaidLinkTokenReady,
+} from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 interface InvestmentsMasterViewProps {
   userId: string;
@@ -280,14 +285,12 @@ export function InvestmentsMasterView({
           updateMode: Boolean(itemId),
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_INVESTMENTS,
             startedAt: new Date().toISOString(),
           });
@@ -303,14 +306,14 @@ export function InvestmentsMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangePublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -379,15 +382,13 @@ export function InvestmentsMasterView({
           itemId,
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             flowKind: "funding",
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_INVESTMENTS,
             startedAt: new Date().toISOString(),
           });
@@ -403,14 +404,14 @@ export function InvestmentsMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangeFundingPublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
                 consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {
@@ -506,7 +507,7 @@ export function InvestmentsMasterView({
           returnPath: ROUTES.KAI_INVESTMENTS,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:
@@ -815,26 +816,30 @@ export function InvestmentsMasterView({
           accent="emerald"
           actions={
             <>
-              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_PORTFOLIO)}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to portfolio
+              <Button variant="none" effect="fade" asChild>
+                <Link href={ROUTES.KAI_PORTFOLIO}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to portfolio
+                </Link>
               </Button>
-              <Button variant="none" effect="fade" onClick={() => handleRefresh()}>
+              <Button type="button" variant="none" effect="fade" onClick={() => handleRefresh()}>
                 <RefreshCw
                   className={cn("mr-2 h-4 w-4", (isPlaidRefreshing || isLinkingPlaid) && "animate-spin")}
                 />
                 Refresh
               </Button>
               {isPlaidRefreshing ? (
-                <Button variant="none" effect="fade" onClick={() => handleCancelRefresh()}>
+                <Button type="button" variant="none" effect="fade" onClick={() => handleCancelRefresh()}>
                   Cancel refresh
                 </Button>
               ) : null}
-              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}>
-                <BadgeDollarSign className="mr-2 h-4 w-4" />
-                Fund + Trade
+              <Button variant="none" effect="fade" asChild>
+                <Link href={ROUTES.KAI_FUNDING_TRADE}>
+                  <BadgeDollarSign className="mr-2 h-4 w-4" />
+                  Fund + Trade
+                </Link>
               </Button>
-              <Button variant="blue-gradient" effect="fill" onClick={handleOptimize}>
+              <Button type="button" variant="blue-gradient" effect="fill" onClick={handleOptimize}>
                 <ArrowRight className="mr-2 h-4 w-4" />
                 Optimize current source
               </Button>
@@ -997,6 +1002,7 @@ export function InvestmentsMasterView({
                   </div>
                   {position.debateEligible && position.displaySymbol ? (
                     <Button
+                      type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
@@ -1037,7 +1043,7 @@ export function InvestmentsMasterView({
             title="Open optimization workspace"
             description={`Continue with the current ${sourceLabel.toLowerCase()} source in Optimize.`}
             trailing={
-              <Button variant="none" effect="fade" size="sm" onClick={handleOptimize}>
+              <Button type="button" variant="none" effect="fade" size="sm" onClick={handleOptimize}>
                 Open Optimize
               </Button>
             }

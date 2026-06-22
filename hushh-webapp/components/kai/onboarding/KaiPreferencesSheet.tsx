@@ -70,10 +70,10 @@ export function KaiPreferencesSheet(props: {
       >
         <div className="h-full flex flex-col">
           <SheetHeader className="border-b">
-            <SheetTitle>Risk profile & preferences</SheetTitle>
+            <SheetTitle>Investment preferences</SheetTitle>
             <SheetDescription>
-              Update your horizon and risk preferences. These settings personalize your
-              analysis and portfolio reports.
+              Update your horizon and risk settings for portfolio analysis,
+              debates, and optimization.
             </SheetDescription>
           </SheetHeader>
 
@@ -83,7 +83,10 @@ export function KaiPreferencesSheet(props: {
                 <HushhLoader label="Loading preferences..." />
               </div>
             ) : !profile ? (
-              <div className="p-6 text-sm text-muted-foreground">
+              <div
+                className="p-6 text-sm text-muted-foreground"
+                role="alert"
+              >
                 Couldn&#39;t load preferences. Close and reopen to retry.
               </div>
             ) : (

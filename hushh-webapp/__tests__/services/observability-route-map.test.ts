@@ -40,6 +40,18 @@ function collectAppPageRoutes(dir: string, root: string = dir): string[] {
 
 describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
+    expect(resolveRouteId("/")).toBe("one_dashboard");
+    expect(resolveRouteId("/one")).toBe("one_dashboard");
+    expect(resolveRouteId("/one/gmail")).toBe("gmail");
+    expect(resolveRouteId("/one/pkm")).toBe("pkm");
+    expect(resolveRouteId("/one/connected-systems")).toBe("connected_systems");
+    expect(resolveRouteId("/one/connected-systems/salesforce-fsc-customer0")).toBe(
+      "connected_systems"
+    );
+    expect(resolveRouteId("/gmail")).toBe("gmail");
+    expect(resolveRouteId("/pkm")).toBe("pkm");
+    expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
+    expect(resolveRouteId("/one/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");
@@ -54,6 +66,9 @@ describe("observability route map", () => {
     expect(resolveRouteId("/profile/pkm-agent-lab")).toBe("profile_pkm_agent_lab");
     expect(resolveRouteId("/profile/receipts")).toBe("profile_receipts");
     expect(resolveRouteId("/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
+    expect(resolveRouteId("/one/location")).toBe("one_location");
+    expect(resolveRouteId("/one/location/request/sample")).toBe("one_location_public_request");
+    expect(resolveRouteId("/agent")).toBe("agent");
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
     expect(resolveRouteId("/ria/clients/user_123")).toBe("ria_workspace");
@@ -61,9 +76,9 @@ describe("observability route map", () => {
     expect(resolveRouteId("/ria/clients/user_123/requests/request_789")).toBe("ria_workspace");
     expect(resolveRouteId("/ria/picks")).toBe("ria_picks");
     expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
-    expect(resolveRouteId("/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
-    expect(resolveRouteId("/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
-    expect(resolveRouteId("/kai/funding-trade")).toBe("kai_funding_trade");
+    expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
+    expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
+    expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_funding_trade");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });
 
@@ -81,6 +96,15 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/kai/market/insights/user_123")).toBe(
       "/api/kai/market/insights/{user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/stream")).toBe(
+      "/api/kai/agent/chat/stream"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/conversations/user_123?limit=1")).toBe(
+      "/api/kai/agent/chat/conversations/{user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/history/conversation_123")).toBe(
+      "/api/kai/agent/chat/history/{conversation_id}"
     );
     expect(normalizeApiPathToTemplate("/api/kai/analyze/run/run_987/stream?cursor=0")).toBe(
       "/api/kai/analyze/run/{run_id}/stream"
@@ -103,11 +127,34 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/one/kyc/workflows/wf_123/redraft")).toBe(
       "/api/one/kyc/workflows/{workflow_id}/redraft"
     );
+    expect(normalizeApiPathToTemplate("/api/one/location/grants/grant_123/envelope")).toBe(
+      "/api/one/location/grants/{grant_id}/envelope"
+    );
+    expect(normalizeApiPathToTemplate("/api/one/location/public-invites/public_token_123/submit")).toBe(
+      "/api/one/location/public-invites/{public_token}/submit"
+    );
+    expect(normalizeApiPathToTemplate("/api/connected-systems")).toBe(
+      "/api/connected-systems"
+    );
+    expect(
+      normalizeApiPathToTemplate("/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact")
+    ).toBe("/api/connected-systems/{system_id}/schema");
+    expect(
+      normalizeApiPathToTemplate("/api/connected-systems/salesforce-fsc-customer0/records/read")
+    ).toBe("/api/connected-systems/{system_id}/records/read");
+    expect(
+      normalizeApiPathToTemplate(
+        "/api/connected-systems/salesforce-fsc-customer0/intents/csi_1234567890/approve"
+      )
+    ).toBe("/api/connected-systems/{system_id}/intents/{intent_id}/approve");
   });
 
   it("redacts opaque IDs for unknown endpoints", () => {
     expect(
       normalizeApiPathToTemplate("/api/custom/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9/details")
     ).toBe("/api/custom/{id}/details");
+  });
+      it("preserves fail-closed handling for uppercase route variants", () => {
+    expect(resolveRouteId("/KAI/PORTFOLIO")).toBe("unknown");
   });
 });

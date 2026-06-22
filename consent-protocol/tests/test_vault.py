@@ -68,7 +68,7 @@ def test_decryption_fails_with_tampered_data(test_vault_key):
     encrypted = encrypt_data(plaintext, test_vault_key)
 
     # Tamper with ciphertext
-    corrupted = encrypted.copy(
+    corrupted = encrypted.model_copy(
         update={"ciphertext": base64.b64encode(b"malicious content").decode("utf-8")}
     )
 
@@ -83,9 +83,10 @@ def test_encrypted_payload_structure(test_vault_key):
     plaintext = "test data"
     encrypted = encrypt_data(plaintext, test_vault_key)
 
-    assert "ciphertext" in encrypted.dict()
-    assert "iv" in encrypted.dict()
-    assert "tag" in encrypted.dict()
+    dump = encrypted.model_dump()
+    assert "ciphertext" in dump
+    assert "iv" in dump
+    assert "tag" in dump
 
 
 def test_different_ivs_produce_different_ciphertext(test_vault_key):
@@ -101,3 +102,36 @@ def test_different_ivs_produce_different_ciphertext(test_vault_key):
     # Same plaintext + key but different IVs should produce different ciphertexts
     assert encrypted1.ciphertext != encrypted2.ciphertext
     assert encrypted1.iv != encrypted2.iv
+
+
+def test_encrypt_rejects_short_key():
+    """
+    Test that encryption rejects keys shorter than AES-256 length.
+    """
+    with pytest.raises(
+        RuntimeError,
+        match="Encryption failed: AES-256 key must be 64 hexadecimal characters",
+    ):
+        encrypt_data("test data", "a" * 63)
+
+
+def test_encrypt_rejects_long_key():
+    """
+    Test that encryption rejects keys longer than AES-256 length.
+    """
+    with pytest.raises(
+        RuntimeError,
+        match="Encryption failed: AES-256 key must be 64 hexadecimal characters",
+    ):
+        encrypt_data("test data", "a" * 65)
+
+
+def test_encrypt_rejects_non_hex_key():
+    """
+    Test that encryption rejects malformed hexadecimal keys.
+    """
+    with pytest.raises(
+        RuntimeError,
+        match="Encryption failed: AES-256 key must be valid hexadecimal",
+    ):
+        encrypt_data("test data", "z" * 64)

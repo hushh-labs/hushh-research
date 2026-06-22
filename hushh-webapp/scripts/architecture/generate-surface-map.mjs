@@ -24,6 +24,16 @@ function routeValuesFromRoutesTs(source) {
   ].sort();
 }
 
+function routeValuesFromAppPages() {
+  return walkFiles(path.join(appRoot, "app"), (filePath) => filePath.endsWith("/page.tsx"))
+    .map((filePath) => {
+      const relative = path.relative(path.join(appRoot, "app"), filePath);
+      const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
+      return route ? `/${route}` : "/";
+    })
+    .sort();
+}
+
 function walkFiles(dir, predicate, results = []) {
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -97,7 +107,98 @@ function shellForPage(pageFile) {
   };
 }
 
+function routeSort(left, right) {
+  if (left === right) return 0;
+  if (left === "/") return -1;
+  if (right === "/") return 1;
+  return left.localeCompare(right);
+}
+
 const routeOverrides = {
+  "/connected-systems": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/connected-systems-service.ts",
+        service_methods: [
+          "listSystems",
+          "getSchema",
+          "readRecord",
+          "createRecordIntent",
+          "updateRecordIntent",
+          "approveIntent",
+          "rejectIntent",
+        ],
+        nextjs_api_route: "/api/connected-systems/{path*}",
+        nextjs_proxy_file: "app/api/connected-systems/[...path]/route.ts",
+        backend_endpoint_family: "/api/connected-systems/*",
+        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      vault_owner_token_required: true,
+      write_actions_require_explicit_intent_approval: true,
+      terminal_payload_storage: "field names, record id, result class, and sanitized summaries only",
+      external_plaintext_boundary:
+        "Salesforce CRM MCP transport is outside the ZK boundary until private VPC proxy replaces Customer 0 CloudHub endpoint.",
+    },
+  },
+  "/gmail": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/gmail-receipts-service.ts",
+        service_methods: ["getStatus", "syncNow", "listReceipts"],
+        nextjs_api_route: "/api/profile/gmail/{path*}",
+        nextjs_proxy_file: "app/api/profile/gmail/[...path]/route.ts",
+        backend_endpoint_family: "/profile/gmail/*",
+        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+      },
+      {
+        service_file: "lib/services/personal-knowledge-model-service.ts",
+        service_methods: ["getMetadata", "getDomainData", "storeDomainData"],
+        nextjs_api_route: "/api/pkm/{path*}",
+        nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
+        backend_endpoint_family: "/pkm/*",
+        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      vault_owner_token_required: true,
+      gmail_scope_required: "readonly receipt sync only",
+      pkm_payload_storage: "encrypted domain resource only; observability is metadata-only",
+    },
+  },
+  "/pkm": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/personal-knowledge-model-service.ts",
+        service_methods: ["getMetadata", "getDomainData", "getDomainManifest", "storeDomainData"],
+        nextjs_api_route: "/api/pkm/{path*}",
+        nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
+        backend_endpoint_family: "/pkm/*",
+        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+      },
+      {
+        service_file: "lib/services/pkm-upgrade-service.ts",
+        service_methods: ["getStatus", "startOrResume"],
+        nextjs_api_route: "/api/pkm/{path*}",
+        nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
+        backend_endpoint_family: "/pkm/*",
+        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        js_name: "HushhVault",
+        reason: "PKM payload decryption remains client-held and metadata-only for route observability.",
+      },
+    ],
+    thread_and_consent_contract: {
+      vault_owner_token_required: true,
+      pkm_payload_storage: "encrypted domain resource only; route/cache events must not include decrypted values",
+    },
+  },
   "/one/kyc": {
     api_dependencies: [
       {
@@ -156,7 +257,15 @@ const routeOverrides = {
 };
 
 function buildSurfaceMap() {
-  const routes = routeValuesFromRoutesTs(read(path.join(appRoot, "lib/navigation/routes.ts")));
+  const routeContract = readJson(path.join(appRoot, "lib/navigation/app-route-layout.contract.json"));
+  const contractByRoute = new Map((routeContract || []).map((entry) => [entry.route, entry]));
+  const routes = [
+    ...new Set([
+      ...routeValuesFromRoutesTs(read(path.join(appRoot, "lib/navigation/routes.ts"))),
+      ...routeValuesFromAppPages(),
+      ...(routeContract || []).map((entry) => entry.route),
+    ]),
+  ].sort(routeSort);
   const inventory = readJson(path.join(appRoot, "native-route-inventory.json"));
   const inventoryByRoute = new Map((inventory.routes || []).map((route) => [route.route, route]));
   const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
@@ -170,11 +279,13 @@ function buildSurfaceMap() {
 
   return {
     schema_version: "hushh.frontend_native_surface_map.v1",
-    generated_at: "2026-05-08",
+    generated_at: "2026-05-21",
     purpose:
       "Scaffolded contract mapping app routes to Next.js API, backend, native parity, plugin, and voice/action surfaces.",
     sources: {
       route_contract: "lib/navigation/routes.ts",
+      route_layout_contract: "lib/navigation/app-route-layout.contract.json",
+      physical_pages: "app/**/page.tsx",
       native_inventory: "native-route-inventory.json",
       api_routes: "app/api/**/route.ts",
       route_docs: "../docs/reference/architecture/route-contracts.md",
@@ -184,9 +295,19 @@ function buildSurfaceMap() {
     routes: routes.map((route) => {
       const pageFile = routeToPageFile(route);
       const voiceContractFile = routeToVoiceContractFile(route);
+      const routeContractEntry = contractByRoute.get(route) || null;
       return {
         route,
         page_file: pageFile,
+        physical_page_exists: Boolean(pageFile),
+        route_contract: routeContractEntry
+          ? {
+              mode: routeContractEntry.mode,
+              exemption_reason: routeContractEntry.exemptionReason || null,
+              shell_verification_file: routeContractEntry.shellVerification?.file || null,
+              shell_verification_includes: routeContractEntry.shellVerification?.includes || [],
+            }
+          : null,
         native: inventoryByRoute.get(route) || null,
         shell: shellForPage(pageFile),
         voice_action_contract_file: voiceContractFile,

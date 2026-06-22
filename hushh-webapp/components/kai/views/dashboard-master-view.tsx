@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowRight,
   BadgeDollarSign,
   Building2,
   Plus,
-  RefreshCw,
   Save,
-  Trash2,
   TrendingDown,
   TrendingUp,
   Loader2,
@@ -62,6 +61,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { getTickerUniverseSnapshot, preloadTickerUniverse } from "@/lib/kai/ticker-universe-cache";
@@ -74,8 +74,13 @@ import {
   type PlaidItemSummary,
   type PortfolioSource,
 } from "@/lib/kai/brokerage/portfolio-sources";
+import {
+  buildFinancialDomainSummary,
+  removePlaidSource,
+} from "@/lib/kai/brokerage/financial-sources";
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
 import { PortfolioSourceSwitcher } from "@/components/kai/portfolio-source-switcher";
+import { KaiPreferencesSheet } from "@/components/kai/onboarding/KaiPreferencesSheet";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import {
   clearPlaidOAuthResumeSession,
@@ -83,7 +88,10 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  PlaidPortfolioService,
+  requirePlaidLinkTokenReady,
+} from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildPortfolioSharePayloadFromDashboardModel,
@@ -136,6 +144,26 @@ const ALLOCATION_COLOR_PALETTE = [
   "#8b5cf6",
   "#ec4899",
 ];
+
+const portfolioChipClassName =
+  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none shadow-[var(--shadow-xs)]";
+const portfolioChipTones = {
+  blue:
+    "border-blue-500/12 bg-blue-500/[0.08] text-blue-700 dark:border-blue-400/16 dark:bg-blue-400/[0.10] dark:text-blue-200",
+  orange:
+    "border-orange-500/12 bg-orange-500/[0.08] text-orange-700 dark:border-orange-400/16 dark:bg-orange-400/[0.10] dark:text-orange-200",
+  purple:
+    "border-purple-500/12 bg-purple-500/[0.08] text-purple-700 dark:border-purple-400/16 dark:bg-purple-400/[0.10] dark:text-purple-200",
+  green:
+    "border-green-500/12 bg-green-500/[0.08] text-green-700 dark:border-green-400/16 dark:bg-green-400/[0.10] dark:text-green-200",
+} as const;
+
+const portfolioMetricLabelClassName =
+  "text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground";
+const portfolioMetricValueClassName =
+  "mt-1 text-[1.35rem] font-medium tracking-normal sm:text-[1.5rem]";
+const portfolioSummaryPillClassName =
+  "rounded-2xl px-3 py-2 text-[12px] leading-5 text-muted-foreground";
 
 const GENERIC_SECTOR_LABELS = new Set([
   "equity",
@@ -432,6 +460,7 @@ export function DashboardMasterView({
     isPlaidRefreshing,
     changeActiveSource,
     changeActiveStatementSnapshot,
+    deleteStatementSnapshot,
     refreshPlaid,
     cancelPlaidRefresh,
     reload,
@@ -460,7 +489,9 @@ export function DashboardMasterView({
   });
   const [isSavingHoldings, setIsSavingHoldings] = useState(false);
   const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
+  const [isDeletingStatementSnapshot, setIsDeletingStatementSnapshot] = useState(false);
   const [deleteImportedDialogOpen, setDeleteImportedDialogOpen] = useState(false);
+  const [statementSnapshotDeleteId, setStatementSnapshotDeleteId] = useState<string | null>(null);
   const [editingHolding, setEditingHolding] = useState<ManagedHolding | null>(null);
   const [editingHoldingId, setEditingHoldingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -469,6 +500,7 @@ export function DashboardMasterView({
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
   const [isReconcilingFunding, setIsReconcilingFunding] = useState(false);
   const [isSharingPortfolioPdf, setIsSharingPortfolioPdf] = useState(false);
+  const [preferencesSheetOpen, setPreferencesSheetOpen] = useState(false);
   const [dashboardMainTab, setDashboardMainTab] = useState<DashboardMainTab>("overview");
   const {
     activeControlId: activeVoiceControlId,
@@ -480,6 +512,20 @@ export function DashboardMasterView({
   const isPlaidView = activeSource === "plaid";
   const hasPlaidConnections = (plaidStatus?.aggregate?.item_count || 0) > 0;
   const plaidConfigured = plaidStatus?.configured ?? true;
+  const activePlaidItemIds = useMemo(
+    () =>
+      (plaidStatus?.items || [])
+        .filter((item) =>
+          ["active", "error", "relink_required", "permission_revoked"].includes(
+            String(item.status || "active")
+          )
+        )
+        .map((item) => String(item.item_id || "").trim())
+        .filter(Boolean),
+    [plaidStatus?.items]
+  );
+  const canDeletePlaid = isPlaidView && activePlaidItemIds.length > 0;
+  const canDeletePortfolio = canEditStatement || canDeletePlaid;
 
   useEffect(() => {
     const holdingsCount = displayedPortfolio?.holdings?.length || 0;
@@ -759,6 +805,25 @@ export function DashboardMasterView({
     [changeActiveStatementSnapshot]
   );
 
+  const handleDeleteStatementSnapshot = useCallback(
+    async (snapshotId: string) => {
+      if (!snapshotId || isDeletingStatementSnapshot) return;
+      setIsDeletingStatementSnapshot(true);
+      try {
+        await deleteStatementSnapshot(snapshotId);
+        toast.success("Statement deleted.");
+        setStatementSnapshotDeleteId(null);
+      } catch (error) {
+        toast.error("Could not delete that statement.", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setIsDeletingStatementSnapshot(false);
+      }
+    },
+    [deleteStatementSnapshot, isDeletingStatementSnapshot]
+  );
+
   const openPlaidLinkFlow = useCallback(
     async (itemId?: string) => {
       if (!vaultOwnerToken) {
@@ -776,14 +841,12 @@ export function DashboardMasterView({
           updateMode: Boolean(itemId),
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_PORTFOLIO,
             startedAt: new Date().toISOString(),
           });
@@ -799,14 +862,14 @@ export function DashboardMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangePublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -873,15 +936,13 @@ export function DashboardMasterView({
           itemId,
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             flowKind: "funding",
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_PORTFOLIO,
             startedAt: new Date().toISOString(),
           });
@@ -897,14 +958,14 @@ export function DashboardMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangeFundingPublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
                 consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {
@@ -996,7 +1057,7 @@ export function DashboardMasterView({
           returnPath: ROUTES.KAI_PORTFOLIO,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:
@@ -1271,6 +1332,14 @@ export function DashboardMasterView({
     });
     router.push(ROUTES.KAI_OPTIMIZE);
   }, [activeSource, router, setLosersInput, userId, workflowPortfolio, workflowPortfolioContext]);
+
+  const handleOpenInvestmentPreferences = useCallback(() => {
+    if (!vaultKey || !vaultOwnerToken) {
+      toast.info("Unlock your Vault to edit investment preferences.");
+      return;
+    }
+    setPreferencesSheetOpen(true);
+  }, [vaultKey, vaultOwnerToken]);
 
   const allocationData = useMemo(
     () =>
@@ -1688,15 +1757,68 @@ export function DashboardMasterView({
     vaultOwnerToken,
   ]);
 
-  const handleDeleteImportedData = useCallback(async () => {
-    if (!userId || !vaultKey || !statementEditablePortfolio) {
-      toast.error("Unlock your Vault to delete imported data.");
+  const handleDeletePortfolioData = useCallback(async () => {
+    if (!userId || !vaultKey || !vaultOwnerToken) {
+      toast.error("Unlock your Vault to delete portfolio data.");
       return;
     }
 
     setIsDeletingImportedData(true);
     try {
       const nowIso = new Date().toISOString();
+
+      if (activeSource === "plaid") {
+        if (activePlaidItemIds.length === 0) {
+          toast.info("There is no Plaid portfolio to delete.");
+          return;
+        }
+
+        for (const itemId of activePlaidItemIds) {
+          await PlaidPortfolioService.removeItem({
+            userId,
+            itemId,
+            vaultOwnerToken,
+          });
+        }
+
+        const result = await PkmWriteCoordinator.saveMergedDomain({
+          userId,
+          domain: "financial",
+          vaultKey,
+          vaultOwnerToken,
+          build: (context) => {
+            const nextFinancialDomain = removePlaidSource(
+              (context.currentDomainData as Record<string, unknown> | null) ?? {},
+              nowIso,
+              { clearActivePortfolio: true }
+            );
+            return {
+              domainData: nextFinancialDomain,
+              summary: buildFinancialDomainSummary(nextFinancialDomain),
+              mergeDecision: {
+                merge_mode: "replace_domain",
+                target_domain: "financial",
+              },
+            };
+          },
+        });
+
+        if (!result.success) {
+          throw new Error("Failed to remove Plaid portfolio data from Vault.");
+        }
+
+        CacheSyncService.onPkmDomainCleared(userId, "financial");
+        setDeleteImportedDialogOpen(false);
+        toast.success("Plaid portfolio deleted.");
+        await reload();
+        return;
+      }
+
+      if (!statementEditablePortfolio) {
+        toast.info("There is no statement portfolio to delete.");
+        return;
+      }
+
       const clearedPortfolioData: PortfolioData = {
         account_info: statementEditablePortfolio.account_info,
         account_summary: {
@@ -1736,7 +1858,7 @@ export function DashboardMasterView({
         userId,
         domain: "financial",
         vaultKey,
-        vaultOwnerToken: vaultOwnerToken || undefined,
+        vaultOwnerToken,
         build: (context) => {
           const existingFinancial =
             (context.currentDomainData as Record<string, unknown> | null) ?? {};
@@ -1747,6 +1869,13 @@ export function DashboardMasterView({
             !Array.isArray(existingDocumentsRaw)
               ? ({ ...(existingDocumentsRaw as Record<string, unknown>) } as Record<string, unknown>)
               : {};
+          const existingSourcesRaw = existingFinancial.sources;
+          const existingSources =
+            existingSourcesRaw &&
+            typeof existingSourcesRaw === "object" &&
+            !Array.isArray(existingSourcesRaw)
+              ? ({ ...(existingSourcesRaw as Record<string, unknown>) } as Record<string, unknown>)
+              : {};
 
           const nextFinancialDomain = {
             ...existingFinancial,
@@ -1756,6 +1885,19 @@ export function DashboardMasterView({
               source: "domain_registry_prepopulate",
               contract_version: 2,
               updated_at: nowIso,
+            },
+            sources: {
+              ...existingSources,
+              active_source: hasPlaidConnections ? "plaid" : "statement",
+              statement: {
+                source_type: "statement",
+                source_label: "Statement",
+                is_editable: true,
+                active_snapshot_id: null,
+                snapshot_count: 0,
+                snapshots: [],
+                updated_at: nowIso,
+              },
             },
             portfolio: {
               ...clearedPortfolioData,
@@ -1789,6 +1931,10 @@ export function DashboardMasterView({
 
           return {
             domainData: nextFinancialDomain as Record<string, unknown>,
+            mergeDecision: {
+              merge_mode: "replace_domain",
+              target_domain: "financial",
+            },
             summary: {
               intent_source: "kai_dashboard_delete_import",
               has_portfolio: false,
@@ -1814,31 +1960,33 @@ export function DashboardMasterView({
       });
 
       if (!result.success) {
-        throw new Error("Failed to delete imported data");
+        throw new Error("Failed to delete statement portfolio data");
       }
 
       CacheSyncService.onPkmDomainCleared(userId, "financial");
       baselineBySourceRef.current = new Map();
       setHoldingsDraft([]);
       setDeleteImportedDialogOpen(false);
-      toast.success("Imported portfolio data deleted.");
+      toast.success("Statement portfolio deleted.");
       await reload();
 
-      if ((plaidStatus?.aggregate?.item_count || 0) > 0) {
+      if (hasPlaidConnections) {
         await changeActiveSource("plaid").catch(() => undefined);
       } else if (typeof onReupload === "function") {
         onReupload();
       }
     } catch (error) {
-      console.error("[DashboardMasterView] Failed to delete imported data:", error);
-      toast.error("We could not delete imported data. Please try again.");
+      console.error("[DashboardMasterView] Failed to delete portfolio data:", error);
+      toast.error("We could not delete portfolio data. Please try again.");
     } finally {
       setIsDeletingImportedData(false);
     }
   }, [
+    activePlaidItemIds,
+    activeSource,
     changeActiveSource,
+    hasPlaidConnections,
     onReupload,
-    plaidStatus?.aggregate?.item_count,
     reload,
     statementEditablePortfolio,
     userId,
@@ -2185,11 +2333,18 @@ export function DashboardMasterView({
               purpose: "Returns to portfolio import for the editable statement source.",
               voiceAliases: ["import portfolio", "upload statement"],
             },
+          ]
+        : []),
+      ...(canDeletePortfolio
+        ? [
             {
-              id: "kai.portfolio.delete_imported_data",
-              label: "Delete imported data",
-              purpose: "Deletes the imported statement portfolio from Kai.",
-              voiceAliases: ["delete imported data"],
+              id: "kai.portfolio.delete_portfolio",
+              label: "Delete portfolio",
+              purpose:
+                activeSource === "plaid"
+                  ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
+                  : "Deletes the imported statement portfolio from Kai.",
+              voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
         : []),
@@ -2254,15 +2409,24 @@ export function DashboardMasterView({
               actionId: "kai.portfolio.import_statement",
               role: "button",
             },
+          ]
+        : []),
+      ...(canDeletePortfolio
+        ? [
             {
               id: "delete_imported_data",
-              label: "Delete imported data",
-              purpose: "Deletes the imported statement portfolio from Kai.",
-              actionId: "kai.portfolio.delete_imported_data",
+              label: "Delete portfolio",
+              purpose:
+                activeSource === "plaid"
+                  ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
+                  : "Deletes the imported statement portfolio from Kai.",
+              actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },
           ]
-        : [
+        : []),
+      ...(!canEditStatement
+        ? [
             {
               id: "refresh_plaid",
               label: "Refresh Plaid",
@@ -2270,7 +2434,8 @@ export function DashboardMasterView({
               actionId: "kai.portfolio.refresh_plaid",
               role: "button",
             },
-          ]),
+          ]
+        : []),
     ];
 
     let visibleModules = ["Source overview", activeTabLabel];
@@ -2323,6 +2488,7 @@ export function DashboardMasterView({
         ...(isSubmittingTransfer ? ["funding_transfer"] : []),
         ...(isSavingHoldings ? ["holdings_save"] : []),
         ...(isDeletingImportedData ? ["delete_imported_data"] : []),
+        ...(isDeletingStatementSnapshot ? ["delete_statement_snapshot"] : []),
         ...(isSharingPortfolioPdf ? ["portfolio_share_pdf"] : []),
       ],
       screenMetadata: {
@@ -2346,6 +2512,7 @@ export function DashboardMasterView({
   }, [
     activeVoiceControlId,
     activeSource,
+    canDeletePortfolio,
     canEditStatement,
     dashboardMainTab,
     displayedPortfolio,
@@ -2353,6 +2520,7 @@ export function DashboardMasterView({
     freshness?.syncStatus,
     hasPlaidConnections,
     isDeletingImportedData,
+    isDeletingStatementSnapshot,
     isLinkingFunding,
     isLinkingPlaid,
     isPlaidView,
@@ -2369,6 +2537,92 @@ export function DashboardMasterView({
     statementSnapshots.length,
   ]);
   usePublishVoiceSurfaceMetadata(dashboardVoiceSurfaceMetadata);
+
+  const deletePortfolioDialog = (
+    <AlertDialog
+      open={deleteImportedDialogOpen}
+      onOpenChange={(open) => {
+        if (isDeletingImportedData) return;
+        setDeleteImportedDialogOpen(open);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {activeSource === "plaid" ? "Delete Plaid portfolio?" : "Delete statement portfolio?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {activeSource === "plaid"
+              ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror from your Vault. Profile and consent data are kept."
+              : "This removes imported holdings and statement snapshots from your Vault. Profile and consent data are kept."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeletingImportedData}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={isDeletingImportedData}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(event) => {
+              event.preventDefault();
+              void handleDeletePortfolioData();
+            }}
+          >
+            {isDeletingImportedData ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              "Delete Portfolio"
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+  const statementSnapshotToDelete =
+    statementSnapshots.find((snapshot) => snapshot.id === statementSnapshotDeleteId) ?? null;
+  const deleteStatementSnapshotDialog = (
+    <AlertDialog
+      open={Boolean(statementSnapshotDeleteId)}
+      onOpenChange={(open) => {
+        if (isDeletingStatementSnapshot) return;
+        if (!open) setStatementSnapshotDeleteId(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete saved statement?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes this statement from your saved portfolio history. Your other saved
+            statements and connected brokerages are kept.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeletingStatementSnapshot}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={isDeletingStatementSnapshot || !statementSnapshotDeleteId}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(event) => {
+              event.preventDefault();
+              if (statementSnapshotDeleteId) {
+                void handleDeleteStatementSnapshot(statementSnapshotDeleteId);
+              }
+            }}
+          >
+            {isDeletingStatementSnapshot ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              `Delete ${statementSnapshotToDelete?.label || "Statement"}`
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
@@ -2387,11 +2641,11 @@ export function DashboardMasterView({
     return (
       <div className="w-full space-y-6 pb-6">
         <PageHeader
-          eyebrow="Kai Portfolio"
+          eyebrow="Portfolio"
           title="Portfolio"
-          description="Switch between statement and Plaid sources, connect brokerages, and keep your investable context ready for debate."
+          description="Your holdings, sources, and investing context in one place."
           icon={Building2}
-          accent="default"
+          accent="neutral"
         />
         <PortfolioSourceSwitcher
           activeSource={activeSource}
@@ -2401,19 +2655,26 @@ export function DashboardMasterView({
           statementSnapshots={statementSnapshots}
           activeStatementSnapshotId={activeStatementSnapshotId}
           onStatementSnapshotChange={handleStatementSnapshotChange}
+          onDeleteStatementSnapshot={(snapshotId) => setStatementSnapshotDeleteId(snapshotId)}
           onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
           onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
           onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
+          onImportStatement={onReupload}
+          onDeletePortfolio={
+            canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
+          }
           isRefreshing={isPlaidRefreshing || isLinkingPlaid}
+          isDeletingPortfolio={isDeletingImportedData}
+          isDeletingStatementSnapshot={isDeletingStatementSnapshot}
         />
         <SurfaceCard>
-          <SurfaceCardContent className="space-y-3 p-6">
+          <SurfaceCardContent className="flex min-h-[13rem] flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-sm font-semibold">No active portfolio source is ready yet.</p>
-            <p className="text-sm text-muted-foreground">
+            <p className="max-w-md text-sm text-muted-foreground">
               Import a statement for an editable source, or connect Plaid for read-only brokerage data.
             </p>
             {plaidConfigured !== false ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
                 <MorphyButton
                   variant="blue-gradient"
                   effect="fill"
@@ -2430,18 +2691,20 @@ export function DashboardMasterView({
             ) : null}
           </SurfaceCardContent>
         </SurfaceCard>
+        {deletePortfolioDialog}
+        {deleteStatementSnapshotDialog}
       </div>
     );
   }
 
   return (
-    <div className="w-full space-y-8 pb-6">
+    <div className="w-full space-y-6 pb-6">
       <PageHeader
-        eyebrow="Kai Portfolio"
+        eyebrow="Portfolio"
         title="Portfolio"
-        description="Your active source, holdings context, and brokerage connections stay in sync here before you move into investments, debate, or optimization."
+        description="Your active source, holdings, and investing context in one place."
         icon={Building2}
-        accent="default"
+        accent="neutral"
         actions={
           <MorphyButton
             variant="none"
@@ -2470,10 +2733,17 @@ export function DashboardMasterView({
         statementSnapshots={statementSnapshots}
         activeStatementSnapshotId={activeStatementSnapshotId}
         onStatementSnapshotChange={handleStatementSnapshotChange}
+        onDeleteStatementSnapshot={(snapshotId) => setStatementSnapshotDeleteId(snapshotId)}
         onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
         onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
         onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
+        onImportStatement={onReupload}
+        onDeletePortfolio={
+          canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
+        }
         isRefreshing={isPlaidRefreshing || isLinkingPlaid}
+        isDeletingPortfolio={isDeletingImportedData}
+        isDeletingStatementSnapshot={isDeletingStatementSnapshot}
       />
 
       {sourcesError ? (
@@ -2485,32 +2755,34 @@ export function DashboardMasterView({
       ) : null}
 
       <SurfaceCard tone="feature">
-        <SurfaceCardContent className="space-y-6 p-6 sm:p-7">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <p className="text-sm font-medium text-muted-foreground">
+        <SurfaceCardContent className="space-y-5 p-5 sm:p-7">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <p className="text-[13px] font-medium text-muted-foreground sm:text-sm">
               {sourceDisplayLabel} portfolio value
             </p>
             <div className="flex flex-wrap justify-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+              <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
                 Source: {sourceDisplayLabel}
               </span>
-              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+              <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>
                 Risk: {model.hero.portfolioConcentrationLabel.replace(" Concentration", "")}
               </span>
-              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+              <span className={cn(portfolioChipClassName, portfolioChipTones.purple)}>
                 Holdings: {model.hero.investableHoldingsCount}
               </span>
               {model.hero.cashPositionsCount > 0 ? (
-                <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+                <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
                   Cash Positions: {model.hero.cashPositionsCount}
                 </span>
               ) : null}
             </div>
-            <p className="text-4xl font-black tracking-tight">{formatCurrency(model.hero.totalValue)}</p>
-            <div className="flex items-center justify-center gap-2 text-sm">
+            <p className="text-[2rem] font-medium leading-none tracking-normal text-foreground sm:text-[2.5rem]">
+              {formatCurrency(model.hero.totalValue)}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
               <span
                 className={cn(
-                  "inline-flex items-center font-semibold",
+                  "inline-flex items-center font-medium tracking-normal",
                   model.hero.netChange >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-rose-600 dark:text-rose-400"
@@ -2529,15 +2801,15 @@ export function DashboardMasterView({
             </div>
           </div>
 
-          <SurfaceInset className="text-center">
-            <p className="text-sm font-semibold">
+          <SurfaceInset className="px-4 py-3 text-center">
+            <p className="text-[13px] font-medium tracking-normal text-foreground sm:text-sm">
               {isPlaidView
                 ? freshness?.lastSyncedAt
                   ? `Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}`
                   : "Plaid brokerage snapshot"
                 : model.hero.statementPeriod || "Current statement period"}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
               {isPlaidView ? (
                 <>
                   {freshness?.itemCount || 0} item{(freshness?.itemCount || 0) === 1 ? "" : "s"} •{" "}
@@ -2546,13 +2818,34 @@ export function DashboardMasterView({
               ) : (
                 <>
                   Beginning Balance:{" "}
-                  <span className="font-semibold text-foreground">{formatCurrency(model.hero.beginningValue)}</span>
+                  <span className="font-medium text-foreground">{formatCurrency(model.hero.beginningValue)}</span>
                 </>
               )}
             </p>
           </SurfaceInset>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+          <SurfaceInset className="flex flex-col gap-3 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium tracking-normal text-foreground sm:text-sm">
+                Investment preferences
+              </p>
+              <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                Risk, time horizon, and volatility settings guide portfolio optimization
+                and debate context from this section.
+              </p>
+            </div>
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              onClick={handleOpenInvestmentPreferences}
+              className="shrink-0"
+              data-voice-control-id="edit_investment_preferences"
+            >
+              Edit preferences
+            </MorphyButton>
+          </SurfaceInset>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center">
             <MorphyButton
               variant="blue-gradient"
               effect="fill"
@@ -2565,11 +2858,13 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}
               data-voice-control-id="view_investments"
+              asChild
             >
-              <Building2 className="mr-2 h-4 w-4" />
-              View Investments
+              <Link href={ROUTES.KAI_INVESTMENTS}>
+                <Building2 className="mr-2 h-4 w-4" />
+                View Investments
+              </Link>
             </MorphyButton>
             {plaidConfigured !== false ? (
               <MorphyButton
@@ -2590,10 +2885,12 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}
+              asChild
             >
-              <BadgeDollarSign className="mr-2 h-4 w-4" />
-              Fund + Trade
+              <Link href={ROUTES.KAI_FUNDING_TRADE}>
+                <BadgeDollarSign className="mr-2 h-4 w-4" />
+                Fund + Trade
+              </Link>
             </MorphyButton>
           </div>
         </SurfaceCardContent>
@@ -2605,7 +2902,7 @@ export function DashboardMasterView({
           if (!isDashboardMainTab(value)) return;
           setDashboardMainTab(value);
         }}
-        className="space-y-4"
+        className="space-y-5"
       >
         <SegmentedTabs
           value={dashboardMainTab}
@@ -2621,7 +2918,7 @@ export function DashboardMasterView({
           className="w-full"
         />
 
-        <TabsContent value="overview" className="mt-0 space-y-4">
+        <TabsContent value="overview" className="mt-0 space-y-5">
           <PlaidBrokerageSummarySection
             items={plaidItems}
             onRefreshItem={(itemId) => handleRefreshPlaid(itemId)}
@@ -2688,60 +2985,68 @@ export function DashboardMasterView({
           />
 
           <SurfaceCard>
-            <SurfaceCardHeader className="px-6 pb-2 pt-6 sm:px-7">
-              <SurfaceCardTitle className="text-xs uppercase tracking-widest text-muted-foreground">
+            <SurfaceCardHeader className="px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
+              <SurfaceCardTitle className="text-[15px] font-medium tracking-normal text-foreground">
                 Investor Snapshot
               </SurfaceCardTitle>
             </SurfaceCardHeader>
-            <SurfaceCardContent className="space-y-4 px-6 pb-6 pt-0 sm:px-7 sm:pb-7">
+            <SurfaceCardContent className="space-y-4 px-5 pb-5 pt-0 sm:px-7 sm:pb-7">
               <div className="grid gap-3 sm:grid-cols-2">
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Debate Readiness
                   </p>
-                  <p className="mt-1 text-2xl font-black">{investorSnapshot.readinessScore}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-blue-600 dark:text-blue-300")}>
+                    {investorSnapshot.readinessScore}
+                  </p>
                   <p className="text-xs text-muted-foreground">Context quality score (0-100)</p>
                 </SurfaceInset>
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Optimization Pressure
                   </p>
-                  <p className="mt-1 text-2xl font-black">{formatPercent(investorSnapshot.optimizationPressurePct)}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-orange-600 dark:text-orange-300")}>
+                    {formatPercent(investorSnapshot.optimizationPressurePct)}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Portfolio value in losing positions
                   </p>
                 </SurfaceInset>
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Top 3 Concentration
                   </p>
-                  <p className="mt-1 text-2xl font-black">{formatPercent(investorSnapshot.top3ConcentrationPct)}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-purple-600 dark:text-purple-300")}>
+                    {formatPercent(investorSnapshot.top3ConcentrationPct)}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Largest three holdings share
                   </p>
                 </SurfaceInset>
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Estimated Annual Income
                   </p>
-                  <p className="mt-1 text-2xl font-black">{formatCurrency(investorSnapshot.estimatedAnnualIncome)}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-green-600 dark:text-green-300")}>
+                    {formatCurrency(investorSnapshot.estimatedAnnualIncome)}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Yield {formatPercent(investorSnapshot.annualYieldPct)}
                   </p>
                 </SurfaceInset>
               </div>
 
-              <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                <SurfaceInset className="rounded-lg px-3 py-2">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   {investorSnapshot.losersCount} losers / {investorSnapshot.winnersCount} winners
                 </SurfaceInset>
-                <SurfaceInset className="rounded-lg px-3 py-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   {investorSnapshot.uniqueSectors} sector buckets represented
                 </SurfaceInset>
-                <SurfaceInset className="rounded-lg px-3 py-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   Cash allocation {formatPercent(investorSnapshot.cashPct)}
                 </SurfaceInset>
-                <SurfaceInset className="rounded-lg px-3 py-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   Fixed income {formatPercent(investorSnapshot.fixedIncomePct)} / Real assets{" "}
                   {formatPercent(investorSnapshot.realAssetsPct)}
                 </SurfaceInset>
@@ -2750,11 +3055,11 @@ export function DashboardMasterView({
           </SurfaceCard>
         </TabsContent>
 
-        <TabsContent value="holdings" className="mt-0 space-y-4">
+        <TabsContent value="holdings" className="mt-0 space-y-5">
           <SurfaceCard className="min-w-0">
-            <SurfaceCardHeader className="px-6 pb-2 pt-6 sm:px-7">
+            <SurfaceCardHeader className="px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
               <div className="flex items-center justify-between gap-2">
-                <SurfaceCardTitle className="text-xs uppercase tracking-widest text-muted-foreground">
+                <SurfaceCardTitle className="text-[15px] font-medium tracking-normal text-foreground">
                   {isPlaidView ? "Brokerage Holdings" : "Current Holdings"}
                 </SurfaceCardTitle>
                 {canEditStatement ? (
@@ -2774,43 +3079,43 @@ export function DashboardMasterView({
               </div>
             </SurfaceCardHeader>
 
-            <SurfaceCardContent className="space-y-4 px-6 pb-6 pt-0 sm:px-7 sm:pb-7">
-              <SurfaceInset className="px-3 py-2.5 text-xs text-muted-foreground">
+            <SurfaceCardContent className="space-y-4 px-5 pb-5 pt-0 sm:px-7 sm:pb-7">
+              <SurfaceInset className="px-4 py-3 text-[12px] leading-5 text-muted-foreground">
                 {canEditStatement ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-foreground">Change Summary</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Added: {holdingsChangeSummary.added}</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Edited: {holdingsChangeSummary.edited}</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Deleted: {holdingsChangeSummary.deleted}</span>
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>Added: {holdingsChangeSummary.added}</span>
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>Edited: {holdingsChangeSummary.edited}</span>
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>Deleted: {holdingsChangeSummary.deleted}</span>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-foreground">Plaid Snapshot</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
                       Sync: {freshness?.syncStatus || "idle"}
                     </span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.purple)}>
                       Items: {freshness?.itemCount || 0}
                     </span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
                       Accounts: {freshness?.accountCount || 0}
                     </span>
                   </div>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Bifurcation</span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                  <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
                     Equities: {holdingsBifurcation.analyzeEligible}
                   </span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                  <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>
                     Other Assets: {holdingsBifurcation.nonAnalyzable}
                   </span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                  <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
                     Cash: {holdingsBifurcation.cashSweep}
                   </span>
                 </div>
                 {!canEditStatement ? (
-                  <div className="mt-2 rounded-lg border border-dashed border-border/60 bg-muted/40 px-3 py-2 text-xs">
+                  <div className="mt-2 rounded-2xl border border-dashed border-border/60 bg-muted/40 px-3 py-2 text-xs">
                     Plaid holdings are broker-sourced and cannot be edited in Kai.
                   </div>
                 ) : null}
@@ -2851,65 +3156,11 @@ export function DashboardMasterView({
             </SurfaceCardContent>
           </SurfaceCard>
 
-          <SurfaceCard>
-            <SurfaceCardContent className="flex flex-col gap-3 p-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <p>
-                {canEditStatement
-                  ? "Imported statement data is synced across dashboard and holdings views."
-                  : "Plaid brokerage data is broker-sourced, refreshable, and read-only inside Kai."}
-              </p>
-              <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2">
-                <MorphyButton
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  fullWidth
-                  disabled={isDeletingImportedData}
-                  onClick={canEditStatement ? onReupload : () => void openPlaidLinkFlow()}
-                  data-voice-control-id="import_portfolio"
-                >
-                  {canEditStatement ? "Import Portfolio" : "Connect Another Brokerage"}
-                </MorphyButton>
-                {canEditStatement ? (
-                  <MorphyButton
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    fullWidth
-                    className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                    disabled={isDeletingImportedData}
-                    onClick={() => setDeleteImportedDialogOpen(true)}
-                    data-voice-control-id="delete_imported_data"
-                  >
-                    {isDeletingImportedData ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-1 h-4 w-4" />
-                    )}
-                    Delete Imported Data
-                  </MorphyButton>
-                ) : (
-                  <MorphyButton
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    fullWidth
-                    onClick={() => handleRefreshPlaid()}
-                    disabled={isPlaidRefreshing}
-                    data-voice-control-id="refresh_plaid"
-                  >
-                    <RefreshCw className={`mr-1 h-4 w-4 ${isPlaidRefreshing ? "animate-spin" : ""}`} />
-                    Refresh Plaid
-                  </MorphyButton>
-                )}
-              </div>
-            </SurfaceCardContent>
-          </SurfaceCard>
         </TabsContent>
 
-        <TabsContent value="deep-dive" className="mt-0 space-y-4">
+        <TabsContent value="deep-dive" className="mt-0 space-y-5">
           <section className="space-y-3">
-            <h2 className="app-section-heading px-1 uppercase tracking-[0.12em] text-muted-foreground">
+            <h2 className="px-1 text-[15px] font-medium tracking-normal text-foreground">
               Portfolio Insights
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">
@@ -3008,43 +3259,18 @@ export function DashboardMasterView({
         onSave={handleSaveHolding}
       />
 
-      <AlertDialog
-        open={deleteImportedDialogOpen}
-        onOpenChange={(open) => {
-          if (isDeletingImportedData) return;
-          setDeleteImportedDialogOpen(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Imported Portfolio Data?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes imported holdings and statement snapshots from your Vault. Profile
-              and consent data are kept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingImportedData}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeletingImportedData}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDeleteImportedData();
-              }}
-            >
-              {isDeletingImportedData ? (
-                <>
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {vaultKey && vaultOwnerToken ? (
+        <KaiPreferencesSheet
+          open={preferencesSheetOpen}
+          onOpenChange={setPreferencesSheetOpen}
+          userId={userId}
+          vaultKey={vaultKey}
+          vaultOwnerToken={vaultOwnerToken}
+        />
+      ) : null}
+
+      {deletePortfolioDialog}
+      {deleteStatementSnapshotDialog}
     </div>
   );
 }

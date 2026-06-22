@@ -35,6 +35,8 @@ import {
 import {
   getOrCreateRequestId,
   REQUEST_ID_HEADER,
+  getOrCreateRequestTimestampMs,
+  REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import {
@@ -78,6 +80,11 @@ function normalizeNativeBackendUrl(raw: string): string {
   if (Capacitor.getPlatform() !== "android") {
     return trimmed;
   }
+  if (
+    process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"
+  ) {
+    return trimmed;
+  }
   const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
@@ -86,6 +93,57 @@ function normalizeNativeBackendUrl(raw: string): string {
     return trimmed.replace("127.0.0.1", "10.0.2.2");
   }
   return trimmed;
+}
+
+function decodeNativeBinaryPayload(data: unknown): Uint8Array {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (Array.isArray(data)) {
+    return new Uint8Array(data);
+  }
+
+  const raw =
+    typeof data === "string"
+      ? data
+      : data &&
+          typeof data === "object" &&
+          "data" in data &&
+          typeof (data as { data?: unknown }).data === "string"
+        ? String((data as { data: string }).data)
+        : "";
+  const base64 = raw.includes(",") ? raw.split(",").pop() || "" : raw;
+  if (!base64) return new Uint8Array();
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function getNativeHeaderValue(
+  headers: Record<string, unknown> | undefined,
+  name: string
+): string | null {
+  if (!headers) return null;
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() !== target || value === undefined || value === null) {
+      continue;
+    }
+    return Array.isArray(value) ? value.join(",") : String(value);
+  }
+  return null;
 }
 
 function detectHostedToLocalMismatch(apiBase: string): string | null {
@@ -103,6 +161,18 @@ function detectHostedToLocalMismatch(apiBase: string): string | null {
   if (!hostedServer) return null;
 
   return `Hosted WebView origin (${nativeServerOrigin}) cannot use local backend (${apiBase}). Set NEXT_PUBLIC_BACKEND_URL to hosted backend before native build.`;
+}
+
+function updateNativePortfolioImportDebug(
+  updates: Record<string, string | number | null | undefined>
+): void {
+  if (typeof window === "undefined") return;
+  const bridge = window.__HUSHH_NATIVE_TEST__;
+  if (!bridge?.enabled) return;
+  for (const [key, value] of Object.entries(updates)) {
+    (bridge as unknown as Record<string, string | number | undefined>)[key] =
+      value === null || value === undefined ? "" : value;
+  }
 }
 
 // API Base URL configuration
@@ -208,6 +278,19 @@ function toStatusBucketFromStatus(
   return "network_error";
 }
 
+export class MarketInsightsEmptyError extends Error {
+  readonly status = 404;
+
+  constructor() {
+    super("Market insights are not ready yet.");
+    this.name = "MarketInsightsEmptyError";
+  }
+}
+
+export function isMarketInsightsEmptyError(error: unknown): error is MarketInsightsEmptyError {
+  return error instanceof MarketInsightsEmptyError;
+}
+
 async function classifyVaultOwnerAuthFailure(
   response: Response
 ): Promise<VaultOwnerAuthFailure> {
@@ -263,6 +346,7 @@ async function apiFetch(
   const routeId =
     typeof window !== "undefined" ? resolveRouteId(window.location.pathname) : undefined;
   const requestId = getOrCreateRequestId(options.headers);
+  const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
 
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
@@ -286,6 +370,7 @@ async function apiFetch(
     }
   }
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
+  mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 
   const getAuthorizationBearer = () => {
     const authorization =
@@ -349,6 +434,18 @@ async function apiFetch(
       dispatchAuthSessionInvalidated("Firebase session refresh failed");
       return null;
     }
+  };
+
+  const responseLooksLikeAuthServiceUnavailable = async (response: Response) => {
+    if (response.status !== 401 && response.status !== 503) return false;
+    const text = await response.clone().text().catch(() => "");
+    const normalized = text.toLowerCase();
+    return (
+      normalized.includes("firebase validation unavailable") ||
+      normalized.includes("firebase id token verification timed out") ||
+      normalized.includes("auth/network-request-failed") ||
+      normalized.includes("network-request-failed")
+    );
   };
 
   const recordApiRequestMetric = (statusCode: number | null) => {
@@ -471,7 +568,7 @@ async function apiFetch(
         );
       }
     }
-    if (response.status === 401) {
+    if (response.status === 401 && !(await responseLooksLikeAuthServiceUnavailable(response))) {
       const retryResponse = await retryWithFreshFirebaseToken();
       if (retryResponse) {
         return retryResponse;
@@ -601,6 +698,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
   const backend = transport.backendUrl || getEnvBackendUrl();
   const url = `${backend}${path}`;
   const requestId = getOrCreateRequestId(options.headers);
+  const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
     mergedHeaders["Content-Type"] = "application/json";
@@ -623,6 +721,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
     }
   }
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
+  mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 
   const recordVoiceRequestMetric = (statusCode: number | null) => {
     trackApiRequestCompleted({
@@ -980,6 +1079,14 @@ export interface AccountPhoneClaimResponse {
   user_id: string;
   identity: AccountIdentity | null;
   phone_verified: boolean;
+  phone_session_cleanup?: string;
+}
+
+export interface AccountPhoneTestStartResponse {
+  success: boolean;
+  eligible: boolean;
+  verification_id?: string;
+  reason?: string;
 }
 
 /**
@@ -1424,6 +1531,92 @@ export class ApiService {
             : typeof payload.error === "string"
               ? payload.error
               : `Phone claim failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
+  }
+
+  static async startUatPhoneTestVerification(
+    phoneNumber: string,
+    idToken?: string
+  ): Promise<AccountPhoneTestStartResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return {
+        success: false,
+        eligible: false,
+        reason: "missing_firebase_id_token",
+      };
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/start", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      return {
+        success: false,
+        eligible: false,
+        reason:
+          typeof payload.error === "string"
+            ? payload.error
+            : `uat_phone_test_start_${response.status}`,
+      };
+    }
+
+    return {
+      success: payload.success === true,
+      eligible: payload.eligible === true,
+      verification_id:
+        typeof payload.verification_id === "string" ? payload.verification_id : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    };
+  }
+
+  static async confirmUatPhoneTestVerification(
+    phoneNumber: string,
+    verificationCode: string,
+    verificationId: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/confirm", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+        verification_code: verificationCode,
+        verification_id: verificationId,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `UAT phone test verification failed with HTTP ${response.status}`;
       throw new Error(message);
     }
 
@@ -2235,9 +2428,9 @@ export class ApiService {
     userId: string;
     scopes?: string[];
   }): Promise<Response> {
-    // Updated to use dynamic attr.* scopes instead of legacy vault.read.*/vault.write.*
+    // Uses dynamic attr.* scopes instead of legacy vault wildcard scopes.
     const scopes = data.scopes || [
-      "attr.financial.risk_profile",  // Replaces vault.read.risk_profile
+      "attr.financial.risk_profile",
       "agent.kai.analyze",
     ];
 
@@ -2383,6 +2576,216 @@ export class ApiService {
   }
 
   /**
+   * Stream a broad Agent text chat response.
+   *
+   * This is intentionally separate from Kai finance chat and the OpenAI realtime
+   * voice session. The backend uses Gemini and stores encrypted Agent history.
+   */
+  static async streamAgentChat(data: {
+    userId: string;
+    message: string;
+    conversationId?: string;
+    vaultOwnerToken: string;
+    pkmContext?: string;
+    runtimeCredential?: string | null;
+    runtimeCredentialMode?: string | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        message: data.message,
+        conversation_id: data.conversationId,
+        pkm_context: data.pkmContext,
+        runtime_credential: data.runtimeCredential || undefined,
+        runtime_credential_mode: data.runtimeCredentialMode || undefined,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async transcribeAgentVoice(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    audio: Blob;
+    filename?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const formData = new FormData();
+    formData.set("user_id", data.userId);
+    formData.set(
+      "audio",
+      data.audio,
+      data.filename || "agent-voice-utterance.webm"
+    );
+
+    return apiFetch("/api/kai/agent/voice/stt", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: formData,
+      signal: data.signal,
+    });
+  }
+
+  static async synthesizeAgentVoice(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    text: string;
+    voice?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    if (Capacitor.isNativePlatform()) {
+      const apiBase = getApiBaseUrl();
+      if (!apiBase) {
+        throw new Error(
+          "Native Agent voice TTS requires NEXT_PUBLIC_BACKEND_URL."
+        );
+      }
+      const mismatchMessage = detectHostedToLocalMismatch(apiBase);
+      if (mismatchMessage) {
+        throw new Error(mismatchMessage);
+      }
+      if (data.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
+      const abortPromise = data.signal
+        ? new Promise<never>((_resolve, reject) => {
+            data.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true }
+            );
+          })
+        : null;
+      const requestPromise = CapacitorHttp.request({
+        url: `${apiBase}/api/kai/agent/voice/tts`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        data: {
+          user_id: data.userId,
+          text: data.text,
+          voice: data.voice,
+        },
+        responseType: "arraybuffer",
+        readTimeout: 55_000,
+        connectTimeout: 15_000,
+      });
+      const nativeResponse = abortPromise
+        ? await Promise.race([requestPromise, abortPromise])
+        : await requestPromise;
+      const headers = new Headers();
+      Object.entries(nativeResponse.headers || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        headers.set(key, String(value));
+      });
+      const contentType =
+        getNativeHeaderValue(nativeResponse.headers, "content-type") ||
+        getNativeHeaderValue(nativeResponse.headers, "Content-Type") ||
+        "audio/wav";
+      headers.set("Content-Type", contentType);
+
+      const audioBytes = decodeNativeBinaryPayload(nativeResponse.data);
+      return new Response(toArrayBuffer(audioBytes), {
+        status: nativeResponse.status,
+        headers,
+      });
+    }
+
+    return apiFetch("/api/kai/agent/voice/tts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        text: data.text,
+        voice: data.voice,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async listAgentChatConversations(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async getAgentChatHistory(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async renameAgentChatConversation(data: {
+    conversationId: string;
+    title: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({ title: data.title }),
+      }
+    );
+  }
+
+  static async deleteAgentChatConversation(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  /**
    * Import portfolio from brokerage statement
    *
    * Accepts CSV or PDF files and returns portfolio analysis with losers.
@@ -2439,6 +2842,15 @@ export class ApiService {
               const raw =
                 error instanceof Error ? String(error.message || "") : String(error || "");
               if (
+                /native import stream ended without terminal event|stream ended without terminal event/i.test(
+                  raw
+                )
+              ) {
+                return new Error(
+                  "We could not finish importing this statement. Please retry."
+                );
+              }
+              if (
                 /network connection was lost|stream error|failed to fetch|network error/i.test(
                   raw
                 )
@@ -2478,6 +2890,15 @@ export class ApiService {
                     fail(new Error("Native SSE event mismatch"));
                     return;
                   }
+                  const nativeBridge =
+                    typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                  if (nativeBridge?.enabled) {
+                    nativeBridge.portfolioStreamEventCount =
+                      (nativeBridge.portfolioStreamEventCount || 0) + 1;
+                    nativeBridge.portfolioStreamLastEvent = envelope.event;
+                    nativeBridge.portfolioStreamLastSeq = String(envelope.seq);
+                    nativeBridge.portfolioStreamLastError = "";
+                  }
 
                   controller.enqueue(
                     encoder.encode(
@@ -2500,11 +2921,23 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native import stream ended without terminal event"));
+                const error = new Error("Native import stream ended without terminal event");
+                const nativeBridge =
+                  typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                if (nativeBridge?.enabled) {
+                  nativeBridge.portfolioStreamLastError = error.message;
+                }
+                fail(error);
                 return;
               }
               close();
             } catch (error) {
+              const nativeBridge =
+                typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+              if (nativeBridge?.enabled) {
+                nativeBridge.portfolioStreamLastError =
+                  error instanceof Error ? error.message : String(error);
+              }
               fail(error);
             } finally {
               params.signal?.removeEventListener("abort", handleAbort);
@@ -2535,18 +2968,61 @@ export class ApiService {
     vaultOwnerToken: string;
     signal?: AbortSignal;
   }): Promise<Response> {
-    const response = await apiFetch("/api/kai/portfolio/import/run/start", {
-      method: "POST",
-      body: params.formData,
-      headers: {
-        Authorization: `Bearer ${params.vaultOwnerToken}`,
-      },
-      signal: params.signal,
+    updateNativePortfolioImportDebug({
+      portfolioImportStartState: "requesting",
+      portfolioImportStartStatus: "",
+      portfolioImportStartRunId: "",
+      portfolioImportStartError: "",
+      portfolioStreamState: "",
+      portfolioStreamRunId: "",
+      portfolioStreamEventCount: 0,
+      portfolioStreamLastEvent: "",
+      portfolioStreamLastSeq: "",
+      portfolioStreamLastError: "",
     });
-    trackEvent("import_upload_started", {
-      result: toResultFromStatus(response.status),
-    });
-    return response;
+    try {
+      const response = await apiFetch("/api/kai/portfolio/import/run/start", {
+        method: "POST",
+        body: params.formData,
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        signal: params.signal,
+      });
+      updateNativePortfolioImportDebug({
+        portfolioImportStartState: response.ok ? "ok" : "http_error",
+        portfolioImportStartStatus: String(response.status),
+      });
+      void response
+        .clone()
+        .json()
+        .then((payload: unknown) => {
+          const runId =
+            payload &&
+            typeof payload === "object" &&
+            typeof (payload as Record<string, unknown>).run_id === "string"
+              ? ((payload as Record<string, unknown>).run_id as string)
+              : "";
+          updateNativePortfolioImportDebug({
+            portfolioImportStartRunId: runId,
+          });
+        })
+        .catch(() => {
+          updateNativePortfolioImportDebug({
+            portfolioImportStartRunId: "",
+          });
+        });
+      trackEvent("import_upload_started", {
+        result: toResultFromStatus(response.status),
+      });
+      return response;
+    } catch (error) {
+      updateNativePortfolioImportDebug({
+        portfolioImportStartState: "error",
+        portfolioImportStartError: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   static async getActivePortfolioImportRun(params: {
@@ -2569,10 +3045,22 @@ export class ApiService {
     cursor?: number;
     signal?: AbortSignal;
   }): Promise<Response> {
+    updateNativePortfolioImportDebug({
+      portfolioStreamState: "requested",
+      portfolioStreamRunId: params.runId,
+      portfolioStreamEventCount: 0,
+      portfolioStreamLastEvent: "",
+      portfolioStreamLastSeq: "",
+      portfolioStreamLastError: "",
+    });
     if (Capacitor.isNativePlatform()) {
       try {
         const vaultOwnerToken = params.vaultOwnerToken;
         if (!vaultOwnerToken) {
+          updateNativePortfolioImportDebug({
+            portfolioStreamState: "missing_token",
+            portfolioStreamLastError: "Vault must be unlocked",
+          });
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
             { status: 401 }
@@ -2607,11 +3095,18 @@ export class ApiService {
               );
             };
             const handleAbort = () => {
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "aborted",
+                portfolioStreamLastError: "Aborted",
+              });
               fail(new DOMException("Aborted", "AbortError"));
             };
 
             try {
               params.signal?.addEventListener("abort", handleAbort, { once: true });
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "attaching_listener",
+              });
               listener = await Kai.addListener(
                 PORTFOLIO_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -2629,6 +3124,16 @@ export class ApiService {
                     fail(new Error("Native SSE event mismatch"));
                     return;
                   }
+                  updateNativePortfolioImportDebug({
+                    portfolioStreamState: "event_received",
+                    portfolioStreamEventCount:
+                      ((typeof window !== "undefined" &&
+                        window.__HUSHH_NATIVE_TEST__?.portfolioStreamEventCount) ||
+                        0) + 1,
+                    portfolioStreamLastEvent: envelope.event,
+                    portfolioStreamLastSeq: String(envelope.seq),
+                    portfolioStreamLastError: "",
+                  });
 
                   controller.enqueue(
                     encoder.encode(
@@ -2638,23 +3143,49 @@ export class ApiService {
 
                   if (envelope.terminal) {
                     sawTerminalEvent = true;
+                    updateNativePortfolioImportDebug({
+                      portfolioStreamState: "terminal_seen",
+                    });
                   }
                 }
               );
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "listener_attached",
+              });
 
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "plugin_invoking",
+              });
               await Kai.streamPortfolioImportRun({
                 runId: params.runId,
                 userId: params.userId,
                 cursor: Math.max(0, params.cursor ?? 0),
                 vaultOwnerToken,
               });
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "plugin_returned",
+              });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native import stream ended without terminal event"));
+                const error = new Error(
+                  "We could not finish importing this statement. Please retry."
+                );
+                updateNativePortfolioImportDebug({
+                  portfolioStreamState: "missing_terminal",
+                  portfolioStreamLastError: error.message,
+                });
+                fail(error);
                 return;
               }
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "closed",
+              });
               close();
             } catch (error) {
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "error",
+                portfolioStreamLastError: error instanceof Error ? error.message : String(error),
+              });
               fail(error);
             } finally {
               params.signal?.removeEventListener("abort", handleAbort);
@@ -2668,6 +3199,10 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamPortfolioImportRun error:", error);
+        updateNativePortfolioImportDebug({
+          portfolioStreamState: "response_error",
+          portfolioStreamLastError: (error as Error).message,
+        });
         return new Response(JSON.stringify({ error: (error as Error).message }), {
           status: 500,
         });
@@ -2860,6 +3395,9 @@ export class ApiService {
       duration_ms_bucket: toDurationBucket(durationMs),
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new MarketInsightsEmptyError();
+      }
       throw new Error(`Failed to load baseline market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;
@@ -2904,6 +3442,9 @@ export class ApiService {
       duration_ms_bucket: toDurationBucket(durationMs),
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new MarketInsightsEmptyError();
+      }
       throw new Error(`Failed to load market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;

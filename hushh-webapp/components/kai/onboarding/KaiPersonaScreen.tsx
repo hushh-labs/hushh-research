@@ -5,6 +5,10 @@ import { ArrowRight, Shield, Target, TrendingUp, type LucideIcon } from "lucide-
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  kaiAppBodyClassName,
+  kaiAppDisplayTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 
 const PERSONA_CONFIG: Record<
   RiskProfile,
@@ -14,31 +18,35 @@ const PERSONA_CONFIG: Record<
     headline: string;
     support: string;
     footerTagline: string;
+    accent: string;
     icon: LucideIcon;
   }
 > = {
   conservative: {
-    pill: "YOU VALUE STABILITY",
-    title: "Ready for steady growth?",
-    headline: "You prefer steady progress without unnecessary swings",
-    support: "Kai helps you grow steadily - without exposing you to unnecessary risk",
+    pill: "Stability first",
+    title: "Your plan should feel steady.",
+    headline: "You prefer dependable progress with fewer surprises.",
+    support: "Kai will keep risk visible, pacing calm, and every move easy to understand.",
     footerTagline: "Smart growth. Less stress.",
+    accent: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300 dark:bg-emerald-400/12",
     icon: Shield,
   },
   balanced: {
-    pill: "YOU PLAY IT SMART",
-    title: "Ready to move ahead?",
-    headline: "You're comfortable with some ups and downs for consistent long-term growth",
-    support: "Kai balances opportunity and discipline to keep your growth on track",
-    footerTagline: "Progress - without overexposure",
+    pill: "Balanced growth",
+    title: "You like progress with discipline.",
+    headline: "You can accept some movement when the long-term path is clear.",
+    support: "Kai will balance opportunity, concentration, and timing before suggesting action.",
+    footerTagline: "Progress without overexposure.",
+    accent: "text-primary bg-primary/10 dark:text-blue-300 dark:bg-blue-400/12",
     icon: Target,
   },
   aggressive: {
-    pill: "YOU'RE BUILT FOR GROWTH",
-    title: "Ready to level up?",
-    headline: "You're comfortable with market swings when the potential reward justifies it.",
-    support: "Kai helps you pursue stronger growth while managing risk intelligently",
-    footerTagline: "Let's build momentum",
+    pill: "Growth focused",
+    title: "You are comfortable leaning in.",
+    headline: "You can handle larger swings when the upside is worth the risk.",
+    support: "Kai will help you pursue momentum while keeping downside and concentration in view.",
+    footerTagline: "Build momentum with guardrails.",
+    accent: "text-orange-600 bg-orange-500/10 dark:text-orange-300 dark:bg-orange-400/12",
     icon: TrendingUp,
   },
 };
@@ -54,55 +62,70 @@ export function KaiPersonaScreen(props: {
   return (
     <main
       data-top-content-anchor="true"
-      className="min-h-[100dvh] w-full bg-transparent flex flex-col px-8 pt-[var(--app-fullscreen-flow-content-offset)] pb-[var(--app-screen-footer-pad)]"
+      className="flex min-h-[100dvh] w-full flex-col bg-transparent px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
     >
-      <div className="w-full max-w-md mx-auto flex-1 min-h-0 flex items-start sm:items-center">
-        <section className="relative w-full py-4">
-          <div className="relative z-10 space-y-6 text-left">
-            <div className="h-20 w-20 rounded-[24px] border border-border/60 bg-background/70 backdrop-blur-sm grid place-items-center shadow-sm">
-              <Icon icon={icon} size={40} className="text-[var(--brand-600)]" />
+      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[28rem] flex-1 items-center py-6">
+        <section className="w-full text-center">
+          <div className="mx-auto flex w-full flex-col items-center">
+            <div
+              className={`grid h-[52px] w-[52px] place-items-center rounded-[17px] ${cfg.accent}`}
+              aria-hidden="true"
+            >
+              <Icon icon={icon} size={26} />
             </div>
 
-            <div className="space-y-3">
-              <p className="text-[13px] font-extrabold tracking-[0.2em] text-[var(--brand-600)] uppercase leading-tight">
+            <div className="mt-5 space-y-3">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {cfg.pill}
               </p>
-              <h1 className="text-[clamp(2rem,9.5vw,2.75rem)] font-bold tracking-tight leading-[1.05] text-foreground">
+              <h1 className={`text-balance ${kaiAppDisplayTitleClassName} text-foreground`}>
                 {cfg.title}
               </h1>
+              <p className={`mx-auto max-w-[30rem] ${kaiAppBodyClassName} text-muted-foreground`}>
+                {cfg.support}
+              </p>
             </div>
 
-            <p className="text-[16px] font-medium leading-relaxed text-muted-foreground">
-              {cfg.support}
-            </p>
+            <div className="mt-8 w-full border-y border-black/[0.08] py-5 text-left dark:border-white/10">
+              <p className="text-[13px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                Kai profile
+              </p>
+              <p className="mt-2 text-[18px] font-medium leading-[1.45] text-foreground sm:text-[19px]">
+                {cfg.headline}
+              </p>
+              <p className="mt-3 text-[15px] leading-[1.45] text-muted-foreground">
+                {cfg.footerTagline}
+              </p>
+            </div>
 
-            <p className="text-[21px] font-semibold leading-relaxed text-foreground">
-              {cfg.headline}
-            </p>
+            <div className="mt-7 w-full space-y-3">
+              <Button
+                type="button"
+                size="lg"
+                fullWidth
+                onClick={props.onLaunchDashboard}
+                showRipple
+                className="h-11 rounded-full text-[15px] font-semibold shadow-[0_16px_34px_-24px_rgba(0,113,227,0.85)]"
+              >
+                Connect portfolio
+                <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
+              </Button>
 
-            <p className="text-[16px] font-medium leading-relaxed text-muted-foreground">
-              {cfg.footerTagline}
-            </p>
-
-            <Button size="lg" fullWidth onClick={props.onLaunchDashboard} showRipple>
-              Open Portfolio
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-
-            {props.onEditAnswers && (
-              <div className="pt-1">
+              {props.onEditAnswers && (
                 <Button
-                  variant="blue-gradient"
+                  type="button"
+                  variant="none"
                   effect="fade"
                   size="lg"
                   fullWidth
                   onClick={props.onEditAnswers}
                   showRipple={false}
+                  className="h-11 rounded-full !bg-primary/10 text-[15px] font-semibold !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
                 >
                   Edit answers
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </section>
       </div>

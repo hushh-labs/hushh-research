@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
-
-import { ROUTES } from "@/lib/navigation/routes";
+import { ClientRedirect } from "@/components/navigation/client-redirect";
+import { buildRiaConsentManagerHref } from "@/lib/consent/consent-sheet-route";
 
 export default function RiaRequestsCompatibilityPage() {
-  redirect(ROUTES.CONSENTS);
+  return <ClientRedirect to={buildRiaConsentManagerHref("pending")} />;
 }

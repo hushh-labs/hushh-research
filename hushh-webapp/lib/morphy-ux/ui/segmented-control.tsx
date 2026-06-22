@@ -98,6 +98,7 @@ export function SegmentedControl({
         
         return (
           <button
+            type="button"
             key={option.value}
             role="radio"
             aria-checked={isActive}

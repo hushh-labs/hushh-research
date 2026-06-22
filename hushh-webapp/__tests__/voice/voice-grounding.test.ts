@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ROUTES } from "@/lib/navigation/routes";
 import { resolveGroundedVoicePlan, VOICE_MANUAL_ONLY_MESSAGE } from "@/lib/voice/voice-grounding";
 import type { StructuredScreenContext } from "@/lib/voice/screen-context-builder";
 import type { AppRuntimeState, VoiceResponse } from "@/lib/voice/voice-types";
@@ -58,9 +59,9 @@ function makeRuntimeState(
       pathname,
       screen: pathname.startsWith("/profile")
         ? "profile_account"
-        : pathname.startsWith("/kai/analysis")
+        : pathname.startsWith(ROUTES.KAI_ANALYSIS) || pathname.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)
           ? "kai_analysis"
-          : pathname.startsWith("/kai/optimize")
+          : pathname.startsWith(ROUTES.KAI_OPTIMIZE) || pathname.startsWith(ROUTES.LEGACY_KAI_OPTIMIZE)
             ? "kai_optimize"
             : pathname.startsWith("/kai")
               ? "kai_market"
@@ -164,10 +165,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/kai/analysis",
+        href: ROUTES.KAI_ANALYSIS,
         reason: "hidden_action_navigation_prerequisite",
         settlementTarget: {
-          route: "/kai/analysis",
+          route: ROUTES.KAI_ANALYSIS,
           screen: "kai_analysis",
         },
       },
@@ -210,10 +211,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/kai/optimize",
+        href: ROUTES.KAI_OPTIMIZE,
         reason: "route_bound_action",
         settlementTarget: {
-          route: "/kai/optimize",
+          route: ROUTES.KAI_OPTIMIZE,
           screen: "kai_optimize",
         },
       },
@@ -239,10 +240,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/kai/analysis",
+        href: ROUTES.KAI_ANALYSIS,
         reason: "route_bound_action",
         settlementTarget: {
-          route: "/kai/analysis",
+          route: ROUTES.KAI_ANALYSIS,
           screen: "kai_analysis",
         },
       },
@@ -261,7 +262,7 @@ describe("resolveGroundedVoicePlan", () => {
     const plan = resolveGroundedVoicePlan({
       transcript: "analyze it",
       response,
-      structuredContext: makeContext("/kai/analysis"),
+      structuredContext: makeContext(ROUTES.KAI_ANALYSIS),
     });
 
     expect(plan.status).toBe("ambiguous");
@@ -328,11 +329,11 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/profile/pkm-agent-lab",
+        href: ROUTES.PKM,
         reason: "route_bound_action",
         settlementTarget: {
-          route: "/profile/pkm-agent-lab",
-          screen: "profile_pkm_agent_lab",
+          route: ROUTES.PKM,
+          screen: "pkm",
         },
       },
     ]);
@@ -589,6 +590,35 @@ describe("resolveGroundedVoicePlan", () => {
     ]);
   });
 
+  it("prevents invalid canonical action ids from leaking transcript route fallbacks", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening analysis.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open analysis",
+      response,
+      structuredContext: makeContext("/kai"),
+      canonicalActionId: "route.invalid_dashboard",
+    });
+
+    expect(plan.status).toBe("unavailable");
+    expect(plan.actionId).toBe("route.invalid_dashboard");
+    expect(plan.resolutionSource).toBe("canonical");
+    expect(plan.execution).toEqual({
+      mode: "unavailable",
+      steps: [
+        {
+          type: "prompt",
+          message: "I can’t do that right now.",
+          reason: "canonical_action_not_found",
+        },
+      ],
+    });
+  });
+
   it("disables heuristic compatibility fallback when explicitly requested", () => {
     const response: VoiceResponse = {
       kind: "speak_only",
@@ -607,5 +637,29 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.actionId).toBeNull();
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
+  });
+
+  it("preserves unavailable execution mode for blocked planner actions", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "That action is unavailable.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "delete my account",
+      response,
+      structuredContext: makeContext("/profile"),
+      canonicalActionId: "profile.delete_account",
+    });
+
+    expect(plan.status).toBe("manual_only");
+    expect(plan.execution.mode).toBe("manual_only");
+
+    expect(plan.execution.steps).toHaveLength(1);
+    expect(plan.execution.steps[0]).toMatchObject({
+      type: "prompt",
+      reason: "destructive_action_policy",
+    });
   });
 });

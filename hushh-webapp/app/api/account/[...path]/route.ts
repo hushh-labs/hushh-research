@@ -10,8 +10,8 @@ import {
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
-const ACCOUNT_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000, {
-  developmentFloorMs: 20_000,
+const ACCOUNT_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ACCOUNT_API_TIMEOUT_MS",
 });
 
@@ -42,9 +42,12 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (authHeader) headers.set("Authorization", authHeader);
 
     let body: BodyInit | undefined;
-    if (request.method !== "GET" && request.method !== "DELETE") {
-      headers.set("Content-Type", contentType || "application/json");
-      body = await request.text();
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const requestBody = await request.text();
+      if (requestBody.length > 0) {
+        headers.set("Content-Type", contentType || "application/json");
+        body = requestBody;
+      }
     }
 
     const response = await fetch(url, {

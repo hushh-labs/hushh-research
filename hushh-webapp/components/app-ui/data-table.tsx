@@ -50,8 +50,6 @@ import { Search } from "lucide-react";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 
-const TABLE_SWIPE_THRESHOLD_PX = 44;
-
 function buildPaginationItems(currentPage: number, pageCount: number): Array<number | "ellipsis"> {
   if (pageCount <= 7) {
     return Array.from({ length: pageCount }, (_, index) => index + 1);
@@ -108,8 +106,6 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [globalFilter, setGlobalFilter] = React.useState("");
-
-  const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -202,55 +198,22 @@ export function DataTable<TData, TValue>({
     [currentPage, pageCount]
   );
 
-  const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0];
-    if (!touch) return;
-    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
-
-  const handleTouchEnd = React.useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const start = swipeStartRef.current;
-      swipeStartRef.current = null;
-      if (!start || !hasMultiplePages) return;
-
-      const touch = event.changedTouches[0];
-      if (!touch) return;
-      const deltaX = touch.clientX - start.x;
-      const deltaY = touch.clientY - start.y;
-
-      if (Math.abs(deltaX) < TABLE_SWIPE_THRESHOLD_PX || Math.abs(deltaY) > Math.abs(deltaX)) {
-        return;
-      }
-
-      if (deltaX < 0 && table.getCanNextPage()) {
-        table.nextPage();
-        return;
-      }
-
-      if (deltaX > 0 && table.getCanPreviousPage()) {
-        table.previousPage();
-      }
-    },
-    [hasMultiplePages, table]
-  );
-
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
 
   return (
-    <div
-      className="space-y-[var(--data-table-controls-gap)]"
-      data-no-route-swipe={hasMultiplePages ? "true" : undefined}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div className="space-y-[var(--data-table-controls-gap)]">
       {(enableSearch || (filterKey && filterOptions)) && (
         <div className="flex flex-col gap-3 sm:flex-row">
           {enableSearch && (
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <Input
+                type="search"
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
                 placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -315,7 +278,30 @@ export function DataTable<TData, TValue>({
                       header.column.getCanSort() ? "cursor-pointer select-none" : ""
                     )}
                     onClick={header.column.getToggleSortingHandler()}
-                  >
+                    tabIndex={header.column.getCanSort() ? 0 : undefined}
+                    role={header.column.getCanSort() ? "button" : undefined}
+                    aria-sort={
+                      header.column.getCanSort()
+                        ? header.column.getIsSorted() === "asc"
+                          ? "ascending"
+                          : header.column.getIsSorted() === "desc"
+                            ? "descending"
+                            : "none"
+                        : undefined
+                    }
+                    onKeyDown={(e) => {
+                      if (
+                        header.column.getCanSort() &&
+                        (e.key === "Enter" || e.key === " ")
+                      ) {
+                        e.preventDefault();
+
+                        header.column.toggleSorting(
+                          header.column.getIsSorted() === "asc"
+                        );
+                      }
+                    }}
+                    >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -337,6 +323,19 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  aria-selected={row.getIsSelected() || undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? "button" : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        }
+                      : undefined
+                  }
                   className={cn(
                     onRowClick
                       ? "cursor-pointer transition-[background-color,transform] duration-200 ease-out hover:-translate-y-px hover:bg-foreground/[0.045] active:translate-y-0 active:bg-foreground/[0.065]"
@@ -378,7 +377,11 @@ export function DataTable<TData, TValue>({
 
       {hasMultiplePages && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-muted-foreground sm:text-sm">
+          <div
+            aria-live="polite"
+            aria-atomic="true"
+            className="text-xs text-muted-foreground sm:text-sm"
+          >
             Showing {rangeStart}-{rangeEnd} of {filteredCount}
           </div>
 
@@ -390,7 +393,7 @@ export function DataTable<TData, TValue>({
                     variant="outline"
                     size="sm"
                     className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
-                    data-no-route-swipe
+                    aria-label="Rows per page"
                   >
                     {table.getState().pagination.pageSize}
                   </Button>
@@ -413,11 +416,12 @@ export function DataTable<TData, TValue>({
             </div>
 
             <Pagination className="justify-end">
-              <PaginationContent data-no-route-swipe>
+              <PaginationContent className="flex-wrap gap-y-1">
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
                     aria-disabled={!table.getCanPreviousPage()}
+                    tabIndex={!table.getCanPreviousPage() ? -1 : undefined}
                     className={cn(
                       !table.getCanPreviousPage() && "pointer-events-none opacity-50"
                     )}
@@ -431,11 +435,19 @@ export function DataTable<TData, TValue>({
                 </PaginationItem>
                 {paginationItems.map((item, index) =>
                   item === "ellipsis" ? (
-                    <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationItem
+                      key={`ellipsis-${index}`}
+                      className="hidden sm:flex"
+                    >
                       <PaginationEllipsis />
                     </PaginationItem>
                   ) : (
-                    <PaginationItem key={item}>
+                    <PaginationItem
+                      key={item}
+                      className={
+                        item === currentPage ? undefined : "hidden sm:flex"
+                      }
+                    >
                       <PaginationLink
                         href="#"
                         isActive={item === currentPage}
@@ -453,6 +465,7 @@ export function DataTable<TData, TValue>({
                   <PaginationNext
                     href="#"
                     aria-disabled={!table.getCanNextPage()}
+                    tabIndex={!table.getCanNextPage() ? -1 : undefined}
                     className={cn(!table.getCanNextPage() && "pointer-events-none opacity-50")}
                     onClick={(event) => {
                       event.preventDefault();

@@ -44,6 +44,7 @@ const {
     unlink: vi.fn(),
   },
   mockHushhAuth: {
+    signIn: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
     signOut: vi.fn(),
@@ -143,8 +144,23 @@ function createIdToken(expiresInSeconds: number): string {
   return `${header}.${payload}.signature`;
 }
 
+function enableLocalDevPhoneTest() {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+  vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION", "true");
+  vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE", "+918080469407");
+  vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE", "000000");
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      host: "localhost:3001",
+    },
+  });
+}
+
 describe("AuthService.restoreNativeSession", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     mockCapacitor.getPlatform.mockReturnValue("ios");
@@ -177,8 +193,63 @@ describe("AuthService.restoreNativeSession", () => {
     vi.mocked(FirebaseAuthentication.confirmVerificationCode).mockResolvedValue({} as any);
     vi.mocked(FirebaseAuthentication.linkWithPhoneNumber).mockResolvedValue(undefined as any);
     vi.mocked(FirebaseAuthentication.unlink).mockResolvedValue({ user: null } as any);
+    vi.mocked(HushhAuth.signIn).mockReset();
     vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({ user: null } as any);
     vi.mocked(HushhAuth.getIdToken).mockResolvedValue({ idToken: null } as any);
+  });
+
+  it("uses HushhAuth for Android Google sign-in before FirebaseAuthentication", async () => {
+    const idToken = createIdToken(60 * 60);
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    vi.mocked(HushhAuth.signIn).mockResolvedValue({
+      idToken,
+      accessToken: "google-id-token",
+      user: {
+        uid: "android-user",
+        email: "android@hushh.ai",
+        displayName: "Android User",
+        photoUrl: "https://example.com/android.png",
+        emailVerified: true,
+      },
+    } as any);
+
+    const result = await AuthService.signInWithGoogle();
+
+    expect(HushhAuth.signIn).toHaveBeenCalledTimes(1);
+    expect(FirebaseAuthentication.signInWithGoogle).not.toHaveBeenCalled();
+    expect(result.user.uid).toBe("android-user");
+    expect(result.idToken).toBe(idToken);
+  });
+
+  it("falls back to FirebaseAuthentication when Android HushhAuth Google sign-in fails", async () => {
+    const idToken = createIdToken(60 * 60);
+    const firebaseUser = {
+      uid: "firebase-native-user",
+      getIdToken: vi.fn().mockResolvedValue(idToken),
+    } as any;
+    mockAuth.currentUser = firebaseUser;
+    mockCapacitor.getPlatform.mockReturnValue("android");
+    vi.mocked(HushhAuth.signIn).mockRejectedValue(new Error("Native plugin unavailable"));
+    vi.mocked(FirebaseAuthentication.signInWithGoogle).mockResolvedValue({
+      user: {
+        uid: "firebase-native-user",
+        email: "firebase@hushh.ai",
+      },
+      credential: {
+        idToken,
+        accessToken: "google-access-token",
+      },
+    } as any);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+      token: idToken,
+    } as any);
+
+    const result = await AuthService.signInWithGoogle();
+
+    expect(HushhAuth.signIn).toHaveBeenCalledTimes(1);
+    expect(FirebaseAuthentication.signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(result.user).toBe(firebaseUser);
+    expect(result.idToken).toBe(idToken);
   });
 
   it("cleans up a synchronously restored Firebase JS listener", async () => {
@@ -315,6 +386,47 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
+  it("starts local dev phone verification without calling Firebase for the configured test phone", async () => {
+    enableLocalDevPhoneTest();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("firebase-verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    const result = await AuthService.startPhoneLinkVerification("+918080469407", {
+      recaptchaVerifier: {} as any,
+    });
+
+    expect(verifyPhoneNumber).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      autoVerified: false,
+      verificationId: "local-dev-phone:%2B918080469407",
+    });
+  });
+
+  it("confirms local dev phone verification with the configured OTP", async () => {
+    enableLocalDevPhoneTest();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    const verifiedUser = await AuthService.confirmLocalDevPhoneVerification({
+      verificationCode: "000000",
+      verificationId: "local-dev-phone:%2B918080469407",
+    });
+
+    expect(verifiedUser).toBe(mockAuth.currentUser);
+  });
+
   it("normalizes Firebase SMS throttle errors during web phone verification", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     const verifyPhoneNumber = vi.fn().mockRejectedValue({
@@ -340,6 +452,70 @@ describe("AuthService.restoreNativeSession", () => {
       message:
         "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number.",
     });
+  });
+
+  it("normalizes duplicate live-account phone errors during web phone verification", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockRejectedValue({
+      code: "auth/phone-number-already-exists",
+      message: "Firebase: Error (auth/phone-number-already-exists).",
+    });
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    await expect(
+      AuthService.startPhoneLinkVerification("+16505550101", {
+        recaptchaVerifier: {} as any,
+      })
+    ).rejects.toMatchObject({
+      code: "phone-number-already-exists",
+      message:
+        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
+    });
+  });
+
+  it("uses native Firebase phone linking without minting a web phone claim token", async () => {
+    const listeners: Record<string, (event: any) => void | Promise<void>> = {};
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = {
+      uid: "native-user",
+      phoneNumber: null,
+    } as any;
+    vi.mocked(FirebaseAuthentication.addListener).mockImplementation(
+      async (eventName: string, callback: (event: any) => void | Promise<void>) => {
+        listeners[eventName] = callback;
+        return { remove: vi.fn() } as any;
+      }
+    );
+
+    const startPromise = AuthService.startPhoneLinkVerification("+16505550101", {
+      resendCode: true,
+      timeout: 30,
+    });
+
+    for (let i = 0; i < 10 && !listeners.phoneCodeSent; i += 1) {
+      await Promise.resolve();
+    }
+    expect(listeners.phoneCodeSent).toBeTypeOf("function");
+    await listeners.phoneCodeSent({ verificationId: "native-verification-id" });
+
+    await expect(startPromise).resolves.toEqual({
+      autoVerified: false,
+      verificationId: "native-verification-id",
+    });
+    expect(FirebaseAuthentication.linkWithPhoneNumber).toHaveBeenCalledWith({
+      phoneNumber: "+16505550101",
+      resendCode: true,
+      timeout: 30,
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
   it("links the web user phone number during link confirmation", async () => {
@@ -443,5 +619,11 @@ describe("AuthService.restoreNativeSession", () => {
       message: "This phone number is already linked to your account.",
       code: "phone-already-linked-to-current-user",
     });
+  });
+
+  it("recognizes UAT phone test verification ids without treating them as local dev ids", () => {
+    expect(AuthService.isUatPhoneTestVerificationId("uat-test-phone:abc123")).toBe(true);
+    expect(AuthService.isUatPhoneTestVerificationId("local-dev-phone:%2B16505550101")).toBe(false);
+    expect(AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123")).toBe(false);
   });
 });

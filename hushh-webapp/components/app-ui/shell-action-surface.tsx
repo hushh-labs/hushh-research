@@ -7,12 +7,12 @@ import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 
 const shellActionSurfaceVariants = cva(
-  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] bg-[length:100%_100%] bg-no-repeat text-[color:var(--app-shell-surface-foreground)] shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)] transition-[background-color,transform,box-shadow,border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/55 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:pointer-events-none disabled:opacity-60",
+  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-sky-500/28 bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] bg-[length:100%_100%] bg-no-repeat text-[color:var(--app-shell-surface-foreground)] shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)] transition-[background-color,transform,box-shadow,border-color] duration-200 hover:border-sky-500/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:border-sky-400/24 dark:hover:border-sky-300/48",
   {
     variants: {
       variant: {
         icon: "h-10 w-10 items-center justify-center hover:scale-[1.035] hover:bg-[color:var(--app-shell-surface-bg-hover)] active:scale-[0.965]",
-        pill: "min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 px-3 py-1.5 text-[14px] font-semibold tracking-tight hover:bg-[color:var(--app-shell-surface-bg-hover)] sm:gap-2 sm:px-4 sm:text-base",
+        pill: "min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 px-3 py-1.5 text-[14px] font-medium tracking-normal hover:bg-[color:var(--app-shell-surface-bg-hover)] sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {
@@ -77,7 +77,7 @@ export const ShellActionSurface = React.forwardRef<
         >
           {children}
         </span>
-        <MaterialRipple variant="none" effect="fade" className={cn("z-10", rippleClassName)} />
+        <MaterialRipple variant="blue" effect="glass" className={cn("z-10", rippleClassName)} />
       </button>
       {badge ? (
         <span

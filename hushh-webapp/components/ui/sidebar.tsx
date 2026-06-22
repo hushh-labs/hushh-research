@@ -273,7 +273,7 @@ function SidebarTrigger({
       }}
       {...props}
     >
-      <PanelLeftIcon />
+      <PanelLeftIcon aria-hidden="true" />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   )
@@ -284,6 +284,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
 
   return (
     <button
+      type="button"
       data-sidebar="rail"
       data-slot="sidebar-rail"
       aria-label="Toggle Sidebar"
@@ -513,6 +514,7 @@ function SidebarMenuButton({
 
   const button = (
     <Comp
+      type={asChild ? undefined : "button"}
       data-slot="sidebar-menu-button"
       data-sidebar="menu-button"
       data-size={size}
@@ -558,6 +560,7 @@ function SidebarMenuAction({
 
   return (
     <Comp
+      type={asChild ? undefined : "button"}
       data-slot="sidebar-menu-action"
       data-sidebar="menu-action"
       className={cn(

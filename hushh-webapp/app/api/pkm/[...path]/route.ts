@@ -7,6 +7,7 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
+import { CURRENT_PKM_MODEL_VERSION } from "@/lib/personal-knowledge-model/upgrade-contracts";
 
 export const dynamic = "force-dynamic";
 const metadataHotGet = createHotGetJsonCache({
@@ -14,10 +15,107 @@ const metadataHotGet = createHotGetJsonCache({
   staleTtlMs: 30 * 60 * 1000,
 });
 const PKM_PROXY_TIMEOUT_MS = Number.parseInt(process.env.PKM_PROXY_TIMEOUT_MS ?? "45000", 10);
+const PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS = Number.parseInt(
+  process.env.PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS ?? "90000",
+  10
+);
 const PKM_PROXY_WRITE_TIMEOUT_MS = Number.parseInt(
   process.env.PKM_PROXY_WRITE_TIMEOUT_MS ?? "180000",
   10
 );
+
+type PkmProxyResult = {
+  status: number;
+  payload: unknown;
+  correlationId: string | null;
+  traceId: string | null;
+  emptyState?: "pkm-metadata" | "pkm-domain-data" | "pkm-data";
+};
+
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function emptyMetadataPayload(pathStr: string) {
+  const encodedUserId = pathStr.slice("metadata/".length).split("/")[0] || "";
+  const userId = decodePathSegment(encodedUserId);
+  return {
+    user_id: userId,
+    domains: [],
+    total_attributes: 0,
+    model_completeness: 0,
+    model_version: CURRENT_PKM_MODEL_VERSION,
+    stored_model_version: CURRENT_PKM_MODEL_VERSION,
+    effective_model_version: CURRENT_PKM_MODEL_VERSION,
+    target_model_version: CURRENT_PKM_MODEL_VERSION,
+    upgrade_status: "current",
+    upgradable_domains: [],
+    last_upgraded_at: null,
+    suggested_domains: [],
+    last_updated: null,
+  };
+}
+
+function emptyDomainDataPayload() {
+  return {
+    encrypted_blob: null,
+    storage_mode: "domain",
+    data_version: null,
+    updated_at: null,
+    manifest_revision: null,
+    segment_ids: [],
+  };
+}
+
+function emptyLegacyDataPayload() {
+  return {
+    ciphertext: null,
+    iv: null,
+    tag: null,
+    algorithm: null,
+    data_version: null,
+    updated_at: null,
+  };
+}
+
+function normalizeEmptyPkmGet(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  pathStr: string,
+  result: PkmProxyResult
+): PkmProxyResult {
+  if (method !== "GET" || result.status !== 404) {
+    return result;
+  }
+  if (pathStr.startsWith("metadata/")) {
+    return {
+      ...result,
+      status: 200,
+      payload: emptyMetadataPayload(pathStr),
+      emptyState: "pkm-metadata",
+    };
+  }
+  if (pathStr.startsWith("domain-data/")) {
+    return {
+      ...result,
+      status: 200,
+      payload: emptyDomainDataPayload(),
+      emptyState: "pkm-domain-data",
+    };
+  }
+  if (pathStr.startsWith("data/")) {
+    return {
+      ...result,
+      status: 200,
+      payload: emptyLegacyDataPayload(),
+      emptyState: "pkm-data",
+    };
+  }
+  return result;
+}
 
 async function proxyPkmRequest(
   request: NextRequest,
@@ -30,7 +128,9 @@ async function proxyPkmRequest(
   const query = request.nextUrl.search;
   const authHeader = request.headers.get("Authorization") || "";
   const hotCacheKey =
-    method === "GET" && pathStr.startsWith("metadata/") && authHeader
+    method === "GET" &&
+    authHeader &&
+    (pathStr.startsWith("metadata/") || pathStr.startsWith("upgrade/status/"))
       ? `${pathStr}${query}:${authHeader}`
       : null;
 
@@ -65,10 +165,12 @@ async function proxyPkmRequest(
       }
     }
 
-    const load = (async () => {
+    const load = (async (): Promise<PkmProxyResult> => {
       const timeoutMs =
         method === "POST" || method === "PUT" || method === "DELETE"
           ? PKM_PROXY_WRITE_TIMEOUT_MS
+          : pathStr.startsWith("upgrade/status/")
+            ? PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS
           : PKM_PROXY_TIMEOUT_MS;
       const response = await fetch(backendUrl, {
         method,
@@ -95,7 +197,7 @@ async function proxyPkmRequest(
       metadataHotGet.setInflight(hotCacheKey, load);
     }
 
-    const result = await load;
+    const result = normalizeEmptyPkmGet(method, pathStr, await load);
     if (hotCacheKey && result.status < 500) {
       metadataHotGet.write(hotCacheKey, result);
     } else if (hotCacheKey && result.status >= 500) {
@@ -113,6 +215,9 @@ async function proxyPkmRequest(
     }
     if (result.traceId) {
       responseHeaders["x-cloud-trace-context"] = result.traceId;
+    }
+    if (result.emptyState) {
+      responseHeaders["x-hushh-empty-state"] = result.emptyState;
     }
     return withRequestIdJson(requestId, result.payload, {
       status: result.status,

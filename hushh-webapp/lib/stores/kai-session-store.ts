@@ -14,11 +14,13 @@
 
 import { create } from "zustand";
 import type { PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
+import { ROUTES } from "@/lib/navigation/routes";
 
 interface AnalysisParams {
   ticker: string;
   userId: string;
   riskProfile: string;
+  launchConfirmed?: boolean;
   userContext?: Record<string, unknown>;
   portfolioSource?: PortfolioSource;
   portfolioContext?: Record<string, unknown> | null;
@@ -73,7 +75,7 @@ export const useKaiSession = create<KaiSessionState>((set) => ({
   analysisParams: null,
   analysisParamsUpdatedAt: null,
   losersInput: null,
-  lastKaiPath: "/kai",
+  lastKaiPath: ROUTES.KAI_HOME,
   lastRiaPath: "/ria",
   busyOperations: {},
   isSearchDisabled: false,
@@ -104,7 +106,7 @@ export const useKaiSession = create<KaiSessionState>((set) => ({
       analysisParams: null,
       analysisParamsUpdatedAt: null,
       losersInput: null,
-      lastKaiPath: "/kai",
+      lastKaiPath: ROUTES.KAI_HOME,
       lastRiaPath: "/ria",
       busyOperations: {},
       isSearchDisabled: false,

@@ -9,18 +9,28 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import {
+  invalidJsonPayloadResponse,
+  readJsonObject,
+} from "@/app/api/_utils/json-body";
 
 const BACKEND_URL = getPythonApiUrl();
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await readJsonObject(request)) as {
+      userId?: string;
+      requestId?: string;
+    } | null;
+    if (!body) {
+      return invalidJsonPayloadResponse();
+    }
     const { userId, requestId } = body;
 
     if (!userId || !requestId) {
       return NextResponse.json(
         { error: "userId and requestId are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -29,11 +39,13 @@ export async function POST(request: NextRequest) {
     if (!authHeader) {
       return NextResponse.json(
         { error: "Authorization header required" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
-    console.log(`[API] Cancelling consent request: ${requestId}`);
+    if (process.env.NODE_ENV !== "production") {
+  console.log(`[API] Cancelling consent request: ${requestId}`);
+}
 
     const response = await fetch(`${BACKEND_URL}/api/consent/cancel`, {
       method: "POST",
@@ -46,10 +58,12 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const error = await response.text();
-      console.error("[API] Backend error:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[API] Cancel consent error:", error);
+      }
       return NextResponse.json(
         { error: "Failed to cancel consent" },
-        { status: response.status }
+        { status: response.status },
       );
     }
 
@@ -59,7 +73,7 @@ export async function POST(request: NextRequest) {
     console.error("[API] Cancel consent error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

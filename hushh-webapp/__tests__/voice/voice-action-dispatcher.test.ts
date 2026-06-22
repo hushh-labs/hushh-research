@@ -35,6 +35,7 @@ vi.mock("@/lib/voice/investor-kai-action-registry", () => ({
 }));
 
 import { dispatchVoiceToolCall } from "@/lib/voice/voice-action-dispatcher";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function baseInput() {
   return {
@@ -116,6 +117,7 @@ describe("dispatchVoiceToolCall", () => {
       reason: "missing_symbol",
     }));
 
+
     const result = await dispatchVoiceToolCall({
       ...input,
       toolCall: {
@@ -135,6 +137,33 @@ describe("dispatchVoiceToolCall", () => {
         status: "invalid",
         resultSummary: "The requested Kai command was invalid.",
       },
+    });
+  });
+
+  it("keeps execute_kai_command ownership inside the canonical gateway executor", async () => {
+    const input = baseInput();
+    const toolCall = {
+      tool_name: "execute_kai_command" as const,
+      args: {
+        command: "open_dashboard",
+      },
+    };
+
+    input.executeKaiCommand.mockReturnValue({
+      status: "invalid",
+      reason: "Unknown Kai command",
+    });
+
+    const result = await dispatchVoiceToolCall({
+      ...input,
+      toolCall,
+    });
+
+    expect(input.executeKaiCommand).toHaveBeenCalledTimes(1);
+    expect(input.executeKaiCommand).toHaveBeenCalledWith(toolCall);
+    expect(result).toMatchObject({
+      status: "invalid",
+      toolName: "execute_kai_command",
     });
   });
 
@@ -184,11 +213,41 @@ describe("dispatchVoiceToolCall", () => {
       actionResult: {
         status: "succeeded",
         routeBefore: "/kai/dashboard",
-        routeAfter: "/kai/analysis?focus=active&run_id=run_123",
+        routeAfter: `${ROUTES.KAI_ANALYSIS}?focus=active&run_id=run_123`,
         screenBefore: "dashboard",
         screenAfter: "kai_analysis",
         resultSummary: "Resumed the active analysis run.",
       },
     });
+  });
+
+  it("rejects malformed execute_kai_command payload variants", async () => {
+    const malformedToolCalls = [
+      "execute_kai_comman",
+      " execute_kai_command ",
+      "EXECUTE_KAI_COMMAND",
+      "execute-kai-command",
+    ] as const;
+
+    for (const toolName of malformedToolCalls) {
+      const input = baseInput();
+
+      const result = await dispatchVoiceToolCall({
+        ...input,
+        toolCall: {
+          tool_name: toolName,
+          args: {
+            command: "dashboard",
+          },
+        },
+      });
+
+      expect(input.executeKaiCommand).not.toHaveBeenCalled();
+
+      expect(result).toMatchObject({
+        status: "invalid",
+        reason: "unsupported_tool_call",
+      });
+    }
   });
 });
