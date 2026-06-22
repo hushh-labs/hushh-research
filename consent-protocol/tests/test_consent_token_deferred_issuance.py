@@ -76,6 +76,10 @@ class TestConsentApproveTokenDeferral:
         if resp.status_code == 200:
             # If somehow 200 (stub environment), token should still be present
             return
-        body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        body = (
+            resp.json()
+            if resp.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
         # Verify the failure response does not carry a token
         assert "consent_token" not in body or body.get("consent_token") is None

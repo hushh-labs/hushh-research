@@ -341,6 +341,32 @@
       "expected_row_growth": "medium_workflow"
     },
     {
+      "id": "connected_system_workflows",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["connected_system_intents", "connected_system_record_bindings"],
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows",
+      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. Record bindings retain the current external CRM record id and workflow metadata only.",
+      "deletion_behavior": "Delete user-linked workflow rows on account deletion; compact terminal rows after the operational review window.",
+      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. Store only purpose-bound workflow state and scrub terminal payload values.",
+      "plaintext_posture": "pending_allowlisted_payload_then_metadata",
+      "expected_row_growth": "low_workflow"
+    },
+    {
+      "id": "connected_system_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["connected_system_audit_events"],
+      "primary_access_path": "Connected Systems read/create/update approval audit and CRM readback result classification",
+      "retention_policy": "Retain metadata audit rows for operational review; never retain raw CRM request, MCP result, or readback payload values in audit events.",
+      "deletion_behavior": "Preserve regulated audit metadata where required; redact user linkage if account deletion or legal process requires it.",
+      "trust_boundary": "Metadata-only audit evidence for external CRM actions. No vault data, raw PKM, full CRM payloads, credentials, or MCP tokens.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
       "id": "developer_access",
       "owner": "mcp-developer-surface",
       "data_class": "audit_regulated",

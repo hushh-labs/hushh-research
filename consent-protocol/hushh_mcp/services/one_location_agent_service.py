@@ -513,7 +513,11 @@ class OneLocationAgentService:
                 {"user_id": user_id},
             )
         except Exception as exc:
-            logger.debug("one.location.identity_lookup_failed user=%s error=%s", redact_log_value(user_id), exc)
+            logger.debug(
+                "one.location.identity_lookup_failed user=%s error=%s",
+                redact_log_value(user_id),
+                exc,
+            )
             return None
 
     def _identity_row_by_phone_digits(self, phone_digits: str) -> dict[str, Any] | None:
@@ -1209,7 +1213,7 @@ class OneLocationAgentService:
                 self._add_recommendation_reason(
                     signal,
                     code="location_key_ready",
-                    label="Ready for encrypted location sharing",
+                    label="Ready for location sharing",
                     weight=28,
                 )
             else:
@@ -1271,7 +1275,7 @@ class OneLocationAgentService:
                 tier = "setup_needed"
                 trust_level = "setup_needed"
                 category_label = "Needs setup"
-                summary = "They need to open One Location once before encrypted sharing."
+                summary = "They need to open One Location once before sharing."
             elif signal.get("needs_action"):
                 category = "needs_action"
                 tier = "needs_action"
@@ -1295,7 +1299,7 @@ class OneLocationAgentService:
                 tier = "available"
                 trust_level = "new"
                 category_label = "Location ready"
-                summary = "Verified KAI member with recipient encryption ready."
+                summary = "Verified One member ready for location sharing."
 
             enriched.append(
                 {
@@ -2109,7 +2113,12 @@ class OneLocationAgentService:
         )
 
     def _recipient_key_row(
-        self, *, recipient_user_id: str, recipient_key_id: str | None = None
+        self,
+        *,
+        recipient_user_id: str,
+        recipient_key_id: str | None = None,
+        require_phone_verified: bool = True,
+        unavailable_message: str | None = None,
     ) -> dict[str, Any]:
         row = self._execute_one(
             """
@@ -2119,18 +2128,23 @@ class OneLocationAgentService:
             FROM actor_identity_cache a
             JOIN one_location_recipient_keys k ON k.user_id = a.user_id
             WHERE a.user_id = :recipient_user_id
-              AND a.phone_verified = TRUE
+              AND (:require_phone_verified IS FALSE OR a.phone_verified = TRUE)
               AND k.status = 'active'
               AND (:recipient_key_id IS NULL OR k.key_id = :recipient_key_id)
             ORDER BY k.created_at DESC
             LIMIT 1
             """,
-            {"recipient_user_id": recipient_user_id, "recipient_key_id": recipient_key_id},
+            {
+                "recipient_user_id": recipient_user_id,
+                "recipient_key_id": recipient_key_id,
+                "require_phone_verified": require_phone_verified,
+            },
         )
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_UNAVAILABLE",
-                "Choose a verified recipient who has location key material ready.",
+                unavailable_message
+                or "Choose someone marked One Network, or ask them to open One Location once.",
                 status_code=409,
             )
         return row
@@ -2143,6 +2157,7 @@ class OneLocationAgentService:
         recipient_key_id: str | None,
         duration_hours: float,
         reason: str | None = None,
+        require_recipient_phone_verified: bool = True,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
@@ -2159,7 +2174,9 @@ class OneLocationAgentService:
                 status_code=422,
             ) from exc
         recipient = self._recipient_key_row(
-            recipient_user_id=recipient_user_id, recipient_key_id=recipient_key_id
+            recipient_user_id=recipient_user_id,
+            recipient_key_id=recipient_key_id,
+            require_phone_verified=require_recipient_phone_verified,
         )
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_display_label(owner_identity)
@@ -2527,7 +2544,12 @@ class OneLocationAgentService:
     def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
         row = self._public_invite_row_for_token(public_token=public_token)
         invite = self._public_invite_payload(row, public=True)
-        return {"invite": invite}
+        result = {"invite": invite}
+        metadata = _loads_json(row.get("metadata")) or {}
+        public_location = metadata.get("publicLocation") if isinstance(metadata, dict) else None
+        if isinstance(public_location, dict):
+            result["publicLocation"] = self._public_location_snapshot_payload(public_location)
+        return result
 
     def _check_public_submission_limits(
         self,
@@ -2647,6 +2669,7 @@ class OneLocationAgentService:
                     owner_user_id=owner_user_id,
                     message=message_value or f"Public request from {display_name}",
                     notify_owner=False,
+                    require_requester_key_material=True,
                 )
                 status_value = "matched_request_pending"
             except OneLocationAgentError as exc:
@@ -2922,12 +2945,17 @@ class OneLocationAgentService:
         message: str | None = None,
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
+        require_requester_key_material: bool = False,
     ) -> dict[str, Any]:
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_SELF", "Request a different person's location.", status_code=422
             )
-        self._recipient_key_row(recipient_user_id=requester_user_id)
+        if require_requester_key_material:
+            self._recipient_key_row(
+                recipient_user_id=requester_user_id,
+                require_phone_verified=False,
+            )
         message_value = (message or "").strip()[:500] or None
         row = self._execute_one(
             """
@@ -3047,6 +3075,7 @@ class OneLocationAgentService:
             recipient_key_id=None,
             duration_hours=duration_hours,
             reason="request_approved",
+            require_recipient_phone_verified=False,
         )
         resolved = self._execute_one(
             """

@@ -27,11 +27,16 @@ describe("Top app bar responsive contract", () => {
     );
   });
 
-  it("keeps persona switching scoped to Profile", () => {
+  it("keeps persona switching scoped to canonical Kai routes", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("function normalizeTopBarPathname");
-    expect(source).toContain("pathname.startsWith(`${ROUTES.RIA_HOME}/`)");
+    expect(source).toContain("normalized === ROUTES.KAI_HOME");
+    expect(source).toContain("normalized.startsWith(`${ROUTES.KAI_HOME}/`)");
+    expect(source).not.toContain("normalized === ROUTES.LEGACY_KAI_HOME");
+    expect(source).not.toContain("normalized === ROUTES.RIA_HOME");
+    expect(source).not.toContain("normalized.startsWith(`${ROUTES.RIA_HOME}/`)");
+    expect(source).not.toContain("isProfileTopBarRoute(normalized)");
     expect(source).toContain("function isProfileTopBarRoute");
     expect(source).toContain("centerTitle.interactive && canShowPersonaSwitcher");
     expect(source).toContain("function roleSwitcherLabel");
@@ -46,13 +51,53 @@ describe("Top app bar responsive contract", () => {
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
+    expect(source).toContain("function shouldReplaceTopShellBackNavigation");
+    expect(source).toContain("router.replace(topShellBreadcrumb.backHref);");
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
+  });
+
+  it("uses primary header visibility for top-bar title handoff", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("primaryHeaderOutOfView");
+    expect(source).toContain(
+      '[data-slot="page-header"][data-page-primary="true"]',
+    );
+    expect(source).toContain("function isPrimaryHeaderOutOfView");
+    expect(source).toContain(
+      "header.getBoundingClientRect().bottom <= readTopShellReservedHeight()",
+    );
+    expect(source).toContain("getScrolledRouteTitle(pathname)");
+    expect(source).toContain('label: "One dashboard"');
+  });
+
+  it("keeps background activity visible and adds locked-vault unlock action", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("showVaultUnlockAction");
+    expect(source).toContain("VaultService.checkVault(user.uid)");
+    expect(source).toContain('aria-label="Unlock vault"');
+    expect(source).toContain("<KeyRound");
+    expect(source).toContain("<DebateTaskCenter");
+    expect(source).not.toContain("Notifications unavailable until your vault is unlocked");
+  });
+
+  it("keeps onboarding chrome canonical and shell-sized", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain('return { label: "Set up One", interactive: false as const };');
+    expect(source).toContain("<ThemeToggleCompact className={TOP_SHELL_ICON_BUTTON_CLASSNAME} />");
+    expect(source).toContain('<ShellActionSurface\n            variant="icon"\n            aria-label="Account actions"');
+    expect(source).not.toContain('return { label: "Get started", interactive: false as const };');
+    expect(source).not.toContain('className="h-9 w-9 rounded-full"');
   });
   it("preserves deterministic breadcrumb navigation contracts", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("topShellBreadcrumb.backHref");
+    expect(source).toContain("shouldReplaceTopShellBackNavigation");
+    expect(source).toContain("router.replace(topShellBreadcrumb.backHref);");
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("history.back()");
   });
@@ -61,6 +106,7 @@ describe("Top app bar responsive contract", () => {
     const chrome = read("components/app-ui/top-shell-dropdown.tsx");
     const consentInbox = read("components/consent/consent-inbox-dropdown.tsx");
     const taskCenter = read("components/app-ui/debate-task-center.tsx");
+    const shellActionSurface = read("components/app-ui/shell-action-surface.tsx");
 
     expect(chrome).toContain("export function TopShellDropdownContent");
     expect(chrome).toContain("centeredMobileAlignOffset");
@@ -79,6 +125,9 @@ describe("Top app bar responsive contract", () => {
     expect(taskCenter).toContain('<TopShellDropdownContent align="end">');
     expect(consentInbox).not.toContain("TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME");
     expect(taskCenter).not.toContain("TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME");
+    expect(shellActionSurface).toContain("border-sky-500/28");
+    expect(shellActionSurface).toContain("hover:border-sky-500/55");
+    expect(shellActionSurface).toContain('<MaterialRipple variant="blue" effect="glass"');
   });
 
   it("clears every selection-driving consent detail param when the panel closes", () => {

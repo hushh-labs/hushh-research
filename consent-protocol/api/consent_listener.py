@@ -132,17 +132,13 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
                 q.put_nowait(data)
             except asyncio.QueueFull:
                 pass
-            logger.warning(
-                "consent notify queue full; dropped oldest event to bound memory"
-            )
+            logger.warning("consent notify queue full; dropped oldest event to bound memory")
 
 
 def get_consent_queue(user_id: str) -> asyncio.Queue:
     """Get or create the asyncio queue for this user (used by SSE generator)."""
     if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue(
-            maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE
-        )
+        _consent_notify_queues[user_id] = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
     return _consent_notify_queues[user_id]
 
 

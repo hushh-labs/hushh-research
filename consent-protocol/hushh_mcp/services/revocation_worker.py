@@ -139,9 +139,7 @@ class ConsentRevocationWorker:
         try:
             expired: list[ExpiredConsent] = await self._fetch_expired()
         except Exception:
-            logger.exception(
-                "[%s] fetch_expired failed — skipping scan", _LABEL
-            )
+            logger.exception("[%s] fetch_expired failed — skipping scan", _LABEL)
             scan_end = datetime.now(timezone.utc)
             return RevocationReport(
                 revoked_count=0,
@@ -190,9 +188,7 @@ async def _revocation_loop(
     interval_seconds: float,
 ) -> None:
     """Run scan_and_revoke() on a fixed interval until cancelled."""
-    logger.info(
-        "[%s] Revocation loop started (interval=%ss)", _LABEL, interval_seconds
-    )
+    logger.info("[%s] Revocation loop started (interval=%ss)", _LABEL, interval_seconds)
     while True:
         try:
             await worker.scan_and_revoke()

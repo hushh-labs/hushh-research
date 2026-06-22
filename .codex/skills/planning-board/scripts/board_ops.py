@@ -26,13 +26,17 @@ class BoardOpsError(RuntimeError):
 
 
 def run_gh(args: list[str], *, input_text: str | None = None) -> str:
-    proc = subprocess.run(
-        ["gh", *args],
-        input=input_text,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["gh", *args],
+            input=input_text,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise BoardOpsError("gh command timed out after 15 seconds") from exc
     if proc.returncode != 0:
         raise BoardOpsError(proc.stderr.strip() or proc.stdout.strip() or "gh command failed")
     return proc.stdout
@@ -128,29 +132,49 @@ def get_issue_node_id(repo: str, issue_number: int) -> str:
         f'''
         query {{
           repository(owner:"{owner}", name:"{name}") {{
-            issue(number:{issue_number}) {{ id }}
+            issueOrPullRequest(number:{issue_number}) {{
+              ... on Issue {{ id }}
+              ... on PullRequest {{ id }}
+            }}
           }}
         }}
         '''
     )
-    node_id = data["data"]["repository"]["issue"]
+    repo_data = data["data"]["repository"]
+    node_id = repo_data.get("issueOrPullRequest")
     if not node_id:
-        raise BoardOpsError(f"issue #{issue_number} not found in {repo}")
+        raise BoardOpsError(f"issue/PR #{issue_number} not found in {repo}")
     return node_id["id"]
 
 
 def get_issue_json(repo: str, issue_number: int) -> Any:
-    payload = run_gh_json(
-        [
-            "issue",
-            "view",
-            str(issue_number),
-            "--repo",
-            repo,
-            "--json",
-            "number,title,url,state,labels,assignees,projectItems,createdAt",
-        ]
-    )
+    try:
+        payload = run_gh_json(
+            [
+                "issue",
+                "view",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--json",
+                "number,title,url,state,labels,assignees,projectItems,createdAt",
+            ]
+        )
+    except BoardOpsError as exc:
+        if "Could not resolve to an Issue" in str(exc):
+            payload = run_gh_json(
+                [
+                    "pr",
+                    "view",
+                    str(issue_number),
+                    "--repo",
+                    repo,
+                    "--json",
+                    "number,title,url,state,labels,assignees,projectItems,createdAt",
+                ]
+            )
+        else:
+            raise
     payload["displayTitle"] = f'#{payload["number"]} {payload["title"]}'
     payload["labelNames"] = [label["name"] for label in payload.get("labels", [])]
     return payload
@@ -162,11 +186,21 @@ def get_project_item_id_for_issue(repo: str, issue_number: int) -> str | None:
         f'''
         query {{
           repository(owner:"{owner}", name:"{name}") {{
-            issue(number:{issue_number}) {{
-              projectItems(first:20) {{
-                nodes {{
-                  id
-                  project {{ title }}
+            issueOrPullRequest(number:{issue_number}) {{
+              ... on Issue {{
+                projectItems(first:20) {{
+                  nodes {{
+                    id
+                    project {{ title }}
+                  }}
+                }}
+              }}
+              ... on PullRequest {{
+                projectItems(first:20) {{
+                  nodes {{
+                    id
+                    project {{ title }}
+                  }}
                 }}
               }}
             }}
@@ -174,9 +208,10 @@ def get_project_item_id_for_issue(repo: str, issue_number: int) -> str | None:
         }}
         '''
     )
-    issue = data["data"]["repository"]["issue"]
+    repo_data = data["data"]["repository"]
+    issue = repo_data.get("issueOrPullRequest")
     if not issue:
-        raise BoardOpsError(f"issue #{issue_number} not found in {repo}")
+        raise BoardOpsError(f"issue/PR #{issue_number} not found in {repo}")
     for item in issue["projectItems"]["nodes"]:
         if item["project"]["title"] == PROJECT_TITLE:
             return item["id"]

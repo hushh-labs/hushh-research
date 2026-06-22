@@ -39,8 +39,15 @@ interface ConsentAuditTimelineProps {
   summarizeEntry: (entry: ConsentCenterEntry) => string;
 }
 
+type ConsentTrail = NonNullable<ConsentCenterEntry["consent_trails"]>[number];
+type ConsentTrailEvent = NonNullable<ConsentTrail["events"]>[number];
+type TimedConsentItem = {
+  issued_at?: number | string | null;
+  expires_at?: number | string | null;
+};
+
 function resolveEventType(
-  entry: ConsentCenterEntry,
+  entry: ConsentCenterEntry | ConsentTrail | ConsentTrailEvent,
 ): Exclude<ConsentAuditEventType, "all"> {
   const status = String(entry.status || "").toLowerCase();
   const action = String(entry.action || "").toLowerCase();
@@ -58,14 +65,30 @@ function resolveEventType(
   if (
     action.includes("update") ||
     action.includes("scope") ||
-    Boolean(entry.is_scope_upgrade)
+    ("is_scope_upgrade" in entry && Boolean(entry.is_scope_upgrade))
   ) {
     return "updated";
   }
   return "granted";
 }
 
-function formatEventDate(entry: ConsentCenterEntry) {
+function historyEvents(entry: ConsentCenterEntry) {
+  const trailEvents =
+    entry.consent_trails?.flatMap((trail) =>
+      trail.events && trail.events.length > 0 ? trail.events : [trail],
+    ) || [];
+  return trailEvents.length > 0 ? trailEvents : [entry];
+}
+
+function entryMatchesFilter(
+  entry: ConsentCenterEntry,
+  filter: ConsentAuditEventType,
+) {
+  if (filter === "all") return true;
+  return historyEvents(entry).some((event) => resolveEventType(event) === filter);
+}
+
+function formatEventDate(entry: TimedConsentItem) {
   const value = entry.issued_at || entry.expires_at;
   if (!value) return "Timestamp unavailable";
   const date = new Date(value);
@@ -73,12 +96,48 @@ function formatEventDate(entry: ConsentCenterEntry) {
   return date.toLocaleString();
 }
 
-function getEventIsoDate(entry: ConsentCenterEntry): string | null {
+function getEventIsoDate(entry: TimedConsentItem): string | null {
   const value = entry.issued_at || entry.expires_at;
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
+}
+
+function eventTimeMs(entry: TimedConsentItem) {
+  const value = entry.issued_at || entry.expires_at;
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function sortedTrailEvents(trail: ConsentTrail): ConsentTrailEvent[] {
+  return [...(trail.events || [])].sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
+}
+
+function sortedConsentTrails(entry: ConsentCenterEntry): ConsentTrail[] {
+  return [...(entry.consent_trails || [])].sort((a, b) => {
+    const aLatest = Math.max(
+      eventTimeMs(a),
+      ...sortedTrailEvents(a).map((event) => eventTimeMs(event)),
+    );
+    const bLatest = Math.max(
+      eventTimeMs(b),
+      ...sortedTrailEvents(b).map((event) => eventTimeMs(event)),
+    );
+    return bLatest - aLatest;
+  });
+}
+
+function trailLabel(trail: ConsentTrail) {
+  return trail.scope_description || trail.scope || "General consent";
+}
+
+function eventLabel(event: ConsentTrailEvent) {
+  const action = String(event.action || event.status || "event")
+    .replace(/_/g, " ")
+    .toLowerCase();
+  return action.charAt(0).toUpperCase() + action.slice(1);
 }
 
 function entryKey(entry: ConsentCenterEntry, index: number) {
@@ -111,9 +170,7 @@ export function ConsentAuditTimeline({
     useState<ConsentAuditEventType>("all");
   const filteredEntries = useMemo(
     () =>
-      activeFilter === "all"
-        ? entries
-        : entries.filter((entry) => resolveEventType(entry) === activeFilter),
+      entries.filter((entry) => entryMatchesFilter(entry, activeFilter)),
     [activeFilter, entries],
   );
 
@@ -170,8 +227,32 @@ export function ConsentAuditTimeline({
           {filteredEntries.map((entry, index) => {
             const type = resolveEventType(entry);
             const selected =
-              selectedId === entry.id || selectedId === entry.request_id;
+              selectedId === entry.id ||
+              selectedId === entry.request_id ||
+              selectedId === entry.latest_request_id ||
+              Boolean(
+                selectedId &&
+                  entry.consent_trails?.some(
+                    (trail) =>
+                      trail.latest_request_id === selectedId ||
+                      trail.request_ids?.includes(selectedId) ||
+                      trail.events?.some(
+                        (event) =>
+                          event.id === selectedId || event.request_id === selectedId,
+                      ),
+                  ),
+              );
             const isoDate = getEventIsoDate(entry);
+            const trailCount = entry.trail_count || entry.consent_trails?.length || 0;
+            const eventCount =
+              entry.event_count ||
+              entry.consent_trails?.reduce(
+                (total, trail) =>
+                  total + (trail.event_count || trail.events?.length || 0),
+                0,
+              ) ||
+              0;
+            const trails = sortedConsentTrails(entry);
             return (
               <button
                 key={entryKey(entry, index)}
@@ -212,6 +293,17 @@ export function ConsentAuditTimeline({
                       {summarizeEntry(entry)}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {trailCount > 0 ? (
+                        <span className="rounded-full bg-muted/70 px-2.5 py-1">
+                          {trailCount} lifecycle
+                          {trailCount === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+                      {eventCount > 0 ? (
+                        <span className="rounded-full bg-muted/70 px-2.5 py-1">
+                          {eventCount} event{eventCount === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
                       {entry.scope ? (
                         <span className="rounded-full bg-muted/70 px-2.5 py-1">
                           {entry.scope_description || entry.scope}
@@ -223,6 +315,107 @@ export function ConsentAuditTimeline({
                         </span>
                       ) : null}
                     </div>
+                    {trails.length > 0 ? (
+                      <div className="mt-3 space-y-2 border-t border-border/50 pt-3">
+                        {trails.slice(0, 4).map((trail, trailIndex) => {
+                          const events = sortedTrailEvents(trail);
+                          const trailType = resolveEventType(trail);
+                          const trailIsoDate = getEventIsoDate(trail);
+                          const visibleEvents = events.slice(0, 4);
+                          const totalEvents =
+                            trail.event_count || events.length || 0;
+                          return (
+                            <div
+                              key={
+                                trail.id ||
+                                trail.trail_key ||
+                                trail.latest_request_id ||
+                                `${entry.id}:${trailIndex}`
+                              }
+                              className="rounded-[var(--app-card-radius-compact)] border border-border/60 bg-background/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-foreground">
+                                    Lifecycle {trailIndex + 1}
+                                  </p>
+                                  <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                                    {trailLabel(trail)}
+                                  </p>
+                                </div>
+                                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                                  <Badge
+                                    className={cn(
+                                      "capitalize",
+                                      TYPE_STYLES[trailType],
+                                    )}
+                                  >
+                                    {trailType}
+                                  </Badge>
+                                  <span className="rounded-full bg-muted/70 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    {totalEvents} event
+                                    {totalEvents === 1 ? "" : "s"}
+                                  </span>
+                                </div>
+                              </div>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {trailIsoDate ? (
+                                  <time dateTime={trailIsoDate}>
+                                    {formatEventDate(trail)}
+                                  </time>
+                                ) : (
+                                  formatEventDate(trail)
+                                )}
+                              </p>
+                              {visibleEvents.length > 0 ? (
+                                <div className="mt-3 space-y-0">
+                                  {visibleEvents.map((event, eventIndex) => {
+                                    const eventIsoDate = getEventIsoDate(event);
+                                    const eventType = resolveEventType(event);
+                                    return (
+                                      <div
+                                        key={`${event.request_id || event.id || trailIndex}-${event.action || event.status}-${event.issued_at || eventIndex}`}
+                                        className="grid grid-cols-[18px_1fr] gap-2"
+                                      >
+                                        <div className="flex flex-col items-center">
+                                          <span
+                                            className={cn(
+                                              "mt-1 h-2.5 w-2.5 rounded-full border",
+                                              TYPE_STYLES[eventType],
+                                            )}
+                                          />
+                                          {eventIndex < visibleEvents.length - 1 ? (
+                                            <span className="min-h-5 flex-1 border-l border-border/70" />
+                                          ) : null}
+                                        </div>
+                                        <div className="pb-2 text-xs last:pb-0">
+                                          <p className="font-medium text-foreground/85">
+                                            {eventLabel(event)}
+                                          </p>
+                                          <p className="mt-0.5 text-muted-foreground">
+                                            {event.scope_description ||
+                                              event.scope ||
+                                              "Consent event"}
+                                            {" · "}
+                                            {eventIsoDate ? (
+                                              <time dateTime={eventIsoDate}>
+                                                {formatEventDate(event)}
+                                              </time>
+                                            ) : (
+                                              formatEventDate(event)
+                                            )}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </button>
