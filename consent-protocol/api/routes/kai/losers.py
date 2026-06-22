@@ -62,7 +62,9 @@ class PortfolioHolding(BaseModel):
     name: Optional[str] = Field(default=None, max_length=256)
     gain_loss_pct: Optional[float] = Field(default=None, description="Unrealized P/L percent")
     gain_loss: Optional[float] = Field(default=None, description="Unrealized P/L amount")
-    market_value: Optional[float] = Field(default=None, description="Current market value of the position")
+    market_value: Optional[float] = Field(
+        default=None, description="Current market value of the position"
+    )
     sector: Optional[str] = Field(
         None, description="Sector or industry label if available", max_length=128
     )
@@ -104,7 +106,9 @@ class AnalyzeLosersResponse(BaseModel):
     summary: dict
     losers: list[dict]
     portfolio_level_takeaways: list[str] = Field(default_factory=list)
-    analytics: Optional[dict] = Field(default=None, description="Radar and sector distribution metrics")
+    analytics: Optional[dict] = Field(
+        default=None, description="Radar and sector distribution metrics"
+    )
 
 
 def _convert_decimals(obj: Any) -> Any:
@@ -1121,10 +1125,13 @@ async def analyze_portfolio_losers_stream(
                 terminal=True,
             )
         except Exception as e:
-            logger.error(f"Streaming losers analysis failed: {e}")
+            logger.error("Streaming losers analysis failed: %s", e, exc_info=True)
             yield stream.event(
                 "error",
-                {"code": "OPTIMIZE_STREAM_FAILED", "message": str(e)},
+                {
+                    "code": "OPTIMIZE_STREAM_FAILED",
+                    "message": "Optimization failed. Please try again.",
+                },
                 terminal=True,
             )
 

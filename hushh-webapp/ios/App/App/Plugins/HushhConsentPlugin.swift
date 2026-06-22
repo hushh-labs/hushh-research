@@ -24,6 +24,8 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "createTrustLink", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "verifyTrustLink", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "issueVaultOwnerToken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "publishIMessageSession", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearIMessageSession", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPending", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getActive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getHistory", returnType: CAPPluginReturnPromise),
@@ -285,6 +287,19 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             
             print("✅ [\(self.TAG)] VAULT_OWNER token issued successfully")
+            HusshIMessageSessionStore.shared.publishIdentitySilently(
+                userID: userId,
+                displayName: nil,
+                email: nil,
+                avatarURL: nil,
+                firebaseIDToken: authToken,
+                firebaseIDTokenExpiresAt: nil
+            )
+            HusshIMessageSessionStore.shared.publishVaultSilently(
+                userID: userId,
+                vaultOwnerToken: token,
+                expiresAt: expiresAt.int64Value
+            )
             
             call.resolve([
                 "token": token,
@@ -294,6 +309,53 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
+    @objc func publishIMessageSession(_ call: CAPPluginCall) {
+        guard let userId = call.getString("userId"),
+              let vaultOwnerToken = call.getString("vaultOwnerToken") ?? call.getString("accessToken"),
+              let expiresAtValue = call.getDouble("expiresAt") else {
+            call.reject("Missing required parameters: userId, vaultOwnerToken, and expiresAt")
+            return
+        }
+
+        let expiresAt = Int64(expiresAtValue)
+        let firebaseIDToken = call.getString("firebaseIDToken") ?? call.getString("idToken")
+        let displayName = call.getString("displayName")
+        let email = call.getString("email")
+        let avatarURL = call.getString("avatarURL") ?? call.getString("photoUrl")
+        let vaultKey = call.getString("vaultKey")
+
+        do {
+            if let firebaseIDToken, !firebaseIDToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                try HusshIMessageSessionStore.shared.publishIdentity(
+                    userID: userId,
+                    displayName: displayName,
+                    email: email,
+                    avatarURL: avatarURL,
+                    firebaseIDToken: firebaseIDToken,
+                    firebaseIDTokenExpiresAt: nil
+                )
+            }
+            try HusshIMessageSessionStore.shared.publishVault(
+                userID: userId,
+                vaultOwnerToken: vaultOwnerToken,
+                expiresAt: expiresAt,
+                vaultKey: vaultKey
+            )
+            call.resolve(["published": true])
+        } catch {
+            call.reject("Failed to publish shared iMessage session: \(error)")
+        }
+    }
+
+    @objc func clearIMessageSession(_ call: CAPPluginCall) {
+        do {
+            try HusshIMessageSessionStore.shared.clear()
+            call.resolve(["cleared": true])
+        } catch {
+            call.reject("Failed to clear shared iMessage session: \(error)")
+        }
+    }
+
     @objc func getPending(_ call: CAPPluginCall) {
         performConsentListRequest(call: call, endpoint: "pending")
     }

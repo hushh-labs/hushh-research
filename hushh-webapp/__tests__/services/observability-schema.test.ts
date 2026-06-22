@@ -23,6 +23,43 @@ describe("observability schema", () => {
     expect(result.sanitized.endpoint_template).toBe("/api/kai/analyze/run/start");
   });
 
+  it("preserves endpoint template sanitization", () => {
+  const result = validateAndSanitizeEvent("api_request_completed", {
+    env: "uat",
+    platform: "web",
+    event_category: "system",
+    app_version: "2.1.0",
+    route_id: "kai_dashboard",
+    endpoint_template: "/api/consent/center",
+    http_method: "GET",
+    result: "success",
+    status_bucket: "2xx",
+    duration_ms_bucket: "0ms_100ms",
+  });
+
+  expect(result.ok).toBe(true);
+  expect(result.sanitized.endpoint_template).toBe("/api/consent/center");
+});
+
+    it("preserves retry_count in sanitized observability payloads", () => {
+    const result = validateAndSanitizeEvent("api_request_completed", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      route_id: "kai_dashboard",
+      endpoint_template: "/api/kai/analyze/run/start",
+      http_method: "POST",
+      result: "success",
+      status_bucket: "2xx",
+      duration_ms_bucket: "100ms_300ms",
+      retry_count: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.sanitized.retry_count).toBe(0);
+  });
+
   it("drops blocked keys and high-entropy sensitive values", () => {
     const result = validateAndSanitizeEvent(
       "auth_failed",

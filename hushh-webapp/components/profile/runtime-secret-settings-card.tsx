@@ -426,6 +426,8 @@ export function RuntimeSecretSettingsCard({
                     type={showKey ? "text" : "password"}
                     autoComplete="off"
                     spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     placeholder={
                       configured
                         ? MASKED_RUNTIME_SECRET_PLACEHOLDER

@@ -30,6 +30,7 @@ def _make_app() -> FastAPI:
 # user_id path param bounds
 # ---------------------------------------------------------------------------
 
+
 def test_domains_user_id_too_long_returns_422():
     app = _make_app()
     client = TestClient(app, raise_server_exceptions=False)
@@ -63,6 +64,7 @@ def test_data_user_id_too_long_returns_422():
 # domain path param bounds
 # ---------------------------------------------------------------------------
 
+
 def test_domain_data_domain_too_long_returns_422():
     app = _make_app()
     client = TestClient(app, raise_server_exceptions=False)
@@ -81,6 +83,7 @@ def test_domain_data_user_id_too_long_returns_422():
 # ---------------------------------------------------------------------------
 # Valid lengths pass validation and reach the handler
 # ---------------------------------------------------------------------------
+
 
 def test_domains_valid_uid_reaches_handler():
     """A valid user_id passes Path validation and delegates to _get_metadata."""

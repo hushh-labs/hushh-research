@@ -20,6 +20,7 @@
 
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import React, {
   createContext,
   useContext,
@@ -31,7 +32,9 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
+import { AuthService } from "@/lib/services/auth-service";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
@@ -118,6 +121,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
     lastUpgradeKickoffKeyRef.current = null;
+
+    if (Capacitor.getPlatform() === "ios") {
+      void HushhConsent.clearIMessageSession().catch((error) => {
+        console.warn("[VaultProvider] Failed to clear shared iMessage session:", error);
+      });
+    }
 
     if (user?.uid) {
       CacheSyncService.onVaultStateChanged(user.uid);
@@ -321,6 +330,36 @@ export function VaultProvider({ children }: VaultProviderProps) {
       setVaultKey(key);
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
+
+      if (user?.uid && Capacitor.getPlatform() === "ios") {
+        void (async () => {
+          const firebaseIDToken = await AuthService.getIdToken(true).catch(
+            (error) => {
+              console.warn(
+                "[VaultProvider] Failed to refresh Firebase token for iMessage session:",
+                error
+              );
+              return null;
+            }
+          );
+
+          await HushhConsent.publishIMessageSession({
+            userId: user.uid,
+            vaultOwnerToken: token,
+            vaultKey: key,
+            expiresAt,
+            firebaseIDToken: firebaseIDToken ?? undefined,
+            displayName: user.displayName,
+            email: user.email,
+            avatarURL: user.photoURL,
+          });
+        })().catch((error) => {
+          console.warn(
+            "[VaultProvider] Failed to publish shared iMessage session:",
+            error
+          );
+        });
+      }
 
       const routePath =
         typeof window !== "undefined" ? window.location.pathname : "";

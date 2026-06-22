@@ -1,6 +1,5 @@
 "use client";
 
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   useCallback,
   useEffect,
@@ -17,7 +16,6 @@ import {
   type KaiCommandPaletteSelection,
 } from "@/components/kai/kai-command-palette";
 import {
-  VoiceAmbientSearchSurface,
   type VoiceAmbientMode,
 } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
@@ -91,6 +89,7 @@ interface KaiSearchBarProps {
   onTtsPlayingChange?: (playing: boolean) => void;
   voiceContext?: Record<string, unknown>;
   surfaceVariant?: SearchSurfaceVariant;
+  showAgent?: boolean;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -312,6 +311,7 @@ export function KaiSearchBar({
   onTtsPlayingChange,
   voiceContext,
   surfaceVariant = "kai",
+  showAgent = false,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
@@ -329,15 +329,10 @@ export function KaiSearchBar({
     null,
   );
   const [transcriptPreview, setTranscriptPreview] = useState<string>("");
-  const [finalTranscript, setFinalTranscript] = useState<string>("");
+  const [_finalTranscript, setFinalTranscript] = useState<string>("");
   const [lastReplyText, setLastReplyText] = useState<string>("");
   const [micPermissionStatus, setMicPermissionStatus] =
     useState<string>("unknown");
-    // If the text is stored in finalTranscript:
-const debouncedSearch = useDebouncedValue(finalTranscript, 500);
-
-// OR, if there is a standard text input state further down like 'query':
-// const debouncedSearch = useDebouncedValue(query, 500);
   const [stableMicDisabledReason, setStableMicDisabledReason] = useState<
     string | null
   >(null);
@@ -694,7 +689,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     ],
   );
 
-  const submitDebugTurn = useCallback(() => {
+  const _submitDebugTurn = useCallback(() => {
     if (!VOICE_V2_FLAGS.submitDebugVisible) return;
     if (!realtimeSessionReady) {
       toast.info("Realtime session still connecting.");
@@ -709,7 +704,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     );
   }, [emitDebug, realtimeSessionReady]);
 
-  const toggleMuteListening = useCallback(() => {
+  const _toggleMuteListening = useCallback(() => {
     const nextMuted = voiceSessionManager.toggleMuted();
     setSessionMuted(nextMuted);
     if (nextMuted) {
@@ -744,7 +739,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     setFinalTranscript("");
   }, [sessionScopeId, setPendingConfirmation, transitionVoiceState]);
 
-  const handleReplay = useCallback(async () => {
+  const _handleReplay = useCallback(async () => {
     const replayText = String(lastReplyText || "").trim();
     if (!replayText) return;
     const turnId = createVoiceTurnId();
@@ -774,7 +769,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     transitionVoiceState,
   ]);
 
-  const handleStopSpeaking = useCallback(
+  const _handleStopSpeaking = useCallback(
     (event?: MouseEvent<HTMLButtonElement>) => {
       event?.preventDefault();
       event?.stopPropagation();
@@ -901,13 +896,13 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     transitionVoiceState,
   ]);
 
-  const handleRetry = useCallback(async () => {
+  const _handleRetry = useCallback(async () => {
     setPendingConfirmation(null);
     transitionVoiceState("idle", "retry_button_clicked");
     await startListening();
   }, [setPendingConfirmation, startListening, transitionVoiceState]);
 
-  const handleConfirmPending = useCallback(async () => {
+  const _handleConfirmPending = useCallback(async () => {
     if (!pendingConfirmation || !onVoiceResponseRef.current) {
       return;
     }
@@ -1022,7 +1017,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     transitionVoiceState,
   ]);
 
-  const handleCancelPending = useCallback(() => {
+  const _handleCancelPending = useCallback(() => {
     if (!pendingConfirmation) return;
     setPendingConfirmation(null);
     setProcessingStageText("Voice action canceled.");
@@ -1640,10 +1635,14 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
   const commandBarBottomOffset =
     "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
   const visibleCommandBarBottomOffset = `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
+  const dockChromeBottomOffset =
+    "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))";
+  const dockChromeTransform = `translate3d(0, calc(${hideBottomChromeProgress} * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)`;
   const isRiaSurface = surfaceVariant === "ria";
   const riaVoiceActive = ambientMode !== "idle";
   const riaVoiceDisabled =
     !riaVoiceActive && (disabled || micDisabled || voiceVisibilityMode === "hidden");
+  const compactDockExpanded = open || riaVoiceActive;
   const handleRiaVoiceClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       if (riaVoiceDisabled) {
@@ -1664,127 +1663,163 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
       stableMicDisabledReason,
     ],
   );
+  const handleAgentClick = useCallback(() => {
+    if (!showAgent) return;
+    if (!agentPopover) return;
+    agentPopover.openAgent();
+  }, [agentPopover, showAgent]);
 
   return (
     <>
       <div
         className={cn(
-          "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none",
+          "fixed inset-x-0 z-[121] flex justify-center px-4 pointer-events-none",
         )}
         style={{
-          bottom: visibleCommandBarBottomOffset,
-          transform: `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`,
+          bottom: isRiaSurface
+            ? visibleCommandBarBottomOffset
+            : dockChromeBottomOffset,
+          transform: isRiaSurface
+            ? `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`
+            : dockChromeTransform,
           opacity: 1,
         }}
       >
         <div
           ref={barRef}
-          className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]"
+          className={cn(
+            "pointer-events-none w-full",
+            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[548px]"
+          )}
+          style={
+            isRiaSurface
+              ? undefined
+              : {
+                  width:
+                    "var(--app-bottom-route-group-width, min(calc(100vw - 2rem), 560px))",
+                }
+          }
         >
           {isRiaSurface ? (
-            <div
-              className="grid grid-cols-3 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
-              data-testid="ria-action-bar"
-            >
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
-                contentClassName="gap-1.5"
-                aria-label="Search RIA workspace"
-                onClick={() => setOpen(true)}
+            <div className="relative flex w-full items-end justify-end">
+              <div
+                className="grid w-full grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
+                data-testid="ria-action-bar"
               >
-                <Search className="h-4 w-4 shrink-0" />
-                <span className="truncate">Search</span>
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                contentClassName="gap-1.5"
-                aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
-                aria-disabled={riaVoiceDisabled}
-                className={cn(
-                  "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
-                  riaVoiceDisabled && "opacity-60"
-                )}
-                onClick={handleRiaVoiceClick}
-              >
-                {riaVoiceActive ? (
-                  <X className="h-4 w-4 shrink-0" />
-                ) : (
-                  <Mic className="h-4 w-4 shrink-0" />
-                )}
-                <span className="truncate">Voice</span>
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
-                contentClassName="gap-1.5"
-                aria-label="Open Agent"
-                disabled={!agentPopover}
-                onClick={() => agentPopover?.openAgent()}
-              >
-                <Bot className="h-4 w-4 shrink-0" />
-                <span className="truncate">Agent</span>
-              </ShellActionSurface>
+                <ShellActionSurface
+                  variant="pill"
+                  wrapperClassName="w-full"
+                  className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
+                  contentClassName="gap-1.5"
+                  aria-label="Search RIA workspace"
+                  aria-expanded={open}
+                  aria-haspopup="dialog"
+                  onClick={() => setOpen(true)}
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Search</span>
+                </ShellActionSurface>
+                <ShellActionSurface
+                  variant="pill"
+                  wrapperClassName="w-full"
+                  contentClassName="gap-1.5"
+                  aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
+                  aria-disabled={riaVoiceDisabled}
+                  className={cn(
+                    "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
+                    riaVoiceDisabled && "opacity-60"
+                  )}
+                  onClick={handleRiaVoiceClick}
+                >
+                  {riaVoiceActive ? (
+                    <X className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <Mic className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="truncate">Voice</span>
+                </ShellActionSurface>
+              </div>
             </div>
           ) : (
-            <VoiceAmbientSearchSurface
-              mode={ambientMode}
-              placeholder="Analyze, dashboard, consent with Kai"
-              transcriptPreview={transcriptPreview}
-              stageText={processingStageText}
-              replyText={
-                showSpeakingCompact || showRetryCompact
-                  ? lastReplyText || debouncedSearch
-                  : debouncedSearch
-              }
-              smoothedLevel={smoothedLevel}
-              disabled={disabled}
-              showMic={!micHidden}
-              micDisabled={micDisabled}
-              micDisabledReason={stableMicDisabledReason}
-              showDebug={DEV_VOICE_DEBUG_ENABLED}
-              debugActive={voiceDebugOpen}
-              showSubmit={
-                VOICE_V2_FLAGS.submitDebugVisible &&
-                (showVoiceSheet || realtimeConnecting)
-              }
-              submitEnabled={
-                VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady
-              }
-              ttsPlaying={ttsPlaybackState === "playing"}
-              pendingConfirmation={Boolean(
-                showRetryCompact && pendingConfirmation,
+            <div
+              className={cn(
+                "relative ml-auto flex w-[58px] items-end justify-end",
+                showAgent ? "h-[112px]" : "h-[58px]"
               )}
-              onOpenSearch={() => setOpen(true)}
-              onMicToggle={handleMicTap}
-              onDebugToggle={(event) => {
-                event.stopPropagation();
-                setVoiceDebugOpen((current) => !current);
-              }}
-              onMuteToggle={toggleMuteListening}
-              onSubmit={submitDebugTurn}
-              onEnd={cancelListening}
-              onStopSpeaking={handleStopSpeaking}
-              onReplay={
-                showSpeakingCompact || showRetryCompact ? handleReplay : undefined
-              }
-              onRetry={
-                showRetryCompact && !pendingConfirmation ? handleRetry : undefined
-              }
-              onConfirm={
-                showRetryCompact && pendingConfirmation
-                  ? handleConfirmPending
-                  : undefined
-              }
-              onCancel={
-                showRetryCompact && pendingConfirmation
-                  ? handleCancelPending
-                  : undefined
-              }
-            />
+            >
+              {showAgent ? (
+                <button
+                  type="button"
+                  aria-label="Open Agent"
+                  onClick={handleAgentClick}
+                  className="kai-bottom-agent-action pointer-events-auto absolute right-[7px] top-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30"
+                >
+                  <Bot className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                </button>
+              ) : null}
+              <div
+                className={cn(
+                  "ml-auto flex items-end justify-end transition-[width] duration-200 ease-out",
+                  compactDockExpanded
+                    ? "w-[min(15.5rem,calc(100vw-2rem))]"
+                    : "w-[58px]",
+                )}
+              >
+                <div
+                  className={cn(
+                    "pointer-events-auto grid rounded-full kai-bottom-search-action p-[5px]",
+                    compactDockExpanded
+                      ? "w-full grid-cols-2 gap-1"
+                      : "w-[58px] grid-cols-1",
+                  )}
+                  data-testid="kai-compact-search-surface"
+                  data-mode={ambientMode}
+                >
+                  <span data-testid="voice-ambient-preview" className="sr-only">
+                    {transcriptPreview || processingStageText || ""}
+                  </span>
+                  <button
+                    type="button"
+                    data-tour-id="kai-command-bar"
+                    aria-label="Open Kai command search"
+                    aria-expanded={open}
+                    aria-haspopup="dialog"
+                    disabled={disabled}
+                    onClick={() => setOpen(true)}
+                    className={cn(
+                      "inline-flex h-11 min-w-0 items-center justify-center rounded-full px-3 text-[13px] font-semibold text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-white/10",
+                      open && "bg-primary/10 text-primary"
+                    )}
+                  >
+                    <Search className="h-5 w-5 shrink-0" strokeWidth={1.9} />
+                    {compactDockExpanded ? <span className="ml-1.5 truncate">Search</span> : null}
+                  </button>
+                  {compactDockExpanded ? (
+                    <button
+                      type="button"
+                      aria-label={riaVoiceActive ? "End Kai voice" : "Start Kai voice"}
+                      aria-disabled={riaVoiceDisabled}
+                      disabled={voiceVisibilityMode === "hidden"}
+                      onClick={handleRiaVoiceClick}
+                      className={cn(
+                        "inline-flex h-11 min-w-0 items-center justify-center rounded-full px-3 text-[13px] font-semibold transition-colors hover:bg-black/[0.045] disabled:cursor-not-allowed dark:hover:bg-white/10",
+                        riaVoiceActive
+                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                          : "text-muted-foreground hover:text-foreground",
+                        riaVoiceDisabled && "opacity-60",
+                      )}
+                    >
+                      {riaVoiceActive ? (
+                        <X className="h-5 w-5 shrink-0" strokeWidth={1.9} />
+                      ) : (
+                        <Mic className="h-5 w-5 shrink-0" strokeWidth={1.9} />
+                      )}
+                      <span className="ml-1.5 truncate">Voice</span>
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           )}
           {voiceErrorMessage ? (
             <p className="mt-1 text-center text-[10px] text-destructive">
@@ -1799,6 +1834,10 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
         onOpenChange={setOpen}
         onSelectAction={onSelectAction}
         appRuntimeState={appRuntimeState}
+        onVoiceClick={handleRiaVoiceClick}
+        voiceActive={riaVoiceActive}
+        voiceDisabled={riaVoiceDisabled}
+        voiceHidden={voiceVisibilityMode === "hidden"}
         portfolioTickers={portfolioTickers}
       />
 

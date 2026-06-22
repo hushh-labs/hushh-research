@@ -18,35 +18,82 @@ or additions/deletions. A replay commit may become the latest blame for replayed
 lines, but it must be documented as a transparent non-rewrite replay, not as
 retroactive mutation of the original merge.
 
-## 2026-05-30: Author-Scoped PR Governance Harvest
+## 2026-06-06: Damria One Location Stack Harvest
 
 Maintainer landing commit:
+`047b16289e89efee9c77bc0ba08df0f27c35dd18`
+
+Landing status:
+
+- The commit is merged to `integration/pr-train` via merge commit `4d82df446b244364371d83facf955d9596a22139`.
+- Native GitHub contributor credit remains pending until this co-authored landing commit reaches `main`.
+- Source PRs are closed as superseded.
+
+Attribution status:
+
+- The landing commit contains valid co-author trailers for `DamriaNeelesh`.
+- Internal impact credit remains attached to the source PRs.
+
+| Source PR | Contributor | Accepted Value |
+| --- | --- | --- |
+| [PR #1769](https://github.com/hushh-labs/hushh-research/pull/1769) | `DamriaNeelesh` | Revamp one location sharing UI. |
+| [PR #1770](https://github.com/hushh-labs/hushh-research/pull/1770) | `DamriaNeelesh` | Add KAI Circle recommendation metadata. |
+| [PR #1771](https://github.com/hushh-labs/hushh-research/pull/1771) | `DamriaNeelesh` | Add multi-recipient one location sharing. |
+| [PR #1772](https://github.com/hushh-labs/hushh-research/pull/1772) | `DamriaNeelesh` | Add One Location section states and analytics. |
+| [PR #1834](https://github.com/hushh-labs/hushh-research/pull/1834) | `DamriaNeelesh` | Add One Location contact sync invites. |
+| [PR #1841](https://github.com/hushh-labs/hushh-research/pull/1841) | `DamriaNeelesh` | Add One Location activity dashboard. |
+| [PR #1887](https://github.com/hushh-labs/hushh-research/pull/1887) | `DamriaNeelesh` | Add One Location stale retry telemetry. |
+| [PR #1891](https://github.com/hushh-labs/hushh-research/pull/1891) | `DamriaNeelesh` | Add KAI Circle ranking for One Location recipients. |
+| [PR #2098](https://github.com/hushh-labs/hushh-research/pull/2098) | `DamriaNeelesh` | Add Google Maps live location preview. |
+
+## 2026-05-30: Author-Scoped PR Governance Harvest
+
+Maintainer landing commit (ORIGINAL, now superseded):
 `72c464be84a14f73c2872d1028edf2b8433b85a3`
 
 Landing status:
 
-- The commit is on `kushaltrivedi/feat/agent-kai-revamp`.
-- Native GitHub contributor credit remains pending until this co-authored
-  landing commit reaches `main`.
-- Source PRs remain open with `CHANGES_REQUESTED`; do not close them as
-  superseded until the landing commit is merged to `main` and linked from the
-  source PR records.
+- RECONCILED 2026-06-08: the original co-authored landing commit
+  `72c464be` and its branch `kushaltrivedi/feat/agent-kai-revamp` no longer
+  exist (branch deleted during cleanup; commit is on neither `main` nor
+  `integration/pr-train`). The accepted value nevertheless SHIPPED on
+  `integration/pr-train` under different, non-co-authored commits (verified by
+  content match — see per-PR landing files below).
+- Source PRs #1029, #1031, #1066 were CLOSED 2026-06-08 as "your work shipped"
+  with a contributor-facing note acknowledging the lost GitHub-visible credit
+  and offering a transparent co-authored replay commit on request.
 
 Attribution status:
 
-- The landing commit contains valid co-author trailers for `Ayush04-C` and
-  `DamriaNeelesh`.
+- The original `72c464be` (which DID carry valid `Co-authored-by:` trailers for
+  `Ayush04-C` and `DamriaNeelesh`) is gone, so GitHub-visible co-author credit
+  for the Ayush04-C frontend items was LOST on the surviving train commits.
 - Internal impact credit remains attached to the source PRs.
-- If a source PR receives a fresh contributor update before the landing commit
-  reaches `main`, re-enter that PR through a repass train and prefer direct
-  contributor PR merge when safe.
+- Remediation path if/when requested by the contributor: land a transparent,
+  non-rewrite co-authored replay/supplemental commit per this ledger's
+  follow-up-PR rule; do NOT rewrite existing `main`/train history for retroactive
+  credit.
 
-| Source PR | Contributor | Accepted Value |
-| --- | --- | --- |
-| [PR #1029](https://github.com/hushh-labs/hushh-research/pull/1029) | `Ayush04-C` | Visual not-found recovery on the canonical app route. |
-| [PR #1031](https://github.com/hushh-labs/hushh-research/pull/1031) | `Ayush04-C` | Motion-safe loader feedback and ARIA status polish. |
-| [PR #1066](https://github.com/hushh-labs/hushh-research/pull/1066) | `Ayush04-C` | Narrowed root metadata/SEO hardening. |
-| [PR #1667](https://github.com/hushh-labs/hushh-research/pull/1667) | `DamriaNeelesh` | One Location profile entry point. |
+| Source PR | Contributor | Accepted Value | Verified landing on train |
+| --- | --- | --- | --- |
+| [PR #1029](https://github.com/hushh-labs/hushh-research/pull/1029) | `Ayush04-C` | Visual not-found recovery on the canonical app route. | `hushh-webapp/app/not-found.tsx` (Morphy glass-card recovery page) — CLOSED |
+| [PR #1031](https://github.com/hushh-labs/hushh-research/pull/1031) | `Ayush04-C` | Motion-safe loader feedback and ARIA status polish. | `hushh-webapp/components/app-ui/hushh-loader.tsx` (`role=status`/`aria-live`) — CLOSED |
+| [PR #1066](https://github.com/hushh-labs/hushh-research/pull/1066) | `Ayush04-C` | Narrowed root metadata/SEO hardening. | `hushh-webapp/app/layout.tsx` (full Next `Metadata` export) — CLOSED |
+| [PR #1667](https://github.com/hushh-labs/hushh-research/pull/1667) | `DamriaNeelesh` | One Location profile entry point. | pending verification |
+
+### Lesson Recorded (process evolution)
+
+A harvest is not "done" when staged on a temporary branch. When that branch is
+deleted before promotion, the named landing commit and its co-author credit
+vanish even though the content ships. Going forward: (1) never record a harvest
+as complete against a temporary-branch commit alone; verify the co-authored
+commit on a durable ref; (2) when closing harvested source PRs, re-verify the
+content AND credit on the current `integration/pr-train` head, not the ledger's
+recorded commit; (3) if credit was lost, acknowledge it to the contributor and
+offer the replay path before closing. This rule is now part of the
+Attribution Gate behavior.
+
+
 
 ## 2026-05-14: PR #1013 Async PR Train Patch Wave One
 

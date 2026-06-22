@@ -4,7 +4,10 @@ import { Cpu, Percent, Zap, type LucideIcon } from "lucide-react";
 
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
-import { marketCardClassName } from "@/components/kai/shared/market-surface-theme";
+import {
+  marketCardClassName,
+  marketInsetClassName,
+} from "@/components/kai/shared/market-surface-theme";
 import { cn } from "@/lib/utils";
 
 export interface ThemeFocusItem {
@@ -28,17 +31,18 @@ export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
   }
 
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
       {themes.map((theme, idx) => (
         <SurfaceCard
           key={theme.id || theme.title}
           accent="none"
           className={cn("h-full", marketCardClassName)}
         >
-          <SurfaceCardContent className="flex h-full min-w-0 items-start gap-3 p-4">
+          <SurfaceCardContent className="flex h-full min-w-0 items-start gap-3.5 p-4 sm:p-5">
             <div
               className={cn(
-                "grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
+                marketInsetClassName,
+                "grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#0071e3] dark:text-[#0a84ff]"
               )}
             >
               <Icon
@@ -47,7 +51,9 @@ export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
               />
             </div>
             <div className="min-w-0 space-y-1">
-              <p className="text-sm font-semibold leading-tight text-foreground">{theme.title}</p>
+              <p className="text-sm font-semibold leading-tight tracking-tight text-foreground">
+                {theme.title}
+              </p>
               <p className="text-xs leading-5 text-muted-foreground">{theme.subtitle}</p>
             </div>
           </SurfaceCardContent>

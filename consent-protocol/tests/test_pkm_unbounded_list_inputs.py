@@ -12,6 +12,7 @@ the service layer, preventing authenticated DoS via resource exhaustion.
 Canonical wrapper route (api/routes/pkm.py) is tested directly to prove
 the live mounted path is guarded, not only the shared-router helper.
 """
+
 from __future__ import annotations
 
 import unittest.mock as mock
@@ -121,8 +122,7 @@ def test_store_domain_at_write_projections_cap_accepted(client: TestClient) -> N
 def test_scope_exposure_too_many_changes_rejected(client: TestClient) -> None:
     """201 scope-exposure changes must be rejected 422."""
     changes = [
-        {"scope_key": f"scope_{i}", "exposure_enabled": True}
-        for i in range(_SCOPE_CHANGES_MAX + 1)
+        {"scope_key": f"scope_{i}", "exposure_enabled": True} for i in range(_SCOPE_CHANGES_MAX + 1)
     ]
     resp = client.post(
         "/api/pkm/domains/financial/scope-exposure",

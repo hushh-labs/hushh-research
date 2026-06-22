@@ -12,7 +12,6 @@ import { IntroStep } from "@/components/onboarding/IntroStep";
 import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
-import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 
 type HomeStep = "intro" | "preview";
 
@@ -51,23 +50,8 @@ function HomeContent() {
     if (loading) return;
 
     if (user) {
-      void (async () => {
-        try {
-          const idToken = await user.getIdToken().catch(() => undefined);
-          const nextPath = await PostAuthRouteService.resolveAfterLogin({
-            userId: user.uid,
-            redirectPath: ROUTES.KAI_HOME,
-            idToken,
-          });
-          if (!cancelled) {
-            router.push(nextPath);
-          }
-        } catch {
-          if (!cancelled) {
-            router.push(ROUTES.KAI_HOME);
-          }
-        }
-      })();
+      setStep(null);
+      router.replace(ROUTES.ONE_HOME);
       return;
     }
 
@@ -93,8 +77,12 @@ function HomeContent() {
     };
   }, [loading, user, router, forceOnboardingInDev]);
 
-  if (loading || step === null) {
+  if (loading || (!user && step === null)) {
     return <HushhLoader label="Loading..." variant="fullscreen" />;
+  }
+
+  if (user) {
+    return <HushhLoader label="Opening One..." variant="fullscreen" />;
   }
 
   if (step === "intro") {

@@ -75,10 +75,13 @@ async def test_loop_keeps_running_after_multiple_failures() -> None:
         raise asyncio.CancelledError
 
     with (
-        patch.object(mi_mod, "_run_refresh_with_advisory_lock", side_effect=_multi_fail_then_cancel),
+        patch.object(
+            mi_mod, "_run_refresh_with_advisory_lock", side_effect=_multi_fail_then_cancel
+        ),
         patch.object(mi_mod, "_market_refresh_interval_seconds", return_value=0.001),
         patch("api.routes.kai.market_insights.asyncio") as mock_asyncio,
     ):
+
         async def _noop(*_a, **_kw):
             return None
 

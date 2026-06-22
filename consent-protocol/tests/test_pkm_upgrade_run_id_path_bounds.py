@@ -81,9 +81,7 @@ def test_update_upgrade_run_status_valid_run_id_passes_path_guard(client: TestCl
         f"/api/pkm/upgrade/runs/{VALID_RUN_ID}/status",
         json=_status_body(),
     )
-    assert resp.status_code != 422, (
-        "A valid run_id must pass the path guard and reach the handler"
-    )
+    assert resp.status_code != 422, "A valid run_id must pass the path guard and reach the handler"
 
 
 # ---------------------------------------------------------------------------
@@ -135,9 +133,7 @@ def test_complete_upgrade_run_valid_run_id_passes_path_guard(client: TestClient)
         f"/api/pkm/upgrade/runs/{VALID_RUN_ID}/complete",
         json=_start_body(),
     )
-    assert resp.status_code != 422, (
-        "Valid run_id must pass the path guard and reach the handler"
-    )
+    assert resp.status_code != 422, "Valid run_id must pass the path guard and reach the handler"
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +154,4 @@ def test_fail_upgrade_run_valid_run_id_passes_path_guard(client: TestClient) -> 
         f"/api/pkm/upgrade/runs/{VALID_RUN_ID}/fail",
         json=_status_body(),
     )
-    assert resp.status_code != 422, (
-        "Valid run_id must pass the path guard and reach the handler"
-    )
+    assert resp.status_code != 422, "Valid run_id must pass the path guard and reach the handler"

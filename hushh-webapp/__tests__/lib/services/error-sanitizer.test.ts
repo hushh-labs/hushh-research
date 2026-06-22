@@ -420,6 +420,10 @@ describe("getErrorMessage", () => {
     expect(getErrorMessage(null)).toBe("null");
   });
 
+  it("stringifies undefined", () => {
+    expect(getErrorMessage(undefined)).toBe("undefined");
+  });
+
   it("stringifies objects via String()", () => {
     const result = getErrorMessage({ detail: "x" });
     expect(typeof result).toBe("string");

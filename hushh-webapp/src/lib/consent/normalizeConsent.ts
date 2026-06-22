@@ -21,23 +21,52 @@ export interface NormalizedConsentState {
  */
 const SUPPORTED_SCHEMA_VERSIONS = new Set<number | string>([1, "1"]);
 
-/** Closed fallback returned whenever a pre-condition guard fails. */
+/** Closed fallback returned whenever structural integrity cannot be confirmed. */
 const DENY_STATE: NormalizedConsentState = { isGranted: false, permissions: [] };
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
 
 export function normalizeConsentResponse(
   response: RawConsentResponse | null | undefined
 ): NormalizedConsentState {
-  // ── Schema version guard (inline, default-deny) ─────────────────────────────
-  // When a caller supplies version or schemaVersion, it must be an exact match
-  // in SUPPORTED_SCHEMA_VERSIONS.  Null, empty string, wrong type, or any
-  // value not in the set returns DENY_STATE immediately — before any mapping.
+  // ── Structural integrity guard (inline, default-deny) ──────────────────────
+  // Intercepts payloads that show signs of tampering, type-coercion injection,
+  // or prototype-pollution before any mapping logic runs.  No external import.
   //
-  // Payloads that omit both fields pass through unchanged, preserving backward
-  // compatibility with callers that predate schema versioning.
+  // A well-formed RawConsentResponse satisfies all of:
+  //   • plain object (not array, not primitive)
+  //   • no own "constructor" / "__proto__" keys (prototype-pollution vectors)
+  //   • active / granted are boolean when present (not truthy-coerced strings)
+  //   • status is string or null when present (not an object / array)
+  //   • permissions / scopes are arrays when present (not stringified blobs)
+  //
+  // Any violation short-circuits to DENY_STATE; null/undefined is allowed
+  // through unchanged (the existing mapping already handles it safely).
   if (response !== null && response !== undefined) {
     const r = response as Record<string, unknown>;
-    const own = (k: string): boolean => Object.prototype.hasOwnProperty.call(r, k);
+    const own = (k: string): boolean =>
+      Object.prototype.hasOwnProperty.call(r, k);
 
+    if (
+      typeof r !== "object" ||
+      Array.isArray(r) ||
+      own("__proto__") ||
+      own("constructor") ||
+      (own("active")      && typeof r["active"]      !== "boolean") ||
+      (own("granted")     && typeof r["granted"]     !== "boolean") ||
+      (own("status")      && r["status"] !== null    && typeof r["status"] !== "string") ||
+      (own("permissions") && !isStringArray(r["permissions"])) ||
+      (own("scopes")      && !isStringArray(r["scopes"]))
+    ) {
+      return DENY_STATE;
+    }
+
+    // ── Schema version guard (inline, default-deny) ──────────────────────────
+    // When a caller supplies version or schemaVersion, it must be an exact match
+    // in SUPPORTED_SCHEMA_VERSIONS.  Null, empty string, wrong type, or any
+    // value not in the set returns DENY_STATE immediately — before any mapping.
     if (own("version") || own("schemaVersion")) {
       const rawVersion = own("version") ? r["version"] : r["schemaVersion"];
       if (
@@ -51,7 +80,7 @@ export function normalizeConsentResponse(
       }
     }
   }
-  // ── End version guard ────────────────────────────────────────────────────────
+  // ── End guards ─────────────────────────────────────────────────────────────
 
   const permissions = [
     ...(Array.isArray(response?.permissions) ? response.permissions : []),

@@ -80,7 +80,7 @@ function TabsTrigger({
       )}
       {...props}
     >
-      <span className="relative z-10 inline-flex max-w-full flex-wrap items-center justify-center gap-1.5 text-center leading-tight">
+      <span className="relative z-10 inline-flex min-w-0 max-w-full flex-nowrap items-center justify-center gap-1.5 text-center leading-tight">
         {children}
       </span>
       <MaterialRipple variant="none" effect="fade" className="z-0" />
@@ -95,7 +95,7 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("flex-1 outline-none", className)}
+      className={cn("flex-1 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50", className)}
       {...props}
     />
   )
