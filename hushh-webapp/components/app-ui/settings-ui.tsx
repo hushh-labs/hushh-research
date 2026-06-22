@@ -3,7 +3,7 @@
 import { Children, cloneElement, isValidElement } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { Slot } from "radix-ui";
 
 import {
@@ -123,10 +123,10 @@ export function SettingsGroup({
             <div
               role="heading"
               aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[12px] font-medium uppercase leading-tight tracking-[0.14em] text-muted-foreground [overflow-wrap:anywhere]"
             >
               {eyebrow ? (
-                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
+                <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
                   {eyebrow}
                 </span>
               ) : null}
@@ -186,7 +186,7 @@ export function SettingsRow({
 }) {
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive = !disabled && (typeof onClick === "function" || resolvedAsChild);
-  const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing) && !chevron;
+  const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing);
   const hasInteractiveTrailing = containsInteractiveNode(trailing);
   const splitPrimaryAction = Boolean(!asChild && onClick && hasInteractiveTrailing);
   const Comp = resolvedAsChild ? Slot.Root : onClick && !splitPrimaryAction ? "button" : "div";
@@ -220,14 +220,14 @@ export function SettingsRow({
       <div className="min-w-0 flex-1 space-y-0.5">
         <div
           className={cn(
-            "text-[13px] font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]",
+            "text-[14px] font-medium tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
             tone === "destructive" && "text-destructive"
           )}
         >
           {title}
         </div>
         {description ? (
-          <div className="text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
+          <div className="text-[12px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
             {description}
           </div>
         ) : null}
@@ -388,6 +388,23 @@ export function SettingsDetailPanel({
   desktopMaxWidth?: string;
 }) {
   const isMobile = useIsMobile();
+  const closeButton = (
+    <button
+      type="button"
+      aria-label="Close detail panel"
+      onClick={() => onOpenChange(false)}
+      className={cn(
+        "group absolute right-3 top-3 z-20 isolate inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full",
+        "border border-transparent bg-[color:var(--app-card-surface-compact)] text-muted-foreground opacity-75",
+        "transition-[opacity,transform,color] duration-200 hover:text-foreground hover:opacity-100 active:scale-[0.97]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      )}
+    >
+      <Icon icon={X} size="xs" />
+      <MaterialRipple variant="none" effect="fade" className="z-10" />
+    </button>
+  );
+
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange} modal>
@@ -398,7 +415,7 @@ export function SettingsDetailPanel({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left sm:px-5 sm:py-4">
+          <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 pr-14 text-left sm:px-5 sm:py-4 sm:pr-14">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
@@ -409,7 +426,8 @@ export function SettingsDetailPanel({
               )}
             >
               {description ?? "Settings"}
-          </DrawerDescription>
+            </DrawerDescription>
+            {closeButton}
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4">
             {children}
@@ -423,13 +441,18 @@ export function SettingsDetailPanel({
     <Dialog open={open} onOpenChange={onOpenChange} modal>
       <DialogContent
         data-settings-detail-panel="true"
+        showCloseButton={false}
         style={desktopMaxWidth ? { maxWidth: desktopMaxWidth } : undefined}
         className={cn(
           "w-[calc(100%-1.5rem)] overflow-hidden p-0",
           desktopMaxWidthClassName || "sm:!max-w-[720px]"
         )}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
       >
-        <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 text-left">
+        <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 pr-16 text-left">
           <DialogTitle className="text-base font-semibold tracking-tight">
             {title}
           </DialogTitle>
@@ -438,6 +461,7 @@ export function SettingsDetailPanel({
           >
             {description ?? "Settings"}
           </DialogDescription>
+          {closeButton}
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
           {children}

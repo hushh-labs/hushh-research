@@ -1,15 +1,3 @@
-// components/kai/cards/portfolio-metrics-card.tsx
-
-/**
- * Portfolio Metrics Card
- * 
- * Features:
- * - Diversification score based on concentration
- * - Average yield from holdings
- * - Weighted average cost basis
- * - Number of sectors represented
- */
-
 "use client";
 
 import { useMemo } from "react";
@@ -17,6 +5,10 @@ import { BarChart3, Percent, DollarSign, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
+
+// =============================================================================
+// TYPES
+// =============================================================================
 
 interface Holding {
   symbol: string;
@@ -34,166 +26,86 @@ interface PortfolioMetricsCardProps {
   className?: string;
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+// =============================================================================
+// SUB-COMPONENTS & HELPERS
+// =============================================================================
+
+const formatters = {
+  currency: (val: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val),
+  percent: (val: number) => `${val.toFixed(2)}%`
+};
+
+function MetricItem({ label, value, icon, color = "text-foreground" }: { label: string; value: string | number; icon: any; color?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon icon={icon} size="sm" aria-hidden="true" />
+        <span>{label}</span>
+      </div>
+      <div className={cn("text-lg font-bold", color)}>{value}</div>
+    </div>
+  );
 }
 
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`;
-}
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
-export function PortfolioMetricsCard({
-  holdings,
-  totalValue,
-  className,
-}: PortfolioMetricsCardProps) {
-  // Calculate diversification score (0-100)
-  // Based on Herfindahl-Hirschman Index (HHI)
-  const diversificationScore = useMemo(() => {
-    if (holdings.length === 0 || totalValue === 0) return 0;
-    
-    // Calculate HHI (sum of squared market share percentages)
-    const hhi = holdings.reduce((sum, h) => {
-      const share = (h.market_value / totalValue) * 100;
-      return sum + share * share;
-    }, 0);
-    
-    // Convert HHI to a 0-100 score (lower HHI = more diversified)
-    // HHI ranges from 10000/n (perfectly diversified) to 10000 (single holding)
-    // We normalize: 100 = perfectly diversified, 0 = single holding
-    const minHHI = 10000 / Math.max(holdings.length, 1);
-    const maxHHI = 10000;
-    const score = Math.max(0, Math.min(100, ((maxHHI - hhi) / (maxHHI - minHHI)) * 100));
-    
-    return Math.round(score);
+export function PortfolioMetricsCard({ holdings, totalValue, className }: PortfolioMetricsCardProps) {
+
+  const metrics = useMemo(() => {
+    if (!holdings.length || totalValue <= 0) return null;
+
+    // HHI Calculation
+    const hhi = holdings.reduce((sum, h) => sum + Math.pow((h.market_value / totalValue) * 100, 2), 0);
+    const score = Math.round(Math.max(0, Math.min(100, ((10000 - hhi) / (10000 - 10000 / holdings.length)) * 100)));
+
+    // Yield Calculation
+    const yieldData = holdings.reduce((acc, h) => {
+      if (h.est_yield && h.est_yield > 0) {
+        acc.sum += h.est_yield * h.market_value;
+        acc.weight += h.market_value;
+      }
+      return acc;
+    }, { sum: 0, weight: 0 });
+
+    return {
+      diversification: {
+        score,
+        label: score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Moderate" : score >= 20 ? "Low" : "Poor",
+        color: score >= 80 ? "text-emerald-500" : score >= 60 ? "text-blue-500" : score >= 40 ? "text-amber-500" : "text-red-500"
+      },
+      avgYield: yieldData.weight > 0 ? yieldData.sum / yieldData.weight : null,
+      costBasis: holdings.reduce((sum, h) => sum + (h.cost_basis || 0), 0),
+      sectorCount: new Set(holdings.map(h => h.sector || h.asset_type || "Other")).size
+    };
   }, [holdings, totalValue]);
 
-  // Calculate average yield
-  const avgYield = useMemo(() => {
-    const holdingsWithYield = holdings.filter((h) => h.est_yield !== undefined && h.est_yield > 0);
-    if (holdingsWithYield.length === 0) return null;
-    
-    // Weighted average by market value
-    const totalWeight = holdingsWithYield.reduce((sum, h) => sum + h.market_value, 0);
-    if (totalWeight === 0) return null;
-    
-    const weightedYield = holdingsWithYield.reduce(
-      (sum, h) => sum + (h.est_yield || 0) * (h.market_value / totalWeight),
-      0
-    );
-    
-    return weightedYield;
-  }, [holdings]);
+  if (!metrics) return null;
 
-  // Calculate weighted average cost basis
-  const weightedCostBasis = useMemo(() => {
-    const holdingsWithCost = holdings.filter((h) => h.cost_basis !== undefined && h.cost_basis > 0);
-    if (holdingsWithCost.length === 0) return null;
-    
-    const totalCost = holdingsWithCost.reduce((sum, h) => sum + (h.cost_basis || 0), 0);
-    return totalCost;
-  }, [holdings]);
-
-  // Count unique sectors
-  const sectorCount = useMemo(() => {
-    const sectors = new Set<string>();
-    holdings.forEach((h) => {
-      if (h.sector) sectors.add(h.sector);
-      else if (h.asset_type) sectors.add(h.asset_type);
-    });
-    return sectors.size;
-  }, [holdings]);
-
-  // Get diversification label
-  const diversificationLabel = useMemo(() => {
-    if (diversificationScore >= 80) return "Excellent";
-    if (diversificationScore >= 60) return "Good";
-    if (diversificationScore >= 40) return "Moderate";
-    if (diversificationScore >= 20) return "Low";
-    return "Poor";
-  }, [diversificationScore]);
-
-  // Get diversification color
-  const diversificationColor = useMemo(() => {
-    if (diversificationScore >= 80) return "text-emerald-500";
-    if (diversificationScore >= 60) return "text-blue-500";
-    if (diversificationScore >= 40) return "text-amber-500";
-    return "text-red-500";
-  }, [diversificationScore]);
-
-  if (holdings.length === 0) {
-    return null;
-  }
+  const { diversification, avgYield, costBasis, sectorCount } = metrics;
 
   return (
-    <Card variant="none" effect="glass" showRipple={false} className={className}>
+    <Card variant="none" effect="glass" showRipple={false} className={cn("w-full", className)}>
       <CardHeader className="pb-1 pt-3 px-4">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Icon icon={BarChart3} size="md" className="text-primary" aria-hidden="true" />
+          <Icon icon={BarChart3} size="md" className="text-primary" />
           Metrics
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="grid grid-cols-2 gap-3">
-          {/* Diversification Score */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon={Layers} size="md" aria-hidden="true" />
-              <span>Diversity</span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className={cn("text-lg font-bold", diversificationColor)}>
-                {diversificationScore}
-              </span>
-              <span className={cn("text-xs", diversificationColor)}>
-                {diversificationLabel}
-              </span>
-            </div>
-          </div>
-
-          {/* Sector Count */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon={Layers} size="md" aria-hidden="true" />
-              <span>Sectors</span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-bold">
-                {sectorCount > 0 ? sectorCount : "—"}
-              </span>
-            </div>
-          </div>
-
-          {/* Average Yield */}
+        <div className="grid grid-cols-2 gap-4">
+          <MetricItem
+            label="Diversity"
+            value={`${diversification.score} (${diversification.label})`}
+            icon={Layers}
+            color={diversification.color}
+          />
+          <MetricItem label="Sectors" value={sectorCount} icon={Layers} />
           {avgYield !== null && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon icon={Percent} size="md" aria-hidden="true" />
-                <span>Avg Yield</span>
-              </div>
-              <span className="text-lg font-bold text-emerald-500">
-                {formatPercent(avgYield)}
-              </span>
-            </div>
+            <MetricItem label="Avg Yield" value={formatters.percent(avgYield)} icon={Percent} color="text-emerald-500" />
           )}
-
-          {/* Total Cost Basis */}
-          {weightedCostBasis !== null && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon icon={DollarSign} size="md" aria-hidden="true" />
-                <span>Cost Basis</span>
-              </div>
-              <span className="text-lg font-bold">
-                {formatCurrency(weightedCostBasis)}
-              </span>
-            </div>
-          )}
+          <MetricItem label="Cost Basis" value={formatters.currency(costBasis)} icon={DollarSign} />
         </div>
       </CardContent>
     </Card>

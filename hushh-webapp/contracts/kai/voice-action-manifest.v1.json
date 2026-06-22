@@ -4,225 +4,6 @@
   "source_gateway": "contracts/kai/kai-action-gateway.vnext.json",
   "actions": [
     {
-      "id": "route.kai_analysis",
-      "label": "Open Analysis Surface",
-      "meaning": "Navigates directly to the Kai analysis workspace and history route.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "aliases": [
-        "open analysis",
-        "go to analysis"
-      ],
-      "scope": {
-        "routes": [
-          "/kai/analysis"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_hint": {
-        "status": "wired",
-        "path": "route",
-        "target": "/kai/analysis"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/kai/analysis/page.tsx"
-      ]
-    },
-    {
-      "id": "route.analysis_history",
-      "label": "Open Analysis History",
-      "meaning": "Navigates to analysis page history context.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "aliases": [
-        "open analysis history",
-        "show past analysis"
-      ],
-      "scope": {
-        "routes": [
-          "/kai/analysis",
-          "/kai/analysis?tab=history"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_hint": {
-        "status": "wired",
-        "path": "kai_command",
-        "target": "history"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
-    },
-    {
-      "id": "analysis.start",
-      "label": "Start Stock Analysis",
-      "meaning": "Opens the stock comparison preview so the user can confirm context before the debate starts.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "aliases": [
-        "analyze stock",
-        "start stock analysis",
-        "research stock"
-      ],
-      "scope": {
-        "routes": [
-          "/kai/analysis"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [
-        "analysis_idle_required"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "allow_direct",
-      "execution_hint": {
-        "status": "wired",
-        "path": "kai_command",
-        "target": "analyze",
-        "params": {
-          "requires_symbol": true
-        }
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
-    },
-    {
-      "id": "analysis.resume_active",
-      "label": "Resume Active Analysis Run",
-      "meaning": "Attaches to currently running debate task and opens focused analysis route.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "aliases": [
-        "resume analysis",
-        "open active analysis"
-      ],
-      "scope": {
-        "routes": [
-          "/kai/analysis",
-          "/kai/analysis?focus=active"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "active debate run must exist for this user"
-        ]
-      },
-      "guard_ids": [
-        "active_analysis_required",
-        "vault_unlocked"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "allow_direct",
-      "execution_hint": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "resume_active_analysis"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
-    },
-    {
-      "id": "analysis.cancel_active",
-      "label": "Cancel Active Analysis Run",
-      "meaning": "Cancels running debate task and returns to history view.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "aliases": [
-        "cancel analysis",
-        "stop analysis"
-      ],
-      "scope": {
-        "routes": [
-          "/kai/analysis"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "active debate run must exist for this user"
-        ]
-      },
-      "guard_ids": [
-        "active_analysis_required",
-        "explicit_user_confirmation",
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "execution_hint": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "cancel_active_analysis"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
-      ]
-    },
-    {
-      "id": "analysis.open_transcript_tab_legacy",
-      "label": "Legacy Transcript Tab Route",
-      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "aliases": [
-        "open transcript tab",
-        "show transcript tab"
-      ],
-      "scope": {
-        "routes": [
-          "/kai/analysis?tab=transcript"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "analysis route must be loaded"
-        ]
-      },
-      "guard_ids": [],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_hint": {
-        "status": "dead",
-        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "lib/voice/voice-json-validator.ts",
-        "app/kai/analysis/page.tsx"
-      ]
-    },
-    {
       "id": "route.marketplace_ria_profile",
       "label": "Open Marketplace RIA Profile",
       "meaning": "Navigates to a public marketplace RIA profile route.",
@@ -422,6 +203,441 @@
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ]
+    },
+    {
+      "id": "route.profile_receipts",
+      "label": "Open Receipts Page",
+      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open receipts",
+        "open gmail receipts"
+      ],
+      "scope": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to Gmail surface if route is currently outside Gmail scope"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/gmail"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/gmail/page.tsx"
+      ]
+    },
+    {
+      "id": "profile.gmail.connect",
+      "label": "Connect Gmail",
+      "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "aliases": [
+        "connect gmail",
+        "link gmail"
+      ],
+      "scope": {
+        "routes": [
+          "/profile",
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "gmail_configured"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
+        "intended_handler": "router.push"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "id": "profile.gmail.sync_now",
+      "label": "Sync Gmail Receipts Now",
+      "meaning": "Queues and polls Gmail receipt sync run.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sync gmail receipts",
+        "refresh gmail receipts"
+      ],
+      "scope": {
+        "routes": [
+          "/one/gmail",
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "gmail",
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "gmail_connected"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx",
+        "app/gmail/page.tsx"
+      ]
+    },
+    {
+      "id": "profile.receipts_memory.preview",
+      "label": "Build receipts memory preview",
+      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "preview receipts memory",
+        "generate receipts memory preview"
+      ],
+      "scope": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/gmail/page.tsx"
+      ]
+    },
+    {
+      "id": "profile.receipts_memory.save",
+      "label": "Save receipts memory to PKM",
+      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "save receipts memory",
+        "save receipts to memory"
+      ],
+      "scope": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "receipt memory preview must exist before save"
+        ]
+      },
+      "guard_ids": [
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Save to PKM is currently implemented only inside the receipts page.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/gmail/page.tsx"
+      ]
+    },
+    {
+      "id": "profile.gmail.disconnect",
+      "label": "Disconnect Gmail",
+      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "aliases": [
+        "disconnect gmail",
+        "unlink gmail"
+      ],
+      "scope": {
+        "routes": [
+          "/profile?panel=gmail"
+        ],
+        "screens": [
+          "profile_gmail_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "gmail_connected",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "No global action dispatcher for Gmail disconnect yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/page.tsx"
+      ]
+    },
+    {
+      "id": "route.kai_analysis",
+      "label": "Open Analysis Surface",
+      "meaning": "Navigates directly to the Kai analysis workspace and history route.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open analysis",
+        "go to analysis"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/analysis"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/kai/analysis/page.tsx"
+      ]
+    },
+    {
+      "id": "route.analysis_history",
+      "label": "Open Analysis History",
+      "meaning": "Navigates to analysis page history context.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open analysis history",
+        "show past analysis"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kai/analysis",
+          "/one/kai/analysis?tab=history"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "history"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "analysis.start",
+      "label": "Start Stock Analysis",
+      "meaning": "Opens the stock comparison preview so the user can confirm context before the debate starts.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "analyze stock",
+        "start stock analysis",
+        "research stock"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "analysis_idle_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "analyze",
+        "params": {
+          "requires_symbol": true
+        }
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "analysis.resume_active",
+      "label": "Resume Active Analysis Run",
+      "meaning": "Attaches to currently running debate task and opens focused analysis route.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "resume analysis",
+        "open active analysis"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kai/analysis",
+          "/one/kai/analysis?focus=active"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "active debate run must exist for this user"
+        ]
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "resume_active_analysis"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "analysis.cancel_active",
+      "label": "Cancel Active Analysis Run",
+      "meaning": "Cancels running debate task and returns to history view.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "cancel analysis",
+        "stop analysis"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "active debate run must exist for this user"
+        ]
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "cancel_active_analysis"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "analysis.open_transcript_tab_legacy",
+      "label": "Legacy Transcript Tab Route",
+      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open transcript tab",
+        "show transcript tab"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kai/analysis?tab=transcript"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "analysis route must be loaded"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "dead",
+        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "lib/voice/voice-json-validator.ts",
+        "app/kai/analysis/page.tsx"
       ]
     },
     {
@@ -725,25 +941,25 @@
     },
     {
       "id": "route.profile_gmail_panel",
-      "label": "Open Gmail Connector Panel",
-      "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "label": "Open Gmail",
+      "meaning": "Navigates to the canonical Gmail receipts workspace.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
         "open gmail settings",
-        "open gmail panel"
+        "open gmail panel",
+        "open gmail"
       ],
       "scope": {
         "routes": [
-          "/profile?panel=gmail"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_gmail_panel"
+          "gmail"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "profile route must be active",
-          "query param panel=gmail"
+          "Gmail route must be reachable"
         ]
       },
       "guard_ids": [],
@@ -752,7 +968,43 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/profile?panel=gmail"
+        "target": "/one/gmail"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/gmail/page.tsx"
+      ]
+    },
+    {
+      "id": "route.profile_connected_systems",
+      "label": "Open Connected Systems Panel",
+      "meaning": "Navigates to the Connected Systems route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open connected systems",
+        "open salesforce crm",
+        "open external crms"
+      ],
+      "scope": {
+        "routes": [
+          "/one/connected-systems"
+        ],
+        "screens": [
+          "connected_systems"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Connected Systems route must be reachable"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/connected-systems"
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -833,24 +1085,25 @@
     },
     {
       "id": "route.profile_pkm_agent_lab",
-      "label": "Open PKM Agent Lab",
-      "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "label": "Open PKM",
+      "meaning": "Navigates to the canonical Saved Intelligence PKM workspace.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
-        "open pkm lab",
-        "open memory lab"
+        "open pkm",
+        "open memory",
+        "open saved intelligence"
       ],
       "scope": {
         "routes": [
-          "/profile/pkm-agent-lab"
+          "/one/pkm"
         ],
         "screens": [
-          "profile_pkm_agent_lab"
+          "pkm"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "localhost developer access to PKM Agent Lab must be enabled"
+          "vault must be available for encrypted PKM details"
         ]
       },
       "guard_ids": [],
@@ -859,11 +1112,11 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/profile/pkm-agent-lab"
+        "target": "/one/pkm"
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/pkm-agent-lab/page-client.tsx"
+        "app/pkm/page.tsx"
       ]
     },
     {
@@ -1089,222 +1342,6 @@
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/pkm-agent-lab/page-client.tsx"
-      ]
-    },
-    {
-      "id": "route.profile_receipts",
-      "label": "Open Receipts Page",
-      "meaning": "Navigates directly to receipts page from any investor surface.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "aliases": [
-        "open receipts",
-        "open gmail receipts"
-      ],
-      "scope": {
-        "routes": [
-          "/profile/receipts"
-        ],
-        "screens": [
-          "profile_receipts"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "navigate to profile surface if route is currently outside profile scope"
-        ]
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_hint": {
-        "status": "wired",
-        "path": "route",
-        "target": "/profile/receipts"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/receipts/page.tsx"
-      ]
-    },
-    {
-      "id": "profile.gmail.connect",
-      "label": "Connect Gmail",
-      "meaning": "Starts OAuth flow for Gmail receipts connector.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "aliases": [
-        "connect gmail",
-        "link gmail"
-      ],
-      "scope": {
-        "routes": [
-          "/profile",
-          "/profile?panel=gmail"
-        ],
-        "screens": [
-          "profile_gmail_panel"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [
-        "gmail_configured"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "execution_hint": {
-        "status": "unwired",
-        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
-        "intended_handler": "router.push"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
-      ]
-    },
-    {
-      "id": "profile.gmail.sync_now",
-      "label": "Sync Gmail Receipts Now",
-      "meaning": "Queues and polls Gmail receipt sync run.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "aliases": [
-        "sync gmail receipts",
-        "refresh gmail receipts"
-      ],
-      "scope": {
-        "routes": [
-          "/profile/receipts",
-          "/profile?panel=gmail"
-        ],
-        "screens": [
-          "profile_receipts",
-          "profile_gmail_panel"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [
-        "gmail_connected"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "execution_hint": {
-        "status": "unwired",
-        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx",
-        "app/profile/receipts/page.tsx"
-      ]
-    },
-    {
-      "id": "profile.receipts_memory.preview",
-      "label": "Build receipts memory preview",
-      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "aliases": [
-        "preview receipts memory",
-        "generate receipts memory preview"
-      ],
-      "scope": {
-        "routes": [
-          "/profile/receipts"
-        ],
-        "screens": [
-          "profile_receipts"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [],
-      "risk_level": "medium",
-      "execution_policy": "allow_direct",
-      "execution_hint": {
-        "status": "unwired",
-        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/receipts/page.tsx"
-      ]
-    },
-    {
-      "id": "profile.receipts_memory.save",
-      "label": "Save receipts memory to PKM",
-      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "aliases": [
-        "save receipts memory",
-        "save receipts to memory"
-      ],
-      "scope": {
-        "routes": [
-          "/profile/receipts"
-        ],
-        "screens": [
-          "profile_receipts"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "receipt memory preview must exist before save"
-        ]
-      },
-      "guard_ids": [
-        "vault_unlocked",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_hint": {
-        "status": "unwired",
-        "reason": "Save to PKM is currently implemented only inside the receipts page.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/receipts/page.tsx"
-      ]
-    },
-    {
-      "id": "profile.gmail.disconnect",
-      "label": "Disconnect Gmail",
-      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "aliases": [
-        "disconnect gmail",
-        "unlink gmail"
-      ],
-      "scope": {
-        "routes": [
-          "/profile?panel=gmail"
-        ],
-        "screens": [
-          "profile_gmail_panel"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [
-        "gmail_connected",
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "execution_hint": {
-        "status": "unwired",
-        "reason": "No global action dispatcher for Gmail disconnect yet.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
       ]
     },
     {
@@ -2364,8 +2401,8 @@
       ],
       "scope": {
         "routes": [
-          "/kai",
-          "/kai/analysis",
+          "/one/kai",
+          "/one/kai/analysis",
           "/profile"
         ],
         "screens": [
@@ -2405,7 +2442,7 @@
       ],
       "scope": {
         "routes": [
-          "/kai/portfolio"
+          "/one/kai/portfolio"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -2438,7 +2475,7 @@
       ],
       "scope": {
         "routes": [
-          "/kai/import"
+          "/one/kai/import"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -2471,7 +2508,7 @@
       ],
       "scope": {
         "routes": [
-          "/kai/investments"
+          "/one/kai/investments"
         ],
         "screens": [
           "kai_investments"
@@ -2489,7 +2526,7 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/kai/investments"
+        "target": "/one/kai/investments"
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2508,7 +2545,7 @@
       ],
       "scope": {
         "routes": [
-          "/kai/optimize"
+          "/one/kai/optimize"
         ],
         "screens": [
           "kai_optimize"
@@ -2524,7 +2561,7 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/kai/optimize"
+        "target": "/one/kai/optimize"
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2544,8 +2581,8 @@
       ],
       "scope": {
         "routes": [
-          "/kai",
-          "/kai/home"
+          "/one/kai",
+          "/one/kai/home"
         ],
         "screens": [
           "kai_market"

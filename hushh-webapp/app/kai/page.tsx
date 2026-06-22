@@ -1,25 +1,7 @@
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { KaiMarketPreviewView } from "@/components/kai/views/kai-market-preview-view";
+import { redirect } from "next/navigation";
 
-export default function KaiPage() {
-  return (
-    <>
-      <NativeRouteMarker
-        routeId="/kai"
-        marker="native-route-kai-home"
-        authState="authenticated"
-        dataState="loaded"
-      />
+import { ROUTES } from "@/lib/navigation/routes";
 
-      <NativeTestBeacon
-        routeId="/kai"
-        marker="native-route-kai-home"
-        authState="authenticated"
-        dataState="loaded"
-      />
-
-      <KaiMarketPreviewView />
-    </>
-  );
+export default function LegacyKaiPage() {
+  redirect(ROUTES.KAI_HOME);
 }

@@ -15,6 +15,10 @@ Design
   - results capped by limit
 
 If cache is empty (startup race), routes can fall back to DB.
+
+Canonical attach point
+----------------------
+hushh_mcp.services.ticker_cache.TickerCache.load_from_db  (invoked at startup)
 """
 
 from __future__ import annotations
@@ -137,6 +141,7 @@ class TickerCache:
             data = legacy_res.data or []
 
         rows: List[TickerRow] = []
+        skipped = 0
         for r in data:
             try:
                 ticker = (r.get("ticker") or "").upper().strip()
@@ -159,8 +164,20 @@ class TickerCache:
                         tradable=bool(r.get("tradable", True)),
                     )
                 )
-            except Exception:
-                continue
+            except Exception as exc:
+                skipped += 1
+                logger.warning(
+                    "[TickerCache] Skipping malformed row ticker=%r: %s",
+                    r.get("ticker"),
+                    exc,
+                )
+
+        if skipped:
+            logger.warning(
+                "[TickerCache] Skipped %d malformed rows out of %d total during load",
+                skipped,
+                len(data),
+            )
 
         with self._lock:
             self._rows = rows

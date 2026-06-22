@@ -64,6 +64,7 @@ from mcp_modules.tools import (
     handle_list_marketplace_investors,
     handle_list_ria_profiles,
     handle_list_scopes,
+    handle_prepare_campaign_context,
     handle_request_consent,
     handle_validate_token,
 )
@@ -90,6 +91,7 @@ server = Server("hushh-consent")
 
 HANDLERS = {
     # ── Consent / Privacy tools ───────────────────────────────────────────────
+    "prepare_campaign_context": handle_prepare_campaign_context,
     "request_consent": handle_request_consent,
     "validate_token": handle_validate_token,
     "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,

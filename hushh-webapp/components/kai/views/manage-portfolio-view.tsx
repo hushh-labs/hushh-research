@@ -743,7 +743,7 @@ export function ManagePortfolioView() {
               disabled={isSaving}
               variant="morphy"
               effect="fill"
-              className="w-full h-12 text-sm font-black rounded-xl border-none shadow-xl"
+              className="w-full h-12 text-sm font-semibold rounded-xl border-none shadow-xl"
               icon={{ 
                 icon: isSaving ? SpinningLoader : Save,
                 gradient: false 

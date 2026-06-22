@@ -40,6 +40,18 @@ function collectAppPageRoutes(dir: string, root: string = dir): string[] {
 
 describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
+    expect(resolveRouteId("/")).toBe("one_dashboard");
+    expect(resolveRouteId("/one")).toBe("one_dashboard");
+    expect(resolveRouteId("/one/gmail")).toBe("gmail");
+    expect(resolveRouteId("/one/pkm")).toBe("pkm");
+    expect(resolveRouteId("/one/connected-systems")).toBe("connected_systems");
+    expect(resolveRouteId("/one/connected-systems/salesforce-fsc-customer0")).toBe(
+      "connected_systems"
+    );
+    expect(resolveRouteId("/gmail")).toBe("gmail");
+    expect(resolveRouteId("/pkm")).toBe("pkm");
+    expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
+    expect(resolveRouteId("/one/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");
@@ -64,9 +76,9 @@ describe("observability route map", () => {
     expect(resolveRouteId("/ria/clients/user_123/requests/request_789")).toBe("ria_workspace");
     expect(resolveRouteId("/ria/picks")).toBe("ria_picks");
     expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
-    expect(resolveRouteId("/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
-    expect(resolveRouteId("/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
-    expect(resolveRouteId("/kai/funding-trade")).toBe("kai_funding_trade");
+    expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
+    expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
+    expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_funding_trade");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });
 
@@ -121,6 +133,20 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/one/location/public-invites/public_token_123/submit")).toBe(
       "/api/one/location/public-invites/{public_token}/submit"
     );
+    expect(normalizeApiPathToTemplate("/api/connected-systems")).toBe(
+      "/api/connected-systems"
+    );
+    expect(
+      normalizeApiPathToTemplate("/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact")
+    ).toBe("/api/connected-systems/{system_id}/schema");
+    expect(
+      normalizeApiPathToTemplate("/api/connected-systems/salesforce-fsc-customer0/records/read")
+    ).toBe("/api/connected-systems/{system_id}/records/read");
+    expect(
+      normalizeApiPathToTemplate(
+        "/api/connected-systems/salesforce-fsc-customer0/intents/csi_1234567890/approve"
+      )
+    ).toBe("/api/connected-systems/{system_id}/intents/{intent_id}/approve");
   });
 
   it("redacts opaque IDs for unknown endpoints", () => {

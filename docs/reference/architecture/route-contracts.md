@@ -52,6 +52,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/profile/receipts`
 - `/profile/gmail/oauth/return`
 - `/consents`
+- `/one/onboarding`
 - `/one/kyc`
 - `/marketplace`
 - `/marketplace/ria`
@@ -61,23 +62,22 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
-- `/kai`
-- `/kai/onboarding`
-- `/kai/import`
-- `/kai/plaid/oauth/return`
-- `/kai/alpaca/oauth/return`
-- `/kai/investments`
-- `/kai/funding-trade`
-- `/kai/portfolio`
-- `/kai/analysis`
-- `/kai/optimize`
+- `/one/kai`
+- `/one/kai/import`
+- `/one/kai/plaid/oauth/return`
+- `/one/kai/alpaca/oauth/return`
+- `/one/kai/investments`
+- `/one/kai/funding-trade`
+- `/one/kai/portfolio`
+- `/one/kai/analysis`
+- `/one/kai/optimize`
 
 Detail entrypoints that require an identifier use query-backed static routes so Capacitor export stays compatible:
 
 - `/marketplace/ria?riaId=<ria_id>`
 - `/ria/workspace?clientId=<investor_user_id>`
 
-Legacy navigation surfaces and aliases must not be reintroduced without updating both `routes.ts` and this reference.
+Legacy `/kai/*` aliases and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
 ## Visible Route Coverage
 

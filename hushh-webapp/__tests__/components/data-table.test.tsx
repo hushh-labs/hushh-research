@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -25,6 +27,38 @@ function makeRows(count: number): TestRow[] {
 }
 
 describe("DataTable", () => {
+  it("does not own swipe pagination gestures", () => {
+    const dataTableSource = readFileSync(
+      join(process.cwd(), "components/app-ui/data-table.tsx"),
+      "utf8"
+    );
+    const marketListSource = readFileSync(
+      join(process.cwd(), "components/kai/cards/renaissance-market-list.tsx"),
+      "utf8"
+    );
+
+    for (const source of [dataTableSource, marketListSource]) {
+      expect(source).not.toContain("swipeStartRef");
+      expect(source).not.toContain("onTouchStart");
+      expect(source).not.toContain("onTouchEnd");
+      expect(source).not.toContain("data-no-route-swipe");
+      expect(source).not.toContain("Swipe left or right");
+    }
+  });
+
+  it("keeps Kai route tabs free of global swipe routing", () => {
+    const routeTabsSource = readFileSync(
+      join(process.cwd(), "components/kai/layout/dashboard-route-tabs.tsx"),
+      "utf8"
+    );
+
+    expect(routeTabsSource).not.toContain("touchstart");
+    expect(routeTabsSource).not.toContain("touchmove");
+    expect(routeTabsSource).not.toContain("touchend");
+    expect(routeTabsSource).not.toContain("SWIPE_");
+    expect(routeTabsSource).not.toContain("data-no-route-swipe");
+  });
+
   it("supports direct page-number navigation", () => {
     render(
       <DataTable

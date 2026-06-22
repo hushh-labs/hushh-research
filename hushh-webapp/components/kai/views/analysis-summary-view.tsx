@@ -273,6 +273,11 @@ export function AnalysisSummaryView({
   const [marketSnapshot, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(
     rawCardSnapshot
   );
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setMarketSnapshot(rawCardSnapshot);
@@ -361,11 +366,12 @@ export function AnalysisSummaryView({
     <div className="mx-auto w-full space-y-4 pb-safe pt-1" style={APP_MEASURE_STYLES.reading}>
       {!embedded ? (
         <div className="flex items-center justify-between gap-3">
-          <Button variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>
+          <Button type="button" variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>
             <Icon icon={ArrowLeft} size="sm" className="mr-1" aria-hidden="true" />
             History
           </Button>
           <Button
+            type="button"
             variant="none"
             effect="fade"
             size="sm"
@@ -380,11 +386,11 @@ export function AnalysisSummaryView({
 
       {showHeader ? (
         <div className="flex items-center gap-4 px-1">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-black text-white dark:bg-white dark:text-black">
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-semibold text-white dark:bg-white dark:text-black">
             {entry.ticker.slice(0, 1)}
           </div>
           <div>
-            <h2 className="text-2xl font-black tracking-tight leading-tight">{entry.ticker} Insight</h2>
+            <h2 className="text-[20px] font-medium leading-tight tracking-normal sm:text-[22px]">{entry.ticker} Insight</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm text-muted-foreground">{priceLabel}</span>
               {todayChangePct !== null ? (
@@ -416,7 +422,7 @@ export function AnalysisSummaryView({
         <CardContent className="space-y-5 p-6">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-bold uppercase tracking-widest text-primary">Analysis</span>
-            <span className="text-xs font-medium text-muted-foreground">{updatedAt}</span>
+            <span className="text-xs font-medium text-muted-foreground">{mounted ? updatedAt : "Updated recently"}</span>
           </div>
 
           <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
@@ -465,7 +471,7 @@ export function AnalysisSummaryView({
             </p>
           </div>
           {!embedded && onOpenDebate ? (
-            <Button variant="blue-gradient" effect="fill" size="sm" onClick={onOpenDebate}>
+            <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={onOpenDebate}>
               <Icon icon={Scale} size="sm" className="mr-1" aria-hidden="true" />
               Open Detailed Debate
             </Button>

@@ -233,4 +233,43 @@ describe("useStaleResource lifecycle", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
+
+  // 7 – Stuck-error regression: after a failed load sets error, a fresh value
+  //     landing in the cache (e.g. a background refresh resolving through
+  //     another hook instance) must CLEAR the error. This is the root cause of
+  //     the iOS "Failed to refresh market home" banner showing on top of loaded
+  //     data — the error state was never cleared on a cache-driven success.
+  it("clears a stale error when a fresh value lands via the cache subscription", async () => {
+    const staleData = { stale: true };
+    getCache().set("recover-key", staleData, 1);
+    await new Promise((r) => setTimeout(r, 5));
+
+    const failingLoad = vi.fn(async () => {
+      throw new Error("Network failure");
+    });
+
+    const { result } = renderHook(() =>
+      useStaleResource({
+        cacheKey: "recover-key",
+        enabled: true,
+        load: failingLoad,
+      })
+    );
+
+    // Error is set by the failed load.
+    await waitFor(() => {
+      expect(result.current.error).toBe("Network failure");
+    });
+
+    // A background refresh (another instance) writes a fresh value to the cache.
+    await act(async () => {
+      getCache().set("recover-key", { recovered: true });
+    });
+
+    // The error must be cleared now that good data is present.
+    await waitFor(() => {
+      expect(result.current.error).toBeNull();
+    });
+    expect(result.current.data).toEqual({ recovered: true });
+  });
 });
