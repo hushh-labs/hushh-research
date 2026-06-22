@@ -16,10 +16,6 @@ declare global {
   }
 }
 
-function freezeTransportPayload<T extends Record<string, unknown>>(payload: T): T {
-  return Object.freeze(payload);
-}
-
 export const webGtmAdapter: ObservabilityAdapter = {
   name: "web-gtm",
 
@@ -34,7 +30,9 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (typeof window === "undefined") return;
 
     window.dataLayer = window.dataLayer || [];
-    const transportPayload = freezeTransportPayload({
+    // Freeze the outbound payload so downstream GTM/dataLayer consumers cannot
+    // mutate it after we hand it off (telemetry immutability at the transport edge).
+    const transportPayload = Object.freeze({
       event: eventName,
       event_source: "observability_v2",
       ...payload,
@@ -47,7 +45,7 @@ export const webGtmAdapter: ObservabilityAdapter = {
     }
 
     if (typeof window.gtag === "function") {
-      const gtagPayload = freezeTransportPayload({
+      const gtagPayload = Object.freeze({
         send_to: measurementId,
         event_source: "observability_v2",
         ...payload,
