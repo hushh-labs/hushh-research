@@ -170,7 +170,7 @@ export const SegmentedPill = React.forwardRef<
                 onValueChange(option.value);
               }}
               className={cn(
-                "relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] disabled:cursor-not-allowed",
+                "relative z-10 flex min-w-0 max-w-full items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"
@@ -188,7 +188,7 @@ export const SegmentedPill = React.forwardRef<
             >
               {option.icon ||
               (typeof option.badge === "number" && option.badge > 0) ? (
-                <span className="relative flex shrink-0 items-center justify-center">
+                <span className="relative flex shrink-0 items-center justify-center self-center">
                   {option.icon ? (
                     <Icon
                       icon={option.icon}
@@ -206,8 +206,8 @@ export const SegmentedPill = React.forwardRef<
               <span
                 className={cn(
                   isStacked
-                    ? "max-w-full whitespace-normal"
-                    : "whitespace-nowrap",
+                    ? "max-w-full whitespace-normal text-center [overflow-wrap:anywhere]"
+                    : "min-w-0 max-w-full truncate whitespace-nowrap text-center",
                   isStacked ? styles.stackedLabel : styles.label,
                 )}
               >
@@ -227,7 +227,7 @@ export const SegmentedPill = React.forwardRef<
               <div
                 key={option.value}
                 className={cn(
-                  "pointer-events-none relative z-10 flex min-w-0 items-center justify-center",
+                  "pointer-events-none relative z-10 flex min-w-0 items-center justify-center justify-self-stretch",
                   hitArea === "segment" ? "h-full px-[2px] py-[2px]" : "",
                   hitArea === "content" && isStacked ? "py-0.5" : "",
                 )}
