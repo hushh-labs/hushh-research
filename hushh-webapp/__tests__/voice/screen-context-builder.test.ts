@@ -256,7 +256,12 @@ describe("buildStructuredScreenContext", () => {
     );
   });
 
-  it("enforces exact array lengths across oversized voice context frames", () => {
+  // Anchored to the real STRUCTURED_CONTEXT_ARRAY_CAP enforcement in
+  // screen-context-builder.ts (uniqueStrings -> enforceArrayDimensionCap), not a
+  // separate "context frame" abstraction. Covers the structured-context array
+  // fields the existing suite does not yet bound: route.nav_stack,
+  // ui.active_filters, ui.selected_objects, and runtime.busy_operations.
+  it("caps structured screen context list fields at STRUCTURED_CONTEXT_ARRAY_CAP", () => {
     const oversizedPath = `/${Array.from(
       { length: STRUCTURED_CONTEXT_ARRAY_CAP + 4 },
       (_, index) => `route-${index}`,
