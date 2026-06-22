@@ -405,9 +405,9 @@ export function SectorAllocationChart({
                         {sector.count} holding{sector.count !== 1 ? "s" : ""}
                       </span>
                       {isOpen ? (
-                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        <ChevronUp aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
                       ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        <ChevronDown aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
                       )}
                     </button>
                   </CollapsibleTrigger>
