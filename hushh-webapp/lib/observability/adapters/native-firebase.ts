@@ -16,18 +16,18 @@ function getFirebaseAnalyticsModule() {
   return firebaseAnalyticsModulePromise;
 }
 
-const hasOwnProperty = Object.prototype.hasOwnProperty;
-
 function toFirebaseParams(payload: Record<string, PrimitiveEventValue>) {
   const params: Record<string, string | number> = {};
 
-  for (const key in payload) {
-    if (!hasOwnProperty.call(payload, key)) continue;
-
-    const value = payload[key];
+  // Object.entries only enumerates own enumerable properties, so inherited
+  // metadata on the payload prototype is never forwarded to Firebase.
+  for (const [key, value] of Object.entries(payload)) {
     if (value === null || value === undefined) continue;
-
-    params[key] = typeof value === "boolean" ? (value ? "true" : "false") : value;
+    if (typeof value === "boolean") {
+      params[key] = value ? "true" : "false";
+      continue;
+    }
+    params[key] = value;
   }
 
   return params;
@@ -35,6 +35,7 @@ function toFirebaseParams(payload: Record<string, PrimitiveEventValue>) {
 
 export const nativeFirebaseAdapter: ObservabilityAdapter = {
   name: "native-firebase",
+
 
   isAvailable(): boolean {
     return Capacitor.isNativePlatform();
