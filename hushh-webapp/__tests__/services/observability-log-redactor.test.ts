@@ -248,7 +248,14 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(output).toContain("data");
   });
 
-  it("redacts sensitive TSV fields across consecutive tab delimiters without shifting column indexes", () => {
+  // Extends the existing tab-delimited cases above (which already prove email +
+  // vault-key redaction and total tab-count preservation). redactObservabilityLog
+  // is a flat regex replacer with NO TSV/column awareness — tabs are not part of
+  // any pattern, so column structure is preserved incidentally, not by design.
+  // The one behavior not yet exercised is *consecutive empty fields* (\t\t\t):
+  // this asserts the regex pass never collapses adjacent empty delimiters, so a
+  // downstream split("\t") still yields the same field boundaries.
+  it("preserves consecutive empty tab-delimited fields while redacting sensitive tokens", () => {
     const tsvLogLine = [
       "2026-06-18T14:00:00.000Z",
       "multi.tab.user@testorg.com",
@@ -261,16 +268,17 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(tsvLogLine).toContain("\t\t\t");
 
     const redacted = redactObservabilityLog(tsvLogLine);
-    const originalColumns = tsvLogLine.split("\t");
-    const redactedColumns = redacted.split("\t");
+    const originalFields = tsvLogLine.split("\t");
+    const redactedFields = redacted.split("\t");
 
-    expect(redactedColumns).toHaveLength(originalColumns.length);
-    expect(redactedColumns[0]).toBe("2026-06-18T14:00:00.000Z");
-    expect(redactedColumns[1]).toBe("[REDACTED_EMAIL]");
-    expect(redactedColumns[2]).toBe("");
-    expect(redactedColumns[3]).toBe("");
-    expect(redactedColumns[4]).toBe("consent_export_failed");
-    expect(redactedColumns[5]).toBe("[REDACTED_VAULT_KEY]");
+    // Adjacent empty fields are neither collapsed nor shifted by the regex pass.
+    expect(redactedFields).toHaveLength(originalFields.length);
+    expect(redactedFields[0]).toBe("2026-06-18T14:00:00.000Z");
+    expect(redactedFields[1]).toBe("[REDACTED_EMAIL]");
+    expect(redactedFields[2]).toBe("");
+    expect(redactedFields[3]).toBe("");
+    expect(redactedFields[4]).toBe("consent_export_failed");
+    expect(redactedFields[5]).toBe("[REDACTED_VAULT_KEY]");
     expect(redacted).toContain("\t\t\t");
     expect(redacted).not.toContain("multi.tab.user@testorg.com");
     expect(redacted).not.toContain("vault_multi_tab_key_003");
