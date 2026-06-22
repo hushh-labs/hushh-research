@@ -22,7 +22,8 @@
     "new-feature-tri-flow",
     "bug-triage",
     "mcp-surface-change",
-    "hushh-consent-mcp-ops"
+    "hushh-consent-mcp-ops",
+    "ria-api-reference"
   ],
   "required_reads": [
     "consent-protocol/README.md",

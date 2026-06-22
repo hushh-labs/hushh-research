@@ -263,7 +263,7 @@ export function PlaidBrokerageSummarySection({
 
             <div className="flex flex-wrap gap-2">
               {connectionHealth(selectedItem).isRefreshing ? (
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   onClick={() =>
@@ -279,7 +279,7 @@ export function PlaidBrokerageSummarySection({
                   Cancel refresh
                 </Button>
               ) : (
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   onClick={() => void onRefreshItem?.(selectedItem.item_id)}
@@ -288,7 +288,7 @@ export function PlaidBrokerageSummarySection({
                   Refresh
                 </Button>
               )}
-              <Button
+              <Button type="button"
                 variant="none"
                 effect="fade"
                 onClick={() => void onManageConnection?.(selectedItem.item_id)}
@@ -297,7 +297,7 @@ export function PlaidBrokerageSummarySection({
                 Manage connection
               </Button>
               {onViewInvestments ? (
-                <Button variant="none" effect="fade" onClick={onViewInvestments}>
+                <Button type="button" variant="none" effect="fade" onClick={onViewInvestments}>
                   <ExternalLink className="mr-2 h-4 w-4" />
                   View investments
                 </Button>
@@ -675,7 +675,7 @@ export function PlaidFundingTransfersSection({
         trailing={
           <div className="flex flex-wrap items-center gap-2">
             {onRunReconciliation ? (
-              <Button
+              <Button type="button"
                 variant="none"
                 effect="fade"
                 disabled={isReconciling}
@@ -689,7 +689,7 @@ export function PlaidFundingTransfersSection({
                 Reconcile
               </Button>
             ) : null}
-            <Button
+            <Button type="button"
               variant="none"
               effect="fade"
               disabled={isConnectingFunding}
@@ -708,7 +708,7 @@ export function PlaidFundingTransfersSection({
 
       {fundingItem && fundingAccounts.length > 0 && onCreateTransfer ? (
         <div className="space-y-2">
-          <Button
+          <Button type="button"
             variant="none"
             effect="fade"
             size="sm"
@@ -725,9 +725,9 @@ export function PlaidFundingTransfersSection({
           {isFundingPanelOpen ? (
             <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="plaid-brokerage-input-1" className="space-y-1 text-xs text-muted-foreground">
                   Funding account
-                  <select
+                  <select id="plaid-brokerage-input-1"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={selectedFundingAccountId}
                     onChange={(event) => {
@@ -750,9 +750,9 @@ export function PlaidFundingTransfersSection({
                 </label>
 
                 {brokerageAccountOptions.length > 0 ? (
-                  <label className="space-y-1 text-xs text-muted-foreground">
+                  <label htmlFor="plaid-brokerage-input-2" className="space-y-1 text-xs text-muted-foreground">
                     Alpaca brokerage destination
-                    <select
+                    <select id="plaid-brokerage-input-2"
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                       value={selectedBrokerageAccountId}
                       onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
@@ -772,7 +772,7 @@ export function PlaidFundingTransfersSection({
                       account before creating transfers.
                     </p>
                     {onManageBrokerage ? (
-                      <Button
+                      <Button type="button"
                         variant="none"
                         effect="fade"
                         size="sm"
@@ -784,9 +784,9 @@ export function PlaidFundingTransfersSection({
                   </div>
                 )}
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="plaid-brokerage-input-3" className="space-y-1 text-xs text-muted-foreground">
                   Transfer direction
-                  <select
+                  <select id="plaid-brokerage-input-3"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={transferDirection}
                     onChange={(event) =>
@@ -798,9 +798,9 @@ export function PlaidFundingTransfersSection({
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="plaid-brokerage-input-4" className="space-y-1 text-xs text-muted-foreground">
                   Amount (USD)
-                  <input
+                  <input id="plaid-brokerage-input-4"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={amountInput}
                     onChange={(event) => setAmountInput(event.target.value)}
@@ -809,7 +809,7 @@ export function PlaidFundingTransfersSection({
                   />
                   <div className="flex gap-2 pt-1">
                     {["100.00", "250.00", "500.00"].map((preset) => (
-                      <Button
+                      <Button type="button"
                         key={preset}
                         variant="none"
                         effect="fade"
@@ -822,9 +822,9 @@ export function PlaidFundingTransfersSection({
                   </div>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="plaid-brokerage-input-5" className="space-y-1 text-xs text-muted-foreground">
                   Legal name
-                  <input
+                  <input id="plaid-brokerage-input-5"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={legalNameInput}
                     onChange={(event) => setLegalNameInput(event.target.value)}
@@ -866,7 +866,7 @@ export function PlaidFundingTransfersSection({
                 ) : null}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   disabled={isSubmittingTransfer || !relationshipApproved}
@@ -947,7 +947,7 @@ export function PlaidFundingTransfersSection({
                       {transferStatus || "pending"}
                     </Badge>
                     {transferId && onRefreshTransfer ? (
-                      <Button
+                      <Button type="button"
                         variant="none"
                         effect="fade"
                         size="sm"
@@ -957,7 +957,7 @@ export function PlaidFundingTransfersSection({
                       </Button>
                     ) : null}
                     {transferId && onCancelTransfer ? (
-                      <Button
+                      <Button type="button"
                         variant="none"
                         effect="fade"
                         size="sm"
@@ -983,27 +983,27 @@ export function PlaidFundingTransfersSection({
             Search transfer records and create a manual escalation with notes for operations.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="plaid-brokerage-input-6" className="space-y-1 text-xs text-muted-foreground">
               Transfer ID
-              <input
+              <input id="plaid-brokerage-input-6"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportTransferId}
                 onChange={(event) => setSupportTransferId(event.target.value)}
                 placeholder="Optional transfer ID"
               />
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="plaid-brokerage-input-7" className="space-y-1 text-xs text-muted-foreground">
               Relationship ID
-              <input
+              <input id="plaid-brokerage-input-7"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportRelationshipId}
                 onChange={(event) => setSupportRelationshipId(event.target.value)}
                 placeholder="Optional relationship ID"
               />
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="plaid-brokerage-input-8" className="space-y-1 text-xs text-muted-foreground">
               Escalation severity
-              <select
+              <select id="plaid-brokerage-input-8"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportSeverity}
                 onChange={(event) =>
@@ -1018,9 +1018,9 @@ export function PlaidFundingTransfersSection({
                 <option value="urgent">Urgent</option>
               </select>
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="plaid-brokerage-input-9" className="space-y-1 text-xs text-muted-foreground">
               Escalation notes
-              <input
+              <input id="plaid-brokerage-input-9"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportNotes}
                 onChange={(event) => setSupportNotes(event.target.value)}
@@ -1031,7 +1031,7 @@ export function PlaidFundingTransfersSection({
 
           <div className="mt-3 flex flex-wrap gap-2">
             {onSearchFundingRecords ? (
-              <Button
+              <Button type="button"
                 variant="none"
                 effect="fade"
                 disabled={isSearchingSupport}
@@ -1046,7 +1046,7 @@ export function PlaidFundingTransfersSection({
               </Button>
             ) : null}
             {onCreateFundingEscalation ? (
-              <Button
+              <Button type="button"
                 variant="none"
                 effect="fade"
                 disabled={isEscalatingSupport || !supportNotes.trim()}

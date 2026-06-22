@@ -27,7 +27,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/analysis"
+          "/one/kai/analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -41,7 +41,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/kai/analysis"
+        "target": "/one/kai/analysis"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -64,8 +64,8 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/analysis",
-          "/kai/analysis?tab=history"
+          "/one/kai/analysis",
+          "/one/kai/analysis?tab=history"
         ],
         "screens": [
           "kai_analysis"
@@ -104,7 +104,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/analysis"
+          "/one/kai/analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -146,8 +146,8 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/analysis",
-          "/kai/analysis?focus=active"
+          "/one/kai/analysis",
+          "/one/kai/analysis?focus=active"
         ],
         "screens": [
           "kai_analysis"
@@ -191,7 +191,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/analysis"
+          "/one/kai/analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -235,7 +235,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/analysis?tab=transcript"
+          "/one/kai/analysis?tab=transcript"
         ],
         "screens": [
           "kai_analysis"

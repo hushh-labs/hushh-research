@@ -115,6 +115,90 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/connected-systems": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/connected-systems-service.ts",
+        service_methods: [
+          "listSystems",
+          "getSchema",
+          "readRecord",
+          "createRecordIntent",
+          "updateRecordIntent",
+          "approveIntent",
+          "rejectIntent",
+        ],
+        nextjs_api_route: "/api/connected-systems/{path*}",
+        nextjs_proxy_file: "app/api/connected-systems/[...path]/route.ts",
+        backend_endpoint_family: "/api/connected-systems/*",
+        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      vault_owner_token_required: true,
+      write_actions_require_explicit_intent_approval: true,
+      terminal_payload_storage: "field names, record id, result class, and sanitized summaries only",
+      external_plaintext_boundary:
+        "Salesforce CRM MCP transport is outside the ZK boundary until private VPC proxy replaces Customer 0 CloudHub endpoint.",
+    },
+  },
+  "/gmail": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/gmail-receipts-service.ts",
+        service_methods: ["getStatus", "syncNow", "listReceipts"],
+        nextjs_api_route: "/api/profile/gmail/{path*}",
+        nextjs_proxy_file: "app/api/profile/gmail/[...path]/route.ts",
+        backend_endpoint_family: "/profile/gmail/*",
+        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+      },
+      {
+        service_file: "lib/services/personal-knowledge-model-service.ts",
+        service_methods: ["getMetadata", "getDomainData", "storeDomainData"],
+        nextjs_api_route: "/api/pkm/{path*}",
+        nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
+        backend_endpoint_family: "/pkm/*",
+        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      vault_owner_token_required: true,
+      gmail_scope_required: "readonly receipt sync only",
+      pkm_payload_storage: "encrypted domain resource only; observability is metadata-only",
+    },
+  },
+  "/pkm": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/personal-knowledge-model-service.ts",
+        service_methods: ["getMetadata", "getDomainData", "getDomainManifest", "storeDomainData"],
+        nextjs_api_route: "/api/pkm/{path*}",
+        nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
+        backend_endpoint_family: "/pkm/*",
+        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+      },
+      {
+        service_file: "lib/services/pkm-upgrade-service.ts",
+        service_methods: ["getStatus", "startOrResume"],
+        nextjs_api_route: "/api/pkm/{path*}",
+        nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
+        backend_endpoint_family: "/pkm/*",
+        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        js_name: "HushhVault",
+        reason: "PKM payload decryption remains client-held and metadata-only for route observability.",
+      },
+    ],
+    thread_and_consent_contract: {
+      vault_owner_token_required: true,
+      pkm_payload_storage: "encrypted domain resource only; route/cache events must not include decrypted values",
+    },
+  },
   "/one/kyc": {
     api_dependencies: [
       {

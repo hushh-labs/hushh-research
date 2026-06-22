@@ -217,7 +217,11 @@ export function HoldingsMobileList({
   return (
     <>
       <div className="space-y-3">
-        <div className="grid h-10 w-full grid-cols-4 gap-1 rounded-xl bg-background/80 p-0.5">
+        <div
+          role="group"
+          aria-label="Filter holdings"
+          className="grid h-10 w-full grid-cols-4 gap-1 rounded-xl bg-background/80 p-0.5"
+        >
           {FILTERS.map((filter) => {
             const selected = activeFilter === filter.key;
             return (
@@ -240,15 +244,20 @@ export function HoldingsMobileList({
         </div>
 
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             placeholder="Search holdings by ticker or company"
             className="app-body-text h-10 rounded-full border-border/60 bg-background/70 pl-9 pr-4 text-sm"
+            autoComplete="off"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
+            aria-label="Search holdings"
           />
         </div>
 
