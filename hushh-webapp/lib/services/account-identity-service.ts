@@ -115,8 +115,7 @@ export class AccountIdentityService {
       return null;
     }
 
-    const [, identityResult] = await Promise.allSettled([
-      ApiService.createSession({
+    await ApiService.createSession({
         userId: user.uid,
         email: user.email || "",
         idToken,
@@ -124,14 +123,9 @@ export class AccountIdentityService {
         photoUrl: user.photoURL || undefined,
         emailVerified: user.emailVerified,
         phoneNumber: user.phoneNumber || undefined,
-      }),
-      ApiService.refreshAccountIdentityShadow(idToken),
-    ]);
+      });
 
-    if (identityResult.status === "fulfilled") {
-      return this.identityFromResponse(identityResult.value);
-    }
-
-    return null;
+    const response = await ApiService.refreshAccountIdentityShadow(idToken);
+    return this.identityFromResponse(response);
   }
 }

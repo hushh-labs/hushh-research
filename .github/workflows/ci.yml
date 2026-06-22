@@ -145,6 +145,12 @@ jobs:
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
+        env:
+          # Required so verify-protected-pipeline-edits.py can resolve the PR's
+          # changed-file list from the GitHub API. Without a token the guard
+          # silently resolves zero files and passes (fails open). The job
+          # already declares `pull-requests: read`, which is sufficient.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================================================
   # Path filters: run frontend/backend jobs only when their paths change (or manual scope)

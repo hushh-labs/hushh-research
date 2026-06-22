@@ -106,7 +106,7 @@ Plaid access tokens never live in the PKM.
 
 Callback path:
 
-- `/kai/plaid/oauth/return`
+- `/one/kai/plaid/oauth/return`
 
 Runtime rules:
 

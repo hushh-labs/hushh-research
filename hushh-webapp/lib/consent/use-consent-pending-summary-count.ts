@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -18,13 +19,15 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 
 export function useConsentPendingSummaryCount() {
   const { user } = useAuth();
+  const pathname = usePathname();
   const { activePersona } = usePersonaState();
-  const actor: ConsentCenterActor =
-    activePersona === "ria" ? "ria" : "investor";
+  const actor: ConsentCenterActor | undefined =
+    pathname?.startsWith("/ria") && activePersona === "ria" ? "ria" : undefined;
   const mode = "consents";
   const [mutationTick, setMutationTick] = useState(0);
+  const scope = actor === "ria" ? "ria" : "one";
   const cacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${scope}:${mode}`)
     : "consent_center_summary_guest";
   const [retainedSummary, setRetainedSummary] = useState<{
     key: string;
@@ -50,7 +53,7 @@ export function useConsentPendingSummaryCount() {
 
   const summaryResource = useStaleResource({
     cacheKey,
-    refreshKey: `${actor}:${mode}:${mutationTick}`,
+    refreshKey: `${scope}:${mode}:${mutationTick}`,
     enabled: Boolean(user?.uid),
     load: async () => {
       const idToken = await user?.getIdToken();
