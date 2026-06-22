@@ -20,7 +20,7 @@ function normalizeHapticPattern(pattern: HapticPattern): HapticPattern | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-export function isBrowserVibrationSupported(): boolean {
+function isBrowserVibrationSupported(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof navigator !== "undefined" &&

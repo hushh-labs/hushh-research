@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  isBrowserVibrationSupported,
-  triggerToggleHaptic,
-} from "@/lib/utils/haptic-utils";
+import { triggerToggleHaptic } from "@/lib/utils/haptic-utils";
 
 const originalVibrateDescriptor = Object.getOwnPropertyDescriptor(
   Navigator.prototype,
@@ -32,13 +29,14 @@ describe("haptic utils", () => {
     }
   });
 
+  // Vibration support is exercised through triggerToggleHaptic's observable
+  // behavior (the support check is a module-internal guard, not a public export).
   it("returns false without logging when vibration is unsupported", () => {
     delete (Navigator.prototype as Partial<Navigator>).vibrate;
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
 
-    expect(isBrowserVibrationSupported()).toBe(false);
     expect(triggerToggleHaptic()).toBe(false);
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
@@ -47,7 +45,6 @@ describe("haptic utils", () => {
     const vibrate = vi.fn().mockReturnValue(true);
     setNavigatorVibrate(vibrate);
 
-    expect(isBrowserVibrationSupported()).toBe(true);
     expect(triggerToggleHaptic()).toBe(true);
     expect(vibrate).toHaveBeenCalledWith(10);
   });
