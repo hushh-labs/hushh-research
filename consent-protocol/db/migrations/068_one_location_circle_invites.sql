@@ -101,7 +101,7 @@ ALTER TABLE one_location_events
       'location_circle_invite_revoked',
       'location_one_network_joined'
     )
-  );
+  ) NOT VALID;
 
 COMMENT ON TABLE one_location_circle_invites IS
   'Hash-only Invite to One links. Claiming creates a mutual One Network connection and never grants live location access directly.';

@@ -84,7 +84,11 @@ ALTER TABLE one_location_events
       'location_referral_invite',
       'location_public_invite_created',
       'location_public_invite_revoked',
-      'location_public_invite_submitted'
+      'location_public_invite_submitted',
+      'location_circle_invite_created',
+      'location_circle_invite_claimed',
+      'location_circle_invite_revoked',
+      'location_one_network_joined'
     )
   );
 
