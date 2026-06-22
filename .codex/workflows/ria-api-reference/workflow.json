@@ -1,0 +1,55 @@
+{
+  "id": "ria-api-reference",
+  "title": "RIA API Reference",
+  "goal": "Align Hussh Research RIA facade work with the CRD scraping and financial-verification provider contract.",
+  "owner_skill": "backend",
+  "default_spoke": "ria-api-reference",
+  "task_type": "ria-api-reference",
+  "affected_surfaces": [
+    "docs/reference/architecture/crd-scraping-api.md",
+    "consent-protocol/api/routes/crd_scraper.py",
+    "consent-protocol/hushh_mcp/services/crd_scrape_proxy_service.py",
+    "consent-protocol/tests/test_crd_scraper_routes.py"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/crd-scraping-api.md",
+    "docs/reference/architecture/api-contracts.md",
+    ".codex/skills/ria-api-reference/SKILL.md"
+  ],
+  "required_commands": [
+    "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundle": {
+    "id": "ria-api-reference",
+    "commands": [
+      "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+    ],
+    "tests": [
+      "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q"
+    ]
+  },
+  "deliverables": [
+    "RIA facade contract summary",
+    "provider-doc alignment note",
+    "focused route/proxy/test verification"
+  ],
+  "impact_fields": [
+    "Provider contract checked",
+    "Facade behavior updated",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "backend",
+    "ria-api-reference",
+    "backend-api-contracts",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "building scraper logic inside Hussh Research instead of forwarding to the provider",
+    "treating stale local provider docs as repo truth",
+    "changing facade payloads without updating tests"
+  ]
+}

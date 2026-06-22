@@ -346,12 +346,18 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
     """Product surfaces resolve canonical consent rows by cross-linked ids."""
     fake_db = _FakeConsentDBService()
     monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(
+        consent,
+        "_owned_consent_identifiers",
+        AsyncMock(return_value=["investor_1", "alias@example.com"]),
+    )
 
     issued_at = int(time.time() * 1000)
     fake_db._add_pending(
         "req_email_scope",
         {
             "request_id": "req_email_scope",
+            "user_id": "alias@example.com",
             "agent_id": "developer:one-email",
             "requester_label": "One",
             "scope": "attr.travel.preferences.seat.*",

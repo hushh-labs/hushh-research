@@ -70,7 +70,9 @@ def store_decision_card(
     if token.user_id != user_id:
         raise PermissionError(f"Token user mismatch: expected {user_id}, got {token.user_id}")
 
-    logger.info("[Storage Operon] Storing decision for %s (user=[redacted])", decision_card.get("ticker"))
+    logger.info(
+        "[Storage Operon] Storing decision for %s (user=[redacted])", decision_card.get("ticker")
+    )
 
     # Serialize decision card
     decision_json = json.dumps(decision_card)

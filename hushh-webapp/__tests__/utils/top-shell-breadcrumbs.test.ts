@@ -18,10 +18,10 @@ describe("top shell breadcrumbs", () => {
 
   it("preserves a safe internal from param for consent back navigation", () => {
     const params = new URLSearchParams();
-    params.set("from", "/kai/analysis?tab=history");
+    params.set("from", "/one/kai/analysis?tab=history");
 
     expect(resolveTopShellBreadcrumb("/consents", params)).toEqual({
-      backHref: "/kai/analysis?tab=history",
+      backHref: "/one/kai/analysis?tab=history",
       width: "profile",
       align: "center",
       items: [
@@ -30,6 +30,52 @@ describe("top shell breadcrumbs", () => {
         { label: "Consent center" },
       ],
     });
+  });
+
+  it("uses sanitized from params for Kai onboarding back navigation", () => {
+    const params = new URLSearchParams();
+    params.set("from", "/one?mode=finance");
+
+    expect(resolveTopShellBreadcrumb("/one/onboarding", params)).toEqual({
+      backHref: "/one?mode=finance",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup" },
+      ],
+    });
+
+    const unsafeParams = new URLSearchParams();
+    unsafeParams.set("from", "//evil.example/path");
+
+    expect(resolveTopShellBreadcrumb("/one/onboarding", unsafeParams)?.backHref).toBe(
+      "/one",
+    );
+  });
+
+  it("keeps Kai analysis query-state back navigation inside analysis", () => {
+    const activeParams = new URLSearchParams();
+    activeParams.set("focus", "active");
+    activeParams.set("ticker", "tsla");
+
+    expect(resolveTopShellBreadcrumb("/one/kai/analysis", activeParams)).toEqual({
+      backHref: "/one/kai/analysis",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "Kai", href: "/one/kai" },
+        { label: "Analysis", href: "/one/kai/analysis" },
+        { label: "TSLA live" },
+      ],
+    });
+
+    const previewParams = new URLSearchParams();
+    previewParams.set("ticker", "nvda");
+
+    expect(resolveTopShellBreadcrumb("/one/kai/analysis", previewParams)?.backHref).toBe(
+      "/one/kai/analysis",
+    );
   });
 
   it("treats the PKM agent lab as a profile privacy surface", () => {
@@ -101,15 +147,15 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("routes receipts back to the Gmail profile panel", () => {
+  it("routes legacy receipts back to canonical Gmail", () => {
     expect(resolveTopShellBreadcrumb("/profile/receipts")).toEqual({
-      backHref: "/profile?panel=gmail",
+      backHref: "/one/gmail",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?panel=gmail" },
-        { label: "Gmail receipts", href: "/profile?panel=gmail" },
-        { label: "Receipts" },
+        { label: "One", href: "/one" },
+        { label: "Gmail", href: "/one/gmail" },
+        { label: "Legacy receipts" },
       ],
     });
   });

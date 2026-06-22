@@ -47,7 +47,6 @@ class _ErroringAgentVoiceService:
 
     stt_error: str = "Internal SDK error: PERMISSION_DENIED at /api/v1/endpoint"
     tts_runtime_error: str = "Internal TTS error: connection refused"
-    tts_value_error: str = "Internal validation detail"
 
     async def transcribe_audio(self, *, audio_bytes: bytes, mime_type: str):
         raise RuntimeError(self.stt_error)
@@ -126,6 +125,27 @@ def test_agent_voice_stt_rejects_non_audio_upload(monkeypatch) -> None:
     assert response.status_code == 415
 
 
+def test_agent_voice_stt_rejects_oversized_audio(monkeypatch) -> None:
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/stt",
+        data={"user_id": "user-1"},
+        files={
+            "audio": (
+                "utterance.webm",
+                b"x" * (agent_voice.MAX_AGENT_VOICE_AUDIO_BYTES + 1),
+                "audio/webm",
+            )
+        },
+    )
+
+    assert response.status_code == 413
+    assert service.last_audio_bytes is None
+
+
 def test_agent_voice_tts_returns_transient_audio(monkeypatch) -> None:
     service = _FakeAgentVoiceService()
     monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
@@ -143,6 +163,34 @@ def test_agent_voice_tts_returns_transient_audio(monkeypatch) -> None:
     assert response.headers["x-agent-tts-source"] == "backend_gemini_audio"
     assert service.last_tts_text == "Starting Nvidia analysis."
     assert service.last_tts_voice == "Kore"
+
+
+def test_agent_voice_tts_normalizes_voice_case(monkeypatch) -> None:
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Starting Nvidia analysis.", "voice": "kore"},
+    )
+
+    assert response.status_code == 200
+    assert service.last_tts_voice == "Kore"
+
+
+def test_agent_voice_tts_rejects_unsupported_voice(monkeypatch) -> None:
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Hello.", "voice": "not-a-voice"},
+    )
+
+    assert response.status_code == 422
+    assert service.last_tts_text is None
 
 
 def test_agent_voice_tts_rejects_empty_text(monkeypatch) -> None:
@@ -178,9 +226,6 @@ def test_agent_voice_routes_respect_kill_switch(monkeypatch) -> None:
     assert tts_response.status_code == 503
 
 
-# --- CWE-209 regression: internal error messages must not reach the response body ---
-
-
 def test_stt_runtime_error_is_opaque(monkeypatch) -> None:
     """RuntimeError from the STT service must not expose its message to the caller."""
     internal_msg = "PERMISSION_DENIED: Request had insufficient authentication scopes."
@@ -195,8 +240,7 @@ def test_stt_runtime_error_is_opaque(monkeypatch) -> None:
     )
 
     assert response.status_code == 503
-    body = response.text
-    assert internal_msg not in body, "Internal RuntimeError message leaked into response body"
+    assert internal_msg not in response.text
 
 
 def test_tts_runtime_error_is_opaque(monkeypatch) -> None:
@@ -212,8 +256,7 @@ def test_tts_runtime_error_is_opaque(monkeypatch) -> None:
     )
 
     assert response.status_code == 503
-    body = response.text
-    assert internal_msg not in body, "Internal RuntimeError message leaked into response body"
+    assert internal_msg not in response.text
 
 
 def test_tts_value_error_is_opaque(monkeypatch) -> None:
@@ -229,11 +272,7 @@ def test_tts_value_error_is_opaque(monkeypatch) -> None:
     )
 
     assert response.status_code == 422
-    body = response.text
-    assert internal_msg not in body, "Internal ValueError message leaked into response body"
-
-
-# --- CWE-400 regression: oversized inputs must be rejected with 422 ---
+    assert internal_msg not in response.text
 
 
 def test_stt_rejects_oversized_user_id(monkeypatch) -> None:

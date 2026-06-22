@@ -143,6 +143,19 @@ async def issue_app_review_mode_session(request: Request):
             headers=NO_STORE_HEADERS,
         )
 
+    # ── Offline mode: skip Firebase Admin SDK, return local token ──
+    query_params = dict(request.query_params)
+    is_offline = str(query_params.get("local", "0")).strip() == "1"
+    if is_offline:
+        return JSONResponse(
+            {
+                "token": "offline-local-token",
+                "offline": True,
+                "reviewer_uid": reviewer_uid,
+            },
+            headers=NO_STORE_HEADERS,
+        )
+
     configured, project_id = ensure_firebase_auth_admin()
     if not configured:
         logger.error("app_review_mode.session_failed reason=firebase_admin_not_configured")

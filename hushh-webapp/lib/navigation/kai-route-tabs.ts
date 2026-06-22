@@ -26,15 +26,31 @@ export type KaiRouteTabId = (typeof KAI_ROUTE_TABS)[number]["id"];
 
 export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
   if (pathname.startsWith(ROUTES.MARKETPLACE)) return "connect";
-  if (pathname === ROUTES.KAI_HOME || pathname.startsWith(`${ROUTES.KAI_HOME}?`)) return "market";
-  if (pathname.startsWith(ROUTES.KAI_ANALYSIS) || pathname.startsWith("/kai/dashboard/analysis")) {
+  if (
+    pathname === ROUTES.KAI_HOME ||
+    pathname === ROUTES.LEGACY_KAI_HOME ||
+    pathname.startsWith(`${ROUTES.KAI_HOME}?`) ||
+    pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}?`)
+  ) {
+    return "market";
+  }
+  if (
+    pathname.startsWith(ROUTES.KAI_ANALYSIS) ||
+    pathname.startsWith(ROUTES.LEGACY_KAI_ANALYSIS) ||
+    pathname.startsWith("/kai/dashboard/analysis") ||
+    pathname.startsWith("/one/kai/dashboard/analysis")
+  ) {
     return "analysis";
   }
   if (
     pathname.startsWith(ROUTES.KAI_DASHBOARD) ||
     pathname.startsWith(ROUTES.KAI_INVESTMENTS) ||
     pathname.startsWith(ROUTES.KAI_FUNDING_TRADE) ||
+    pathname.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO) ||
+    pathname.startsWith(ROUTES.LEGACY_KAI_INVESTMENTS) ||
+    pathname.startsWith(ROUTES.LEGACY_KAI_FUNDING_TRADE) ||
     pathname.startsWith("/kai/dashboard") ||
+    pathname.startsWith("/one/kai/dashboard") ||
     pathname.startsWith(ROUTES.KAI_OPTIMIZE)
   ) {
     return "dashboard";

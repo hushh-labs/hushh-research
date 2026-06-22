@@ -1,28 +1,41 @@
 "use client";
 
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
+import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
 
 export function AgentScreen() {
+  const { user, loading } = useAuth();
+  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const nativeAuthState = loading ? "pending" : user?.uid ? "authenticated" : "anonymous";
+  const nativeDataState = loading
+    ? "loading"
+    : user?.uid && isVaultUnlocked && vaultOwnerToken
+      ? "loaded"
+      : "unavailable-valid";
+
   return (
     <AppPageShell
-      width="expanded"
-      className="px-[var(--page-inline-gutter-standard)] py-[var(--page-block-padding)]"
+      width="wide"
+      className="!max-w-none !px-0 !py-0"
       nativeTest={{
         routeId: "/agent",
         marker: "native-route-agent",
-        authState: "authenticated",
-        dataState: "loaded",
+        authState: nativeAuthState,
+        dataState: nativeDataState,
       }}
     >
       <NativeRouteMarker
         routeId="/agent"
         marker="native-route-agent"
-        authState="authenticated"
-        dataState="loaded"
+        authState={nativeAuthState}
+        dataState={nativeDataState}
       />
-      <AgentChatWorkspace variant="page" />
+      <AppPageContentRegion className="min-h-0">
+        <AgentChatWorkspace variant="page" />
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

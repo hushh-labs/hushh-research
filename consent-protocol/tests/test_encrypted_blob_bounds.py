@@ -29,7 +29,7 @@ _TOKEN = {"user_id": _UID, "token": "fake", "scope": "vault.owner"}
 
 _VALID_BLOB = {
     "ciphertext": "YWJjZGVmZ2g=",  # base64 "abcdefgh"
-    "iv": "dGVzdGl2MTI=",           # 12-byte IV in base64
+    "iv": "dGVzdGl2MTI=",  # 12-byte IV in base64
     "tag": "dGVzdHRhZzE2Ynl0ZXM=",  # 16-byte tag in base64
 }
 

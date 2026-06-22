@@ -13,6 +13,7 @@ import {
   shouldRequirePhoneMandate,
 } from "@/lib/services/phone-mandate-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { useHostname } from "@/lib/hooks/use-hostname";
 
 const vaultPresenceCache = new Map<string, boolean>();
 
@@ -29,7 +30,7 @@ export function PhoneMandateGuard({
   const { user, loading, phoneNumber } = useAuth();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [backendPhoneVerified, setBackendPhoneVerified] = useState<boolean | null>(null);
-  const hostname = typeof window === "undefined" ? null : window.location.hostname;
+  const hostname = useHostname();
   const localPhoneMandateBypassed = shouldBypassPhoneMandateForLocalhost(hostname);
   const firebasePhoneVerified = hasVerifiedPhoneNumber(phoneNumber);
 
@@ -85,11 +86,6 @@ export function PhoneMandateGuard({
       return;
     }
 
-    if (firebasePhoneVerified) {
-      setBackendPhoneVerified(true);
-      return;
-    }
-
     let cancelled = false;
 
     const loadIdentityState = async () => {
@@ -101,7 +97,7 @@ export function PhoneMandateGuard({
       } catch (error) {
         console.warn("[PhoneMandateGuard] Failed to check account phone claim:", error);
         if (!cancelled) {
-          setBackendPhoneVerified(false);
+          setBackendPhoneVerified(firebasePhoneVerified);
         }
       }
     };

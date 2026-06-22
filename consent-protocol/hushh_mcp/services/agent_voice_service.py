@@ -26,10 +26,16 @@ AGENT_STT_MODEL_ENV = "AGENT_GEMINI_STT_MODEL"
 AGENT_TTS_MODEL_ENV = "AGENT_GEMINI_TTS_MODEL"
 AGENT_TTS_VOICE_ENV = "AGENT_GEMINI_TTS_VOICE"
 AGENT_TTS_MAX_ATTEMPTS_ENV = "AGENT_GEMINI_TTS_MAX_ATTEMPTS"
+AGENT_STT_TIMEOUT_SECONDS_ENV = "AGENT_GEMINI_STT_TIMEOUT_SECONDS"
+AGENT_TTS_TIMEOUT_SECONDS_ENV = "AGENT_GEMINI_TTS_TIMEOUT_SECONDS"
 DEFAULT_AGENT_STT_MODEL = "gemini-2.5-flash"
 DEFAULT_AGENT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_AGENT_TTS_VOICE = "Sulafat"
 DEFAULT_AGENT_TTS_MAX_ATTEMPTS = 2
+DEFAULT_AGENT_STT_TIMEOUT_SECONDS = 30.0
+DEFAULT_AGENT_TTS_TIMEOUT_SECONDS = 45.0
+AGENT_TTS_ALLOWED_VOICES = frozenset({"Charon", "Sulafat", "Kore", "Puck"})
+MALFORMED_TRANSCRIPTION_REASON = "The transcription response was not structured."
 
 _TRANSCRIPTION_SCHEMA = {
     "type": "OBJECT",
@@ -49,6 +55,11 @@ Return JSON only with:
 - reason: a short reason when uncertain is true.
 
 Do not answer the user. Do not summarize. Do not add punctuation unless it is obvious from the speech.
+"""
+
+_TRANSCRIPTION_RETRY_PROMPT = f"""{_TRANSCRIPTION_PROMPT}
+
+Your previous response was not valid JSON. Return only a complete JSON object that matches the requested schema.
 """
 
 
@@ -75,14 +86,27 @@ class AgentVoiceService:
         self.model = configured_model or DEFAULT_AGENT_STT_MODEL
         configured_tts_model = tts_model or os.getenv(AGENT_TTS_MODEL_ENV, "").strip()
         self.tts_model = configured_tts_model or DEFAULT_AGENT_TTS_MODEL
-        self.tts_default_voice = (
-            os.getenv(AGENT_TTS_VOICE_ENV, "").strip() or DEFAULT_AGENT_TTS_VOICE
+        self.tts_default_voice = _normalize_tts_voice(
+            os.getenv(AGENT_TTS_VOICE_ENV, "").strip() or DEFAULT_AGENT_TTS_VOICE,
+            fallback=DEFAULT_AGENT_TTS_VOICE,
         )
         self.tts_max_attempts = _read_int_env(
             AGENT_TTS_MAX_ATTEMPTS_ENV,
             default=DEFAULT_AGENT_TTS_MAX_ATTEMPTS,
             minimum=1,
             maximum=4,
+        )
+        self.stt_timeout_seconds = _read_float_env(
+            AGENT_STT_TIMEOUT_SECONDS_ENV,
+            default=DEFAULT_AGENT_STT_TIMEOUT_SECONDS,
+            minimum=1.0,
+            maximum=120.0,
+        )
+        self.tts_timeout_seconds = _read_float_env(
+            AGENT_TTS_TIMEOUT_SECONDS_ENV,
+            default=DEFAULT_AGENT_TTS_TIMEOUT_SECONDS,
+            minimum=1.0,
+            maximum=120.0,
         )
         self.client: genai.Client | None = None
         self._client_error: str | None = None
@@ -115,25 +139,56 @@ class AgentVoiceService:
                 model=self.model,
             )
 
+        response_text = await self._generate_transcription_text(
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            prompt=_TRANSCRIPTION_PROMPT,
+        )
+        transcription = self._parse_transcription_response(response_text or "")
+        if transcription.uncertain and transcription.reason == MALFORMED_TRANSCRIPTION_REASON:
+            retry_text = await self._generate_transcription_text(
+                audio_bytes=audio_bytes,
+                mime_type=mime_type,
+                prompt=_TRANSCRIPTION_RETRY_PROMPT,
+            )
+            transcription = self._parse_transcription_response(retry_text or "")
+        return transcription
+
+    async def _generate_transcription_text(
+        self,
+        *,
+        audio_bytes: bytes,
+        mime_type: str,
+        prompt: str,
+    ) -> str:
+        client = self.client
+        if client is None:
+            raise RuntimeError(self._client_error or "Gemini Agent voice client is unavailable.")
         config = genai_types.GenerateContentConfig(
             temperature=0.0,
-            max_output_tokens=256,
+            max_output_tokens=128,
             response_mime_type="application/json",
             response_schema=_TRANSCRIPTION_SCHEMA,
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
         )
-        response = await self.client.aio.models.generate_content(
-            model=self.model,
-            contents=genai_types.Content(
-                role="user",
-                parts=[
-                    genai_types.Part.from_text(text=_TRANSCRIPTION_PROMPT),
-                    genai_types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
-                ],
-            ),
-            config=config,
-        )
-        return self._parse_transcription_response(response.text or "")
+        try:
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=self.model,
+                    contents=genai_types.Content(
+                        role="user",
+                        parts=[
+                            genai_types.Part.from_text(text=prompt),
+                            genai_types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+                        ],
+                    ),
+                    config=config,
+                ),
+                timeout=self.stt_timeout_seconds,
+            )
+        except TimeoutError as error:
+            raise RuntimeError("Gemini Agent voice transcription timed out.") from error
+        return response.text or ""
 
     async def synthesize_speech(
         self,
@@ -141,14 +196,15 @@ class AgentVoiceService:
         text: str,
         voice: str | None = None,
     ) -> AgentVoiceSynthesis:
-        if not self.client:
+        client = self.client
+        if not client:
             raise RuntimeError(self._client_error or "Gemini Agent voice client is unavailable.")
 
         clean_text = " ".join(str(text or "").strip().split())
         if not clean_text:
             raise ValueError("Text is required for Agent voice TTS.")
 
-        selected_voice = str(voice or "").strip() or self.tts_default_voice
+        selected_voice = _normalize_tts_voice(voice or self.tts_default_voice)
         config = genai_types.GenerateContentConfig(
             temperature=0.7,
             response_modalities=["AUDIO"],
@@ -166,22 +222,25 @@ class AgentVoiceService:
         last_error: Exception | None = None
         for attempt in range(1, self.tts_max_attempts + 1):
             try:
-                response = await self.client.aio.models.generate_content(
-                    model=self.tts_model,
-                    contents=genai_types.Content(
-                        role="user",
-                        parts=[
-                            genai_types.Part.from_text(
-                                text=(
-                                    "Synthesize speech for the Kai Agent.\n"
-                                    "Read only the text under TRANSCRIPT.\n\n"
-                                    "VOICE DIRECTION: warm, clear, concise, helpful.\n"
-                                    f"TRANSCRIPT:\n{clean_text}"
+                response = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=self.tts_model,
+                        contents=genai_types.Content(
+                            role="user",
+                            parts=[
+                                genai_types.Part.from_text(
+                                    text=(
+                                        "Synthesize speech for the Kai Agent.\n"
+                                        "Read only the text under TRANSCRIPT.\n\n"
+                                        "VOICE DIRECTION: warm, clear, concise, helpful.\n"
+                                        f"TRANSCRIPT:\n{clean_text}"
+                                    )
                                 )
-                            )
-                        ],
+                            ],
+                        ),
+                        config=config,
                     ),
-                    config=config,
+                    timeout=self.tts_timeout_seconds,
                 )
                 audio, mime_type = _extract_audio_part(response)
                 if audio:
@@ -209,9 +268,9 @@ class AgentVoiceService:
         except json.JSONDecodeError:
             logger.warning("Agent voice STT returned non-JSON response.")
             return AgentVoiceTranscription(
-                transcript=response_text.strip(),
+                transcript="",
                 uncertain=True,
-                reason="The transcription response was not structured.",
+                reason=MALFORMED_TRANSCRIPTION_REASON,
                 model=self.model,
             )
 
@@ -244,6 +303,16 @@ def _is_clearly_uncertain_transcript(transcript: str) -> bool:
         return True
     alphanumeric_count = sum(1 for char in transcript if char.isalnum())
     return alphanumeric_count < 2
+
+
+def _normalize_tts_voice(value: str | None, *, fallback: str | None = None) -> str:
+    raw = str(value or "").strip()
+    for allowed_voice in AGENT_TTS_ALLOWED_VOICES:
+        if raw.lower() == allowed_voice.lower():
+            return allowed_voice
+    if fallback is not None:
+        return fallback
+    raise ValueError("Unsupported Agent voice.")
 
 
 def _extract_audio_part(response: genai_types.GenerateContentResponse) -> tuple[bytes, str]:
@@ -281,6 +350,17 @@ def _read_int_env(name: str, *, default: int, minimum: int, maximum: int) -> int
         return default
     try:
         value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def _read_float_env(name: str, *, default: float, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
     except ValueError:
         return default
     return max(minimum, min(maximum, value))

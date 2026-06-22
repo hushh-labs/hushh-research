@@ -150,14 +150,14 @@ export function RenaissanceVerdictCard({
           </p>
           <div className="flex items-center gap-2">
             <VerdictIcon signal={signal} className={tone.icon} />
-            <p className={cn("text-xl font-bold tracking-tight", tone.label)}>
+            <p className={cn("text-base font-medium leading-tight tracking-normal", tone.label)}>
               {label}
             </p>
           </div>
         </div>
         <Badge
           variant="outline"
-          className={cn("shrink-0 text-[10px] font-bold uppercase tracking-wide", tone.badge)}
+          className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide", tone.badge)}
         >
           {signal}
         </Badge>

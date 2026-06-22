@@ -46,15 +46,18 @@ export function OnboardingShell({
             )}
             aria-label="Go back"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft aria-hidden="true" className="h-5 w-5" />
           </button>
 
-          <span className="inline-flex items-center rounded-full border border-border/60 bg-card/70 px-3 py-1 text-xs font-medium tabular-nums text-muted-foreground shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/45 dark:shadow-none">
+          <span
+            aria-label={`Step ${currentStepIndex + 1} of ${totalSteps}`}
+            className="inline-flex items-center rounded-full border border-border/60 bg-card/70 px-3 py-1 text-xs font-medium tabular-nums text-muted-foreground shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/45 dark:shadow-none"
+          >
             {currentStepIndex + 1} / {totalSteps}
           </span>
         </div>
 
-        <div className="mt-4 flex gap-1.5">
+        <div className="mt-4 flex gap-1.5" aria-hidden="true">
           {Array.from({ length: totalSteps }, (_, i) => (
             <div
               key={i}
@@ -65,6 +68,9 @@ export function OnboardingShell({
             />
           ))}
         </div>
+        <span role="status" aria-atomic="true" className="sr-only">
+          {`Step ${currentStepIndex + 1} of ${totalSteps}`}
+        </span>
 
         <div className="mt-6 space-y-2 sm:mt-7">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -91,16 +97,19 @@ export function OnboardingShell({
             )}
           >
             {saving ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <>
+                <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
+                <span className="sr-only">Saving</span>
+              </>
             ) : isLastStep && advisoryAccessReady ? (
               <>
                 Continue to Dashboard
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
               </>
             ) : (
               <>
                 Continue
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
               </>
             )}
           </button>

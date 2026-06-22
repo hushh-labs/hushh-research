@@ -93,6 +93,14 @@ _MAX_PROFILE_PICKS = 8
 _MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024
 _MAX_IMPORT_FILE_SIZE_MESSAGE = "File too large. Maximum size is 25MB."
 
+# Sticky cache of symbol -> sector. Sector is essentially static metadata, so
+# once resolved we keep it. This decouples profile-pick determinism from live
+# quote-provider availability: when providers are in cooldown a fresh lookup may
+# return no sector, which would silently drop that holding from the dominant-
+# sector blend and reshuffle the picks for the SAME portfolio. Caching the last
+# known sector keeps "same portfolio -> same picks" stable across quote flaps.
+_HOLDING_SECTOR_CACHE: dict[str, str] = {}
+
 _NUMERIC_STRIP_RE = re.compile(r"[$,\s]")
 _FILENAME_DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
 _FILENAME_ACCOUNT_RE = re.compile(r"(?:acct|account|inv|#)?\s*(\d{4,})", flags=re.IGNORECASE)
@@ -1926,13 +1934,13 @@ class PortfolioImportResponse(BaseModel):
     """Response from portfolio import endpoint."""
 
     success: bool
-    holdings_count: int = 0
-    total_value: float = 0.0
+    holdings_count: int = Field(default=0, ge=0)
+    total_value: float = Field(default=0.0, ge=0.0)
     losers: list[dict] = Field(default_factory=list)
     winners: list[dict] = Field(default_factory=list)
     kpis_stored: list[str] = Field(default_factory=list)
-    error: Optional[str] = None
-    source: str = "unknown"
+    error: Optional[str] = Field(default=None, max_length=512)
+    source: str = Field(default="unknown", max_length=64)
     # Comprehensive financial data (LLM-extracted)
     portfolio_data: Optional[dict] = None
     account_info: Optional[dict] = None
@@ -1947,40 +1955,40 @@ class PortfolioImportResponse(BaseModel):
 class PortfolioSummaryResponse(BaseModel):
     """Response for portfolio summary endpoint."""
 
-    user_id: str
+    user_id: str = Field(..., max_length=256)
     has_portfolio: bool
-    holdings_count: Optional[int] = None
-    portfolio_value_bucket: Optional[str] = None
-    portfolio_risk_bucket: Optional[str] = None
-    preference_risk_profile: Optional[str] = None
-    losers_count: Optional[int] = None
-    winners_count: Optional[int] = None
+    holdings_count: Optional[int] = Field(default=None, ge=0)
+    portfolio_value_bucket: Optional[str] = Field(default=None, max_length=64)
+    portfolio_risk_bucket: Optional[str] = Field(default=None, max_length=64)
+    preference_risk_profile: Optional[str] = Field(default=None, max_length=64)
+    losers_count: Optional[int] = Field(default=None, ge=0)
+    winners_count: Optional[int] = Field(default=None, ge=0)
     total_gain_loss_pct: Optional[float] = None
 
 
 class DashboardProfilePick(BaseModel):
     """Profile-personalized ticker candidate for dashboard recommendations."""
 
-    symbol: str
-    company_name: str
-    sector: Optional[str] = None
-    tier: Optional[str] = None
-    conviction_weight: float = 0.0
-    price: Optional[float] = None
+    symbol: str = Field(..., max_length=10)
+    company_name: str = Field(..., max_length=256)
+    sector: Optional[str] = Field(default=None, max_length=64)
+    tier: Optional[str] = Field(default=None, max_length=32)
+    conviction_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    price: Optional[float] = Field(default=None, ge=0.0)
     change_percent: Optional[float] = None
-    recommendation_bias: Optional[str] = None
-    rationale: str
+    recommendation_bias: Optional[str] = Field(default=None, max_length=64)
+    rationale: str = Field(..., max_length=512)
     source_tags: list[str] = Field(default_factory=list)
     degraded: bool = False
-    as_of: Optional[str] = None
+    as_of: Optional[str] = Field(default=None, max_length=64)
 
 
 class DashboardProfilePicksResponse(BaseModel):
     """Response payload for profile-based picks on Kai dashboard."""
 
-    user_id: str
-    generated_at: str
-    risk_profile: str
+    user_id: str = Field(..., max_length=256)
+    generated_at: str = Field(..., max_length=64)
+    risk_profile: str = Field(..., max_length=64)
     picks: list[DashboardProfilePick] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -2036,7 +2044,8 @@ def _candidate_rank(
     sector: str,
     dominant_sectors: list[str],
     tier_rank: Optional[int],
-) -> tuple[float, int, str]:
+    symbol: str = "",
+) -> tuple[float, int, str, str]:
     tier_upper = str(tier or "").strip().upper()
     sector_clean = str(sector or "").strip()
     score = float(TIER_WEIGHTS.get(tier_upper, 0.5))
@@ -2046,7 +2055,11 @@ def _candidate_rank(
         elif sector_clean in dominant_sectors:
             score += 0.12
     tie_breaker = tier_rank if isinstance(tier_rank, int) else 999_999
-    return (score, -tie_breaker, tier_upper)
+    # Final, fully deterministic tiebreaker: the symbol. With identical inputs
+    # the ordering is now independent of dict/iteration/async-completion order.
+    # (Callers sort with reverse=True, so equal-scored candidates fall back to
+    # descending symbol order — arbitrary but stable, which is what we need.)
+    return (score, -tie_breaker, tier_upper, str(symbol or "").strip().upper())
 
 
 def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[str]) -> str:
@@ -2279,11 +2292,18 @@ async def get_dashboard_profile_picks(
         sector_sem = asyncio.Semaphore(4)
 
         async def resolve_holding_sector(symbol: str) -> Optional[str]:
+            symbol_key = symbol.strip().upper()
             async with sector_sem:
                 try:
                     quote = await fetch_market_data(symbol, user_id, consent_token)
                     sector = str(quote.get("sector") or "").strip()
-                    return sector or None
+                    if sector:
+                        # Persist last-known sector so future calls stay stable
+                        # even when quote providers are in cooldown.
+                        _HOLDING_SECTOR_CACHE[symbol_key] = sector
+                        return sector
+                    # Live lookup returned no sector — fall back to last known.
+                    return _HOLDING_SECTOR_CACHE.get(symbol_key)
                 except Exception as exc:
                     logger.warning(
                         "[Kai Picks] failed to resolve holding sector for %s (%s): %s",
@@ -2291,16 +2311,29 @@ async def get_dashboard_profile_picks(
                         user_id,
                         exc,
                     )
-                    return None
+                    # On hard failure, reuse the last known sector if we have one
+                    # so the dominant-sector blend (and thus picks) stays stable.
+                    return _HOLDING_SECTOR_CACHE.get(symbol_key)
 
+        # Resolve in a deterministic (sorted) order so Counter.most_common ties
+        # break the same way every call.
+        ordered_symbols = sorted(requested_symbols)
         sector_rows = await asyncio.gather(
-            *(resolve_holding_sector(symbol) for symbol in requested_symbols)
+            *(resolve_holding_sector(symbol) for symbol in ordered_symbols)
         )
         for sector in sector_rows:
             if sector:
                 holdings_sector_counter[sector] += 1
 
-    dominant_sectors = [sector for sector, _ in holdings_sector_counter.most_common(2)]
+    # most_common is order-stable, but make tie-breaks fully deterministic by
+    # sorting on (-count, sector_name) so equal-count sectors always resolve the
+    # same way regardless of insertion order.
+    dominant_sectors = [
+        sector
+        for sector, _count in sorted(
+            holdings_sector_counter.items(), key=lambda kv: (-kv[1], kv[0])
+        )[:2]
+    ]
     dominant_sector = dominant_sectors[0] if dominant_sectors else None
 
     renaissance_service = get_renaissance_service()
@@ -2327,6 +2360,7 @@ async def get_dashboard_profile_picks(
             sector=str(getattr(stock, "sector", "")),
             dominant_sectors=dominant_sectors,
             tier_rank=getattr(stock, "tier_rank", None),
+            symbol=str(getattr(stock, "ticker", "")),
         ),
         reverse=True,
     )

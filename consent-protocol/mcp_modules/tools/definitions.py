@@ -14,16 +14,110 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
     Privacy: Tools enforce consent before any data access
     """
     definitions = [
-        # Tool 1: Request Consent
+        # Tool 1: High-level campaign/customer-experience consent loop
+        Tool(
+            name="prepare_campaign_context",
+            description=(
+                "Recommended high-level tool for external ads, campaign, and customer-experience agents. "
+                "Use this before low-level consent tools when the operator gives a user identifier and a "
+                "campaign or personalization goal. It discovers the user's available dynamic scopes, chooses "
+                "the least-privilege useful scope, checks for an existing grant, reuses active grants, creates "
+                "or reuses a pending request only when needed, performs bounded polling, and fetches encrypted "
+                "export metadata after approval. It never returns plaintext user data or raw ciphertext; a "
+                "local connector with the private key must decrypt before generating preference summaries."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "The user's Firebase UID, registered email, or registered phone number.",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": "Optional ISO country hint for national phone numbers, such as US, GB, or IN.",
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": "Optional country hint for national phone numbers, such as United States or UK.",
+                    },
+                    "campaign_goal": {
+                        "type": "string",
+                        "description": (
+                            "Plain-English campaign/customer-experience purpose. Example: "
+                            "'help make the next customer experience more relevant for someone considering a trip'."
+                        ),
+                    },
+                    "surface": {
+                        "type": "string",
+                        "description": "Campaign surface or experience type. Defaults to customer_experience.",
+                        "examples": [
+                            "customer_experience",
+                            "search",
+                            "performance_max",
+                            "search_pmax",
+                        ],
+                    },
+                    "preferred_context": {
+                        "type": "string",
+                        "description": (
+                            "Optional explicit context preference when the operator asks for one. "
+                            "Examples: auto, travel, shopping, location, food, financial."
+                        ),
+                    },
+                    "approval_timeout_minutes": {
+                        "type": "integer",
+                        "description": "How long the request remains actionable before timing out. Public range: 5 to 1440 minutes. Default: 1440.",
+                        "minimum": 5,
+                        "maximum": 1440,
+                    },
+                    "expiry_hours": {
+                        "type": "integer",
+                        "description": "How long the granted consent remains valid after approval. Public range: 24 to 2160 hours. Default: 24.",
+                        "minimum": 24,
+                        "maximum": 2160,
+                    },
+                    "poll_seconds": {
+                        "type": "integer",
+                        "description": "Bounded polling window after a pending request is created or reused. Default: 90; maximum: 90.",
+                        "minimum": 0,
+                        "maximum": 90,
+                    },
+                    "connector_public_key": {
+                        "type": "string",
+                        "description": (
+                            "Base64-encoded X25519 public key owned by the external/local connector. "
+                            "Required when no active grant exists."
+                        ),
+                    },
+                    "connector_key_id": {
+                        "type": "string",
+                        "description": "Stable caller-managed identifier for the connector public key.",
+                    },
+                    "connector_wrapping_alg": {
+                        "type": "string",
+                        "description": "Connector key-wrapping algorithm. Use X25519-AES256-GCM.",
+                        "enum": ["X25519-AES256-GCM"],
+                    },
+                    "fetch_export_metadata": {
+                        "type": "boolean",
+                        "description": "When granted, fetch safe encrypted-export metadata without returning ciphertext. Default: true.",
+                    },
+                },
+                "required": ["user_id"],
+            },
+        ),
+        # Tool 2: Request Consent
         Tool(
             name="request_consent",
             description=(
                 "🔐 Request consent from a user to access their personal data. "
-                "Returns a cryptographically signed consent token (HCT format) if granted. "
-                "This MUST be called before accessing any user data. "
-                "The token contains: user_id, scope, expiration, HMAC-SHA256 signature. "
-                "If a broader active grant already covers the requested scope, the existing token is reused "
-                "and the response exposes both requested_scope and granted_scope."
+                "Use this after discover_user_domains and a scope-based check_consent_status call. "
+                "Returns a cryptographically signed consent token (HCT format) if already granted, "
+                "or a pending request id if the One user must approve in the Hussh app. "
+                "If an exact or broader active grant already covers the requested scope, the existing token "
+                "is reused and the response exposes requested_scope, granted_scope, coverage_kind, and "
+                "covered_by_existing_grant. If an exact pending request already exists, it is reused."
             ),
             inputSchema={
                 "type": "object",
@@ -96,6 +190,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "connector_wrapping_alg": {
                         "type": "string",
                         "description": "Connector key-wrapping algorithm. Use X25519-AES256-GCM.",
+                        "enum": ["X25519-AES256-GCM"],
                     },
                     "scope_bundle": {
                         "type": "string",
@@ -104,6 +199,48 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                             "Available: financial_overview, full_portfolio_review, risk_assessment, "
                             "health_wellness, lifestyle_preferences."
                         ),
+                        "enum": [
+                            "financial_overview",
+                            "full_portfolio_review",
+                            "risk_assessment",
+                            "health_wellness",
+                            "lifestyle_preferences",
+                        ],
+                    },
+                    "offer": {
+                        "type": "object",
+                        "description": (
+                            "Optional priced-consent offer — the consent reverse-auction bid. "
+                            "A Demand Agent (a brand/advertiser's agent) attaches an offer to PAY the "
+                            "user for scoped, time-boxed access to their consented context. The bid is "
+                            "recorded on the consent request and surfaces to the user side, where their "
+                            "reserve price clears it. Settlement happens via AP2 at the money boundary on "
+                            "approval — this call authorizes the read and carries the bid; it never moves money."
+                        ),
+                        "properties": {
+                            "bid_amount": {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "maximum": 1000000,
+                                "description": "Amount offered to the user for this scoped access.",
+                            },
+                            "currency": {
+                                "type": "string",
+                                "description": "ISO-4217 currency code (3 letters). Default USD.",
+                            },
+                            "offer_summary": {
+                                "type": "string",
+                                "description": "Short human-readable description of the offer/deal (transparency).",
+                            },
+                            "settlement_ref": {
+                                "type": "string",
+                                "description": (
+                                    "Optional correlation id linking the cleared consent receipt to the "
+                                    "AP2 Payment Mandate that will settle the bid."
+                                ),
+                            },
+                        },
+                        "required": ["bid_amount"],
                     },
                 },
                 "required": [
@@ -112,6 +249,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "connector_key_id",
                     "connector_wrapping_alg",
                 ],
+                "anyOf": [{"required": ["scope"]}, {"required": ["scope_bundle"]}],
             },
         ),
         # Tool 2: Validate Token
@@ -275,10 +413,12 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
         Tool(
             name="check_consent_status",
             description=(
-                "🔄 Check the status of a pending consent request. "
-                "Use this after request_consent returns 'pending' status. "
-                "Poll this until status changes to 'granted' or 'denied'. "
-                "Returns the consent token when approved."
+                "🔄 Check consent status for a user/scope pair or a specific request id. "
+                "Call this before request_consent to reuse an existing active grant, then use it "
+                "for bounded polling after request_consent returns pending. "
+                "If a broader active grant covers the scope, the response returns status=granted "
+                "with requested_scope/granted_scope coverage metadata. If no matching grant or "
+                "request exists, status is not_found."
             ),
             inputSchema={
                 "type": "object",
@@ -310,7 +450,8 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "description": "Optional request_id returned by request_consent for more precise polling.",
                     },
                 },
-                "required": ["user_id", "scope"],
+                "required": ["user_id"],
+                "anyOf": [{"required": ["scope"]}, {"required": ["request_id"]}],
             },
         ),
         Tool(
