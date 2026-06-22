@@ -47,15 +47,15 @@ export function PortfolioPreviewCompact() {
         <div className="flex h-full flex-col">
           <div>
             <div className="flex items-center justify-between gap-4">
-              <span className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <span className="type-caption text-muted-foreground">
                 Total value
               </span>
-              <span className="inline-flex items-center rounded-full bg-emerald-500/12 px-[9px] py-1 text-[12.5px] font-medium text-emerald-600 dark:text-emerald-300">
+              <span className="type-footnote type-numeric inline-flex items-center rounded-full bg-emerald-500/12 px-[9px] py-1 text-emerald-600 dark:text-emerald-300">
                 ▲ 2.4%
               </span>
             </div>
 
-            <div className="mt-3 text-[30px] font-medium leading-none tracking-normal text-foreground sm:text-[34px]">
+            <div className="type-title1 type-numeric mt-3 text-foreground">
               $142,893
             </div>
           </div>
@@ -93,20 +93,20 @@ export function PortfolioPreviewCompact() {
               <div key={holding.symbol} className="flex items-center gap-3 py-2 first:pt-0">
                 <LogoChip type={holding.logo} />
                 <div className="min-w-0">
-                  <p className="truncate text-[14.5px] font-medium leading-tight tracking-normal">
+                  <p className="type-headline truncate">
                     {holding.name}
                   </p>
-                  <p className="mt-0.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
+                  <p className="type-caption mt-0.5 text-muted-foreground">
                     {holding.symbol} · {holding.detail}
                   </p>
                 </div>
                 <div className="ml-auto text-right">
-                  <p className="text-sm font-medium tabular-nums">
+                  <p className="type-subhead type-numeric">
                     {holding.price}
                   </p>
                   <p
                     className={cn(
-                      "mt-0.5 text-[11.5px] font-medium tabular-nums",
+                      "type-footnote type-numeric mt-0.5",
                       holding.direction === "up"
                         ? "text-emerald-600 dark:text-emerald-300"
                         : "text-red-500 dark:text-red-300"

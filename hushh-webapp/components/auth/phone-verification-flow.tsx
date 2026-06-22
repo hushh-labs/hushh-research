@@ -41,7 +41,7 @@ const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-12 overflow-hidden rounded-[18px] border-black/10 bg-[#f5f5f7]/92 shadow-xs dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
-  "h-full rounded-[inherit] border-0 bg-transparent px-4 text-[16px] font-normal shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent md:text-[15px]";
+  "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
@@ -349,9 +349,9 @@ export function PhoneVerificationFlow({
         </div>
         <Button
           onClick={() => void onContinueExisting?.()}
-          size="lg"
+          size="default"
           fullWidth
-          className={`mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+          className={`type-headline mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
         >
           Continue
         </Button>
@@ -370,9 +370,11 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  setCountryQuery(
-                    getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
-                  );
+                  if (!open) {
+                    setCountryQuery(
+                      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
+                    );
+                  }
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
@@ -390,6 +392,7 @@ export function PhoneVerificationFlow({
                   }}
                   onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
                     setCountryComboboxOpen(true);
+                    setCountryQuery("");
                     event.currentTarget.select();
                   }}
                   className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
@@ -442,7 +445,7 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="text-[15px] font-normal leading-[1.45] text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
+          <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
             {helperText ||
               "Choose your country code and enter your phone number. We’ll send you a verification code."}
           </FieldDescription>
@@ -450,9 +453,9 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleStartVerification(false)}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Send verification code"}
             </Button>
@@ -463,7 +466,7 @@ export function PhoneVerificationFlow({
                 effect="fade"
                 fullWidth
                 disabled={busy}
-                className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+                className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
               >
                 Cancel
               </Button>
@@ -501,9 +504,9 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleConfirmVerification()}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : confirmLabel || "Verify and continue"}
             </Button>
@@ -511,10 +514,10 @@ export function PhoneVerificationFlow({
               onClick={() => void handleStartVerification(true)}
               variant="none"
               effect="glass"
-              size="lg"
+              size="default"
               fullWidth
               disabled={busy}
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               Resend code
             </Button>
@@ -526,7 +529,7 @@ export function PhoneVerificationFlow({
             effect="fade"
             fullWidth
             disabled={busy}
-            className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+            className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
           >
             Use a different number
           </Button>

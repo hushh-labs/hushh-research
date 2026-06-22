@@ -23,6 +23,7 @@ import {
   kaiAppHeroBodyClassName,
   kaiAppHeroTitleClassName,
 } from "@/components/kai/shared/kai-typography";
+import { OneLockup } from "@/components/app-ui/gold-period";
 import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
@@ -73,8 +74,8 @@ export function AuthStep({
     Boolean(nativeTestConfig.vaultPassphrase);
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
-    nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING &&
-    redirectPath === ROUTES.KAI_ONBOARDING;
+    nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING &&
+    redirectPath === ROUTES.ONE_ONBOARDING;
   const growthJourney = useMemo(() => resolveGrowthJourneyForPath(redirectPath), [redirectPath]);
   const growthEntrySurface = useMemo(
     () => resolveGrowthEntrySurface(redirectPath),
@@ -135,7 +136,7 @@ export function AuthStep({
         if (preserveOnboardingAuditRoute) {
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
-          router.push(ROUTES.KAI_ONBOARDING);
+          router.push(ROUTES.ONE_ONBOARDING);
           return;
         }
         const resolvedIdToken =
@@ -166,17 +167,17 @@ export function AuthStep({
           resolvedPath === ROUTES.KAI_HOME && isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
-        setOnboardingRequiredCookie(nextPath === ROUTES.KAI_ONBOARDING);
+        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_ONBOARDING);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
         router.push(nextPath);
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
         const fallbackPath = redirectPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
-          fallbackPath === ROUTES.KAI_ONBOARDING || fallbackPath === ROUTES.KAI_IMPORT
+          fallbackPath === ROUTES.ONE_ONBOARDING || fallbackPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
             : fallbackPath;
-        setOnboardingRequiredCookie(safeFallbackPath === ROUTES.KAI_ONBOARDING);
+        setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_ONBOARDING);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
         router.push(safeFallbackPath);
       }
@@ -561,7 +562,7 @@ export function AuthStep({
 
   return (
     <main
-      className="min-h-[100dvh] w-full bg-white text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
+      className="h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-white text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
       data-testid="auth-step-primary"
     >
       <NativeTestBeacon
@@ -590,18 +591,18 @@ export function AuthStep({
       <div
         className={
           compact
-            ? "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(24px+var(--app-safe-area-top-effective,0px))] pb-[calc(24px+var(--app-screen-footer-pad))]"
-            : "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(48px+var(--app-safe-area-top-effective,0px))] pb-[calc(28px+var(--app-screen-footer-pad))]"
+            ? "relative mx-auto flex h-full min-h-0 w-full max-w-[27rem] flex-col justify-center px-6 pb-[calc(54px+var(--app-screen-footer-pad))] pt-[calc(24px+var(--app-safe-area-top-effective,0px))]"
+            : "relative mx-auto flex h-full min-h-0 w-full max-w-[27rem] flex-col justify-center px-6 pb-[calc(58px+var(--app-screen-footer-pad))] pt-[calc(32px+var(--app-safe-area-top-effective,0px))]"
         }
       >
         <header className="flex-none text-center">
           <Image
             src="/one-quiet-emoji.png"
             alt="One"
-            width={52}
-            height={52}
+            width={44}
+            height={44}
             priority
-            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
+            className="mx-auto h-11 w-11 object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"
@@ -609,7 +610,7 @@ export function AuthStep({
             aria-label="Sign in to One"
             className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
-            Sign in to One.
+            Sign in to <OneLockup />
           </div>
           <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Continue to your personal financial advisor.
@@ -633,25 +634,25 @@ export function AuthStep({
               />
             ))}
 
-            <p className="mx-auto max-w-[18.75rem] pt-2 text-center text-[13px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
+            <p className="type-footnote mx-auto max-w-[18.75rem] pt-2 text-center text-[#86868b] dark:text-[#8e8e93]">
               A verified phone number is required before you continue.
             </p>
 
-            {(reviewModeConfig.enabled ||
-              nativeReviewerVisible ||
-              localReviewerCredentialsAvailable ||
-              isLocalReviewerSurface) && (
-              <AuthProviderButton
-                label="Continue as Reviewer"
-                icon={<Icon icon={Shield} size="md" />}
-                onClick={handleReviewerLogin}
-              />
-            )}
-          </div>
-        </section>
+              {(reviewModeConfig.enabled ||
+                nativeReviewerVisible ||
+                localReviewerCredentialsAvailable ||
+                isLocalReviewerSurface) && (
+                <AuthProviderButton
+                  label="Continue as Reviewer"
+                  icon={<Icon icon={Shield} size="md" />}
+                  onClick={handleReviewerLogin}
+                />
+              )}
+            </div>
+          </section>
 
-        <footer className={compact ? "mt-auto flex-none pt-8" : "mt-auto flex-none pt-10"}>
-          <p className="mx-auto max-w-[19.5rem] text-center text-[11px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
+        <footer className="absolute inset-x-6 bottom-[calc(20px+var(--app-screen-footer-pad))] flex-none">
+          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-[#8e8e93]">
             By continuing, you agree to Kai&apos;s{" "}
             <button
               type="button"

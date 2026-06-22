@@ -23,9 +23,7 @@ def test_crd_number_field_has_max_length():
 def test_crd_number_max_length_is_reasonable():
     src = _SRC.read_text()
     # Extract the crdNumber Field(...) block and check its max_length
-    field_block = re.search(
-        r"crdNumber:\s*str\s*=\s*Field\s*\(.*?\)", src, re.DOTALL
-    )
+    field_block = re.search(r"crdNumber:\s*str\s*=\s*Field\s*\(.*?\)", src, re.DOTALL)
     assert field_block, "crdNumber Field definition not found"
     match = re.search(r"max_length\s*=\s*(\d+)", field_block.group(0))
     assert match, "max_length not found in crdNumber Field"

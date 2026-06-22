@@ -50,6 +50,22 @@ describe("config", () => {
     expect(config.BACKEND_URL).toBe("http://127.0.0.1:8000");
   });
 
+  it("resolves configured development backend url", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeBackendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("development");
+    vi.mocked(resolveRuntimeBackendUrl).mockReturnValue(
+      " http://localhost:8000/ "
+    );
+
+    const config = await import("@/lib/config");
+
+    expect(config.BACKEND_URL).toBe("http://localhost:8000");
+  });
+
   it("uses development frontend fallback when runtime frontend url is empty", async () => {
     const { resolveAppEnvironment } = await import("@/lib/app-env");
     const { resolveRuntimeFrontendUrl } = await import(
@@ -76,5 +92,21 @@ describe("config", () => {
     const config = await import("@/lib/config");
 
     expect(config.BACKEND_URL).toBe("");
+  });
+
+  it("resolves UAT backend url from runtime settings", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeBackendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("uat");
+    vi.mocked(resolveRuntimeBackendUrl).mockReturnValue(
+      "https://uat-api.hushh.ai/",
+    );
+
+    const config = await import("@/lib/config");
+
+    expect(config.BACKEND_URL).toBe("https://uat-api.hushh.ai");
   });
 });

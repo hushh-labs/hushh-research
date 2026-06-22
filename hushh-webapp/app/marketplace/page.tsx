@@ -892,12 +892,12 @@ export default function MarketplacePage() {
         current.includes(investorId) ? current : [...current, investorId]
       );
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Connection request sent", {
-        description: "The investor can review it in their pending connections.",
+      toast.success("Information request sent", {
+        description: "They can review the request in Connect.",
       });
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -920,12 +920,12 @@ export default function MarketplacePage() {
           duration_hours: 168,
         },
       });
-      toast.success("Connection request sent", {
-        description: "The advisor can review it in their pending connections.",
+      toast.success("Information request sent", {
+        description: "They can review the request in Connect.",
       });
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -1089,9 +1089,9 @@ export default function MarketplacePage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="Connect"
-          title="Search people"
-          description="Find investors, RIAs, and contacts already on Hushh."
+          eyebrow="People and permissions"
+          title="Connect"
+          description="Find people, request information, and keep every share consent-scoped."
           icon={Compass}
           accent="marketplace"
           actions={
@@ -1109,7 +1109,7 @@ export default function MarketplacePage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-4 pb-24 pt-0">
-        <div className="rounded-[28px] bg-background/90 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
+        <div className="rounded-[24px] border border-border/45 bg-card/88 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <button
@@ -1121,7 +1121,7 @@ export default function MarketplacePage() {
                 aria-label="Toggle search"
                 onClick={() => setSearchOpen((current) => !current)}
               >
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
               </button>
               <Button
                 variant="none"
@@ -1172,7 +1172,10 @@ export default function MarketplacePage() {
           {searchOpen ? (
             <div className="mt-2">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -1252,7 +1255,7 @@ export default function MarketplacePage() {
       ) : null}
 
       {!iamUnavailable && view === "swipe" ? (
-        <div className={cn("pb-16", searchOpen && "pt-12")}>
+        <div className="pb-16">
           {!hasLoadedDirectory || loading ? (
             <div className="flex min-h-[420px] items-center justify-center px-6 py-14 text-center">
               <p className="text-sm text-muted-foreground">Loading discovery…</p>
@@ -1354,11 +1357,11 @@ export default function MarketplacePage() {
                             : "Demo"
                           : Boolean(discoveryCardUserId(swipeCard)) &&
                               actionLoadingUserId === discoveryCardUserId(swipeCard)
-                            ? "Connecting..."
+                            ? "Requesting..."
                             : currentPersona === "investor"
-                              ? "Request advisory"
+                              ? "Request RIA info"
                               : swipeCard.canConnect
-                                ? "Send request"
+                                ? "Request info"
                                 : swipeCard.kind === "investor" &&
                                     isMarketplaceInvestorShortlistable(
                                       swipeCard.profile as MarketplaceInvestor
@@ -1463,11 +1466,11 @@ export default function MarketplacePage() {
                         ? "Open workspace"
                         : "Demo"
                       : Boolean(userId) && actionLoadingUserId === userId
-                        ? "Connecting..."
+                        ? "Requesting..."
                         : currentPersona === "investor"
-                          ? "Request advisory"
+                          ? "Request RIA info"
                           : item.canConnect
-                            ? "Send request"
+                            ? "Request info"
                             : item.kind === "investor" &&
                                 isMarketplaceInvestorShortlistable(
                                   item.profile as MarketplaceInvestor
@@ -1514,9 +1517,9 @@ export default function MarketplacePage() {
         description={
           selectedProfile?.kind === "ria"
             ? selectedAdvisor?.headline ||
-              "Review this advisor profile before you decide whether to connect."
+              "Review this advisor profile before requesting RIA information."
             : selectedInvestor?.headline ||
-              "Review this investor profile before you decide whether to connect."
+              "Review this investor profile before requesting information."
         }
       >
         <div className="space-y-4">
@@ -1569,8 +1572,8 @@ export default function MarketplacePage() {
                     {selectedInjectedRia
                       ? "Demo"
                       : actionLoadingUserId === selectedAdvisor.user_id
-                        ? "Connecting..."
-                        : "Request advisory"}
+                        ? "Requesting..."
+                        : "Request RIA info"}
                   </Button>
                 ) : null}
                 {selectedAdvisor.disclosures_url ? (
@@ -1628,7 +1631,7 @@ export default function MarketplacePage() {
                 <p className="mt-3 text-sm leading-7 text-foreground">
                   {selectedInvestor.strategy_summary ||
                     (selectedInvestorConnectable
-                      ? "This investor has opted into discovery and is available for a connection flow."
+                      ? "This investor has opted into discovery and can review scoped information requests."
                       : "This public investor profile is available for discovery review. Direct consent requests require a verified Hushh investor account.")}
                 </p>
               </RiaSurface>
@@ -1706,9 +1709,9 @@ export default function MarketplacePage() {
                     ? "Open workspace"
                     : Boolean(selectedInvestorUserId) &&
                         actionLoadingUserId === selectedInvestorUserId
-                      ? "Connecting..."
+                      ? "Requesting..."
                       : selectedInvestorConnectable
-                        ? "Send request"
+                        ? "Request info"
                         : selectedInvestorShortlistable
                           ? selectedInvestorIsShortlisted
                             ? "Saved lead"

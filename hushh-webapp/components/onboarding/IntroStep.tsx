@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import type { ComponentType, SVGProps } from "react";
+import type { CSSProperties, ComponentType, SVGProps } from "react";
+import { OneLockup } from "@/components/app-ui/gold-period";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   kaiAppHeroBodyClassName,
@@ -54,30 +55,36 @@ const INTRO_FEATURES: Array<{
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   title: string;
   subtitle: string;
-  tileClassName: string;
+  tone: "green" | "blue" | "orange";
 }> = [
   {
     icon: ShieldBadgeIcon,
     title: "Verified in minutes",
     subtitle: "Seamless KYC, no paperwork",
-    tileClassName:
-      "bg-[#34c759]/10 text-[#1f9d55] shadow-[inset_0_0_0_1px_rgba(52,199,89,0.12)] dark:bg-[#30d158]/16 dark:text-[#30d158]",
+    tone: "green",
   },
   {
     icon: HoldingsBarsIcon,
     title: "Top holdings, at a glance",
     subtitle: "Your portfolio, always live",
-    tileClassName:
-      "bg-[#5856d6]/10 text-[#5856d6] shadow-[inset_0_0_0_1px_rgba(88,86,214,0.12)] dark:bg-[#5e5ce6]/18 dark:text-[#5e5ce6]",
+    tone: "blue",
   },
   {
     icon: SignalPulseIcon,
     title: "Buy, sell, hold",
     subtitle: "Clear signals when they matter",
-    tileClassName:
-      "bg-[#ff9500]/12 text-[#c77600] shadow-[inset_0_0_0_1px_rgba(255,149,0,0.14)] dark:bg-[#ff9f0a]/18 dark:text-[#ff9f0a]",
+    tone: "orange",
   },
 ];
+
+function featureStyle(tone: "green" | "blue" | "orange", index: number): CSSProperties {
+  return {
+    "--intro-feature-tone": `var(--tone-${tone})`,
+    "--intro-feature-bg": `var(--tone-${tone}-bg)`,
+    "--intro-feature-glow": `var(--tone-${tone}-glow)`,
+    "--intro-feature-delay": `${index * 120}ms`,
+  } as CSSProperties;
+}
 
 export function IntroStep({
   onNext,
@@ -88,48 +95,54 @@ export function IntroStep({
 }) {
   return (
     <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#000000] dark:text-[#f5f5f7]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(42px+var(--app-safe-area-top-effective,0px))]">
-        <section className="relative flex flex-none flex-col items-center text-center">
-          <Image
-            src="/one-quiet-emoji.png"
-            alt=""
-            width={762}
-            height={766}
-            priority
-            unoptimized
-            aria-hidden="true"
-            draggable={false}
-            className="relative h-[52px] w-[52px] select-none object-contain"
-          />
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+        <div className="flex min-h-0 flex-1 flex-col justify-center py-6">
+          <section className="relative flex flex-none flex-col items-center text-center">
+            <Image
+              src="/one-quiet-emoji.png"
+              alt=""
+              width={762}
+              height={766}
+              priority
+              unoptimized
+              aria-hidden="true"
+              draggable={false}
+              className="relative h-11 w-11 select-none object-contain"
+            />
 
-          <div
-            role="heading"
-            aria-level={1}
-            aria-label="Meet One, Your Personal Financial Advisor"
-            className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
-          >
-            Meet One.
-          </div>
-          <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
-            Your personal financial advisor.
-          </p>
-        </section>
+            <div
+              role="heading"
+              aria-level={1}
+              aria-label="Meet One, Your Personal Financial Advisor"
+              className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
+            >
+              Meet <OneLockup />
+            </div>
+            <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
+              Your personal financial advisor.
+            </p>
+          </section>
 
-        <div className="flex min-h-0 flex-1 items-center py-6">
+        <div className="flex-none pt-9 pb-5">
           <div className="relative w-full">
-            <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-4">
-              {INTRO_FEATURES.map((feature) => (
+            <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-3">
+              <div
+                aria-hidden="true"
+                className="intro-feature-rail absolute left-6 top-6 bottom-6 z-0 w-3 -translate-x-1/2"
+              />
+              {INTRO_FEATURES.map((feature, index) => (
                 <div
                   key={feature.title}
-                  className="grid min-h-[64px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
+                  className="intro-feature-item relative z-10 grid h-[70px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
+                  style={featureStyle(feature.tone, index)}
                 >
                   <span
-                    className={`grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
+                    className="intro-feature-icon grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10"
                   >
-                    <feature.icon className="h-[22px] w-[22px]" />
+                    <feature.icon className="relative z-10 h-[22px] w-[22px]" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[17px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                    <p className="text-[16.5px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
                       {feature.title}
                     </p>
                     <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
@@ -137,30 +150,30 @@ export function IntroStep({
                     </p>
                   </div>
                 </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        <footer className="flex-none pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+        <footer className="flex-none pt-3">
           <div className="space-y-4">
             <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
-              One is consent-first. Your data stays in your vault — nothing is
-              shared without your approval.
+              One is consent-first. Your knowledge and information are your
+              safewords — nothing leaves your vault without your approval.
             </p>
             <Button
               size="lg"
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal text-white shadow-none hover:bg-[#0071e3]"
+              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
+                className="type-subhead mx-auto block min-h-10 px-4 text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
                 onClick={onLogin}
               >
                 Log in
@@ -168,6 +181,7 @@ export function IntroStep({
             ) : null}
           </div>
         </footer>
+      </div>
       </div>
     </main>
   );

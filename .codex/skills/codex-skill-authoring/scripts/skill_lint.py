@@ -79,6 +79,8 @@ EXPECTED_WORKFLOW_IDS = [
     "release-readiness",
     "docs-sync",
     "founder-brief-curation",
+    "generic-pdf-artifact-generation",
+    "report-artifact-generation",
     "skill-authoring",
     "board-update",
     "community-response",
@@ -90,6 +92,7 @@ EXPECTED_WORKFLOW_IDS = [
     "contributor-onboarding",
     "subtree-upstream-governance",
     "hushh-consent-mcp-ops",
+    "ria-api-reference",
     "security-posture-maintenance",
 ]
 SPECIAL_HANDOFF_TOKENS = {"selected-owner-skill"}
