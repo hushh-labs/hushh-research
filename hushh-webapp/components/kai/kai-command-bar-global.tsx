@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -132,6 +133,7 @@ export function KaiCommandBarGlobal() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const agentPopover = useOptionalAgentPopover();
   const { user, loading } = useAuth();
   const {
     activePersona,
@@ -239,6 +241,9 @@ export function KaiCommandBarGlobal() {
   const reviewScreenActive = Boolean(
     busyOperations["portfolio_review_active"] || busyOperations["portfolio_save"]
   );
+  const portfolioImportSurfaceActive = Boolean(
+    busyOperations["portfolio_import_surface"]
+  );
   const reviewDirty = Boolean(
     busyOperations["portfolio_review_active"] && busyOperations["portfolio_review_dirty"]
   );
@@ -310,6 +315,8 @@ export function KaiCommandBarGlobal() {
     [pathname]
   );
   const voiceEligibleRoute = isVoiceEligibleRouteScreen(routeInfo.screen, chromeState.hideCommandBar);
+  const agentWindowOpen =
+    agentPopover?.expanded || agentPopover?.motionState === "opening";
 
   useEffect(() => {
     if (!voiceEligibleRoute) {
@@ -723,11 +730,11 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
-  if (!mounted || loading || !user || reviewScreenActive) {
+  if (!mounted || loading || !user || reviewScreenActive || portfolioImportSurfaceActive) {
     return null;
   }
 
-  if (chromeState.hideCommandBar) {
+  if (chromeState.hideCommandBar || agentWindowOpen) {
     return null;
   }
 
@@ -802,6 +809,7 @@ export function KaiCommandBarGlobal() {
       appRuntimeState={appRuntimeState}
       voiceContext={voiceContext}
       surfaceVariant={useRiaActionBar ? "ria" : "kai"}
+      showAgent={localVoiceReady}
       portfolioTickers={portfolioTickers}
     />
   );

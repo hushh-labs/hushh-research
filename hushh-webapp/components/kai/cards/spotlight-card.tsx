@@ -85,19 +85,19 @@ export function SpotlightCard(props: {
             <div className="flex min-w-0 items-start gap-3">
               <SymbolAvatar symbol={props.symbol} name={props.companyName} size="md" />
               <div className="min-w-0 space-y-1">
-                <h3 className="text-base font-black tracking-tight leading-tight">{props.title}</h3>
+                <h3 className="text-[15.5px] font-medium leading-tight tracking-normal sm:text-base">{props.title}</h3>
                 <p className="text-sm text-muted-foreground">{props.price}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
               {props.confidenceLabel ? (
-                <span className="inline-flex items-center rounded-full bg-background/75 px-2 py-1 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors duration-200 group-hover:bg-background/85">
+                <span className="inline-flex items-center rounded-full bg-background/75 px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground transition-colors duration-200 group-hover:bg-background/85">
                   {props.confidenceLabel}
                 </span>
               ) : null}
               <span
                 className={cn(
-                  "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-extrabold tracking-wide",
+                  "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide",
                   decisionTone
                 )}
               >
@@ -106,7 +106,7 @@ export function SpotlightCard(props: {
             </div>
           </div>
 
-          <p className="text-sm font-medium leading-relaxed">{props.summary}</p>
+          <p className="text-sm font-normal leading-relaxed text-foreground/80">{props.summary}</p>
 
           <div className="flex items-center gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground transition-colors duration-200 group-hover:border-border/60">
             <Icon icon={LineChart} size="sm" />

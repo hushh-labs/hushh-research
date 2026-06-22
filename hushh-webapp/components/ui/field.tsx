@@ -1,11 +1,14 @@
 "use client"
 
-import { useMemo } from "react"
+import { createContext, useContext, useId, useMemo } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+
+
+const FieldLabelIdContext = createContext<string | undefined>(undefined)
 
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
@@ -81,16 +84,23 @@ const fieldVariants = cva(
 function Field({
   className,
   orientation = "vertical",
+  "aria-labelledby": ariaLabelledBy,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
+  const autoId = useId()
+  const labelId = ariaLabelledBy ?? autoId
+
   return (
-    <div
-      role="group"
-      data-slot="field"
-      data-orientation={orientation}
-      className={cn(fieldVariants({ orientation }), className)}
-      {...props}
-    />
+    <FieldLabelIdContext.Provider value={labelId}>
+      <div
+        role="group"
+        data-slot="field"
+        data-orientation={orientation}
+        aria-labelledby={labelId}
+        className={cn(fieldVariants({ orientation }), className)}
+        {...props}
+      />
+    </FieldLabelIdContext.Provider>
   )
 }
 
@@ -109,11 +119,16 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
 
 function FieldLabel({
   className,
+  id: idProp,
   ...props
 }: React.ComponentProps<typeof Label>) {
+  const contextLabelId = useContext(FieldLabelIdContext)
+  const resolvedId = idProp ?? contextLabelId
+
   return (
     <Label
       data-slot="field-label"
+      id={resolvedId}
       className={cn(
         "group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:opacity-50",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border [&>*]:data-[slot=field]:p-4",

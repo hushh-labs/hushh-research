@@ -1943,7 +1943,7 @@ export function PortfolioReviewView({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <div className="px-1">
-	            <h1 className="text-xl font-bold tracking-tight">Review Portfolio</h1>
+	            <h1 className="text-[20px] font-medium tracking-normal">Review Portfolio</h1>
 	            <p className="max-w-[28rem] text-sm leading-snug text-muted-foreground">
 	              {hasVault === false
 	                ? "Review your portfolio, then create your Vault to save it."
@@ -1981,7 +1981,7 @@ export function PortfolioReviewView({
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">
                   Total Portfolio Value
                 </p>
-                <p className="max-w-full px-2 text-[clamp(1.7rem,8.5vw,2.55rem)] font-black leading-none tracking-tight tabular-nums whitespace-nowrap bg-linear-to-br from-foreground to-foreground/70 bg-clip-text text-transparent sm:text-4xl">
+                <p className="max-w-full px-2 text-[28px] font-medium leading-none tracking-normal tabular-nums whitespace-nowrap bg-linear-to-br from-foreground to-foreground/70 bg-clip-text text-transparent sm:text-[32px]">
                   <span title={formatCurrency(totalValue)}>{formatCurrencyCompact(totalValue)}</span>
                 </p>
 
@@ -2010,14 +2010,14 @@ export function PortfolioReviewView({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 pt-6 border-t border-primary/10">
                 <div className="min-w-0 text-center sm:text-left sm:pl-4">
-                  <p className="text-2xl font-black">{activeHoldings.length}</p>
+                  <p className="text-[1.35rem] font-medium sm:text-[1.5rem]">{activeHoldings.length}</p>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assets</p>
                 </div>
                 <div className="min-w-0 flex flex-col items-center justify-center">
                   <Badge
                     variant="outline"
                     className={cn(
-                      "font-black text-[10px] uppercase tracking-widest px-2",
+                      "font-semibold text-[10px] uppercase tracking-widest px-2",
                       riskBucket === "aggressive"
                         ? "app-critical-badge"
                         : riskBucket === "moderate"
@@ -2032,7 +2032,7 @@ export function PortfolioReviewView({
                 <div className="min-w-0 text-center sm:text-right sm:pr-4">
                   <p
                     className={cn(
-                      "max-w-full text-[clamp(1.05rem,5.8vw,1.55rem)] font-black leading-none tabular-nums whitespace-nowrap sm:text-2xl",
+                      "max-w-full text-[20px] font-medium leading-none tracking-normal tabular-nums whitespace-nowrap sm:text-[22px]",
                       liveCashBalance < 0
                         ? "text-red-500 dark:text-red-400"
                         : "text-foreground"
@@ -2275,7 +2275,7 @@ export function PortfolioReviewView({
             <CardHeader className="border-b border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-sticky-header)] px-6 pb-4 pt-6">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <CardTitle className="text-lg font-black uppercase tracking-widest text-foreground">
+                  <CardTitle className="text-[15px] font-medium uppercase tracking-[0.14em] text-foreground">
                     Holdings ({holdings.length})
                     {pendingDeleteCount > 0 ? (
                       <span className="ml-2 text-[11px] font-semibold text-muted-foreground">

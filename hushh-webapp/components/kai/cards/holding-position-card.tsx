@@ -43,11 +43,11 @@ export function HoldingPositionCard({ holding, onAnalyze, onManage }: HoldingPos
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-muted text-xs font-black text-foreground">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-muted text-xs font-semibold text-foreground">
               {tickerFallback(holding.symbol)}
             </div>
             <div>
-              <h4 className="text-sm font-black leading-tight">{holding.name}</h4>
+              <h4 className="text-sm font-semibold leading-tight">{holding.name}</h4>
               <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                 {holding.symbol}
               </span>
@@ -78,17 +78,17 @@ export function HoldingPositionCard({ holding, onAnalyze, onManage }: HoldingPos
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground">Shares @ Price</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Shares @ Price</p>
             <p className="font-medium">
               {holding.quantity.toLocaleString()} @ {formatCurrency(holding.price)}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground">Market Value</p>
-            <p className="font-black">{formatCurrency(holding.marketValue)}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Market Value</p>
+            <p className="font-semibold">{formatCurrency(holding.marketValue)}</p>
           </div>
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-muted-foreground">Gain/Loss</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Gain/Loss</p>
             <p className={positive ? "font-semibold text-emerald-600" : "font-semibold text-red-500"}>
               {positive ? "+" : "-"}
               {formatCurrency(Math.abs(holding.gainLossValue))} ({holding.gainLossPct >= 0 ? "+" : ""}

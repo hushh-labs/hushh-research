@@ -63,7 +63,9 @@ export async function POST(request: NextRequest) {
       message: "Session created successfully",
     });
   } catch (error) {
-    console.error("[Session API] Error creating session:", error);
+    if (process.env.NODE_ENV !== "production") {
+  console.error("[Session API] Error creating session:", error);
+}
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -85,7 +87,9 @@ export async function DELETE() {
       message: "Session destroyed",
     });
   } catch (error) {
-    console.error("[Session API] Error destroying session:", error);
+    if (process.env.NODE_ENV !== "production") {
+  console.error("[Session API] Error destroying session:", error);
+}
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -119,10 +123,12 @@ export async function GET() {
       uid,
     });
   } catch (error) {
-    console.error("[Session API] Error verifying session:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[Session API] Error verifying session:", error);
+    }
     return NextResponse.json(
       { authenticated: false, error: "Verification failed" },
-      { status: 500 }
+      { status: 500 } 
     );
   }
 }

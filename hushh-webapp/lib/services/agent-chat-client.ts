@@ -147,7 +147,14 @@ export async function streamAgentChat(input: {
   let streamError: string | null = null;
 
   const handleFrame = (event: string, data: string) => {
-    const payload = parseJsonPayload(data);
+    let payload: Record<string, unknown>;
+    try {
+      payload = parseJsonPayload(data);
+    } catch {
+      streamError = "Agent chat stream returned malformed data. Please retry.";
+      input.handlers?.onError?.(streamError);
+      return;
+    }
     if (event === "start") {
       conversationId = readString(payload, "conversation_id") || conversationId;
       model = readString(payload, "model") || model;

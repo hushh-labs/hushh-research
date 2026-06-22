@@ -11,6 +11,7 @@ This folder is the canonical home for signed-in shell primitives, page chrome, a
 - `top-app-bar.tsx`: top chrome, persona switcher, shield consent inbox, and bell trigger.
 - `shell-action-surface.tsx`: canonical interaction surface for top-shell buttons and pills.
 - `top-shell-dropdown.ts`: shared dropdown chrome contract for shield/bell overlays.
+- `command-fields.tsx`: shared command/search field chrome for route-local filters and pickers.
 - `debate-task-center.tsx`: notification bell surface for background tasks and activity.
 - `route-error-boundary.tsx`: top-level error boundary for route failures with graceful fallback UI.
 

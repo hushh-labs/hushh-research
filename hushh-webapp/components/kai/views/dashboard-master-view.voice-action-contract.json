@@ -29,7 +29,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/portfolio"
+          "/one/kai/portfolio"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -66,7 +66,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/import"
+          "/one/kai/import"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -104,7 +104,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/investments"
+          "/one/kai/investments"
         ],
         "screens": [
           "kai_investments"
@@ -122,7 +122,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/kai/investments"
+        "target": "/one/kai/investments"
       },
       "control_ids": [
         "view_investments"
@@ -147,7 +147,7 @@
       ],
       "reachability": {
         "routes": [
-          "/kai/optimize"
+          "/one/kai/optimize"
         ],
         "screens": [
           "kai_optimize"
@@ -163,7 +163,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/kai/optimize"
+        "target": "/one/kai/optimize"
       },
       "control_ids": [
         "optimize_portfolio"

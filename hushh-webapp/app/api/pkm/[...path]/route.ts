@@ -15,6 +15,10 @@ const metadataHotGet = createHotGetJsonCache({
   staleTtlMs: 30 * 60 * 1000,
 });
 const PKM_PROXY_TIMEOUT_MS = Number.parseInt(process.env.PKM_PROXY_TIMEOUT_MS ?? "45000", 10);
+const PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS = Number.parseInt(
+  process.env.PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS ?? "90000",
+  10
+);
 const PKM_PROXY_WRITE_TIMEOUT_MS = Number.parseInt(
   process.env.PKM_PROXY_WRITE_TIMEOUT_MS ?? "180000",
   10
@@ -25,7 +29,7 @@ type PkmProxyResult = {
   payload: unknown;
   correlationId: string | null;
   traceId: string | null;
-  emptyState?: "pkm-metadata" | "pkm-domain-data";
+  emptyState?: "pkm-metadata" | "pkm-domain-data" | "pkm-data";
 };
 
 function decodePathSegment(value: string): string {
@@ -67,6 +71,17 @@ function emptyDomainDataPayload() {
   };
 }
 
+function emptyLegacyDataPayload() {
+  return {
+    ciphertext: null,
+    iv: null,
+    tag: null,
+    algorithm: null,
+    data_version: null,
+    updated_at: null,
+  };
+}
+
 function normalizeEmptyPkmGet(
   method: "GET" | "POST" | "PUT" | "DELETE",
   pathStr: string,
@@ -91,6 +106,14 @@ function normalizeEmptyPkmGet(
       emptyState: "pkm-domain-data",
     };
   }
+  if (pathStr.startsWith("data/")) {
+    return {
+      ...result,
+      status: 200,
+      payload: emptyLegacyDataPayload(),
+      emptyState: "pkm-data",
+    };
+  }
   return result;
 }
 
@@ -105,7 +128,9 @@ async function proxyPkmRequest(
   const query = request.nextUrl.search;
   const authHeader = request.headers.get("Authorization") || "";
   const hotCacheKey =
-    method === "GET" && pathStr.startsWith("metadata/") && authHeader
+    method === "GET" &&
+    authHeader &&
+    (pathStr.startsWith("metadata/") || pathStr.startsWith("upgrade/status/"))
       ? `${pathStr}${query}:${authHeader}`
       : null;
 
@@ -144,6 +169,8 @@ async function proxyPkmRequest(
       const timeoutMs =
         method === "POST" || method === "PUT" || method === "DELETE"
           ? PKM_PROXY_WRITE_TIMEOUT_MS
+          : pathStr.startsWith("upgrade/status/")
+            ? PKM_UPGRADE_STATUS_PROXY_TIMEOUT_MS
           : PKM_PROXY_TIMEOUT_MS;
       const response = await fetch(backendUrl, {
         method,

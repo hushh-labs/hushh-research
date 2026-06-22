@@ -5,12 +5,19 @@ Investor Profiles API Routes (PUBLIC DISCOVERY LAYER)
 These endpoints serve publicly available investor data for identity resolution.
 Data source: SEC 13F filings, Form 4, public sources
 
+Canonical attach points:
+  api.routes.investors.create_investor -> POST /api/investors/
+  api.routes.investors.bulk_create_investors -> POST /api/investors/bulk
+
 IMPORTANT: This is the PUBLIC layer - no authentication required for search.
 The data here is NOT encrypted (it's all from public SEC filings).
 
 Privacy architecture:
 - investor_profiles = PUBLIC (SEC filings, read-only)
 - user_investor_profiles = PRIVATE (E2E encrypted, consent required)
+
+Write endpoints (POST) require Firebase authentication to prevent
+unauthenticated data ingestion.
 """
 
 import json
@@ -248,7 +255,8 @@ async def bulk_create_investors(
     Used for initial data seeding from JSON file.
     Capped at _BULK_INVESTOR_MAX records per request to protect the
     database connection pool.
-    Requires Firebase authentication.
+    Requires Firebase authentication (trust boundary: no unauthenticated
+    bulk ingestion into the investor profiles table).
     """
     if len(investors) > _BULK_INVESTOR_MAX:
         raise HTTPException(
@@ -259,7 +267,7 @@ async def bulk_create_investors(
 
     results = []
     for investor in investors:
-        result = await create_investor(investor)
+        result = await create_investor(investor, firebase_uid=firebase_uid)
         results.append(result)
 
     logger.info(f"Bulk created {len(results)} investor profiles")

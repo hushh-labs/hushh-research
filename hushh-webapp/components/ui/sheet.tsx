@@ -39,7 +39,7 @@ function SheetOverlay({
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] bg-transparent",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)] touch-none",
         className
       )}
       {...props}
@@ -59,10 +59,6 @@ function SheetContent({
 }) {
   return (
     <SheetPortal>
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-[710] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]"
-      />
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
@@ -75,15 +71,15 @@ function SheetContent({
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b rounded-b-[var(--app-card-radius-feature)]",
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[85dvh] overflow-y-auto border-t rounded-t-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[85dvh] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] border-t rounded-t-[var(--app-card-radius-feature)]",
           className
         )}
         {...props}
       >
         {children}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
-            <XIcon className="size-4" />
+          <SheetPrimitive.Close data-slot="sheet-close" type="button" className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+            <XIcon className="size-4" aria-hidden="true" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
         )}
@@ -106,7 +102,7 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      className={cn("mt-auto flex flex-col gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]", className)}
       {...props}
     />
   )
