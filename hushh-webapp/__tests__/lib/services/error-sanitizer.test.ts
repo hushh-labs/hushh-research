@@ -416,11 +416,16 @@ describe("getErrorMessage", () => {
     expect(getErrorMessage(42)).toBe("42");
   });
 
+  // Hardens the existing String(error) fallback branch (already covered for
+  // numbers/null/undefined/objects above) against the primitives it does NOT
+  // yet exercise: Symbol throws under template-literal coercion, so this
+  // confirms the String() path keeps getErrorMessage total. No new capability;
+  // extends the same fallback contract.
   it.each([
     [Symbol("err"), "Symbol(err)"],
     [42n, "42"],
     [false, "false"],
-  ] as const)("stringifies non-string primitive %s without throwing", (input, expected) => {
+  ] as const)("String() fallback handles non-string primitive %s without throwing", (input, expected) => {
     expect(() => getErrorMessage(input)).not.toThrow();
     expect(getErrorMessage(input)).toBe(expected);
   });
