@@ -222,6 +222,28 @@ describe("agent chat client", () => {
     expect(errors).toEqual(["Agent chat failed. Please try again."]);
   });
 
+  it("sanitizes malformed Agent SSE JSON frames", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        "event: token\ndata: {not-json}\n\n",
+      ])
+    );
+    const errors: string[] = [];
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+        handlers: {
+          onError: (message) => errors.push(message),
+        },
+      })
+    ).rejects.toThrow("Agent chat stream returned malformed data. Please retry.");
+    expect(errors).toEqual(["Agent chat stream returned malformed data. Please retry."]);
+  });
+
   it("formats streamed runtime provider errors", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([

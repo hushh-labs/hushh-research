@@ -101,7 +101,6 @@ import {
   InputGroupText,
 } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -121,7 +120,7 @@ const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   policy_url: "",
 };
 
-const MOBILE_DEFAULT_OPEN_SECTIONS = ["overview", "modes", "access"];
+const MOBILE_DEFAULT_OPEN_SECTIONS = ["start", "mcp", "access", "faq"];
 
 function formatDeveloperAccessError(
   error: unknown,
@@ -685,19 +684,22 @@ function AccessWorkspace({
 
           {workspaceTab === "tokens" ? (
             <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <p className="text-sm font-semibold text-foreground">Primary token setup</p>
-                <RuntimeValueRow
-                  label="MCP URL"
-                  value={`${runtime.mcpUrl}?token=${revealedToken || "<developer-token>"}`}
-                  copyLabel="Remote MCP URL"
-                  isMobile={isMobile}
-                />
-                <RuntimeValueRow
-                  label="Env"
-                  value={`${access.developer_token_env_var}=${revealedToken || "<developer-token>"}`}
-                  copyLabel="Developer env var"
-                  isMobile={isMobile}
-                />
+              <p className="text-sm font-semibold text-foreground">Primary token setup</p>
+              <RuntimeValueRow
+                label="MCP URL"
+                value={runtime.remoteMcpUrlTemplate.replace(
+                  "<developer-token>",
+                  revealedToken || "<developer-token>"
+                )}
+                copyLabel="Remote MCP URL"
+                isMobile={isMobile}
+              />
+              <RuntimeValueRow
+                label="Env"
+                value={`${access.developer_token_env_var}=${revealedToken || "<developer-token>"}`}
+                copyLabel="Developer env var"
+                isMobile={isMobile}
+              />
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <MorphyButton
                   variant="none"
@@ -928,7 +930,9 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     () => buildWorkspaceSnippets(runtime, revealedToken || "<developer-token>"),
     [revealedToken, runtime]
   );
-  const developerTokenSnippet = `${workspaceSnippets.envVar}\n${workspaceSnippets.remoteUrl}`;
+  const apiRootReady = Boolean(liveDocs?.apiRoot);
+  const toolCatalogReady = Boolean(liveDocs?.tools?.length);
+  const scopeCatalogReady = Boolean(liveDocs?.scopes?.length);
 
   useEffect(() => {
     let cancelled = false;
@@ -1177,13 +1181,14 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
               <AppPageHeaderRegion>
                 <PageHeader
                   eyebrow="Developer Hub"
-                  title="Build consent-aware Kai integrations with dynamic scopes"
-                  description="Use MCP or the API to discover user-specific scopes from the Personal Knowledge Model, request consent inside Kai, and read only the approved slice through one scalable contract."
+                  title="Connect to Hussh with Remote MCP"
+                  description="Use the UAT streamable MCP endpoint to discover user-specific scopes, request consent inside Kai, and read only approved encrypted exports through one small contract."
                   icon={Code2}
                   accent="developers"
                   actions={
                     <>
                       <Badge variant="outline">{runtime.environmentLabel}</Badge>
+                      <Badge variant="outline">Streamable MCP</Badge>
                       <Badge variant="outline">{PUBLIC_TOOL_NAMES.length} public tools</Badge>
                     </>
                   }
@@ -1194,111 +1199,81 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                 <SurfaceCardHeader>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className="bg-primary text-primary-foreground">{runtime.environmentLabel}</Badge>
-                    <Badge variant="outline">Self-serve access</Badge>
-                    <Badge variant="outline">Dynamic scopes</Badge>
+                    <Badge variant="outline">Remote MCP first</Badge>
+                    <Badge variant="outline">UAT public beta</Badge>
                   </div>
                   <SurfaceCardTitle className="pt-1 text-base sm:text-lg">
-                    One developer contract across remote MCP, the API, and the npm bridge
+                    Quick start: connect a remote-capable MCP host
                   </SurfaceCardTitle>
                   <SurfaceCardDescription className="max-w-3xl text-sm leading-6">
-                    Public docs stay open. Sign in only if you want a personal developer workspace,
-                    self-serve developer token, and consent prompts branded to your app identity.
+                    The recommended path is the slash-safe streamable MCP URL. Sign in only when you
+                    want a personal developer token and app identity for consent prompts.
                   </SurfaceCardDescription>
                 </SurfaceCardHeader>
                 <SurfaceCardContent className="space-y-5">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <RuntimeValueRow
-                      label="REST"
-                      value={runtime.apiBaseUrl}
-                      copyLabel="REST base URL"
-                      isMobile={isMobile}
+                  <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+                    <SnippetCard
+                      title="Connect with Remote MCP"
+                      description="Paste this into any host that supports streamable HTTP MCP. Replace the placeholder with the developer token revealed from your workspace."
+                      code={mcpSnippets.remote}
+                      copyLabel="Remote MCP config"
                     />
-                    <RuntimeValueRow
-                      label="MCP"
-                      value={runtime.mcpUrl}
-                      copyLabel="Remote MCP URL"
-                      isMobile={isMobile}
-                    />
-                    <RuntimeValueRow
-                      label="Token"
-                      value={workspaceSnippets.envVar}
-                      copyLabel="Developer env var"
-                      isMobile={isMobile}
-                    />
-                    <RuntimeValueRow
-                      label="npm"
-                      value={runtime.npmPackage}
-                      copyLabel="npm package"
-                      isMobile={isMobile}
-                    />
+                    <div className="min-w-0 space-y-4">
+                      <SurfaceInset className="space-y-3">
+                        <p className="text-sm font-semibold text-foreground">Test server</p>
+                        <RuntimeValueRow
+                          label="MCP"
+                          value={workspaceSnippets.remoteUrl}
+                          copyLabel="Remote MCP URL"
+                          isMobile={isMobile}
+                        />
+                        <RuntimeValueRow
+                          label="Env"
+                          value={workspaceSnippets.envVar}
+                          copyLabel="Developer env var"
+                          isMobile={isMobile}
+                        />
+                      </SurfaceInset>
+                      <SurfaceInset className="space-y-3">
+                        <p className="text-sm font-semibold text-foreground">Live status</p>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant={apiRootReady ? "default" : "outline"}>
+                            API root {liveDocsLoading ? "checking" : apiRootReady ? "ready" : "unavailable"}
+                          </Badge>
+                          <Badge variant={toolCatalogReady ? "default" : "outline"}>
+                            Tool catalog {liveDocsLoading ? "checking" : toolCatalogReady ? "ready" : "unavailable"}
+                          </Badge>
+                          <Badge variant={scopeCatalogReady ? "default" : "outline"}>
+                            Scope catalog {liveDocsLoading ? "checking" : scopeCatalogReady ? "ready" : "unavailable"}
+                          </Badge>
+                          <Badge variant="secondary">MCP requires token</Badge>
+                        </div>
+                      </SurfaceInset>
+                    </div>
                   </div>
-                  <Separator />
-                  {isMobile ? (
-                    <div className="space-y-4">
-                      <SettingsSegmentedTabs
-                        value={integrationTab}
-                        onValueChange={(value) => setIntegrationTab(value as "rest" | "remote-mcp" | "npm")}
-                        mobileColumns={1}
-                        options={integrationModes.map((mode) => ({
-                          value: mode.id,
-                          label: mode.title,
-                        }))}
-                      />
-                      <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                        {integrationTab === "rest" ? (
+                  <Accordion type="single" collapsible className="rounded-2xl border border-border/65 px-4">
+                    <AccordionItem value="advanced-start" className="border-b-0">
+                      <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
+                        Advanced: REST API and npm bridge
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid min-w-0 gap-4 pb-4 lg:grid-cols-2">
                           <SnippetCard
                             title="REST base"
-                            description="Use the versioned developer API when you want direct control over discovery, consent requests, and polling."
+                            description="Use direct HTTP only when you need manual control over discovery, consent requests, and polling."
                             code={restSnippets.base}
                             copyLabel="REST base snippet"
                           />
-                        ) : null}
-                        {integrationTab === "remote-mcp" ? (
-                          <SnippetCard
-                            title="Remote MCP config"
-                            description="Use this when your host can connect to HTTP MCP directly."
-                            code={mcpSnippets.remote}
-                            copyLabel="Remote MCP config"
-                          />
-                        ) : null}
-                        {integrationTab === "npm" ? (
                           <SnippetCard
                             title="npm bridge config"
-                            description="Use the npm launcher when your host still expects a local stdio process."
+                            description="Use the npm launcher only for hosts that still require a local stdio MCP process."
                             code={mcpSnippets.npm}
                             copyLabel="npm MCP config"
                           />
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid min-w-0 gap-5 xl:grid-cols-2 2xl:gap-6">
-                      <SnippetCard
-                        title="Remote MCP config"
-                        description="Direct HTTP MCP for hosts that support remote connectors."
-                        code={mcpSnippets.remote}
-                        copyLabel="Remote MCP config"
-                      />
-                      <SnippetCard
-                        title="REST base"
-                        description="Use the versioned developer API when you want direct control over discovery, consent requests, and polling."
-                        code={restSnippets.base}
-                        copyLabel="REST base snippet"
-                      />
-                      <SnippetCard
-                        title="npm bridge config"
-                        description="Use the npm launcher when the host still expects a local stdio MCP process."
-                        code={mcpSnippets.npm}
-                        copyLabel="npm MCP config"
-                      />
-                      <SnippetCard
-                        title="Developer token"
-                        description="Keep the current environment token values close at hand while wiring your host."
-                        code={developerTokenSnippet}
-                        copyLabel="Developer token snippet"
-                      />
-                    </div>
-                  )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </SurfaceCardContent>
               </SurfaceCard>
             </section>
@@ -1359,18 +1334,18 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
-                  eyebrow="Choose Mode"
-                  title="Pick the integration path that matches your host"
-                  description="The contract stays the same. Only the transport changes."
+                  eyebrow="Advanced"
+                  title="Use REST or npm only when the host needs it"
+                  description="Remote MCP is the recommended path. These options stay available for direct HTTP integrations and stdio-only MCP hosts."
                   icon={Cable}
                   accent="sky"
                 />
               }
             >
               <SettingsGroup
-                eyebrow="Integration modes"
-                title="Choose the transport, keep the same contract"
-                description="Each mode points at the same dynamic scope and consent flow. The active snippet above updates as you switch."
+                eyebrow="Transport options"
+                title="Remote MCP first"
+                description="All modes use the same consent contract. The transport choice only changes how your host connects."
               >
                 {integrationModes.map((mode) => (
                   <SettingsRow
@@ -1447,17 +1422,26 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                       ))}
                     </div>
                   ) : null}
-                  <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-                    {DEVELOPER_SAMPLE_PAYLOADS.map((sample) => (
-                      <SnippetCard
-                        key={sample.title}
-                        title={sample.title}
-                        description={sample.description}
-                        code={sample.code}
-                        copyLabel={sample.title}
-                      />
-                    ))}
-                  </div>
+                  <Accordion type="single" collapsible className="rounded-2xl border border-border/65 px-4">
+                    <AccordionItem value="payload-examples" className="border-b-0">
+                      <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
+                        Advanced payload examples
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid min-w-0 gap-4 pb-4 xl:grid-cols-2">
+                          {DEVELOPER_SAMPLE_PAYLOADS.map((sample) => (
+                            <SnippetCard
+                              key={sample.title}
+                              title={sample.title}
+                              description={sample.description}
+                              code={sample.code}
+                              copyLabel={sample.title}
+                            />
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </SurfaceCardContent>
               </SurfaceCard>
             </DeveloperSectionShell>

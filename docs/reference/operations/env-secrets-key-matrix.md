@@ -41,8 +41,14 @@ Profile bootstrap rule:
 | `AGENT_GEMINI_MODEL` | `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Y | N | N | env | N | env | N | optional |
 | `AGENT_GEMINI_VOICE_ENABLED` | `consent-protocol/api/routes/kai/agent_voice.py` | Y | N | N | env | N | env | N | optional kill switch |
 | `AGENT_GEMINI_STT_MODEL` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
+| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
 | `AGENT_GEMINI_TTS_MODEL` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
 | `AGENT_GEMINI_TTS_VOICE` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
+| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
+| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |
+| `HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
+| `HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
+| `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
 | `NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED` | `hushh-webapp/lib/agent/agent-voice-settings.ts` | N | Y | N | N | env | N | env | optional frontend mirror |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `consent-protocol/hushh_mcp/runtime_settings.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | N | N | alias | N | optional alias |

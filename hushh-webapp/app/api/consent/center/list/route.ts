@@ -20,18 +20,24 @@ export async function GET(request: NextRequest) {
   const requestId = resolveRequestId(request);
   const authHeader = request.headers.get("authorization") || "";
   const targetUrl = `${getPythonApiUrl()}/api/consent/center/list${request.nextUrl.search}`;
-  const hotCacheKey = authHeader ? `${request.nextUrl.search}:${authHeader}` : null;
+  const hotCacheKey = authHeader
+    ? `${request.nextUrl.search}:${authHeader}`
+    : null;
 
   if (hotCacheKey) {
     const cached = hotGet.read(hotCacheKey);
     if (cached) {
-      return withRequestIdJson(requestId, cached.payload, { status: cached.status });
+      return withRequestIdJson(requestId, cached.payload, {
+        status: cached.status,
+      });
     }
 
     const existing = hotGet.getInflight(hotCacheKey);
     if (existing) {
       const deduped = await existing;
-      return withRequestIdJson(requestId, deduped.payload, { status: deduped.status });
+      return withRequestIdJson(requestId, deduped.payload, {
+        status: deduped.status,
+      });
     }
   }
 
@@ -59,22 +65,34 @@ export async function GET(request: NextRequest) {
     } else if (hotCacheKey && result.status >= 500) {
       const stale = hotGet.read(hotCacheKey, { allowStale: true });
       if (stale) {
-        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+        return withRequestIdJson(requestId, stale.payload, {
+          status: stale.status,
+        });
       }
     }
-    return withRequestIdJson(requestId, result.payload, { status: result.status });
+    return withRequestIdJson(requestId, result.payload, {
+      status: result.status,
+    });
   } catch (error) {
-    console.error(`[CONSENT API] request_id=${requestId} center_list_proxy_error`, error);
+    console.error(
+      `[CONSENT API] request_id=${requestId} center_list_proxy_error`,
+      error,
+    );
     if (hotCacheKey) {
       const stale = hotGet.read(hotCacheKey, { allowStale: true });
       if (stale) {
-        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+        return withRequestIdJson(requestId, stale.payload, {
+          status: stale.status,
+        });
       }
     }
     return withRequestIdJson(
       requestId,
-      { error: "Failed to load consent center list" },
-      { status: 500 }
+      {
+        error: "Failed to load consent center list",
+        request_id: requestId,
+      },
+      { status: 500 },
     );
   } finally {
     if (hotCacheKey) {

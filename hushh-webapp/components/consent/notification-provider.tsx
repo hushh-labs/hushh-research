@@ -72,6 +72,7 @@ import {
   locationShareNotificationDescription,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
+  oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
@@ -377,7 +378,6 @@ function oneLocationOwnerLabel(data: Record<string, string>): string {
   return (
     String(data.owner_display_label || "").trim() ||
     String(data.owner_label || "").trim() ||
-    String(data.owner_user_id || "").trim() ||
     "A trusted person"
   );
 }
@@ -386,7 +386,6 @@ function oneLocationRequesterLabel(data: Record<string, string>): string {
   return (
     String(data.requester_display_label || "").trim() ||
     String(data.requester_label || "").trim() ||
-    String(data.requester_user_id || "").trim() ||
     "Someone"
   );
 }
@@ -394,7 +393,6 @@ function oneLocationRequesterLabel(data: Record<string, string>): string {
 function oneLocationReferringLabel(data: Record<string, string>): string {
   return (
     String(data.referring_display_label || "").trim() ||
-    String(data.referring_user_id || "").trim() ||
     "A trusted person"
   );
 }
@@ -552,6 +550,7 @@ export function ConsentNotificationProvider({
 
           <div className="flex gap-2 justify-center">
             <button
+              type="button"
               onClick={() => {
                 void acknowledgePendingConsent(consent, "review_button");
                 toast.dismiss(toastKey);
@@ -573,6 +572,7 @@ export function ConsentNotificationProvider({
               Review
             </button>
             <button
+              type="button"
               onClick={() => {
                 toast.dismiss(toastKey);
                 void handleDeny(consent.id);
@@ -603,7 +603,9 @@ export function ConsentNotificationProvider({
   const showOneLocationShareNotification = useCallback(
     (data: Record<string, string>) => {
       if (!user?.uid || isNativePlatform) return;
-      const grantId = String(data.grant_id || data.grantId || "").trim();
+      const grantId = String(
+        data.grant_id || data.grantId || data.approved_grant_id || "",
+      ).trim();
       if (!grantId) return;
       const ownerLabel = oneLocationOwnerLabel(data);
       const created = recordOneLocationShareNotification({
@@ -632,6 +634,7 @@ export function ConsentNotificationProvider({
             <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
           </div>
           <button
+            type="button"
             onClick={() => {
               markOneLocationGrantOpened(user.uid, grantId);
               toast.dismiss(toastKey);
@@ -688,6 +691,8 @@ export function ConsentNotificationProvider({
         grantId,
         requestId,
         referralId,
+        submissionId,
+        section: oneLocationSectionForWorkflowNotificationType(msgType),
         openGrant: false,
       });
       const created = recordOneLocationWorkflowNotification({
@@ -720,6 +725,7 @@ export function ConsentNotificationProvider({
             <p className="line-clamp-2 text-xs text-muted-foreground">{copy.description}</p>
           </div>
           <button
+            type="button"
             onClick={() => {
               toast.dismiss(toastKey);
               router.push(routeHref, { scroll: false });

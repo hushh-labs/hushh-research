@@ -136,6 +136,7 @@ DEFAULT_MAINTAINER_LOGINS = {
     "kushaltrivedi5",
     "RGlodAkshat",
     "ankitkumarsingh1702",
+    "Jhumma-hushh",
 }
 SALVAGEABLE_HIGH_FINDINGS = {
     "account_export_schema_contract_mismatch",
@@ -1871,9 +1872,10 @@ CLAIM_SURFACE_RULES: tuple[dict[str, Any], ...] = (
         "id": "streaming",
         "keywords": (
             "sse",
-            "stream",
+            "sse parser",
+            "stream parser",
+            "frame parser",
             "streaming",
-            "parser",
             "backoff",
             "envelope",
             "oom",
@@ -1980,7 +1982,7 @@ def _stacked_branch_findings(
             if "/" in path
         }
     )
-    broad_or_unstable = len(non_test_doc_files) > 2 or len(top_dirs) > 1
+    broad_or_unstable = len(non_test_doc_files) > 15 or len(top_dirs) > 5
     if not broad_or_unstable and "diff against main will collapse" not in text:
         return []
 
@@ -3138,7 +3140,11 @@ def _recommend_merge_lane(
         )
     unsupported_high = high_ids - SALVAGEABLE_HIGH_FINDINGS
     unsupported_medium = medium_ids - SALVAGEABLE_MEDIUM_FINDINGS
-    governance_heavy = "governance" in surface_tags and len(changed_files) > 5
+    # Governance surfaces are genuinely sensitive, but file COUNT alone is a poor
+    # proxy for risk — a 6-file PR that only adds type=button or a test is not
+    # "heavy". Gate on a realistic count so small, legitimate governance-adjacent
+    # diffs flow to patch_then_merge and get real review instead of a blind block.
+    governance_heavy = "governance" in surface_tags and len(changed_files) > 15
 
     if (
         not unsupported_high

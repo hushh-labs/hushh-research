@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildConsentCenterHref,
+  buildRiaConsentManagerHref,
   resolveConsentNavigationTarget,
   normalizeInternalAppHref,
   resolveConsentRequestHref,
@@ -8,25 +10,31 @@ import {
 
 describe("consent sheet route helpers", () => {
   it("keeps internal relative app routes relative", () => {
-    expect(normalizeInternalAppHref("/consents?tab=pending")).toBe("/consents?tab=pending");
+    expect(normalizeInternalAppHref("/consents?tab=pending")).toBe(
+      "/consents?tab=pending",
+    );
   });
 
   it("normalizes absolute localhost consent links to relative app routes", () => {
     expect(
-      normalizeInternalAppHref("http://localhost:3000/consents?tab=pending&requestId=req_123")
+      normalizeInternalAppHref(
+        "http://localhost:3000/consents?tab=pending&requestId=req_123",
+      ),
     ).toBe("/consents?tab=pending&requestId=req_123");
   });
 
   it("normalizes Email Helper workflow links to internal app routes", () => {
     expect(
-      normalizeInternalAppHref("http://localhost:3000/one/kyc?workflowId=wf_123")
+      normalizeInternalAppHref(
+        "http://localhost:3000/one/kyc?workflowId=wf_123",
+      ),
     ).toBe("/one/kyc?workflowId=wf_123");
   });
 
   it("does not rewrite external non-app links", () => {
-    expect(normalizeInternalAppHref("https://example.com/disclosures/request-123")).toBe(
-      "https://example.com/disclosures/request-123"
-    );
+    expect(
+      normalizeInternalAppHref("https://example.com/disclosures/request-123"),
+    ).toBe("https://example.com/disclosures/request-123");
   });
 
   it("falls back to a local consent manager route when the request url is missing", () => {
@@ -34,8 +42,18 @@ describe("consent sheet route helpers", () => {
       resolveConsentRequestHref(null, "pending", {
         requestId: "req_123",
         bundleId: "bundle_123",
-      })
+      }),
     ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
+  });
+
+  it("keeps the bare consent manager on the One access view by default", () => {
+    expect(buildConsentCenterHref("pending")).toBe("/consents?tab=pending");
+  });
+
+  it("builds explicit RIA consent manager links for advisor-only entry points", () => {
+    expect(buildRiaConsentManagerHref("pending")).toBe(
+      "/consents?tab=pending&actor=ria&view=outgoing",
+    );
   });
 
   it("adds a safe internal origin when routing into the consent manager", () => {
@@ -43,13 +61,17 @@ describe("consent sheet route helpers", () => {
       resolveConsentRequestHref(null, "pending", {
         requestId: "req_123",
         from: "/kai/analysis?tab=history",
-      })
-    ).toBe("/consents?tab=pending&requestId=req_123&from=%2Fkai%2Fanalysis%3Ftab%3Dhistory");
+      }),
+    ).toBe(
+      "/consents?tab=pending&requestId=req_123&from=%2Fkai%2Fanalysis%3Ftab%3Dhistory",
+    );
   });
 
   it("classifies internal consent links as SPA routes", () => {
     expect(
-      resolveConsentNavigationTarget("http://localhost:3000/consents?tab=pending&requestId=req_123")
+      resolveConsentNavigationTarget(
+        "http://localhost:3000/consents?tab=pending&requestId=req_123",
+      ),
     ).toEqual({
       kind: "internal",
       href: "/consents?tab=pending&requestId=req_123",
@@ -59,7 +81,9 @@ describe("consent sheet route helpers", () => {
 
   it("classifies Email Helper workflow links as SPA routes", () => {
     expect(
-      resolveConsentNavigationTarget("http://localhost:3000/one/kyc?workflowId=wf_123")
+      resolveConsentNavigationTarget(
+        "http://localhost:3000/one/kyc?workflowId=wf_123",
+      ),
     ).toEqual({
       kind: "internal",
       href: "/one/kyc?workflowId=wf_123",
@@ -69,7 +93,9 @@ describe("consent sheet route helpers", () => {
 
   it("keeps external consent review links as external navigation", () => {
     expect(
-      resolveConsentNavigationTarget("https://example.com/disclosures/request-123")
+      resolveConsentNavigationTarget(
+        "https://example.com/disclosures/request-123",
+      ),
     ).toEqual({
       kind: "external",
       href: "https://example.com/disclosures/request-123",
@@ -80,7 +106,6 @@ describe("consent sheet route helpers", () => {
 // ── Path safety — edge cases, empty inputs, and traversal resistance ──────────
 
 describe("path resolver safety — dangerous edge case handling", () => {
-
   // ── Null / empty / whitespace inputs ────────────────────────────────────
 
   it("normalizeInternalAppHref returns null for null — no crash", () => {
@@ -141,7 +166,8 @@ describe("path resolver safety — dangerous edge case handling", () => {
   // ── Deeply nested internal paths — resolved without crashing ─────────────
 
   it("normalizeInternalAppHref preserves valid deeply nested internal paths", () => {
-    const deep = "/consents/details/view/sub/nested/item?tab=active&requestId=r_1";
+    const deep =
+      "/consents/details/view/sub/nested/item?tab=active&requestId=r_1";
     expect(normalizeInternalAppHref(deep)).toBe(deep);
   });
 
@@ -157,7 +183,16 @@ describe("path resolver safety — dangerous edge case handling", () => {
   });
 
   it("resolveConsentNavigationTarget classifies /kai/* deep paths as internal", () => {
-    const result = resolveConsentNavigationTarget("/kai/portfolio/analysis/deep/sub");
+    const result = resolveConsentNavigationTarget(
+      "/kai/portfolio/analysis/deep/sub",
+    );
+    expect(result.kind).toBe("internal");
+  });
+
+  it("resolveConsentNavigationTarget classifies /one/connected-systems/* deep paths as internal", () => {
+    const result = resolveConsentNavigationTarget(
+      "/one/connected-systems/salesforce-fsc-customer0",
+    );
     expect(result.kind).toBe("internal");
   });
 
@@ -184,7 +219,9 @@ describe("path resolver safety — dangerous edge case handling", () => {
   });
 
   it("resolveConsentNavigationTarget classifies data: URI as external", () => {
-    const result = resolveConsentNavigationTarget("data:text/html,<h1>test</h1>");
+    const result = resolveConsentNavigationTarget(
+      "data:text/html,<h1>test</h1>",
+    );
     expect(result.kind).toBe("external");
   });
 });

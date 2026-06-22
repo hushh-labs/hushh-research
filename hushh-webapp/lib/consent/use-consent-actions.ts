@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * Consent Actions Hook - Centralized Approve/Deny/Revoke Logic
@@ -6,29 +6,26 @@
  *
  * Provides a unified interface for consent actions that:
  * - Coordinates with seenRequestIds state to prevent toast re-showing
- * - Uses toast.promise for loading → success/error transitions
+ * - Uses toast.promise for loading -> success/error transitions
  * - Triggers data refresh after action completion
  */
 
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import {
-  CONSENT_ACTION_COMPLETE_EVENT,
-  dispatchConsentStateChanged,
-} from "@/lib/consent/consent-events";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import {
   buildConsentExportForScope,
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
 import { verifyLocalConsentActionAccess } from "@/lib/consent/consent-cache-manager";
+import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
 // Types
-// ============================================================================
 
 export interface PendingConsent {
   id: string;
@@ -53,12 +50,27 @@ export interface PendingConsent {
 }
 
 type RequestStatus = "pending" | "handling" | "handled";
+export type ConsentActionKind = "approve" | "deny" | "revoke";
+
+export interface ConsentActionState {
+  key: string;
+  kind: ConsentActionKind;
+  requestId?: string;
+  scope?: string;
+}
+
+export interface ConsentMutationDetail {
+  action: ConsentActionKind;
+  requestId?: string;
+  scope?: string;
+  source: "consent_actions";
+}
 
 interface UseConsentActionsOptions {
   /** User ID from auth context (replaces sessionStorage lookup) */
   userId?: string | null;
   /** Called after approve/deny/revoke completes successfully */
-  onActionComplete?: () => void;
+  onActionComplete?: (detail: ConsentMutationDetail) => void;
 }
 
 // ============================================================================
@@ -105,10 +117,79 @@ function extractConsentActionError(errorText: string): string {
 export function useConsentActions(options: UseConsentActionsOptions = {}) {
   const { vaultKey, getVaultOwnerToken } = useVault();
   const { userId, onActionComplete } = options;
+  const [activeActions, setActiveActions] = useState<ConsentActionState[]>([]);
+  const inflightActionPromises = useRef<Map<string, Promise<void>>>(new Map());
 
   // Track request status: ID -> "pending" | "handling" | "handled"
   // Using ref to persist across renders without causing re-renders
   const requestStatusMap = useRef<Map<string, RequestStatus>>(new Map());
+
+  const runWithActionLock = useCallback(
+    (action: ConsentActionState, run: () => Promise<void>): Promise<void> => {
+      const existing = inflightActionPromises.current.get(action.key);
+      if (existing) return existing;
+
+      setActiveActions((current) =>
+        current.some((item) => item.key === action.key)
+          ? current
+          : [...current, action]
+      );
+
+      const promise = (async () => {
+        try {
+          await run();
+        } finally {
+          inflightActionPromises.current.delete(action.key);
+          setActiveActions((current) =>
+            current.filter((item) => item.key !== action.key)
+          );
+        }
+      })();
+      inflightActionPromises.current.set(action.key, promise);
+      return promise;
+    },
+    []
+  );
+
+  const emitSuccessfulMutation = useCallback(
+    (detail: Omit<ConsentMutationDetail, "source">) => {
+      if (!userId) return;
+      const eventDetail: ConsentMutationDetail = {
+        ...detail,
+        source: "consent_actions",
+      };
+      CacheSyncService.onConsentMutated(userId);
+      onActionComplete?.(eventDetail);
+      dispatchConsentStateChanged({ ...eventDetail });
+    },
+    [onActionComplete, userId]
+  );
+
+  const isRequestBusy = useCallback(
+    (requestId?: string | null) => {
+      const normalized = String(requestId || "").trim();
+      if (!normalized) return false;
+      return activeActions.some(
+        (action) =>
+          (action.kind === "approve" || action.kind === "deny") &&
+          action.requestId === normalized
+      );
+    },
+    [activeActions]
+  );
+
+  const isScopeBusy = useCallback(
+    (scope?: string | null) => {
+      const normalized = String(scope || "").trim();
+      if (!normalized) return false;
+      return activeActions.some(
+        (action) => action.kind === "revoke" && action.scope === normalized
+      );
+    },
+    [activeActions]
+  );
+
+  const activeAction = useMemo(() => activeActions[0] ?? null, [activeActions]);
 
   /**
    * Get current status of a request
@@ -170,7 +251,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * Approve a consent request with zero-knowledge export
    */
   const handleApprove = useCallback(
-    async (consent: PendingConsent, options?: { quiet?: boolean }): Promise<void> => {
+    (consent: PendingConsent, options?: { quiet?: boolean }): Promise<void> => {
+      const actionKey = `approve:${consent.id}`;
+      return runWithActionLock(
+        { key: actionKey, kind: "approve", requestId: consent.id },
+        async () => {
       const toastId = consent.id;
 
       // Mark as handling immediately to block re-showing
@@ -184,7 +269,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           action: {
             label: "Unlock",
             onClick: () => {
-              requestInternalAppNavigation({ href: "/kai", scroll: false });
+              requestInternalAppNavigation({ href: ROUTES.KAI_HOME, scroll: false });
             },
           },
         });
@@ -400,7 +485,6 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error("[NativeDebug] Approval failed:", errorText);
           throw new Error(extractConsentActionError(errorText));
         }
 
@@ -411,8 +495,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         toast.promise(promise, {
           id: toastId,
           loading: "Approving consent...",
-          success: (data) => `✅ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          success: (data) => `âœ… ${data}`,
+          error: (err) => `âŒ ${err.message}`,
           duration: 3000,
         });
       }
@@ -420,16 +504,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       try {
         await promise;
         markAsHandled(consent.id);
-        CacheSyncService.onConsentMutated(userId);
-        onActionComplete?.();
-
-        // Dispatch custom event so consents page can refresh tables
-        window.dispatchEvent(
-          new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
-            detail: { action: "approve", requestId: consent.id },
-          })
-        );
-        dispatchConsentStateChanged({ action: "approve", requestId: consent.id });
+        emitSuccessfulMutation({ action: "approve", requestId: consent.id });
       } catch (err) {
         console.error("Error approving consent:", err);
         markAsPending(consent.id);
@@ -437,15 +512,30 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           throw (err instanceof Error ? err : new Error("Failed to approve consent"));
         }
       }
+        }
+      );
     },
-    [userId, vaultKey, getVaultOwnerToken, markAsHandling, markAsHandled, markAsPending, onActionComplete]
+    [
+      emitSuccessfulMutation,
+      getVaultOwnerToken,
+      markAsHandled,
+      markAsHandling,
+      markAsPending,
+      runWithActionLock,
+      userId,
+      vaultKey,
+    ]
   );
 
   /**
    * Deny a consent request
    */
   const handleDeny = useCallback(
-    async (requestId: string, options?: { quiet?: boolean }): Promise<void> => {
+    (requestId: string, options?: { quiet?: boolean }): Promise<void> => {
+      const actionKey = `deny:${requestId}`;
+      return runWithActionLock(
+        { key: actionKey, kind: "deny", requestId },
+        async () => {
       const toastId = requestId;
 
       if (!userId) return;
@@ -479,8 +569,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         toast.promise(promise, {
           id: toastId,
           loading: "Denying consent...",
-          success: (data) => `❌ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          success: (data) => `âŒ ${data}`,
+          error: (err) => `âŒ ${err.message}`,
           duration: 3000,
         });
       }
@@ -488,16 +578,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       try {
         await promise;
         markAsHandled(requestId);
-        CacheSyncService.onConsentMutated(userId);
-        onActionComplete?.();
-
-        // Dispatch custom event so consents page can refresh tables
-        window.dispatchEvent(
-          new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
-            detail: { action: "deny", requestId },
-          })
-        );
-        dispatchConsentStateChanged({ action: "deny", requestId });
+        emitSuccessfulMutation({ action: "deny", requestId });
       } catch (err) {
         console.error("Error denying consent:", err);
         markAsPending(requestId);
@@ -505,8 +586,18 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           throw (err instanceof Error ? err : new Error("Failed to deny consent"));
         }
       }
+        }
+      );
     },
-    [userId, getVaultOwnerToken, markAsHandling, markAsHandled, markAsPending, onActionComplete]
+    [
+      emitSuccessfulMutation,
+      getVaultOwnerToken,
+      markAsHandled,
+      markAsHandling,
+      markAsPending,
+      runWithActionLock,
+      userId,
+    ]
   );
 
   const handleApproveBundle = useCallback(
@@ -526,8 +617,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       toast.promise(promise, {
         id: toastId,
         loading: `Approving ${options?.bundleLabel || "request bundle"}...`,
-        success: "✅ Request bundle approved",
-        error: (err) => `❌ ${err.message}`,
+        success: "âœ… Request bundle approved",
+        error: (err) => `âŒ ${err.message}`,
         duration: 3000,
       });
 
@@ -553,8 +644,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       toast.promise(promise, {
         id: toastId,
         loading: `Denying ${options?.bundleLabel || "request bundle"}...`,
-        success: "❌ Request bundle denied",
-        error: (err) => `❌ ${err.message}`,
+        success: "âŒ Request bundle denied",
+        error: (err) => `âŒ ${err.message}`,
         duration: 3000,
       });
 
@@ -568,7 +659,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * For VAULT_OWNER scope, this will also lock the vault
    */
   const handleRevoke = useCallback(
-    async (scope: string): Promise<void> => {
+    (scope: string): Promise<void> => {
+      const normalizedScope = scope.trim();
+      const actionKey = `revoke:${normalizedScope}`;
+      return runWithActionLock(
+        { key: actionKey, kind: "revoke", scope: normalizedScope },
+        async () => {
       if (!userId) return;
 
       const promise = (async () => {
@@ -581,7 +677,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         }
         const response = await ApiService.revokeConsent({
           userId,
-          scope,
+          scope: normalizedScope,
           // Revoke is consent-gated; always include the VAULT_OWNER token explicitly.
           // (On native builds, relying on sessionStorage can be flaky across webview lifecycles.)
           token: vaultOwnerToken || "",
@@ -597,9 +693,10 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       })();
 
       toast.promise(promise, {
+        id: actionKey,
         loading: "Revoking consent...",
-        success: () => `🔒 Consent revoked`,
-        error: (err) => `❌ ${err.message}`,
+        success: () => `ðŸ”’ Consent revoked`,
+        error: (err) => `âŒ ${err.message}`,
         duration: 3000,
       });
 
@@ -619,14 +716,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           });
         }
         
-        CacheSyncService.onConsentMutated(userId);
-        onActionComplete?.();
-        dispatchConsentStateChanged({ action: "revoke", scope });
+        emitSuccessfulMutation({ action: "revoke", scope: normalizedScope });
       } catch (err) {
         console.error("Error revoking consent:", err);
       }
+        }
+      );
     },
-    [userId, getVaultOwnerToken, onActionComplete]
+    [emitSuccessfulMutation, getVaultOwnerToken, runWithActionLock, userId]
   );
 
   return {
@@ -636,6 +733,10 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
     handleDeny,
     handleDenyBundle,
     handleRevoke,
+    activeAction,
+    activeActions,
+    isRequestBusy,
+    isScopeBusy,
 
     // Status management
     getRequestStatus,

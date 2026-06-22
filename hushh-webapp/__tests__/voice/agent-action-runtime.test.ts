@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
+import { ROUTES } from "@/lib/navigation/routes";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
 function runtimeState(overrides: Partial<AppRuntimeState> = {}): AppRuntimeState {
@@ -69,11 +70,11 @@ describe("executeAgentGatewayAction", () => {
     });
 
     expect(setAnalysisParams).toHaveBeenCalledWith(null);
-    expect(router.push).toHaveBeenCalledWith("/kai/analysis?ticker=NVDA");
+    expect(router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=NVDA`);
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: "/kai/analysis?ticker=NVDA",
+      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
       screenAfter: "kai_analysis",
       resultSummary: "Opened the NVDA comparison preview before starting the debate.",
     });

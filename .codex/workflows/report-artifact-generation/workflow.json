@@ -1,0 +1,54 @@
+{
+  "id": "report-artifact-generation",
+  "title": "Report Artifact Generation",
+  "goal": "Create a report-style technical artifact from repo evidence without duplicating canonical docs or leaking internal drafting context.",
+  "owner_skill": "docs-governance",
+  "default_spoke": "founder-brief-curation",
+  "task_type": "report-artifact-generation",
+  "affected_surfaces": [
+    "docs",
+    "tmp",
+    ".codex/skills/founder-brief-curation"
+  ],
+  "required_reads": [
+    ".codex/skills/founder-brief-curation/references/brief-curation-rules.md",
+    ".codex/skills/founder-brief-curation/references/founder-brief-kernel.md",
+    "docs/reference/operations/documentation-architecture-map.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+  ],
+  "verification_bundle": {
+    "id": "report-artifact-generation",
+    "commands": [
+      "./bin/hushh docs verify",
+      "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+    ],
+    "tests": [
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "report artifact source",
+    "repo-truth evidence summary",
+    "verification and residual-risk note"
+  ],
+  "impact_fields": [
+    "Artifact paths updated",
+    "Current-state evidence cited",
+    "Future-state claims scoped",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "docs-governance",
+    "founder-brief-curation",
+    "frontend",
+    "backend"
+  ],
+  "common_failures": [
+    "creating a duplicate canonical doc instead of a report",
+    "mixing private working notes into shared prose",
+    "omitting current-vs-future boundaries"
+  ]
+}

@@ -35,7 +35,7 @@ const RMS_SPEECH_THRESHOLD = 0.035;
 const METER_INTERVAL_MS = 80;
 const RECORDER_TIMESLICE_MS = 250;
 const NATIVE_STT_FINAL_GRACE_MS = 280;
-export const AGENT_VOICE_STT_TIMEOUT_MS = 25_000;
+export const AGENT_VOICE_STT_TIMEOUT_MS = 12_000;
 
 const PREFERRED_AUDIO_MIME_TYPES = [
   "audio/webm;codecs=opus",
@@ -443,9 +443,8 @@ export class AgentVoiceClient {
     try {
       this.recorder = new MediaRecorder(this.stream, options);
     } catch (error) {
-      this.processingUtterance = false;
-      this.stopNativeRecognition(true);
-      this.handlers.onError?.(getAgentVoiceStartErrorMessage(error));
+      this.recorder = null;
+      this.failRecorderStart(error);
       return;
     }
     this.recorder.addEventListener("dataavailable", (event) => {
@@ -459,6 +458,13 @@ export class AgentVoiceClient {
     });
     this.recorder.start(RECORDER_TIMESLICE_MS);
     this.handlers.onStatus?.("listening");
+  }
+
+  private failRecorderStart(error: unknown): void {
+    this.processingUtterance = false;
+    this.stopNativeRecognition(true);
+    this.handlers.onError?.(getAgentVoiceStartErrorMessage(error));
+    void this.stop();
   }
 
   private stopRecorder(submit: boolean): void {

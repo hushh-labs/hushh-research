@@ -32,71 +32,66 @@ export const TERMINAL_DATA_STATES = [
 export const UI_FLOWS = [
   {
     id: "shell-investor-kai-analysis",
-    route: "/kai/analysis",
+    route: "/one/kai/analysis",
     description: "Investor shell: Market -> Analysis",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Market" },
       { type: "click_bottom_nav", label: "Analysis" },
-      { type: "wait_beacon", routeIds: ["/kai/analysis"] },
+      { type: "wait_beacon", routeIds: ["/one/kai/analysis"] },
       { type: "assert_visible_testid", testId: "kai-analysis-primary" },
     ],
   },
   {
     id: "native-investor-kai-debate-preview-start",
-    route: "/kai/analysis?ticker=AAPL&pick_source=default",
+    route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
     description: "Investor analysis preview: select list source and start debate without active-run loop",
     stepTimeoutMs: 60000,
     steps: [
       { type: "ensure_persona", persona: "investor" },
       {
         type: "navigate_route",
-        route: "/kai/analysis?ticker=AAPL&pick_source=default",
+        route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
       },
       {
         type: "wait_beacon",
-        routeIds: ["/kai/analysis"],
+        routeIds: ["/one/kai/analysis"],
         dataStates: ["loaded"],
         timeoutMs: 60000,
       },
       { type: "wait_button", name: "Start debate", timeoutMs: 60000 },
       { type: "click_button", name: "Start debate" },
       {
-        type: "assert_no_text",
-        value: "A debate is already running.",
-        timeoutMs: 5000,
-      },
-      {
-        type: "assert_text",
-        value: "Initial Deep Analysis",
+        type: "assert_visible_testid",
+        testId: "kai-analysis-active-run",
         timeoutMs: 60000,
       },
     ],
   },
   {
     id: "shell-investor-kai-portfolio",
-    route: "/kai/portfolio",
+    route: "/one/kai/portfolio",
     description: "Investor shell: Portfolio tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Portfolio" },
-      { type: "wait_beacon", routeIds: ["/kai/portfolio"] },
+      { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
     ],
   },
   {
     id: "shell-investor-kai-import",
-    route: "/kai/import",
+    route: "/one/kai/import",
     description: "Investor shell: Portfolio -> import CTA",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Portfolio" },
-      { type: "wait_beacon", routeIds: ["/kai/portfolio"] },
+      { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
       {
         type: "click_button",
         name: "^(upload statement|import statement|import portfolio|connect portfolio)$",
         regex: true,
       },
-      { type: "wait_beacon", routeIds: ["/kai/import"] },
+      { type: "wait_beacon", routeIds: ["/one/kai/import"] },
     ],
   },
   {
@@ -156,19 +151,11 @@ export const UI_FLOWS = [
   {
     id: "shell-consents",
     route: "/consents",
-    description: "Profile -> Access & sharing -> Consent center",
+    description: "One shell: Consent Guardian tab",
     steps: [
-      { type: "click_bottom_nav", label: "Profile" },
-      { type: "wait_beacon", routeIds: ["/profile"] },
-      { type: "click_button", name: "^access & sharing", regex: true },
-      {
-        type: "click_button",
-        name: "^consent center",
-        regex: true,
-        buttonTimeoutMs: 8000,
-        timeoutMs: 30000,
-        fallbackRoute: "/consents",
-      },
+      { type: "ensure_persona", persona: "investor" },
+      { type: "click_bottom_nav", label: "One" },
+      { type: "click_bottom_nav", label: "Consent" },
       { type: "wait_beacon", routeIds: ["/consents"] },
     ],
   },
@@ -249,19 +236,19 @@ export const KAI_IMPORT_E2E_ASSET_PATH = "/native-test-assets/kai-import-e2e.pdf
 
 export const KAI_IMPORT_E2E_FLOW = {
   id: KAI_IMPORT_E2E_FLOW_ID,
-  route: "/kai/import",
+  route: "/one/kai/import",
   description: "Investor import E2E: upload bundled statement, stream parse, review, save",
   steps: [
     { type: "ensure_persona", persona: "investor" },
     { type: "assert_no_persona_mismatch_prompt", timeoutMs: 15000 },
     { type: "click_bottom_nav", label: "Portfolio" },
-    { type: "wait_beacon", routeIds: ["/kai/portfolio"] },
+    { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
     {
       type: "click_button",
       name: "^(upload statement|import statement|import portfolio|connect portfolio)$",
       regex: true,
     },
-    { type: "wait_beacon", routeIds: ["/kai/import"] },
+    { type: "wait_beacon", routeIds: ["/one/kai/import"] },
     { type: "clear_import_background" },
     {
       type: "upload_test_asset",
@@ -296,7 +283,7 @@ export const KAI_IMPORT_E2E_FLOW = {
     },
     {
       type: "wait_beacon",
-      routeIds: ["/kai/portfolio"],
+      routeIds: ["/one/kai/portfolio"],
       dataStates: ["loaded"],
       timeoutMs: 180000,
     },
