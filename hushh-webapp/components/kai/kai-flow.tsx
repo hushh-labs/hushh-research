@@ -17,7 +17,6 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Capacitor } from "@capacitor/core";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
@@ -53,7 +52,10 @@ import {
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  PlaidPortfolioService,
+  requirePlaidLinkTokenReady,
+} from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -516,14 +518,6 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     parse_fallback: normalized.parse_fallback === true,
   };
 
-  console.log("[KaiFlow] Final normalized data:", {
-    holdingsCount: result.holdings?.length || 0,
-    hasAccountInfo: !!result.account_info,
-    hasAccountSummary: !!result.account_summary,
-    totalValue: result.total_value,
-    cashBalance: result.cash_balance,
-  });
-
   return result;
 }
 
@@ -668,6 +662,19 @@ export function KaiFlow({
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  const portfolioImportSurfaceActive =
+    state === "import_required" ||
+    state === "importing" ||
+    state === "import_complete" ||
+    state === "reviewing";
+
+  useEffect(() => {
+    setBusyOperation("portfolio_import_surface", portfolioImportSurfaceActive);
+    return () => {
+      setBusyOperation("portfolio_import_surface", false);
+    };
+  }, [portfolioImportSurfaceActive, setBusyOperation]);
 
   useScrollReset(`${mode}:${state}`, { enabled: true, behavior: "auto" });
 
@@ -1777,6 +1784,9 @@ export function KaiFlow({
           });
         }
         if (snapshot?.status === "failed") {
+          if (snapshot.taskId) {
+            AppBackgroundTaskService.dismissTask(snapshot.taskId);
+          }
           clearImportBackgroundSnapshot(userId);
           importResumeAppliedRef.current = false;
           importSnapshotUpdatedAtRef.current = null;
@@ -1785,6 +1795,16 @@ export function KaiFlow({
           activeImportCursorRef.current = 0;
           setStreaming(createInitialStreamingState());
         }
+      }
+      const staleFinishedImportTasks = AppBackgroundTaskService.getState().tasks.filter(
+        (task) =>
+          task.userId === userId &&
+          task.kind === "portfolio_import_stream" &&
+          (task.status === "failed" || task.status === "canceled") &&
+          !task.dismissedAt
+      );
+      for (const task of staleFinishedImportTasks) {
+        AppBackgroundTaskService.dismissTask(task.taskId);
       }
       if (
         runningImportExists &&
@@ -1898,100 +1918,16 @@ export function KaiFlow({
         formData.append("user_id", userId);
 
         const runImportRequest = async (importToken: string): Promise<Response> => {
-          // Fresh web uploads must keep start + stream on one backend request.
-          // UAT Cloud Run can route `/run/start` and `/run/{id}/stream` to different
-          // instances, while the portfolio import run manager is still in-memory.
-          // The direct stream endpoint starts the run and streams from the same instance.
-          if (!Capacitor.isNativePlatform()) {
-            activeImportRunIdRef.current = null;
-            activeImportCursorRef.current = 0;
-            persistBackgroundSnapshot("running");
-            return ApiService.importPortfolioStream({
-              formData,
-              vaultOwnerToken: importToken,
-              signal: abortControllerRef.current?.signal,
-            });
-          }
-
-          const startResponse = await ApiService.startPortfolioImportRun({
-            formData,
-            vaultOwnerToken: importToken,
-            signal: abortControllerRef.current?.signal,
-          });
-          if (startResponse.status === 409) {
-            const conflict = (await startResponse.json().catch(() => null)) as
-              | {
-                  detail?: {
-                    active_run?: { run_id?: unknown; latest_cursor?: unknown };
-                  };
-                }
-              | null;
-            const runIdFromConflict =
-              typeof conflict?.detail?.active_run?.run_id === "string"
-                ? conflict.detail.active_run.run_id.trim()
-                : "";
-            if (!runIdFromConflict) {
-              throw new Error(
-                "Another import is running, but its run id could not be resolved."
-              );
-            }
-            // Explicit upload action should always start a fresh run, not attach.
-            await ApiService.cancelPortfolioImportRun({
-              runId: runIdFromConflict,
-              userId,
-              vaultOwnerToken: importToken,
-            });
-            await new Promise((resolve) => window.setTimeout(resolve, 150));
-            const retryStart = await ApiService.startPortfolioImportRun({
-              formData,
-              vaultOwnerToken: importToken,
-              signal: abortControllerRef.current?.signal,
-            });
-            if (!retryStart.ok) {
-              return retryStart;
-            }
-            const retryPayload = (await retryStart.json()) as {
-              run?: { run_id?: unknown };
-            };
-            const retryRunId =
-              typeof retryPayload?.run?.run_id === "string"
-                ? retryPayload.run.run_id.trim()
-                : "";
-            if (!retryRunId) {
-              throw new Error("Import run started but no run id was returned.");
-            }
-            activeImportRunIdRef.current = retryRunId;
-            activeImportCursorRef.current = 0;
-            persistBackgroundSnapshot("running");
-            return ApiService.streamPortfolioImportRun({
-              runId: retryRunId,
-              userId,
-              vaultOwnerToken: importToken,
-              cursor: 0,
-              signal: abortControllerRef.current?.signal,
-            });
-          }
-          if (!startResponse.ok) {
-            return startResponse;
-          }
-          const startedPayload = (await startResponse.json()) as {
-            run?: { run_id?: unknown };
-          };
-          const runId =
-            typeof startedPayload?.run?.run_id === "string"
-              ? startedPayload.run.run_id.trim()
-              : "";
-          if (!runId) {
-            throw new Error("Import run started but no run id was returned.");
-          }
-          activeImportRunIdRef.current = runId;
+          // Fresh uploads must keep start + stream on one backend request.
+          // UAT Cloud Run can route `/run/start` and `/run/{id}/stream` to
+          // different instances, while the import run manager is still in-memory.
+          // The direct stream endpoint starts the run and streams from that same instance.
+          activeImportRunIdRef.current = null;
           activeImportCursorRef.current = 0;
           persistBackgroundSnapshot("running");
-          return ApiService.streamPortfolioImportRun({
-            runId,
-            userId,
+          return ApiService.importPortfolioStream({
+            formData,
             vaultOwnerToken: importToken,
-            cursor: 0,
             signal: abortControllerRef.current?.signal,
           });
         };
@@ -2609,9 +2545,7 @@ export function KaiFlow({
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
         trackImportTerminalTelemetry("success");
 
-        console.log("[KaiFlow] Portfolio parsed via streaming:", {
-          holdings: parsedPortfolioData.holdings?.length || 0,
-        });
+
 
         // Store parsed portfolio and transition to review state
         setFlowData((prev) => ({
@@ -2690,7 +2624,7 @@ export function KaiFlow({
             setState("importing");
             return;
           }
-          console.log("[KaiFlow] Import cancelled by user");
+
           persistBackgroundSnapshot("canceled");
           clearImportBackgroundSnapshot(userId);
           importResumeAppliedRef.current = false;
@@ -2947,7 +2881,7 @@ export function KaiFlow({
     // Update cache context so other pages (Manage, etc.) can access the data
     setPortfolioData(userId, portfolioData);
     CacheSyncService.onPortfolioUpserted(userId, portfolioData);
-    console.log("[KaiFlow] Portfolio data saved to cache");
+
 
     setFlowData({
       hasFinancialData: true,
@@ -3004,14 +2938,12 @@ export function KaiFlow({
         redirectUri,
       });
 
-      if (!linkToken.configured || !linkToken.link_token) {
-        throw new Error("Plaid is not configured for this environment.");
-      }
-      if (linkToken.resume_session_id) {
+      const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+      if (readyLinkToken.resume_session_id) {
         savePlaidOAuthResumeSession({
           version: 1,
           userId,
-          resumeSessionId: linkToken.resume_session_id,
+          resumeSessionId: readyLinkToken.resume_session_id,
           returnPath: ROUTES.KAI_DASHBOARD,
           startedAt: new Date().toISOString(),
         });
@@ -3027,14 +2959,14 @@ export function KaiFlow({
         };
 
         const handler = Plaid.create({
-          token: linkToken.link_token,
+          token: readyLinkToken.link_token,
           onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
             void PlaidPortfolioService.exchangePublicToken({
               userId,
               publicToken,
               vaultOwnerToken: effectiveVaultOwnerToken,
               metadata,
-              resumeSessionId: linkToken.resume_session_id || null,
+              resumeSessionId: readyLinkToken.resume_session_id || null,
             })
               .then((status) => {
                 clearPlaidOAuthResumeSession();

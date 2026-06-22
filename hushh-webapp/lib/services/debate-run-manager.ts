@@ -69,6 +69,23 @@ export type EnsureRunResult =
   | { kind: "attached"; task: DebateRunTask }
   | { kind: "blocked"; task: DebateRunTask };
 
+export interface EnsureDebateRunParams {
+  userId: string;
+  ticker: string;
+  riskProfile: string;
+  userContext?: Record<string, unknown> | null;
+  pickSource?: string;
+  pickSourceLabel?: string;
+  pickSourceKind?: string;
+  vaultOwnerToken: string;
+  vaultKey?: string;
+}
+
+type InFlightEnsureRun = {
+  signature: string;
+  promise: Promise<EnsureRunResult>;
+};
+
 const AGENTS = ["fundamental", "sentiment", "valuation"] as const;
 
 type TranscriptAgentState = {
@@ -254,6 +271,7 @@ class DebateRunManager {
   private runSecrets = new Map<string, RunSecrets>();
   private runHistoryEntries = new Map<string, AnalysisHistoryEntry>();
   private streamControllers = new Map<string, AbortController>();
+  private ensureRunInFlight = new Map<string, InFlightEnsureRun>();
   private debateSessionId: string;
 
   constructor() {
@@ -281,10 +299,18 @@ class DebateRunManager {
         for (const task of parsed.tasks) {
           if (!task || typeof task !== "object") continue;
           if (!task.runId || !task.userId || !task.ticker) continue;
+          const persistedState = task.persistenceState || "none";
+          const persistenceState =
+            task.status === "completed" && persistedState === "pending"
+              ? "failed"
+              : persistedState;
           this.tasks.set(task.runId, {
             ...task,
-            persistenceState: task.persistenceState || "none",
-            persistenceError: task.persistenceError || null,
+            persistenceState,
+            persistenceError:
+              persistenceState === "failed" && !task.persistenceError
+                ? "History save was interrupted. Retry from task center."
+                : task.persistenceError || null,
             dismissedAt: task.dismissedAt || null,
             finalDecision: task.finalDecision || null,
           });
@@ -621,17 +647,47 @@ class DebateRunManager {
     return this.verifyActiveRunWithBackend(params);
   }
 
-  async ensureRun(params: {
-    userId: string;
-    ticker: string;
-    riskProfile: string;
-    userContext?: Record<string, unknown> | null;
-    pickSource?: string;
-    pickSourceLabel?: string;
-    pickSourceKind?: string;
-    vaultOwnerToken: string;
-    vaultKey?: string;
-  }): Promise<EnsureRunResult> {
+  private ensureRunStartKey(userId: string): string {
+    return `${userId}:${this.debateSessionId}`;
+  }
+
+  private ensureRunSignature(params: EnsureDebateRunParams): string {
+    return [
+      toUpperTicker(params.ticker),
+      params.riskProfile,
+      params.pickSource || "",
+      params.pickSourceLabel || "",
+      params.pickSourceKind || "",
+    ].join("|");
+  }
+
+  async ensureRun(params: EnsureDebateRunParams): Promise<EnsureRunResult> {
+    const startKey = this.ensureRunStartKey(params.userId);
+    const signature = this.ensureRunSignature(params);
+    const inFlight = this.ensureRunInFlight.get(startKey);
+    if (inFlight) {
+      if (inFlight.signature === signature) {
+        return inFlight.promise;
+      }
+      const result = await inFlight.promise;
+      if (result.task.status === "running" && !result.task.dismissedAt) {
+        return { kind: "blocked", task: result.task };
+      }
+    }
+
+    const promise = this.ensureRunUntracked(params);
+    this.ensureRunInFlight.set(startKey, { signature, promise });
+    try {
+      return await promise;
+    } finally {
+      const current = this.ensureRunInFlight.get(startKey);
+      if (current?.promise === promise) {
+        this.ensureRunInFlight.delete(startKey);
+      }
+    }
+  }
+
+  private async ensureRunUntracked(params: EnsureDebateRunParams): Promise<EnsureRunResult> {
     const {
       userId,
       ticker,
@@ -651,7 +707,7 @@ class DebateRunManager {
         vaultKey,
       });
       if (!verifiedActiveTask) {
-        return this.ensureRun(params);
+        return this.ensureRunUntracked(params);
       }
       const refreshedActiveTask = this.upsertTask({
         ...verifiedActiveTask,
@@ -967,10 +1023,21 @@ class DebateRunManager {
     });
   }
 
-  async retryTaskPersistence(runId: string): Promise<void> {
+  async retryTaskPersistence(
+    runId: string,
+    secrets?: {
+      vaultOwnerToken?: string | null;
+      vaultKey?: string | null;
+    }
+  ): Promise<void> {
     const task = this.tasks.get(runId);
     if (!task) return;
     if (task.status !== "completed") return;
+    const vaultOwnerToken = String(secrets?.vaultOwnerToken || "").trim();
+    const vaultKey = String(secrets?.vaultKey || "").trim();
+    if (vaultOwnerToken && vaultKey) {
+      this.runSecrets.set(runId, { vaultOwnerToken, vaultKey });
+    }
     await this.persistDecisionHistory(runId, task);
   }
 

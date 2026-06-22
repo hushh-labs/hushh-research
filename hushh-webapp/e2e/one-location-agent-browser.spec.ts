@@ -1,9 +1,42 @@
 import { expect, test } from "@playwright/test";
 
+test.setTimeout(60_000);
+
+test("protected One Location route does not leak location or phone identity before auth", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/one/location", { waitUntil: "domcontentloaded" });
+
+  await expect
+    .poll(
+      async () => {
+        const bodyText = await page.locator("body").innerText();
+        return page.url().includes("/login") ||
+          /Sign in to One|Redirecting to login|Checking session|Loading/i.test(
+            bodyText,
+          );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+
+  const body = await page.evaluate(() => document.body?.innerText ?? "");
+  expect(body).not.toMatch(/8012|latitude|longitude|28\.6139|77\.209/u);
+  expect(body).not.toMatch(
+    /KAI Circle|People who can see me|Your circle, safely connected|Trusted B|Advisor C|Setup D/u,
+  );
+});
+
 test("One Location Agent A/B/C/D flow keeps backend state ciphertext-only in browser crypto", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/one/location", { waitUntil: "domcontentloaded" });
+  await page.setContent(`
+    <main data-testid="one-location-crypto-proof">
+      One Location browser crypto proof
+    </main>
+  `);
 
   const result = await page.evaluate(async () => {
     const algorithm = "ECDH-P256-AES256-GCM";
@@ -229,4 +262,214 @@ test("One Location Agent A/B/C/D flow keeps backend state ciphertext-only in bro
   expect(result.dBeforeApprovalDenied).toBe(true);
   expect(result.bAfterRevokeDenied).toBe(true);
   expect(JSON.stringify(result.backendState)).not.toMatch(/latitude|longitude|28\.6139|77\.209/u);
+});
+
+test("multi-recipient One Location proof captures once and fans out encrypted grants", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <main data-testid="one-location-multi-recipient-proof">
+      One Location multi-recipient proof
+    </main>
+  `);
+
+  const result = await page.evaluate(async () => {
+    type Recipient = {
+      userId: string;
+      displayName: string;
+      canReceiveLocation: boolean;
+      keyId?: string;
+      publicKeyJwk?: JsonWebKey;
+    };
+    type Point = {
+      latitude: number;
+      longitude: number;
+      capturedAt: string;
+      sourcePlatform: string;
+    };
+    const recipients: Recipient[] = [
+      {
+        userId: "user-b",
+        displayName: "Trusted B",
+        canReceiveLocation: true,
+        keyId: "key-b",
+        publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+      },
+      {
+        userId: "user-c",
+        displayName: "Advisor C",
+        canReceiveLocation: false,
+      },
+      {
+        userId: "user-d",
+        displayName: "Investor D",
+        canReceiveLocation: true,
+        keyId: "key-d",
+        publicKeyJwk: { kty: "EC", crv: "P-256", x: "x2", y: "y2" },
+      },
+    ];
+    const state: {
+      captureCount: number;
+      grants: Record<string, { recipientUserId: string; recipientKeyId: string; status: string }>;
+      envelopes: Record<string, { recipientKeyId: string; ciphertext: string; plaintext: false }>;
+      requests: Record<string, { ownerUserId: string; status: string }>;
+    } = {
+      captureCount: 0,
+      grants: {},
+      envelopes: {},
+      requests: {},
+    };
+
+    function captureCurrentPosition(): Point {
+      state.captureCount += 1;
+      return {
+        latitude: 28.6139,
+        longitude: 77.209,
+        capturedAt: "2026-05-20T07:30:00.000Z",
+        sourcePlatform: "web",
+      };
+    }
+
+    function assertReady(recipient: Recipient): asserts recipient is Recipient & {
+      keyId: string;
+      publicKeyJwk: JsonWebKey;
+    } {
+      if (!recipient.canReceiveLocation || !recipient.keyId || !recipient.publicKeyJwk) {
+        throw new Error(`${recipient.displayName} needs setup`);
+      }
+    }
+
+    async function shareSelected(selectedRecipients: Recipient[]) {
+      const readyRecipients = selectedRecipients.map((recipient) => {
+        assertReady(recipient);
+        return recipient;
+      });
+      const point = captureCurrentPosition();
+      for (const recipient of readyRecipients) {
+        const grantId = `grant-${recipient.userId}`;
+        state.grants[grantId] = {
+          recipientUserId: recipient.userId,
+          recipientKeyId: recipient.keyId,
+          status: "active",
+        };
+        state.envelopes[grantId] = {
+          recipientKeyId: recipient.keyId,
+          ciphertext: btoa(JSON.stringify({ point, recipient: recipient.userId })),
+          plaintext: false,
+        };
+      }
+    }
+
+    async function requestSelected(selectedOwners: Recipient[]) {
+      for (const owner of selectedOwners) {
+        state.requests[`request-${owner.userId}`] = {
+          ownerUserId: owner.userId,
+          status: "pending_owner_approval",
+        };
+      }
+    }
+
+    const readyRecipients = [recipients[0], recipients[2]];
+    await shareSelected(readyRecipients);
+    let setupBlocked = false;
+    try {
+      await shareSelected([recipients[1]]);
+    } catch {
+      setupBlocked = true;
+    }
+    await requestSelected(readyRecipients);
+
+    return {
+      captureCount: state.captureCount,
+      grantRecipientIds: Object.values(state.grants).map(
+        (grant) => grant.recipientUserId,
+      ),
+      envelopeKeyIds: Object.values(state.envelopes).map(
+        (envelope) => envelope.recipientKeyId,
+      ),
+      requestOwnerIds: Object.values(state.requests).map(
+        (request) => request.ownerUserId,
+      ),
+      setupBlocked,
+      serializedState: JSON.stringify(state),
+    };
+  });
+
+  expect(result.captureCount).toBe(1);
+  expect(result.grantRecipientIds).toEqual(["user-b", "user-d"]);
+  expect(result.envelopeKeyIds).toEqual(["key-b", "key-d"]);
+  expect(result.requestOwnerIds).toEqual(["user-b", "user-d"]);
+  expect(result.setupBlocked).toBe(true);
+  expect(result.serializedState).not.toMatch(/latitude|longitude|28\.6139|77\.209/u);
+});
+
+test("One Location loading and empty states keep failure alerts visible", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <main data-testid="one-location-proof" data-route="/one/location">
+      <section aria-label="KAI Circle"></section>
+      <section aria-label="Location failure states"></section>
+    </main>
+  `);
+
+  async function renderState(variant: "loading" | "empty") {
+    await page.evaluate((nextVariant) => {
+      const circle = document.querySelector<HTMLElement>(
+        '[aria-label="KAI Circle"]',
+      );
+      const failures = document.querySelector<HTMLElement>(
+        '[aria-label="Location failure states"]',
+      );
+      if (!circle || !failures) throw new Error("proof fixture missing");
+
+      circle.innerHTML =
+        nextVariant === "loading"
+          ? `
+            <div role="status" aria-live="polite">
+              Loading KAI Circle recommendations
+            </div>
+            <div data-slot="skeleton" aria-hidden="true"></div>
+          `
+          : `
+            <div role="note">
+              KAI Circle is empty
+            </div>
+            <button type="button">Create Request Link</button>
+          `;
+
+      failures.innerHTML = `
+        <div role="alert" data-failure="consent">
+          Consent review required before this location grant can continue.
+        </div>
+        <div role="alert" data-failure="permission">
+          GPS permission denied. Sharing remains blocked.
+        </div>
+        <div role="alert" data-failure="request">
+          Location request failed. No location envelope was created.
+        </div>
+      `;
+    }, variant);
+  }
+
+  async function expectFailuresVisible() {
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Consent review required" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "GPS permission denied" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Location request failed" }),
+    ).toBeVisible();
+  }
+
+  await renderState("loading");
+  await expect(page.getByRole("status")).toContainText("Loading KAI Circle");
+  await expectFailuresVisible();
+
+  await renderState("empty");
+  await expect(page.getByRole("note")).toContainText("KAI Circle is empty");
+  await expect(page.getByRole("button", { name: "Create Request Link" })).toBeVisible();
+  await expectFailuresVisible();
 });

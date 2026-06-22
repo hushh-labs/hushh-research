@@ -32,7 +32,23 @@ function Divider() {
   return <div className="ml-4 h-px bg-border/50 sm:ml-5" />;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor?: string;
+}) {
+  if (htmlFor) {
+    return (
+      <label
+        htmlFor={htmlFor}
+        className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+      >
+        {children}
+      </label>
+    );
+  }
   return (
     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
       {children}
@@ -47,6 +63,7 @@ function TextRow({
   placeholder,
   inputMode,
   prefix,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -54,10 +71,13 @@ function TextRow({
   placeholder?: string;
   inputMode?: "numeric" | "text";
   prefix?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="flex min-h-[54px] items-center gap-4 px-4 py-2 sm:px-5">
-      <span className="shrink-0 text-[15px] text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-[15px] text-muted-foreground">
+        {label}
+      </span>
       <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1">
         {prefix ? (
           <span className="text-[15px] text-muted-foreground">{prefix}</span>
@@ -65,6 +85,7 @@ function TextRow({
         <input
           type="text"
           inputMode={inputMode}
+          autoComplete={autoComplete}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
@@ -92,6 +113,7 @@ export function OnboardingStepServices({
   onAreaLocalityChange,
   onFullStreetAddressChange,
   onPinZipChange,
+  onDraftBio,
 }: {
   servicesOffered: string[];
   feeStructure: string[];
@@ -109,6 +131,7 @@ export function OnboardingStepServices({
   onAreaLocalityChange: (value: string) => void;
   onFullStreetAddressChange: (value: string) => void;
   onPinZipChange: (value: string) => void;
+  onDraftBio: () => void;
 }) {
   const mapAddress = [fullStreetAddress, areaLocality, city, pinZip]
     .map((part) => part.trim())
@@ -138,7 +161,11 @@ export function OnboardingStepServices({
     <div className="space-y-6">
       <div className="space-y-3">
         <SectionLabel>Services</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div
+          role="group"
+          aria-label="Services offered"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+        >
           {AVAILABLE_SERVICES.map(({ label, icon: Icon }) => {
             const selected = servicesOffered.includes(label);
             return (
@@ -151,13 +178,15 @@ export function OnboardingStepServices({
                   "flex min-h-[82px] items-center gap-3 rounded-[22px] border px-4 py-3 text-left transition-colors",
                   selected
                     ? "border-primary/55 bg-primary/10 text-primary"
-                    : "border-border/60 bg-card/80 text-foreground hover:bg-muted/45 dark:bg-card/55"
+                    : "border-border/60 bg-card/80 text-foreground hover:bg-muted/45 dark:bg-card/55",
                 )}
               >
                 <span
                   className={cn(
                     "flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px]",
-                    selected ? "bg-primary/15" : "bg-muted/55 text-muted-foreground"
+                    selected
+                      ? "bg-primary/15"
+                      : "bg-muted/55 text-muted-foreground",
                   )}
                 >
                   <Icon className="h-5 w-5" />
@@ -173,7 +202,11 @@ export function OnboardingStepServices({
 
       <div className="space-y-3">
         <SectionLabel>Fee Structure</SectionLabel>
-        <div className="flex flex-wrap gap-2">
+        <div
+          role="group"
+          aria-label="Fee structure"
+          className="flex flex-wrap gap-2"
+        >
           {FEE_OPTIONS.map((fee) => {
             const selected = feeStructure.includes(fee);
             return (
@@ -186,7 +219,7 @@ export function OnboardingStepServices({
                   "rounded-full border px-4 py-2 text-[15px] font-medium transition-colors",
                   selected
                     ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border/60 bg-card/70 text-foreground hover:bg-muted/45 dark:bg-card/45"
+                    : "border-border/60 bg-card/70 text-foreground hover:bg-muted/45 dark:bg-card/45",
                 )}
               >
                 {fee}
@@ -208,8 +241,9 @@ export function OnboardingStepServices({
       </GroupShell>
 
       <div className="space-y-3">
-        <SectionLabel>Short Bio</SectionLabel>
+        <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
         <textarea
+          id="ria-bio"
           rows={4}
           value={bio}
           onChange={(event) => onBioChange(event.target.value)}
@@ -218,6 +252,7 @@ export function OnboardingStepServices({
         />
         <button
           type="button"
+          onClick={onDraftBio}
           className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
         >
           <Sparkles className="h-3.5 w-3.5" />
@@ -233,6 +268,7 @@ export function OnboardingStepServices({
             value={fullStreetAddress}
             onChange={onFullStreetAddressChange}
             placeholder="Building, floor, street"
+            autoComplete="street-address"
           />
           <Divider />
           <TextRow
@@ -240,6 +276,7 @@ export function OnboardingStepServices({
             value={areaLocality}
             onChange={onAreaLocalityChange}
             placeholder="Area or state"
+            autoComplete="address-level1"
           />
           <Divider />
           <TextRow
@@ -247,6 +284,7 @@ export function OnboardingStepServices({
             value={city}
             onChange={onCityChange}
             placeholder="City"
+            autoComplete="address-level2"
           />
           <Divider />
           <TextRow
@@ -255,6 +293,7 @@ export function OnboardingStepServices({
             onChange={onPinZipChange}
             placeholder="PIN / ZIP"
             inputMode="numeric"
+            autoComplete="postal-code"
           />
         </GroupShell>
 

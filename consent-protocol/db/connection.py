@@ -38,6 +38,23 @@ load_dotenv()
 hydrate_runtime_environment()
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Offline mode helpers — imported from db.offline_db
+# ---------------------------------------------------------------------------
+def _is_offline_mode() -> bool:
+    """Return True when running in air-gapped offline mode."""
+    return str(os.getenv("DB_OFFLINE", "0")).strip().lower() in ("1", "true", "yes", "on")
+
+
+async def _get_offline_pool():
+    """Lazy-import and return the offline SQLite-backed pool (awaited)."""
+    from db.offline_db import get_offline_pool as _goop
+
+    return await _goop()
+
+
 _DB_CONNECTION_ERROR_PATTERNS = (
     "connection refused",
     "server closed the connection unexpectedly",
@@ -189,6 +206,13 @@ async def get_pool() -> asyncpg.Pool:
         EnvironmentError: If database credentials are not configured
     """
     global _pool
+
+    # ── Offline mode: return SQLite-backed pool instead of PostgreSQL ──
+    if _is_offline_mode():
+        if _pool is not None:
+            return _pool
+        _pool = await _get_offline_pool()
+        return _pool
 
     if _pool is not None:
         return _pool

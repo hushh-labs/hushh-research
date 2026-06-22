@@ -11,17 +11,21 @@ export interface KaiChromeState {
   onboardingFlowActive: boolean;
   useOnboardingChrome: boolean;
   hideCommandBar: boolean;
+  hideBottomNav: boolean;
 }
 
 function isKaiImportRoute(pathname: string): boolean {
-  return pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`);
+  return (
+    pathname === ROUTES.KAI_IMPORT ||
+    pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)
+  );
 }
 
 export function getKaiChromeState(
   pathname: string | null | undefined,
   options?: {
     onboardingFlowActive?: boolean;
-  }
+  },
 ): KaiChromeState {
   const path = pathname ?? "";
   const isOnboardingRoute = isKaiOnboardingRoute(path);
@@ -32,15 +36,18 @@ export function getKaiChromeState(
   // Onboarding chrome should only appear on:
   // 1) explicit onboarding routes, or
   // 2) import routes while onboarding flow is active.
-  const useOnboardingChrome = isOnboardingRoute || (isImportRoute && onboardingFlowActive);
+  const useOnboardingChrome =
+    isOnboardingRoute || (isImportRoute && onboardingFlowActive);
   const hideCommandBar =
     useOnboardingChrome ||
     path === ROUTES.HOME ||
+    path === ROUTES.AGENT ||
     path.startsWith(ROUTES.LOGIN) ||
+    path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LOGOUT) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
-    path.startsWith(ROUTES.MARKETPLACE) ||
     isRiaOnboardingRoute(path);
+  const hideBottomNav = hideCommandBar;
 
   return {
     isOnboardingRoute,
@@ -48,5 +55,6 @@ export function getKaiChromeState(
     onboardingFlowActive,
     useOnboardingChrome,
     hideCommandBar,
+    hideBottomNav,
   };
 }

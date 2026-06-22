@@ -83,7 +83,10 @@ export function KaiPreferencesSheet(props: {
                 <HushhLoader label="Loading preferences..." />
               </div>
             ) : !profile ? (
-              <div className="p-6 text-sm text-muted-foreground">
+              <div
+                className="p-6 text-sm text-muted-foreground"
+                role="alert"
+              >
                 Couldn&#39;t load preferences. Close and reopen to retry.
               </div>
             ) : (

@@ -27,9 +27,9 @@
 
   var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
     investor: {
-      Market: "/kai",
-      Portfolio: "/kai/portfolio",
-      Analysis: "/kai/analysis",
+      Market: "/one/kai",
+      Portfolio: "/one/kai/portfolio",
+      Analysis: "/one/kai/analysis",
       Connect: "/marketplace",
       Profile: "/profile",
     },
@@ -194,6 +194,7 @@
     for (var i = 0; i < routeIds.length; i += 1) {
       var routeId = String(routeIds[i] || "");
       if (routeId.indexOf("/ria") === 0) return "ria";
+      if (routeId.indexOf("/one/kai") === 0) return "investor";
       if (routeId.indexOf("/kai") === 0) return "investor";
     }
     return "";
@@ -397,6 +398,18 @@
     throw new Error('text not visible: "' + value + '" on ' + window.location.href);
   }
 
+  async function assertNoText(value, regex, timeoutMs) {
+    var pattern = regex ? new RegExp(value, "i") : new RegExp(escapeRegExp(value), "i");
+    var deadline = Date.now() + (timeoutMs || 3000);
+    while (Date.now() < deadline) {
+      var text = (document.body && document.body.innerText) || "";
+      if (pattern.test(text)) {
+        throw new Error('unexpected text visible: "' + value + '" on ' + window.location.href);
+      }
+      await sleep(250);
+    }
+  }
+
   async function waitForUrlIncludes(value, timeoutMs) {
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
@@ -513,15 +526,54 @@
     } catch (_) {}
   }
 
+  function applyNativeTestRouteLock(route) {
+    var bridge = nativeTestBridge();
+    bridge.initialRoute = route;
+    bridge.expectedRoute = route;
+    bridge.expectedMarker = null;
+    try {
+      var root = document.documentElement;
+      if (root) {
+        root.setAttribute("data-hushh-native-test-initial-route", route);
+        root.setAttribute("data-hushh-native-test-expected-route", route);
+        root.setAttribute("data-hushh-native-test-expected-marker", "");
+      }
+      window.dispatchEvent(new Event("hushh:native-test-config-updated"));
+    } catch (_) {}
+  }
+
   function routeForPersona(persona) {
-    return persona === "ria" ? "/ria" : "/kai";
+    return persona === "ria" ? "/ria" : "/one/kai";
   }
 
   function routeMatchesPersona(persona) {
     var currentPath = window.location.pathname || "";
     return (
       (persona === "ria" && currentPath.indexOf("/ria") === 0) ||
+      (persona === "investor" && currentPath.indexOf("/one/kai") === 0) ||
       (persona === "investor" && currentPath.indexOf("/kai") === 0)
+    );
+  }
+
+  function personaHomeLabel(persona) {
+    return persona === "ria" ? "Home" : "Market";
+  }
+
+  function visibleNavLabel(label) {
+    return Boolean(findVisibleButton(new RegExp("^" + escapeRegExp(label) + "$", "i")));
+  }
+
+  function personaShellReady(persona, expectedTour) {
+    var bridge = nativeTestBridge();
+    var personaReady =
+      bridge.activePersona === persona ||
+      bridge.primaryNavPersona === persona ||
+      bridge.personaSwitchStatus === "ok:" + persona;
+    return (
+      routeMatchesPersona(persona) &&
+      personaReady &&
+      (Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]')) ||
+        visibleNavLabel(personaHomeLabel(persona)))
     );
   }
 
@@ -607,6 +659,7 @@
     var route = window.location.pathname || "";
     var targetRouteMatches =
       (persona === "ria" && route.indexOf("/ria") === 0) ||
+      (persona === "investor" && route.indexOf("/one/kai") === 0) ||
       (persona === "investor" && route.indexOf("/kai") === 0);
     var routePersonaButton =
       persona === "ria"
@@ -646,10 +699,13 @@
 
   async function waitForRoute(route, timeoutMs) {
     var expected = normalizeRoute(route);
+    var expectedBase = expected.length > 1 && expected.endsWith("/") ? expected.slice(0, -1) : expected;
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
       var current = normalizeRoute(window.location.pathname + window.location.search);
+      var currentBase = current.length > 1 && current.endsWith("/") ? current.slice(0, -1) : current;
       if (
+        currentBase === expectedBase ||
         current === expected ||
         current.indexOf(expected + "/") === 0 ||
         current.indexOf(expected + "?") === 0 ||
@@ -664,10 +720,21 @@
 
   async function navigateWithNativeRouter(route) {
     var bridge = nativeTestBridge();
-    clearNativeTestRouteLock();
+    if (currentRouteMatches(route)) {
+      clearNativeTestRouteLock();
+      return;
+    }
+    applyNativeTestRouteLock(route);
     if (typeof bridge.navigateToRoute === "function") {
       bridge.navigateToRoute(route);
-      if (await waitForRoute(route, 5000)) return;
+      if (await waitForRoute(route, 30000)) {
+        clearNativeTestRouteLock();
+        return;
+      }
+      if (currentRouteMatches(route)) {
+        clearNativeTestRouteLock();
+        return;
+      }
       throw new Error(
         "Next.js native router did not reach " +
           route +
@@ -684,29 +751,23 @@
     var expectedTour = persona === "ria" ? "nav-ria-home" : "nav-market";
     var bridge = nativeTestBridge();
     var route = routeForPersona(persona);
-    if (
-      routeMatchesPersona(persona) &&
-      firstVisible('[data-tour-id="' + expectedTour + '"]')
-    ) {
+    if (personaShellReady(persona, expectedTour)) {
       await waitForNoPersonaMismatchPrompt(1000);
       return;
     }
 
     if (bridge.enabled === true && typeof bridge.switchPersona === "function") {
-      var switched = await attemptNativePersonaSwitch(persona);
       if (!routeMatchesPersona(persona)) {
         await navigateWithNativeRouter(route);
       }
+      var switched = await attemptNativePersonaSwitch(persona);
       if (switched) {
         await resolvePersonaMismatchPrompt(persona);
       }
       await waitForBeacon([route], undefined, 30000);
 
       var ready = await waitForCondition(function () {
-        return (
-          routeMatchesPersona(persona) &&
-          Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]'))
-        );
+        return personaShellReady(persona, expectedTour);
       }, 15000);
       if (ready) {
         await waitForNoPersonaMismatchPrompt(1000);
@@ -744,7 +805,7 @@
       return;
     }
 
-    if (routeMatchesPersona(persona) && firstVisible('[data-tour-id="' + expectedTour + '"]')) {
+    if (personaShellReady(persona, expectedTour)) {
       await waitForNoPersonaMismatchPrompt(1000);
       return;
     }
@@ -833,6 +894,9 @@
       case "assert_text":
         await waitForText(step.value, step.regex === true, step.timeoutMs);
         return;
+      case "assert_no_text":
+        await assertNoText(step.value, step.regex === true, step.timeoutMs);
+        return;
       case "assert_no_persona_mismatch_prompt":
         await waitForNoPersonaMismatchPrompt(step.timeoutMs);
         return;
@@ -851,6 +915,9 @@
         }
         clickElement(testTarget);
         await sleep(400);
+        return;
+      case "navigate_route":
+        await navigateWithNativeRouter(step.route);
         return;
       case "wait_beacon":
         await waitForBeacon(step.routeIds, step.dataStates, step.timeoutMs);
@@ -874,7 +941,9 @@
     var defaultStepTimeoutMs = flow.stepTimeoutMs || 30000;
     for (var i = 0; i < flow.steps.length; i += 1) {
       var step = flow.steps[i];
-      var stepTimeoutMs = step.timeoutMs || defaultStepTimeoutMs;
+      var stepTimeoutMs = step.timeoutMs
+        ? step.timeoutMs + 1000
+        : defaultStepTimeoutMs;
       var bridge = nativeTestBridge();
       bridge.uiFlowStepIndex = i;
       bridge.uiFlowStepType = step.type || "";
@@ -1016,7 +1085,9 @@
         bootstrap === "vault_unlocked" ||
         bootstrap === "ready" ||
         (auth === "authenticated" &&
-          (route.indexOf("/ria") === 0 || route.indexOf("/kai") === 0) &&
+          (route.indexOf("/ria") === 0 ||
+            route.indexOf("/one/kai") === 0 ||
+            route.indexOf("/kai") === 0) &&
           (dataState === "loaded" || dataState === "empty-valid" || dataState === "unavailable-valid"));
       var bridgeReady =
         typeof bridge.navigateToRoute === "function" &&

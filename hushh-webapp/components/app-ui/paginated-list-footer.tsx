@@ -56,6 +56,7 @@ export function PaginatedListFooter({
       </span>
       <div className="flex gap-2">
         <Button
+          type="button"
           variant="ghost"
           size="sm"
           disabled={safePage <= 1}
@@ -65,6 +66,7 @@ export function PaginatedListFooter({
           Previous
         </Button>
         <Button
+          type="button"
           variant="ghost"
           size="sm"
           disabled={!hasMore}

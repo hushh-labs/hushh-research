@@ -24,7 +24,7 @@ export function SignalChips({ signals }: SignalChipsProps) {
         <Card key={signal.id} variant="none" effect="glass" preset="compact">
           <CardContent className="space-y-2 p-3">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-sm font-black tracking-tight">{signal.title}</p>
+              <p className="text-sm font-semibold tracking-tight">{signal.title}</p>
               <span className="rounded-full bg-background/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                 {(signal.confidence * 100).toFixed(0)}%
               </span>

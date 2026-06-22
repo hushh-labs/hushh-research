@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronsUpDown, FilePenLine, X } from "lucide-react";
 
 import {
@@ -167,6 +167,7 @@ export function CommandPickerField<T = unknown>({
         </button>
         {allowClear && value ? (
           <Button
+            type="button"
             variant="none"
             effect="fade"
             size="sm"
@@ -174,7 +175,7 @@ export function CommandPickerField<T = unknown>({
             className="h-10 rounded-[14px] px-3"
             aria-label="Clear selection"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         ) : null}
       </div>
@@ -265,6 +266,7 @@ export function PopupTextEditorField({
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
+  const textareaId = useId();
 
   useEffect(() => {
     if (open) {
@@ -320,7 +322,12 @@ export function PopupTextEditorField({
           </DialogHeader>
 
           <div className="overflow-y-auto px-4 py-4 sm:px-5">
+            <label htmlFor={textareaId} className="sr-only">
+              {typeof title === "string" ? title : placeholder}
+            </label>
+
             <Textarea
+              id={textareaId}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={placeholder}
@@ -334,6 +341,7 @@ export function PopupTextEditorField({
 
           <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">
             <Button
+              type="button"
               variant="none"
               effect="fade"
               size="sm"
@@ -346,6 +354,7 @@ export function PopupTextEditorField({
               Cancel
             </Button>
             <Button
+              type="button"
               variant="blue-gradient"
               effect="fill"
               size="sm"

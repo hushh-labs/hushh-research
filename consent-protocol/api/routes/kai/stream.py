@@ -101,9 +101,10 @@ async def _require_vault_owner_token(
     valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid or not payload:
+        logger.warning("stream.token_invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid token: {reason}",
+            detail="Consent token validation failed.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -914,7 +915,7 @@ async def stream_agent_thinking(
     Stream thinking tokens for an agent analysis.
     Yields agent_token events that the frontend can display in real-time.
     """
-    logger.info(f"[Kai Stream] Starting stream_agent_thinking for {agent_name}")
+    logger.info("[Kai Stream] Starting stream_agent_thinking for %s", agent_name)
     token_count = 0
     stream_error_message: Optional[str] = None
     buffered_token_events: list[dict[str, Any]] = []
@@ -931,7 +932,10 @@ Think step by step in 2-3 sentences about what you'll analyze and why it matters
             if event.get("type") == "token":
                 token_count += 1
                 logger.info(
-                    f"[Kai Stream] Token #{token_count} for {agent_name}: {event.get('text', '')[:30]}..."
+                    "[Kai Stream] Token #%d for %s: %s...",
+                    token_count,
+                    agent_name,
+                    event.get("text", "")[:30],
                 )
                 buffered_token_events.append(
                     {
@@ -945,17 +949,21 @@ Think step by step in 2-3 sentences about what you'll analyze and why it matters
                 )
             elif event.get("type") == "error":
                 stream_error_message = str(event.get("message") or "unknown stream error")
-                logger.error(f"[Kai Stream] Gemini error for {agent_name}: {stream_error_message}")
+                logger.error(
+                    "[Kai Stream] Gemini error for %s: %s", agent_name, stream_error_message
+                )
             elif event.get("type") == "complete":
                 stream_completed = True
                 logger.info(
-                    f"[Kai Stream] Streaming complete for {agent_name}, total tokens: {token_count}"
+                    "[Kai Stream] Streaming complete for %s, total tokens: %d",
+                    agent_name,
+                    token_count,
                 )
 
             # Check if client disconnected after each token
             if await request.is_disconnected():
                 logger.info(
-                    f"[Kai Stream] Client disconnected during {agent_name} streaming, stopping..."
+                    "[Kai Stream] Client disconnected during %s streaming, stopping...", agent_name
                 )
                 return
 
@@ -988,7 +996,7 @@ Think step by step in 2-3 sentences about what you'll analyze and why it matters
                     return
                 await asyncio.sleep(0.01)
     except Exception as e:
-        logger.error(f"[Kai Stream] Streaming error for {agent_name}: {e}", exc_info=True)
+        logger.error("[Kai Stream] Streaming error for %s: %s", agent_name, e, exc_info=True)
         # Non-fatal - analysis will continue without streaming
 
 
@@ -1029,7 +1037,7 @@ async def analyze_stream_generator(
             disconnection_event.set()  # Signal DebateEngine to stop
         return is_disconnected
 
-    logger.info(f"[Kai Stream] Starting analysis for {ticker} - user {user_id}")
+    logger.info("[Kai Stream] Starting analysis for %s - user %s", ticker, user_id)
 
     stream_token = _stream_ctx.set(CanonicalSSEStream("stock_analyze"))
     stream_ctx = _stream_ctx.get()
@@ -1586,7 +1594,7 @@ async def analyze_stream_generator(
                 },
             )
         except Exception as e:
-            logger.error(f"[Kai Stream] Fundamental agent error: {e}")
+            logger.error("[Kai Stream] Fundamental agent error: %s", e)
             yield create_event(
                 "agent_error",
                 {"agent": "fundamental", "error": str(e), "round": 1, "phase": "analysis"},
@@ -1726,7 +1734,7 @@ async def analyze_stream_generator(
                 },
             )
         except Exception as e:
-            logger.error(f"[Kai Stream] Sentiment agent error: {e}")
+            logger.error("[Kai Stream] Sentiment agent error: %s", e)
             yield create_event(
                 "agent_error",
                 {"agent": "sentiment", "error": str(e), "round": 1, "phase": "analysis"},
@@ -1861,7 +1869,7 @@ async def analyze_stream_generator(
                 },
             )
         except Exception as e:
-            logger.error(f"[Kai Stream] Valuation agent error: {e}")
+            logger.error("[Kai Stream] Valuation agent error: %s", e)
             yield create_event(
                 "agent_error",
                 {"agent": "valuation", "error": str(e), "round": 1, "phase": "analysis"},
@@ -2345,7 +2353,7 @@ async def analyze_stream_generator(
             terminal=True,
         )
 
-        logger.info(f"[Kai Stream] Analysis complete for {ticker}: {debate_result.decision}")
+        logger.info("[Kai Stream] Analysis complete for %s: %s", ticker, debate_result.decision)
 
     except asyncio.TimeoutError:
         logger.warning(
@@ -2365,10 +2373,14 @@ async def analyze_stream_generator(
             terminal=True,
         )
     except Exception as e:
-        logger.exception(f"[Kai Stream] Error during analysis: {e}")
+        logger.exception("[Kai Stream] Error during analysis: %s", e)
         yield create_event(
             "error",
-            {"code": "ANALYZE_STREAM_FAILED", "message": str(e), "ticker": ticker},
+            {
+                "code": "ANALYZE_STREAM_FAILED",
+                "message": "Analysis failed. Please try again.",
+                "ticker": ticker,
+            },
             terminal=True,
         )
     finally:
@@ -2487,7 +2499,7 @@ async def analyze_stream(
         metadata={"risk_profile": risk_profile, "endpoint": "stream/analyze"},
     )
 
-    logger.info(f"[Kai Stream] SSE connection opened for {ticker} - user {user_id}")
+    logger.info("[Kai Stream] SSE connection opened for %s - user %s", ticker, user_id)
 
     return _create_sse_response(
         analyze_stream_generator(

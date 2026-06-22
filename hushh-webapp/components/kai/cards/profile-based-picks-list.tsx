@@ -151,7 +151,7 @@ export function ProfileBasedPicksList({
   return (
     <div className="space-y-2">
       <div className="space-y-0.5">
-        <h3 className="text-sm font-black">Personalized picks</h3>
+        <h3 className="text-sm font-semibold">Personalized picks</h3>
         <p className="text-[11px] text-muted-foreground">
           Source: Kai risk profile ({riskProfile}) + current holdings context.
         </p>
@@ -177,11 +177,11 @@ export function ProfileBasedPicksList({
                 className="flex items-center justify-between gap-3 p-3"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid h-9 w-9 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-black">
+                  <div className="grid h-9 w-9 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold">
                     {pick.symbol}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold leading-tight">{pick.company_name}</p>
+                    <p className="truncate text-sm font-medium leading-tight">{pick.company_name}</p>
                     <p className="truncate text-xs font-medium text-muted-foreground">
                       {(pick.tier || "Tier N/A").toUpperCase()}
                       {pick.sector ? ` • ${pick.sector}` : ""}

@@ -79,6 +79,44 @@ export async function GET(request: NextRequest) {
       hotGet.setInflight(hotCacheKey, load);
     }
     const result = await load;
+
+    // ── Inline timeline verification (default-deny) ───────────────────────────
+    // Secondary enforcement layer: inspect every item in a 200 payload for a
+    // passed expires_at before the response reaches the client.  This catches
+    // backend filter misses and clock-skew edge cases.
+    //
+    // Guard is based solely on expires_at — the token's actual duration
+    // metadata — so longer-lived grants (durationHours up to 8 760) are
+    // never incorrectly expired.  Items without an expires_at are treated as
+    // still-valid and pass through unchanged.
+    //
+    // Numbers are treated as Unix epoch SECONDS (standard FastAPI output)
+    // and converted to milliseconds for comparison.  ISO strings use
+    // Date.parse().
+    if (result.status === 200) {
+      const items = (result.payload as Record<string, unknown>)?.items;
+      if (Array.isArray(items)) {
+        const now = Date.now();
+        const toMs = (v: unknown): number | null => {
+          if (v == null) return null;
+          const n = typeof v === "number" ? v * 1_000 : Date.parse(String(v));
+          return Number.isFinite(n) ? n : null;
+        };
+        const expired = (items as Array<Record<string, unknown>>).some(item => {
+          const expiresMs = toMs(item["expires_at"]);
+          return expiresMs !== null && expiresMs <= now;
+        });
+        if (expired) {
+          const body = {
+            error: "Active consent session has expired. Re-authentication required.",
+          };
+          if (hotCacheKey) hotGet.write(hotCacheKey, { status: 401, payload: body });
+          return withRequestIdJson(requestId, body, { status: 401 });
+        }
+      }
+    }
+    // ── End timeline verification ─────────────────────────────────────────────
+
     if (hotCacheKey && result.status < 500) {
       hotGet.write(hotCacheKey, result);
     } else if (hotCacheKey && result.status >= 500) {
@@ -89,7 +127,9 @@ export async function GET(request: NextRequest) {
     }
     return withRequestIdJson(requestId, result.payload, { status: result.status });
   } catch (error) {
-    console.error("[API] Active consents error:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[API] Active consents error:", error);
+    }
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
     const authHeader = request.headers.get("Authorization");

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PermissionGate } from "@/components/privacy/permission-gate/permission-gate";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 
 const mockUseVault = vi.fn();
 
@@ -41,10 +42,10 @@ describe("PermissionGate", () => {
     expect(screen.queryByRole("button", { name: "Connect Portfolio" })).toBeNull();
     expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
-      "/consents"
+      buildConsentCenterHref("pending")
     );
   });
-    it("preserves canonical consent fallback routing for locked vault states", () => {
+  it("preserves locked-state rendering when children are empty", () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
       vaultOwnerToken: null,
@@ -52,14 +53,14 @@ describe("PermissionGate", () => {
 
     render(
       <PermissionGate permission="portfolio_valuation">
-        <button type="button">Open workspace</button>
+        {null}
       </PermissionGate>
     );
 
-    const reviewLink = screen.getByRole("link", {
-      name: "Review permissions",
-    });
-
-    expect(reviewLink.getAttribute("href")).toBe("/consents");
+    expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+    expect(screen.getByText("Vault permission required")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
+      buildConsentCenterHref("pending")
+    );
   });
 });

@@ -37,7 +37,7 @@ Usage:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from hushh_mcp.consent.token import validate_token_with_db
@@ -130,12 +130,12 @@ class VaultDBService:
 
         # Check user ID matches
         if token_obj.user_id != user_id:
-            logger.warning(f"User ID mismatch for {operation}: {token_obj.user_id} != {user_id}")
+            logger.warning("vault.consent_check.user_id_mismatch operation=%s", operation)
             raise ConsentValidationError(
                 "Token user ID does not match requested user ID", reason="user_mismatch"
             )
 
-        logger.debug(f"✅ Consent validated for {operation} (user={user_id}, scope={token_scope})")
+        logger.debug("vault.consent_check.ok operation=%s scope=%s", operation, token_scope)
 
     async def _log_audit(
         self, user_id: str, action: str, domain: str, details: Optional[Dict[str, Any]] = None
@@ -149,7 +149,7 @@ class VaultDBService:
                     "action": action,
                     "scope": f"vault.{domain}",
                     "scope_description": str(details) if details else None,
-                    "issued_at": int(datetime.now().timestamp() * 1000),
+                    "issued_at": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
                     "agent_id": "vault_service",
                 }
             ).execute()
@@ -224,7 +224,7 @@ class VaultDBService:
                 encoding="base64",
             )
 
-        logger.info(f"✅ Retrieved {len(result)} fields from {domain} for {user_id}")
+        logger.info("vault.read.ok domain=%s field_count=%d", domain, len(result))
 
         # Log audit
         await self._log_audit(
@@ -276,7 +276,7 @@ class VaultDBService:
         supabase = self._get_supabase()
 
         # Upsert using Supabase (handles ON CONFLICT automatically)
-        timestamp = int(datetime.now().timestamp() * 1000)
+        timestamp = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         data = {
             "user_id": user_id,
             "field_name": field_name,
@@ -290,7 +290,7 @@ class VaultDBService:
 
         supabase.table(table).upsert(data, on_conflict="user_id,field_name").execute()
 
-        logger.info(f"✅ Stored {field_name} in {domain} for {user_id}")
+        logger.info("vault.write.ok domain=%s field=%s", domain, field_name)
 
         # Log audit
         await self._log_audit(
@@ -336,7 +336,7 @@ class VaultDBService:
         supabase = self._get_supabase()
 
         # Batch upsert using Supabase (no transactions, but atomic per batch)
-        timestamp = int(datetime.now().timestamp() * 1000)
+        timestamp = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         data = [
             {
                 "user_id": user_id,
@@ -356,7 +356,7 @@ class VaultDBService:
 
         stored_count = len(data)
 
-        logger.info(f"✅ Stored {stored_count} fields in {domain} for {user_id}")
+        logger.info("vault.write_batch.ok domain=%s field_count=%d", domain, stored_count)
 
         # Log audit
         await self._log_audit(
@@ -431,7 +431,7 @@ class VaultDBService:
             # Supabase returns deleted data, count it
             deleted_count = len(response.data) if response.data else 0
 
-        logger.info(f"✅ Deleted {deleted_count} fields from {domain} for {user_id}")
+        logger.info("vault.delete.ok domain=%s field_count=%d", domain, deleted_count)
 
         # Log audit
         await self._log_audit(
@@ -573,5 +573,7 @@ class VaultDBService:
                 "encoding": "base64",
             }
 
-        logger.warning(f"⚠️ DEPRECATED: Unauthenticated access to {domain} for {user_id}")
+        logger.warning(
+            "vault.DEPRECATED: unauthenticated access domain=%s (user=[redacted])", domain
+        )
         return preferences

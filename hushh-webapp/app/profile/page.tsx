@@ -30,7 +30,6 @@ import {
   Phone,
   RefreshCw,
   SendHorizontal,
-  ShieldCheck,
   Trash2,
   User,
   Volume2,
@@ -62,13 +61,14 @@ import {
   PkmAccessConnectionDetailPanel,
   PkmDataManagerPanel,
   PkmDomainDetailPanel,
-  ProfileStateNotice,
 } from "@/components/profile/pkm-data-manager";
 import {
   ProfileStackNavigator,
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -179,6 +179,7 @@ import {
   type PkmVisibilityPosture,
   type PkmUpgradeDomainState,
 } from "@/lib/services/personal-knowledge-model-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   PKM_UPGRADE_COMPLETED_EVENT,
   type PkmUpgradeCompletedEventDetail,
@@ -198,10 +199,19 @@ type ProfilePanel =
   | "account"
   | "my-data"
   | "access"
+  | "connected-systems"
   | "preferences"
   | "security"
   | "support"
   | "gmail";
+
+type FinancialContextCategory =
+  | "general"
+  | "portfolio"
+  | "risk"
+  | "kyc"
+  | "tax"
+  | "documents";
 
 type ProfileDetail =
   | `domain:${string}`
@@ -284,7 +294,10 @@ function applyManifestExposureChange(
   return updated ? nextManifest : manifest;
 }
 
-function defaultAvailableScopeForPermission(domainKey: string, topLevelScopePath: string): string {
+function defaultAvailableScopeForPermission(
+  domainKey: string,
+  topLevelScopePath: string,
+): string {
   return `attr.${domainKey}.${topLevelScopePath}.*`;
 }
 
@@ -313,7 +326,10 @@ function buildPkmEntityDeletionCandidate(
   topLevelScopePath: string,
   entityKey: string,
 ): Record<string, unknown> {
-  const segments = topLevelScopePath.split(".").map((segment) => segment.trim()).filter(Boolean);
+  const segments = topLevelScopePath
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
   const root: Record<string, unknown> = {};
   let current = root;
 
@@ -362,6 +378,7 @@ function normalizeProfilePanel(value: string | null): ProfilePanel | null {
     value === "account" ||
     value === "my-data" ||
     value === "access" ||
+    value === "connected-systems" ||
     value === "preferences" ||
     value === "security" ||
     value === "support" ||
@@ -429,32 +446,6 @@ function buildProfileHref(params: {
   }
   const query = next.toString();
   return query ? `${ROUTES.PROFILE}?${query}` : ROUTES.PROFILE;
-}
-
-function formatProfileInventoryBadge(
-  summary: ReturnType<typeof buildPkmProfileSummaryPresentation> | null,
-  params: { loading: boolean; ready: boolean; failed: boolean },
-) {
-  if (!params.ready) {
-    if (params.failed) return "Unavailable";
-    return params.loading ? "Loading" : "Checking";
-  }
-  const itemCount = summary?.totalAttributes ?? 0;
-  const sourceCount = summary?.totalSourceCount ?? 0;
-  return `${itemCount} items · ${sourceCount} sources`;
-}
-
-function formatProfileAccessBadge(params: {
-  activeGrantCount: number;
-  loading: boolean;
-  ready: boolean;
-  failed: boolean;
-}) {
-  if (!params.ready) {
-    if (params.failed) return "Unavailable";
-    return params.loading ? "Loading" : "Checking";
-  }
-  return `${params.activeGrantCount} active`;
 }
 
 function getProvider(user: ReturnType<typeof useAuth>["user"]) {
@@ -570,6 +561,47 @@ function describePasskeyWrapper(wrapper: VaultWrapper): string {
   return parts.join(" / ");
 }
 
+function VaultComingSoonLogos() {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M15 7a4 4 0 1 0-3.3 3.94L7 15.64V18h2.36l1.36-1.36H13v-2.28l2.06-2.06A4 4 0 0 0 15 7Z" />
+          <path d="M15 7h.01" />
+        </svg>
+      </span>
+      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 3a5 5 0 0 0-5 5v2" />
+          <path d="M7 10h10a2 2 0 0 1 2 2v7H5v-7a2 2 0 0 1 2-2Z" />
+          <path d="M9 15h6" />
+        </svg>
+      </span>
+      <Badge variant="secondary" className={VAULT_INLINE_BADGE_CLASS}>
+        Coming soon
+      </Badge>
+    </div>
+  );
+}
+
 function resolveProfileRouteState(
   searchParams: ReadonlyURLSearchParams,
 ): ProfileRouteState {
@@ -579,6 +611,8 @@ function resolveProfileRouteState(
     const tab = searchParams.get("tab");
     if (tab === "my-data") panel = "my-data";
     else if (tab === "access" || tab === "privacy") panel = "access";
+    else if (tab === "connected-systems" || tab === "systems")
+      panel = "connected-systems";
     else if (tab === "account") panel = "account";
     else if (tab === "preferences") panel = "preferences";
     else if (tab === "security") panel = "security";
@@ -594,13 +628,22 @@ function profileRouteRequiresUnlockedVault(
   panel: ProfilePanel | null,
   detail: ProfileDetail | null,
 ): boolean {
-  if (panel === "my-data" || panel === "access" || panel === "gmail") {
+  if (
+    panel === "my-data" ||
+    panel === "access" ||
+    panel === "connected-systems" ||
+    panel === "gmail"
+  ) {
     return true;
   }
   if (panel === "security") {
     return true;
   }
   return panel === "preferences" && detail === "kai-preferences";
+}
+
+function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
+  return panel === "my-data" || panel === "access";
 }
 
 function ProfilePageContent() {
@@ -626,8 +669,8 @@ function ProfilePageContent() {
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
-  const [agentTtsVoice, setAgentTtsVoice] = useState<AgentGeminiTtsVoice>(() =>
-    readAgentVoiceSettings().ttsVoice
+  const [agentTtsVoice, setAgentTtsVoice] = useState<AgentGeminiTtsVoice>(
+    () => readAgentVoiceSettings().ttsVoice,
   );
   const [vaultUnlockReason, setVaultUnlockReason] = useState<
     "profile_data" | "delete_account"
@@ -645,7 +688,7 @@ function ProfilePageContent() {
   const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
-  const [loadingPkmMetadata, setLoadingPkmMetadata] = useState(true);
+  const [loadingPkmMetadata, setLoadingPkmMetadata] = useState(false);
   const [pkmError, setPkmError] = useState<string | null>(null);
   const [domainManifests, setDomainManifests] = useState<
     Record<string, DomainManifest | null | undefined>
@@ -684,7 +727,7 @@ function ProfilePageContent() {
   });
   const [consentCenter, setConsentCenter] =
     useState<ConsentCenterResponse | null>(null);
-  const [loadingConsentCenter, setLoadingConsentCenter] = useState(true);
+  const [loadingConsentCenter, setLoadingConsentCenter] = useState(false);
   const [consentCenterError, setConsentCenterError] = useState<string | null>(
     null,
   );
@@ -738,11 +781,20 @@ function ProfilePageContent() {
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | "sync" | null
   >(null);
+  const [savingFinancialContext, setSavingFinancialContext] = useState(false);
+  const [financialContextText, setFinancialContextText] = useState("");
+  const [financialContextCategory, setFinancialContextCategory] =
+    useState<FinancialContextCategory>("general");
+  const [editingFinancialContextId, setEditingFinancialContextId] = useState<
+    string | null
+  >(null);
   const vaultUnlockCompletingRef = useRef(false);
 
   const profileRouteState = resolveProfileRouteState(searchParams);
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
+  const shouldLoadProfileWorkspaceData =
+    profileRouteNeedsWorkspaceData(activePanel);
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
   useScrollReset(
     `${pathname}:${activePanel ?? "root"}:${activeDetail ?? "root"}`,
@@ -756,7 +808,7 @@ function ProfilePageContent() {
   const gmailRouteHref = `${pathname}?${searchParamsString}`;
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
-    enabled: Boolean(user?.uid) && !authLoading,
+    enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail",
     idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
     routeHref: gmailRouteHref,
     refreshKey: gmailRouteHref,
@@ -827,9 +879,6 @@ function ProfilePageContent() {
 
   const pkmMetadataReady = pkmMetadata !== null;
   const consentCenterReady = consentCenter !== null;
-  const pkmMetadataFailed = Boolean(pkmError) && !pkmMetadataReady;
-  const consentCenterFailed =
-    Boolean(consentCenterError) && !consentCenterReady;
 
   const profileSummary = useMemo(
     () =>
@@ -1184,7 +1233,7 @@ function ProfilePageContent() {
   );
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !shouldLoadProfileWorkspaceData) return;
 
     const handleUpgradeCompleted = (event: Event) => {
       const detail = (event as CustomEvent<PkmUpgradeCompletedEventDetail>)
@@ -1235,6 +1284,7 @@ function ProfilePageContent() {
   }, [
     refreshPkmMetadata,
     refreshDomainManifest,
+    shouldLoadProfileWorkspaceData,
     user?.uid,
     vaultAccess.needsUnlock,
     vaultAccess.needsVaultCreation,
@@ -1270,6 +1320,11 @@ function ProfilePageContent() {
 
     async function loadData() {
       if (authLoading) return;
+      if (!shouldLoadProfileWorkspaceData) {
+        setLoadingPkmMetadata(false);
+        setLoadingConsentCenter(false);
+        return;
+      }
 
       if (!initialized) {
         registerSteps(1);
@@ -1341,6 +1396,7 @@ function ProfilePageContent() {
     initialized,
     registerSteps,
     reset,
+    shouldLoadProfileWorkspaceData,
     user,
     vaultOwnerToken,
   ]);
@@ -1516,9 +1572,12 @@ function ProfilePageContent() {
   }
 
   function openVaultBackedPanel(
-    panel: Extract<ProfilePanel, "my-data" | "access" | "gmail" | "security">,
+    panel: Extract<
+      ProfilePanel,
+      "my-data" | "access" | "connected-systems" | "gmail" | "security"
+    >,
   ) {
-    if (vaultAccess.needsVaultCreation) {
+    if (vaultAccess.needsVaultCreation && panel !== "security") {
       setShowVaultCreation(true);
       return;
     }
@@ -1845,9 +1904,11 @@ function ProfilePageContent() {
     : hasDualPersona
       ? "Delete account or persona"
       : "Delete account";
-  const deleteRowDescription = hasDualPersona
-    ? "Choose whether to remove Investor, RIA, or the full account."
-    : "This action cannot be undone.";
+  const deleteRowDescription = vaultAccess.needsVaultCreation
+    ? "No vault exists yet. This deletes cloud-linked account records."
+    : hasDualPersona
+      ? "Choose whether to remove Investor, RIA, or the full account."
+      : "This action cannot be undone.";
   const deleteDialogTitle = hasDualPersona
     ? "Delete Investor, RIA, or everything?"
     : "Delete Account?";
@@ -1856,7 +1917,7 @@ function ProfilePageContent() {
       ? "This removes Kai profile data, portfolio imports, investor marketplace visibility, and advisor relationships. Your RIA workspace stays."
       : effectiveDeleteTarget === "ria"
         ? "This removes your advisor profile, client requests, picks uploads, and RIA marketplace presence. Your investor account stays."
-        : "This action cannot be undone. This permanently deletes your account, both personas, and encrypted vault records.";
+        : "This action cannot be undone. This permanently deletes your account, both personas, encrypted vault records, and cloud-linked user records.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -1946,18 +2007,6 @@ function ProfilePageContent() {
   const gmailSettingsDescription = gmailPresentation.description;
   const gmailLastSyncText = gmailPresentation.latestSyncText;
   const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
-  const activeGrantCount = consentCenter?.active_grants.length || 0;
-  const myDataRootBadge = formatProfileInventoryBadge(profileSummary, {
-    loading: loadingPkmMetadata,
-    ready: pkmMetadataReady,
-    failed: pkmMetadataFailed,
-  });
-  const accessRootBadge = formatProfileAccessBadge({
-    activeGrantCount,
-    loading: loadingConsentCenter,
-    ready: consentCenterReady,
-    failed: consentCenterFailed,
-  });
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -2001,8 +2050,7 @@ function ProfilePageContent() {
       {
         id: "profile_my_data",
         label: "Personal Data",
-        purpose:
-          "opens your saved details and sharing controls.",
+        purpose: "opens your saved details and sharing controls.",
         actionId: "route.profile_my_data",
         role: "card",
         voiceAliases: ["personal knowledge model", "my data", "pkm"],
@@ -2025,7 +2073,6 @@ function ProfilePageContent() {
           "vault",
           "create your vault",
           "unlock vault",
-          "manage vault",
           "vault security",
         ],
       },
@@ -2113,25 +2160,24 @@ function ProfilePageContent() {
               ? "Personal Data"
               : activePanel === "access"
                 ? "Access & sharing"
-                : activePanel === "preferences"
-                  ? "Preferences"
-                  : activePanel === "security"
-                    ? "Security"
-                    : activePanel === "gmail"
-                      ? "Gmail receipts"
-                      : "Support & feedback",
+                : activePanel === "connected-systems"
+                  ? "Connected Systems"
+                  : activePanel === "preferences"
+                    ? "Preferences"
+                    : activePanel === "security"
+                      ? "Security"
+                      : activePanel === "gmail"
+                        ? "Gmail receipts"
+                        : "Support & feedback",
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
           "Account",
           "Vault",
           ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
-          "Personal Data",
-          "Access & sharing",
           "Preferences",
           "Security",
           "Support & feedback",
-          "Gmail receipts",
           ...(canShowPkmAgentLab ? ["PKM Agent Lab"] : []),
         ];
     const availableActions =
@@ -2147,27 +2193,31 @@ function ProfilePageContent() {
           ]
         : activePanel === "support"
           ? ["Report a bug", "Get support", "Reach developer"]
-          : activePanel === "account"
-            ? [phoneNumber ? "Change phone number" : "Add phone number"]
-            : activePanel === "security"
-              ? [
-                  vaultAccess.needsVaultCreation
-                    ? "Create your vault"
-                    : "Unlock vault",
-                  "Change passphrase",
-                  "Delete account",
-                ]
-              : [
-                  "Open Account",
-                  vaultSettingsRow.title,
-                  ...(shouldShowRiaRegulatoryRow
-                    ? ["Update license data"]
-                    : []),
-                  "Open Personal Data",
-                  "Open Access & sharing",
-                  "Open Gmail receipts",
-                  "Open Support",
-                ];
+          : activePanel === "connected-systems"
+            ? [
+                "Load Salesforce CRM schema",
+                "Read Salesforce CRM record",
+                "Propose Salesforce CRM create",
+                "Propose Salesforce CRM update",
+              ]
+            : activePanel === "account"
+              ? [phoneNumber ? "Change phone number" : "Add phone number"]
+              : activePanel === "security"
+                ? [
+                    vaultAccess.needsVaultCreation
+                      ? "Create your vault"
+                      : "Unlock vault",
+                    "Change passphrase",
+                    "Delete account",
+                  ]
+                : [
+                    "Open Account",
+                    vaultSettingsRow.title,
+                    ...(shouldShowRiaRegulatoryRow
+                      ? ["Update license data"]
+                      : []),
+                    "Open Support",
+                  ];
 
     return {
       surfaceDefinition: {
@@ -2179,16 +2229,18 @@ function ProfilePageContent() {
               ? "Personal Data"
               : activePanel === "access"
                 ? "Access & sharing"
-                : activePanel === "preferences"
-                  ? "Preferences"
-                  : activePanel === "security"
-                    ? "Security"
-                    : activePanel === "gmail"
-                      ? "Gmail receipts"
-                      : "Support & feedback"
+                : activePanel === "connected-systems"
+                  ? "Connected Systems"
+                  : activePanel === "preferences"
+                    ? "Preferences"
+                    : activePanel === "security"
+                      ? "Security"
+                      : activePanel === "gmail"
+                        ? "Gmail receipts"
+                        : "Support & feedback"
           : "Profile",
         purpose:
-          "This surface manages account identity, profile data, access, preferences, Gmail receipts, support, and vault security.",
+          "This surface manages account identity, preferences, support, and vault security.",
         sections: [
           {
             id: "account",
@@ -2196,29 +2248,14 @@ function ProfilePageContent() {
             purpose: "Email, phone, and sign-in identity.",
           },
           {
-            id: "my-data",
-            title: "Personal Data",
-            purpose: "Saved details and sharing controls.",
-          },
-          {
-            id: "access",
-            title: "Access & sharing",
-            purpose: "Consent-backed access and sharing.",
-          },
-          {
             id: "preferences",
             title: "Preferences",
-            purpose: "Shell and Kai preferences.",
+            purpose: "Shell, theme, and device preferences.",
           },
           {
             id: "security",
             title: "Security",
             purpose: "Vault and destructive account actions.",
-          },
-          {
-            id: "gmail",
-            title: "Gmail receipts",
-            purpose: "Receipt sync and Gmail connector state.",
           },
           {
             id: "support",
@@ -2232,22 +2269,7 @@ function ProfilePageContent() {
           purpose: `${action} from Profile.`,
         })),
         controls,
-        concepts: [
-          {
-            id: "personal_data",
-            label: "Personal Data",
-            explanation:
-              "Your personal data is encrypted before storage. Kai uses it as your durable memory layer.",
-            aliases: ["personal data", "pkm", "personal knowledge model"],
-          },
-          {
-            id: "gmail_receipts",
-            label: "Gmail receipts",
-            explanation:
-              "Gmail receipts connects receipt sync and feeds receipt-memory imports into your personal data.",
-            aliases: ["gmail receipts", "receipt sync"],
-          },
-        ],
+        concepts: [],
         activeControlId: activeVoiceControlId,
         lastInteractedControlId: lastVoiceControlId,
       },
@@ -2403,9 +2425,6 @@ function ProfilePageContent() {
     }
     updateProfileView({ panel: null, detail: null }, "replace");
   };
-  const openMyDataPanel = () => openVaultBackedPanel("my-data");
-  const openAccessPanel = () => openVaultBackedPanel("access");
-  const openGmailPanel = () => openVaultBackedPanel("gmail");
   const openAccountPanel = () =>
     updateProfileView({ panel: "account", detail: null }, "push");
   const openPreferencesPanel = () =>
@@ -2580,10 +2599,18 @@ function ProfilePageContent() {
     }
   };
 
-  const handleDeletePkmPreviewEntity = async (entity: PkmSectionPreviewEntity) => {
+  const handleDeletePkmPreviewEntity = async (
+    entity: PkmSectionPreviewEntity,
+  ) => {
     const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
     const topLevelScopePath = domainPreview.topLevelScopePath;
-    if (!user?.uid || !vaultKey || !vaultOwnerToken || !domainKey || !topLevelScopePath) {
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !domainKey ||
+      !topLevelScopePath
+    ) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2595,22 +2622,37 @@ function ProfilePageContent() {
     }));
 
     try {
-      await PersonalKnowledgeModelService.storePreparedDomain({
-        userId: user.uid,
-        vaultKey,
-        domain: domainKey,
-        domainData: buildPkmEntityDeletionCandidate(topLevelScopePath, entity.key),
-        summary: {},
-        mergeDecision: {
-          merge_mode: "delete_entity",
-          target_domain: domainKey,
-          target_entity_id: entity.key,
-          target_entity_path: `${topLevelScopePath}.entities.${entity.key}`,
-          match_confidence: 1,
-          match_reason: "User removed this saved PKM entry from the profile interface.",
-        },
-        vaultOwnerToken,
-      });
+      if (domainKey === "financial" && topLevelScopePath === "context") {
+        const deleted = await handleDeleteFinancialContextEntry(entity.key);
+        if (!deleted) {
+          setDomainPreview((current) => ({
+            ...current,
+            deletingEntityKey: null,
+          }));
+          return;
+        }
+      } else {
+        await PersonalKnowledgeModelService.storePreparedDomain({
+          userId: user.uid,
+          vaultKey,
+          domain: domainKey,
+          domainData: buildPkmEntityDeletionCandidate(
+            topLevelScopePath,
+            entity.key,
+          ),
+          summary: {},
+          mergeDecision: {
+            merge_mode: "delete_entity",
+            target_domain: domainKey,
+            target_entity_id: entity.key,
+            target_entity_path: `${topLevelScopePath}.entities.${entity.key}`,
+            match_confidence: 1,
+            match_reason:
+              "User removed this saved PKM entry from the profile interface.",
+          },
+          vaultOwnerToken,
+        });
+      }
 
       const permission = selectedDomainPermissions.find(
         (candidate) => candidate.key === domainPreview.permissionKey,
@@ -2628,8 +2670,10 @@ function ProfilePageContent() {
         presentation: buildPkmSectionPreviewPresentation({
           domain: domainKey,
           domainTitle: selectedDomain?.title || domainKey,
-          permissionLabel: permission?.label || current.title || topLevelScopePath,
-          permissionDescription: permission?.description || current.description || null,
+          permissionLabel:
+            permission?.label || current.title || topLevelScopePath,
+          permissionDescription:
+            permission?.description || current.description || null,
           topLevelScopePath,
           value: data,
         }),
@@ -2643,7 +2687,9 @@ function ProfilePageContent() {
       toast.success("Saved entry removed.");
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Couldn't remove this saved entry.";
+        error instanceof Error
+          ? error.message
+          : "Couldn't remove this saved entry.";
       setDomainPreview((current) => ({
         ...current,
         error: message,
@@ -2742,22 +2788,29 @@ function ProfilePageContent() {
         ],
       });
 
-      let updatedManifest = result.manifest ?? optimisticManifest ?? previousManifest;
+      let updatedManifest =
+        result.manifest ?? optimisticManifest ?? previousManifest;
       if (nextPosture === "default_available" && projectionPayload) {
         const projectionResult =
-          await PersonalKnowledgeModelService.publishDefaultAvailableProjection({
-            userId: user.uid,
-            domain: domainKey,
-            scope: defaultAvailableScopeForPermission(domainKey, permission.topLevelScopePath),
-            scopeHandle: permission.scopeHandle || undefined,
-            topLevelScopePath: permission.topLevelScopePath,
-            projectionPayload,
-            manifestVersion: result.manifestVersion ?? previousManifest.manifest_version,
-            vaultOwnerToken,
-            metadata: {
-              source: "profile_visibility_posture",
+          await PersonalKnowledgeModelService.publishDefaultAvailableProjection(
+            {
+              userId: user.uid,
+              domain: domainKey,
+              scope: defaultAvailableScopeForPermission(
+                domainKey,
+                permission.topLevelScopePath,
+              ),
+              scopeHandle: permission.scopeHandle || undefined,
+              topLevelScopePath: permission.topLevelScopePath,
+              projectionPayload,
+              manifestVersion:
+                result.manifestVersion ?? previousManifest.manifest_version,
+              vaultOwnerToken,
+              metadata: {
+                source: "profile_visibility_posture",
+              },
             },
-          });
+          );
         updatedManifest = projectionResult.manifest ?? updatedManifest;
       }
 
@@ -2805,6 +2858,207 @@ function ProfilePageContent() {
     }
   };
 
+  const handleSaveFinancialContext = async () => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+
+    const contextText = financialContextText.trim();
+
+    if (!contextText) {
+      toast.error("Add financial context before saving.");
+      return;
+    }
+
+    const updatedAt = new Date().toISOString();
+    setSavingFinancialContext(true);
+    setPkmError(null);
+
+    try {
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        userId: user.uid,
+        domain: "financial",
+        vaultKey,
+        vaultOwnerToken,
+        build: (context) => {
+          const current = context.currentDomainData || {};
+          const existingContext =
+            current.context &&
+            typeof current.context === "object" &&
+            !Array.isArray(current.context)
+              ? (current.context as Record<string, unknown>)
+              : {};
+          const existingEntries = Array.isArray(existingContext.entries)
+            ? existingContext.entries.filter(
+                (entry): entry is Record<string, unknown> =>
+                  Boolean(entry) &&
+                  typeof entry === "object" &&
+                  !Array.isArray(entry),
+              )
+            : [];
+          const nextEntry = {
+            id: editingFinancialContextId || `ctx_${Date.parse(updatedAt)}`,
+            category: financialContextCategory,
+            text: contextText,
+            status: "active",
+            source: "profile_my_data",
+            updated_at: updatedAt,
+          };
+          const nextEntries = editingFinancialContextId
+            ? existingEntries.map((entry) =>
+                entry.id === editingFinancialContextId
+                  ? { ...entry, ...nextEntry }
+                  : entry,
+              )
+            : [nextEntry, ...existingEntries];
+
+          return {
+            domainData: {
+              ...current,
+              schema_version: Number(current.schema_version || 3),
+              context: {
+                ...existingContext,
+                entries: nextEntries.slice(0, 50),
+                source: "profile_my_data",
+                updated_at: updatedAt,
+              },
+              updated_at: updatedAt,
+            },
+            summary: {
+              readable_summary:
+                "Your financial profile includes saved context from My Data.",
+              readable_highlights: [],
+              readable_updated_at: updatedAt,
+              readable_source_label: "My Data",
+              consumer_item_count: nextEntries.length,
+              context_entry_count: nextEntries.length,
+              last_updated: updatedAt,
+            },
+          };
+        },
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || "Financial context save failed.");
+      }
+
+      toast.success(
+        editingFinancialContextId
+          ? "Financial context updated."
+          : "Financial context saved.",
+      );
+      setFinancialContextText("");
+      setEditingFinancialContextId(null);
+      void refreshPkmMetadata(true);
+      void refreshDomainManifest("financial", true);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Couldn't save financial context.";
+      setPkmError(message);
+      toast.error(message);
+    } finally {
+      setSavingFinancialContext(false);
+    }
+  };
+
+  const handleEditFinancialContextEntry = (entity: PkmSectionPreviewEntity) => {
+    const payload = entity.editPayload || {};
+    const category =
+      typeof payload.category === "string" && payload.category.trim()
+        ? payload.category.trim()
+        : "general";
+    const text =
+      typeof payload.text === "string" && payload.text.trim()
+        ? payload.text.trim()
+        : entity.fields.find((field) => field.label === "Context")?.value || "";
+
+    setEditingFinancialContextId(entity.key);
+    setFinancialContextCategory(category as FinancialContextCategory);
+    setFinancialContextText(text);
+    setDomainPreview((current) => ({ ...current, open: false }));
+  };
+
+  const handleDeleteFinancialContextEntry = async (entryId: string) => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return false;
+    }
+
+    const updatedAt = new Date().toISOString();
+    try {
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        userId: user.uid,
+        domain: "financial",
+        vaultKey,
+        vaultOwnerToken,
+        build: (context) => {
+          const current = context.currentDomainData || {};
+          const existingContext =
+            current.context &&
+            typeof current.context === "object" &&
+            !Array.isArray(current.context)
+              ? (current.context as Record<string, unknown>)
+              : {};
+          const existingEntries = Array.isArray(existingContext.entries)
+            ? existingContext.entries.filter(
+                (entry): entry is Record<string, unknown> =>
+                  Boolean(entry) &&
+                  typeof entry === "object" &&
+                  !Array.isArray(entry),
+              )
+            : [];
+          const nextEntries = existingEntries.filter(
+            (entry) => entry.id !== entryId,
+          );
+
+          return {
+            domainData: {
+              ...current,
+              context: {
+                ...existingContext,
+                entries: nextEntries,
+                source: "profile_my_data",
+                updated_at: updatedAt,
+              },
+              updated_at: updatedAt,
+            },
+            summary: {
+              readable_summary:
+                nextEntries.length > 0
+                  ? "Your financial profile includes saved context from My Data."
+                  : "Your financial profile is ready for saved context.",
+              readable_highlights: [],
+              readable_updated_at: updatedAt,
+              readable_source_label: "My Data",
+              consumer_item_count: nextEntries.length,
+              context_entry_count: nextEntries.length,
+              last_updated: updatedAt,
+            },
+          };
+        },
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || "Financial context delete failed.");
+      }
+
+      void refreshPkmMetadata(true);
+      void refreshDomainManifest("financial", true);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Couldn't delete financial context.";
+      setPkmError(message);
+      toast.error(message);
+      return false;
+    }
+  };
+
   const supportActions: Array<{
     kind: SupportMessageKind;
     icon: LucideIcon;
@@ -2835,40 +3089,51 @@ function ProfilePageContent() {
   ];
 
   const myDataContent = (
-    <PkmDataManagerPanel
-      signedIn={Boolean(user)}
-      loading={profileManagerLoading}
-      metadataReady={pkmMetadataReady}
-      metadataError={pkmError}
-      sharingReady={consentCenterReady}
-      sharingError={consentCenterError}
-      needsVaultCreation={vaultAccess.needsVaultCreation}
-      needsUnlock={vaultAccess.needsUnlock}
-      summary={profileSummary}
-      domains={domainPresentations}
-      manifestsByDomain={domainManifests}
-      loadingManifestsByDomain={loadingDomainManifests}
-      manifestErrorsByDomain={domainManifestErrors}
-      upgradeStatesByDomain={upgradeStatesByDomain}
-      onOpenSharing={() =>
-        updateProfileView({ panel: "access", detail: null }, "push")
-      }
-      onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-      onRefresh={() => {
-        void refreshPkmMetadata(true);
-        void refreshConsentCenter(true);
-        void refreshVisibleDomainManifests(true);
-      }}
-      onOpenDomain={(domain) =>
-        updateProfileView(
-          {
-            panel: "my-data",
-            detail: `domain:${domain.key}`,
-          },
-          "push",
-        )
-      }
-    />
+    <div className="space-y-4 sm:space-y-5">
+      <RuntimeSecretSettingsCard
+        userId={user?.uid}
+        vaultKey={vaultKey}
+        vaultOwnerToken={vaultOwnerToken}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
+        onRequestVaultCreation={() => setShowVaultCreation(true)}
+      />
+      <PkmDataManagerPanel
+        signedIn={Boolean(user)}
+        loading={profileManagerLoading}
+        metadataReady={pkmMetadataReady}
+        metadataError={pkmError}
+        sharingReady={consentCenterReady}
+        sharingError={consentCenterError}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        summary={profileSummary}
+        domains={domainPresentations}
+        manifestsByDomain={domainManifests}
+        loadingManifestsByDomain={loadingDomainManifests}
+        manifestErrorsByDomain={domainManifestErrors}
+        upgradeStatesByDomain={upgradeStatesByDomain}
+        onOpenSharing={() =>
+          updateProfileView({ panel: "access", detail: null }, "push")
+        }
+        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
+        onRefresh={() => {
+          void refreshPkmMetadata(true);
+          void refreshConsentCenter(true);
+          void refreshVisibleDomainManifests(true);
+        }}
+        onOpenDomain={(domain) =>
+          updateProfileView(
+            {
+              panel: "my-data",
+              detail: `domain:${domain.key}`,
+            },
+            "push",
+          )
+        }
+      />
+    </div>
   );
 
   const accessContent = (
@@ -2998,6 +3263,14 @@ function ProfilePageContent() {
           onClick={() =>
             updateProfileView({ panel: "account", detail: "phone" }, "push")
           }
+        />
+        <SettingsRow
+          icon={Trash2}
+          title={deleteButtonLabel}
+          description={deleteRowDescription}
+          tone="destructive"
+          chevron
+          onClick={() => void handleDeleteClick()}
         />
       </SettingsGroup>
     </div>
@@ -3178,6 +3451,18 @@ function ProfilePageContent() {
     </div>
   );
 
+  const connectedSystemsContent = (
+    <ConnectedSystemsPanel
+      vaultOwnerToken={vaultOwnerToken}
+      onRequestUnlock={() => requestVaultUnlock("profile_data")}
+      profile={{
+        displayName: user?.displayName,
+        email: user?.email,
+        phone: phoneNumber,
+      }}
+    />
+  );
+
   const vaultMethodsContent = (
     <div className="space-y-4 sm:space-y-5">
       <SettingsGroup title="Vault">
@@ -3355,6 +3640,15 @@ function ProfilePageContent() {
                 onClick={() => setPassphraseDialogOpen(true)}
               />
             ) : null}
+
+            <SettingsRow
+              icon={KeyRound}
+              title="BYOK and passkeys"
+              description="Additional key methods are being verified."
+              disabled
+              trailing={<VaultComingSoonLogos />}
+              stackTrailingOnMobile
+            />
           </>
         ) : null}
       </SettingsGroup>
@@ -3444,7 +3738,7 @@ function ProfilePageContent() {
         title="Open receipts"
         description="Review synced receipts, merchants, and extracted totals."
         chevron
-        onClick={() => router.push(ROUTES.PROFILE_RECEIPTS)}
+        onClick={() => router.push(ROUTES.GMAIL)}
       />
 
       {gmailPresentation.isConnected ? (
@@ -3534,6 +3828,68 @@ function ProfilePageContent() {
     </SurfaceCard>
   ) : null;
 
+  const financialContextControls = (
+    <div className="space-y-3">
+      <Select
+        value={financialContextCategory}
+        onValueChange={(value) =>
+          setFinancialContextCategory(value as FinancialContextCategory)
+        }
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Category" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="general">General</SelectItem>
+          <SelectItem value="portfolio">Portfolio</SelectItem>
+          <SelectItem value="risk">Risk</SelectItem>
+          <SelectItem value="kyc">KYC</SelectItem>
+          <SelectItem value="tax">Tax</SelectItem>
+          <SelectItem value="documents">Documents</SelectItem>
+        </SelectContent>
+      </Select>
+      <Textarea
+        value={financialContextText}
+        onChange={(event) => setFinancialContextText(event.target.value)}
+        placeholder="What should Hussh remember?"
+        className="min-h-[112px]"
+      />
+      <div className="flex justify-end">
+        {editingFinancialContextId ? (
+          <Button
+            variant="none"
+            effect="fade"
+            size="default"
+            onClick={() => {
+              setEditingFinancialContextId(null);
+              setFinancialContextText("");
+              setFinancialContextCategory("general");
+            }}
+            disabled={savingFinancialContext}
+          >
+            Cancel
+          </Button>
+        ) : null}
+        <Button
+          size="default"
+          onClick={() => void handleSaveFinancialContext()}
+          disabled={savingFinancialContext}
+        >
+          {savingFinancialContext ? (
+            <>
+              <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
+              Saving...
+            </>
+          ) : editingFinancialContextId ? (
+            "Update"
+          ) : (
+            "Save"
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+
   const profileStackEntries: ProfileStackEntry[] = [];
 
   if (!routeBlockedByVault && activePanel === "account") {
@@ -3614,6 +3970,12 @@ function ProfilePageContent() {
             previewLoading={domainPreview.loading}
             previewError={domainPreview.error}
             previewDeletingEntityKey={domainPreview.deletingEntityKey}
+            contextControls={
+              selectedDomain.key === "financial"
+                ? financialContextControls
+                : undefined
+            }
+            hideHighlights={selectedDomain.key === "financial"}
             onPreviewOpenChange={(open) =>
               setDomainPreview((current) => ({
                 ...current,
@@ -3622,6 +3984,9 @@ function ProfilePageContent() {
             }
             onPreviewPermission={(permission) =>
               void handlePreviewDomainPermission(selectedDomain.key, permission)
+            }
+            onEditPreviewEntity={(entity) =>
+              handleEditFinancialContextEntry(entity)
             }
             onDeletePreviewEntity={(entity) =>
               void handleDeletePkmPreviewEntity(entity)
@@ -3659,18 +4024,25 @@ function ProfilePageContent() {
         ),
       });
     }
+  } else if (!routeBlockedByVault && activePanel === "connected-systems") {
+    profileStackEntries.push({
+      key: "panel:connected-systems",
+      title: "Connected Systems",
+      description: "Salesforce CRM and future MuleSoft-backed systems.",
+      content: connectedSystemsContent,
+    });
   } else if (!routeBlockedByVault && activePanel === "preferences") {
     profileStackEntries.push({
       key: "panel:preferences",
       title: "Preferences",
-      description: "Appearance, Kai settings, and device behavior.",
+      description: "Appearance, theme, and device behavior.",
       content: preferencesContent,
     });
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
         title: "Kai preferences",
-        description: "Secure personal settings for Kai.",
+        description: "Secure personal investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
             userId={user.uid}
@@ -3822,7 +4194,7 @@ function ProfilePageContent() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-2xl font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[2rem]">
+            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}
             </h1>
             <div
@@ -3833,11 +4205,6 @@ function ProfilePageContent() {
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-              <Badge variant="secondary">{myDataRootBadge}</Badge>
-              <Badge variant="secondary">{accessRootBadge}</Badge>
-              <Badge variant="secondary">{gmailStatusLabel}</Badge>
             </div>
             {vaultAccess.needsUnlock && hasVault ? (
               <div className="pt-1.5">
@@ -3858,98 +4225,6 @@ function ProfilePageContent() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
-            {pkmError ? (
-              <ProfileStateNotice
-                tone="warning"
-                title="Data loaded partially"
-                description={pkmError}
-              />
-            ) : null}
-            {consentCenterError ? (
-              <ProfileStateNotice
-                tone="warning"
-                title="Access loaded partially"
-                description={consentCenterError}
-              />
-            ) : null}
-
-            <SettingsGroup title="Data">
-              <SettingsRow
-                icon={Folder}
-                title="Personal Data"
-                description={
-                  vaultAccess.needsVaultCreation
-                    ? "Create your vault first."
-                    : !pkmMetadataReady && !pkmMetadataFailed
-                      ? "Checking saved details."
-                      : pkmMetadataFailed
-                        ? "Saved data is unavailable."
-                        : vaultAccess.needsUnlock
-                          ? "Unlock to review saved details and sharing."
-                          : "Saved details and sharing."
-                }
-                trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
-                chevron
-                stackTrailingOnMobile
-                onClick={openMyDataPanel}
-              />
-              <SettingsRow
-                icon={ShieldCheck}
-                title="Access & sharing"
-                description={
-                  vaultAccess.needsVaultCreation
-                    ? "Create your vault first."
-                    : !consentCenterReady && !consentCenterFailed
-                      ? "Checking current sharing state."
-                      : consentCenterFailed
-                        ? "Sharing is unavailable."
-                        : vaultAccess.needsUnlock
-                          ? "Unlock to review live access."
-                          : "Who can read what."
-                }
-                trailing={<Badge variant="secondary">{accessRootBadge}</Badge>}
-                chevron
-                stackTrailingOnMobile
-                onClick={openAccessPanel}
-              />
-              <SettingsRow
-                icon={Mail}
-                title="Gmail receipts"
-                description={
-                  vaultAccess.needsVaultCreation
-                    ? "Create your vault first."
-                    : vaultAccess.needsUnlock
-                      ? "Unlock to review sync and receipts."
-                      : "Connection, sync, and receipts."
-                }
-                trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-                chevron
-                stackTrailingOnMobile
-                onClick={openGmailPanel}
-              />
-              <SettingsRow
-                icon={ClipboardCheck}
-                title="Email"
-                description={
-                  vaultAccess.needsVaultCreation
-                    ? "Create your vault first."
-                    : vaultAccess.needsUnlock
-                      ? "Unlock to review email requests."
-                      : "Requests and approval drafts."
-                }
-                trailing={<Badge variant="secondary">Preview</Badge>}
-                chevron
-                stackTrailingOnMobile
-                onClick={() => {
-                  if (vaultAccess.needsVaultCreation) {
-                    setShowVaultCreation(true);
-                    return;
-                  }
-                  router.push(ROUTES.ONE_KYC);
-                }}
-              />
-            </SettingsGroup>
-
             <SettingsGroup title="Settings">
               <SettingsRow
                 icon={KeyRound}
@@ -3991,7 +4266,7 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={RefreshCw}
                 title="Preferences"
-                description="Theme, Kai, and device behavior."
+                description="Theme and device behavior."
                 chevron
                 onClick={openPreferencesPanel}
               />
@@ -4032,17 +4307,6 @@ function ProfilePageContent() {
                 tone="destructive"
                 chevron
                 onClick={() => void handleSignOut()}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup>
-              <SettingsRow
-                icon={Trash2}
-                title="Delete account"
-                description="Permanently delete your account and all data."
-                tone="destructive"
-                chevron
-                onClick={() => void handleDeleteClick()}
               />
             </SettingsGroup>
           </div>
@@ -4151,6 +4415,8 @@ function ProfilePageContent() {
                 inputMode="numeric"
                 placeholder="Enter license or CRD number"
                 disabled={refreshingRegulatoryProfile}
+                spellCheck={false}
+                autoComplete="off"
               />
             </label>
 
@@ -4163,6 +4429,8 @@ function ProfilePageContent() {
                 onChange={(event) => setRegulatoryRegulator(event.target.value)}
                 placeholder="SEC"
                 disabled={refreshingRegulatoryProfile}
+                spellCheck={false}
+                autoComplete="off"
               />
             </label>
 
@@ -4223,12 +4491,14 @@ function ProfilePageContent() {
             <Input
               type="password"
               placeholder="New passphrase (min 8 characters)"
+              autoComplete="new-password"
               value={newPassphrase}
               onChange={(event) => setNewPassphrase(event.target.value)}
             />
             <Input
               type="password"
               placeholder="Confirm passphrase"
+              autoComplete="new-password"
               value={confirmPassphrase}
               onChange={(event) => setConfirmPassphrase(event.target.value)}
             />
@@ -4345,7 +4615,7 @@ function ProfilePageContent() {
             </AlertDialogCancel>
             <AlertDialogAction
               variant="default"
-              className="app-critical-action w-full opacity-90 transition-opacity hover:opacity-100 sm:w-auto"
+              className="app-critical-action min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight opacity-90 transition-opacity hover:opacity-100 sm:w-auto sm:min-w-[12rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleDeleteAccount();

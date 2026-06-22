@@ -13,6 +13,7 @@ This ensures consistent consent-first architecture throughout the system.
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -21,6 +22,7 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.consent_schemas import ConsentExpiredError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -129,6 +131,23 @@ def _expected_connector_key_id(metadata: dict | None) -> str:
 
 def _expected_connector_wrapping_alg(metadata: dict | None) -> str:
     return _clean_text((metadata or {}).get("connector_wrapping_alg")) or _CONNECTOR_WRAPPING_ALG
+
+
+def _resolve_approval_expiry_hours(
+    *,
+    metadata: dict | None,
+    requested_duration_hours: int | None,
+    is_developer_request: bool,
+) -> int:
+    try:
+        requested_expiry_hours = int((metadata or {}).get("expiry_hours", 24))
+    except (TypeError, ValueError):
+        requested_expiry_hours = 24
+    expiry_hours = requested_expiry_hours
+    if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
+        max_duration_hours = requested_expiry_hours if is_developer_request else 24 * 365
+        expiry_hours = min(requested_duration_hours, max_duration_hours)
+    return expiry_hours
 
 
 def _build_verified_wrapped_key_bundle(
@@ -299,7 +318,7 @@ class RelationshipDisconnectRequest(BaseModel):
 class RefreshExportUploadRequest(BaseModel):
     userId: str = Field(min_length=1, max_length=128)
     consentToken: str = Field(min_length=1, max_length=2048)
-    encryptedData: str = Field(min_length=1)
+    encryptedData: str = Field(min_length=1, max_length=10_000_000)
     encryptedIv: str = Field(min_length=1, max_length=256)
     encryptedTag: str = Field(min_length=1, max_length=256)
     wrappedExportKey: str = Field(min_length=1, max_length=8192)
@@ -320,7 +339,7 @@ class RefreshExportFailureRequest(BaseModel):
 
 @router.get("/pending")
 async def get_pending_consents(
-    userId: str = Query(..., max_length=128),
+    userId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -386,10 +405,15 @@ async def lookup_pending_consents(
         raise HTTPException(status_code=400, detail="At most 25 request ids can be looked up.")
 
     service = ConsentDBService()
+    owned_identifiers = await _owned_consent_identifiers(userId)
     items = []
     missing_request_ids = []
     for request_id_value in request_ids:
-        pending = await service.get_pending_by_request_id(userId, request_id_value)
+        pending = await service.get_pending_by_request_id(
+            userId,
+            request_id_value,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
         if pending:
             items.append(pending)
         else:
@@ -454,6 +478,28 @@ class ConsentApprovalPayload(BaseModel):
 
     userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
     requestId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
+
+    # Temporal expiry guard — rejects payloads whose approval window has closed.
+    # Prevents stale consent replay.  Integrated by Abdul Gaffar — canonical
+    # temporal-consent boundary (hushh_mcp/consent/consent_schemas.py).
+    expiresAt: datetime | None = Field(
+        default=None,
+        description=(
+            "UTC datetime after which this approval payload is rejected. "
+            "Stale payloads are refused before any DB or token logic runs. "
+            "[Temporal Governance by Abdul Gaffar]"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_not_expired(self) -> "ConsentApprovalPayload":
+        if self.expiresAt is not None:
+            dt = self.expiresAt
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > dt:
+                raise ConsentExpiredError(dt)
+        return self
 
     agent_id: str | None = Field(
         default=None,
@@ -571,8 +617,8 @@ async def approve_consent(
     try:
         _consent_scope = resolve_scope_to_enum(requested_scope)
     except Exception as e:
-        logger.error("consent.scope_resolution_failed: %s", e)
-        raise HTTPException(status_code=400, detail=f"Invalid scope: {requested_scope}")
+        logger.error("consent.scope_resolution_failed scope=%r: %s", requested_scope, e)
+        raise HTTPException(status_code=400, detail="Invalid consent scope")
 
     # Optional metadata on pending request (used for expiry hints)
     metadata = pending_request.get("metadata", {})
@@ -592,9 +638,11 @@ async def approve_consent(
             )
         )
     )
-    expiry_hours = metadata.get("expiry_hours", 24)
-    if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
-        expiry_hours = min(requested_duration_hours, 24 * 365)
+    expiry_hours = _resolve_approval_expiry_hours(
+        metadata=metadata if isinstance(metadata, dict) else None,
+        requested_duration_hours=requested_duration_hours,
+        is_developer_request=is_developer_request,
+    )
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -714,20 +762,13 @@ async def approve_consent(
             else "superset",
         }
 
-    # CRITICAL FIX: Pass original scope STRING to issue_token, not enum
-    # This ensures token contains 'attr.financial.*' not 'pkm.read'
-    # The enum was validated above, but the token must preserve the exact scope
-    token = issue_token(
-        user_id=userId,
-        # Keep token agent_id aligned with consent_audit agent_id so DB revocation
-        # checks are deterministic across instances.
-        agent_id=pending_request["developer"],
-        scope=requested_scope,  # ✅ Pass string, not enum
-        expires_in_ms=expiry_hours * 60 * 60 * 1000,
-    )
+    # SECURITY: Validate the export payload BEFORE issuing a token.  If we
+    # issued the token first and a validation or storage step then raised an
+    # HTTP exception, a cryptographically valid token would already exist but
+    # would have no DB audit record and no way to revoke it.  All validation
+    # must complete successfully before any token string is materialised.
 
-    # Store encrypted export linked to token
-    # Persist to database for cross-instance consistency
+    # Build the wrapped key bundle (validation-only, no side effects yet)
     wrapped_key_bundle = None
     if connector_public_key:
         wrapped_key_bundle = _build_verified_wrapped_key_bundle(
@@ -758,6 +799,18 @@ async def approve_consent(
             encrypted_iv=encryptedIv,
             encrypted_tag=encryptedTag,
         )
+
+    # All validation passed - now safe to issue the token.  Scope is passed as
+    # the original string (not the enum) so that 'attr.financial.*' is preserved
+    # verbatim in the signed payload rather than being collapsed to 'pkm.read'.
+    token = issue_token(
+        user_id=userId,
+        # Keep agent_id aligned with consent_audit so DB revocation checks are
+        # deterministic across Cloud Run instances.
+        agent_id=pending_request["developer"],
+        scope=requested_scope,
+        expires_in_ms=expiry_hours * 60 * 60 * 1000,
+    )
 
     if encryptedData and wrapped_key_bundle:
         payload_data, payload_iv, payload_tag = encrypted_export_payload or (
@@ -806,6 +859,7 @@ async def approve_consent(
         logger.info("   Stored encrypted export for token (DB + cache)")
 
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    granted_event_metadata["approved_duration_hours"] = expiry_hours
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
     if subject_user_id != userId:
@@ -894,8 +948,8 @@ async def approve_consent(
 
 @router.post("/pending/deny")
 async def deny_consent(
-    requestId: str,
-    userId: str = Query(..., max_length=128),
+    userId: str = Query(..., min_length=1, max_length=128),
+    requestId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -1008,8 +1062,8 @@ async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth))
 
 @router.get("/center/summary")
 async def get_consent_center_summary(
-    actor: str = Query(default="investor"),
-    mode: str = Query(default="consents"),
+    actor: str | None = Query(default=None, max_length=50),
+    mode: str = Query(default="consents", max_length=50),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
@@ -1018,12 +1072,12 @@ async def get_consent_center_summary(
 
 @router.get("/center/list")
 async def get_consent_center_list(
-    actor: str = Query(default="investor"),
-    surface: str = Query(default="pending"),
-    mode: str = Query(default="consents"),
-    q: str | None = Query(default=None),
+    actor: str | None = Query(default=None, max_length=50),
+    surface: str = Query(default="pending", max_length=50),
+    mode: str = Query(default="consents", max_length=50),
+    q: str | None = Query(default=None, max_length=200),
     top: int | None = Query(default=None, ge=1, le=10),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -1082,8 +1136,8 @@ async def create_generic_consent_request(
 @router.get("/handshake/history")
 async def get_handshake_history(
     counterpart_id: str = Query(..., min_length=1, max_length=128),
-    actor: str = Query(default="investor"),
-    page: int = Query(default=1, ge=1),
+    actor: str = Query(default="investor", max_length=50),
+    page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=50, ge=1, le=200),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -1276,7 +1330,7 @@ async def revoke_consent(
 
         if not token_to_revoke:
             raise HTTPException(
-                status_code=404, detail=f"No active consent found for scope: {scope}"
+                status_code=404, detail="No active consent found for the requested scope"
             )
 
         # CRITICAL: Add the actual token to in-memory revocation set
@@ -1345,7 +1399,7 @@ async def revoke_consent(
 @router.get("/data")
 async def get_consent_export_data(
     request: Request,
-    consent_token: str | None = Query(default=None),
+    consent_token: str | None = Query(default=None, max_length=500),
 ):
     """
     Retrieve encrypted export data for a consent token (Zero-Knowledge).
@@ -1508,9 +1562,10 @@ async def upload_refreshed_export(
 
     valid, reason, token_obj = await validate_token_with_db(request.consentToken)
     if not valid or token_obj is None:
+        logger.warning("consent.export_refresh.token_invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid consent token for export refresh: {reason or 'unknown'}",
+            detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if str(token_obj.user_id) != request.userId:

@@ -344,6 +344,13 @@ function inferActionIdFromTranscript(transcript: string): InvestorKaiActionId | 
   if (/\b(open|show|go to|take me to)\b.*\bgmail\b/.test(text)) {
     return "route.profile_gmail_panel";
   }
+  if (
+    /\b(open|show|go to|take me to)\b.*\b(connected systems?|external crms?|salesforce crm|mulesoft)\b/.test(
+      text
+    )
+  ) {
+    return "route.profile_connected_systems";
+  }
   if (/\b(open|show|go to|take me to)\b.*\b(pkm|pkm agent lab|memory lab)\b/.test(text)) {
     return "route.profile_pkm_agent_lab";
   }

@@ -217,6 +217,7 @@ class MainActivity : BridgeActivity() {
                       root.setAttribute("data-hushh-native-test-expected-route", uiFlowsOwnRouting ? "" : (bridge.expectedRoute || ""));
                       root.setAttribute("data-hushh-native-test-run-ui-flows", bridge.runUiFlows ? "true" : "false");
                     }
+                    window.dispatchEvent(new CustomEvent("hushh:native-test-config-updated"));
                   } catch (_) {}
                   try {
                     if (!bridge._androidErrorListenersInstalled) {

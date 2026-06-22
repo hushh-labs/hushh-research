@@ -11,11 +11,11 @@ import os
 import secrets
 from datetime import datetime, timezone
 from time import time
-from typing import Any
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
@@ -34,6 +34,9 @@ from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Bounded path-parameter alias (CWE-400: uncontrolled resource consumption).
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
 
 HOME_FRESH_TTL_SECONDS = 600
 HOME_STALE_TTL_SECONDS = 1800
@@ -1667,7 +1670,12 @@ async def _market_refresh_loop() -> None:
     interval = _market_refresh_interval_seconds()
     logger.info("[Kai Market] background refresh loop started (interval=%ss)", interval)
     while True:
-        await _run_refresh_with_advisory_lock()
+        try:
+            await _run_refresh_with_advisory_lock()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[Kai Market] background refresh cycle failed, will retry: %s", exc)
         jitter_max = max(5.0, interval * 0.12)
         jitter_ms = int(jitter_max * 1000)
         cycle_jitter = (secrets.randbelow(jitter_ms + 1) / 1000.0) if jitter_ms > 0 else 0.0
@@ -2542,7 +2550,7 @@ async def _get_market_insights_payload(
 
 @router.get("/market/insights/baseline/{user_id}")
 async def get_market_insights_baseline(
-    user_id: str,
+    user_id: _UserId,
     days_back: int = Query(default=7, ge=1, le=14),
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
@@ -2566,11 +2574,14 @@ async def get_market_insights_baseline(
 
 @router.get("/market/insights/{user_id}")
 async def get_market_insights(
-    user_id: str,
-    symbols: str | None = Query(default=None, description="CSV list of symbols, max 8"),
+    user_id: _UserId,
+    symbols: str | None = Query(
+        default=None, max_length=512, description="CSV list of symbols, max 8"
+    ),
     days_back: int = Query(default=7, ge=1, le=14),
     pick_source: str | None = Query(
         default=None,
+        max_length=256,
         description="Active market picks source. Only the default source is live today.",
     ),
     token_data: dict = Depends(require_vault_owner_token),
@@ -2624,9 +2635,9 @@ async def get_market_insights(
 
 @router.get("/stock-preview/{user_id}")
 async def get_stock_preview(
-    user_id: str,
-    symbol: str = Query(..., min_length=1, description="Ticker symbol"),
-    pick_source: str | None = Query(default=None),
+    user_id: _UserId,
+    symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbol"),
+    pick_source: str | None = Query(default=None, max_length=256),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
