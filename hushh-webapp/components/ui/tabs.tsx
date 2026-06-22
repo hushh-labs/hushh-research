@@ -80,7 +80,7 @@ function TabsTrigger({
       )}
       {...props}
     >
-      <span className="relative z-10 inline-flex max-w-full flex-wrap items-center justify-center gap-1.5 text-center leading-tight">
+      <span className="relative z-10 inline-flex min-w-0 max-w-full flex-nowrap items-center justify-center gap-1.5 text-center leading-tight">
         {children}
       </span>
       <MaterialRipple variant="none" effect="fade" className="z-0" />

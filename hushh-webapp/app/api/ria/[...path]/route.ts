@@ -13,6 +13,9 @@ const DEFAULT_PROXY_TIMEOUT_MS = 12_000;
 const ONBOARDING_PROXY_TIMEOUT_MS = Number(
   process.env.RIA_ONBOARDING_PROXY_TIMEOUT_MS || 90_000,
 );
+const RIA_DASHBOARD_PROXY_TIMEOUT_MS = Number(
+  process.env.RIA_DASHBOARD_PROXY_TIMEOUT_MS || 90_000,
+);
 const hotGetCache = new Map<
   string,
   { status: number; payload: unknown; cachedAt: number }
@@ -48,6 +51,12 @@ function writeHotGetCache(
 }
 
 function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
+  if (method === "GET" && path === "onboarding/status") {
+    return ONBOARDING_PROXY_TIMEOUT_MS;
+  }
+  if (method === "GET" && (path === "home" || path === "clients")) {
+    return RIA_DASHBOARD_PROXY_TIMEOUT_MS;
+  }
   if (
     method === "POST" &&
     (path.startsWith("onboarding/submit") ||
@@ -58,6 +67,10 @@ function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
     return ONBOARDING_PROXY_TIMEOUT_MS;
   }
   return DEFAULT_PROXY_TIMEOUT_MS;
+}
+
+function isHotGetPath(path: string): boolean {
+  return path === "onboarding/status" || path === "home" || path === "clients";
 }
 
 function isTimeoutError(error: unknown): boolean {
@@ -93,8 +106,8 @@ async function proxyRequest(
 
   const authHeader = request.headers.get("authorization") || "";
   const hotCacheKey =
-    method === "GET" && path === "onboarding/status" && authHeader
-      ? `${path}:${authHeader}`
+    method === "GET" && isHotGetPath(path) && authHeader
+      ? `${path}${query}:${authHeader}`
       : null;
   const headers = createUpstreamHeaders(requestId, {
     ...(authHeader ? { Authorization: authHeader } : {}),

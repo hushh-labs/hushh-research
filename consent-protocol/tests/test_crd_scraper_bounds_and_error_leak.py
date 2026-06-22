@@ -6,6 +6,7 @@ arbitrarily long strings to be forwarded to the upstream provider.
 CWE-209: ValueError from the provider was forwarded verbatim to the client via
 str(exc), potentially disclosing internal implementation details.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -89,4 +90,7 @@ class TestValueErrorDoesNotLeak:
     def test_source_does_not_use_str_exc_for_value_error(self) -> None:
         source = inspect.getsource(crd_scraper)
         # The ValueError handler must not forward str(exc) to the client
-        assert "detail=str(exc)" not in source or "ValueError" not in source.split("detail=str(exc)")[0].split("except")[-1]
+        assert (
+            "detail=str(exc)" not in source
+            or "ValueError" not in source.split("detail=str(exc)")[0].split("except")[-1]
+        )

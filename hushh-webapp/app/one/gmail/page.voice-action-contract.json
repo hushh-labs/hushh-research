@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
-  "surface_id": "profile_receipts",
-  "surface_title": "Profile Receipts",
+  "surface_id": "gmail",
+  "surface_title": "Gmail",
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md"
   ],
@@ -28,14 +28,14 @@
       ],
       "reachability": {
         "routes": [
-          "/profile/receipts"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_receipts"
+          "gmail"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "navigate to profile surface if route is currently outside profile scope"
+          "navigate to Gmail surface if route is currently outside Gmail scope"
         ]
       },
       "guard_ids": [],
@@ -44,12 +44,12 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/profile/receipts"
+        "target": "/one/gmail"
       },
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/receipts/page.tsx"
+        "app/gmail/page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [
@@ -129,11 +129,11 @@
       ],
       "reachability": {
         "routes": [
-          "/profile/receipts",
+          "/one/gmail",
           "/profile?panel=gmail"
         ],
         "screens": [
-          "profile_receipts",
+          "gmail",
           "profile_gmail_panel"
         ],
         "hidden_navigable": false,
@@ -155,7 +155,7 @@
       "state_exposure": [],
       "docs_references": [
         "app/profile/page.tsx",
-        "app/profile/receipts/page.tsx"
+        "app/gmail/page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [
@@ -185,10 +185,10 @@
       ],
       "reachability": {
         "routes": [
-          "/profile/receipts"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_receipts"
+          "gmail"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -206,7 +206,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/receipts/page.tsx"
+        "app/gmail/page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [
@@ -231,10 +231,10 @@
       ],
       "reachability": {
         "routes": [
-          "/profile/receipts"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_receipts"
+          "gmail"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -257,7 +257,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/receipts/page.tsx"
+        "app/gmail/page.tsx"
       ],
       "speaker_persona": "one"
     },

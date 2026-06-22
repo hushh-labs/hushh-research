@@ -48,6 +48,4 @@ def test_parser_no_utcnow():
 
 def test_parser_parsed_at_uses_utc():
     src = _PARSER.read_text()
-    assert re.search(r"datetime\.now\(UTC\)", src), (
-        "parsed_at must use datetime.now(UTC)"
-    )
+    assert re.search(r"datetime\.now\(UTC\)", src), "parsed_at must use datetime.now(UTC)"

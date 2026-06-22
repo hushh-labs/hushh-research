@@ -79,9 +79,7 @@ class TestTokenLogFingerprint:
         from unittest.mock import MagicMock, patch
 
         with caplog.at_level(logging.INFO, logger="hushh_mcp.services.consent_db"):
-            with patch(
-                "hushh_mcp.services.consent_db.ConsentDBService._get_supabase"
-            ) as mock_sb:
+            with patch("hushh_mcp.services.consent_db.ConsentDBService._get_supabase") as mock_sb:
                 mock_sb.return_value = MagicMock()
                 import asyncio
 

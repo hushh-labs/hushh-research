@@ -19,8 +19,8 @@ Core commands:
   doctor --mode <local|uat|prod> [--json]
   stack --mode <local|uat|prod> [-- <next-dev args>]
   terminal <stack|web|backend> [...]
-  web [--mode <local|uat|prod>] [-- <next-dev args>]
-  backend [--mode local] [--reload|--no-reload]
+  web [--mode <local|uat|prod|offline>] [-- <next-dev args>]
+  backend [--mode <local|offline>] [--reload|--no-reload]
   compose <init|up|down|nuke|logs|ps|config|health>
   native <ios|android> [--mode <local|uat|prod>] [--fresh]
   native mac <build|run|test>
@@ -250,7 +250,7 @@ EOF
           -h|--help)
             cat <<'EOF'
 Usage:
-  ./bin/hushh terminal backend [--mode local] [--reload|--no-reload]
+  ./bin/hushh terminal backend [--mode <local|offline>] [--reload|--no-reload]
 EOF
             exit 0
             ;;
@@ -833,7 +833,7 @@ EOF
         -h|--help)
           cat <<'EOF'
 Usage:
-  ./bin/hushh backend [--mode local] [--reload|--no-reload]
+  ./bin/hushh backend [--mode <local|offline>] [--reload|--no-reload]
 EOF
           exit 0
           ;;
@@ -842,6 +842,10 @@ EOF
           ;;
       esac
     done
+    # ── Offline mode routes to its own runtime script ──
+    if [ "$mode" = "offline" ]; then
+      exec bash "$REPO_ROOT/scripts/runtime/run_backend_offline.sh" "${extra[@]}"
+    fi
     if [ "${#extra[@]}" -gt 0 ]; then
       exec bash "$REPO_ROOT/scripts/runtime/run_backend_local.sh" "$mode" "${extra[@]}"
     fi
