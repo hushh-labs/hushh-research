@@ -145,6 +145,7 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
+  id,
   testId = "page-header",
 }: {
   eyebrow?: string;
@@ -157,11 +158,13 @@ export function PageHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  id?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
     <header
+      id={id}
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-slot="page-header"
       data-page-primary="true"
@@ -191,14 +194,15 @@ export function PageHeader({
               {eyebrow ? (
                 <p
                   className={cn(
-                    "text-xs font-semibold uppercase tracking-[0.24em]",
+                    "text-xs font-medium uppercase tracking-[0.16em]",
                     styles.eyebrow
                   )}
+                  data-slot="page-header-eyebrow"
                 >
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
+              <h1 className="text-[28px] font-medium tracking-normal leading-[1.08] text-foreground sm:text-[34px]">
                 {title}
               </h1>
               {description && !descriptionFullWidth ? (
@@ -232,7 +236,7 @@ export function PageHeader({
           {description}
         </div>
       ) : null}
-      <div className={cn("h-px w-full", styles.divider)} />
+      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </header>
   );
 }
@@ -247,6 +251,7 @@ export function SectionHeader({
   accent = "default",
   className,
   testId = "section-header",
+  id,
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -257,10 +262,15 @@ export function SectionHeader({
   accent?: SectionAccent;
   className?: string;
   testId?: string;
+  id?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
-    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)} data-testid={testId}>
+    <div
+      id={id}
+      className={cn("space-y-[var(--section-header-stack-gap)]", className)}
+      data-testid={testId}
+    >
       <div className="flex items-stretch gap-3">
         {icon || leading ? (
           <HeaderLeading
@@ -280,14 +290,14 @@ export function SectionHeader({
           >
             <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
               {eyebrow ? (
-                <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
+                <p className={cn("text-xs font-medium uppercase tracking-[0.16em]", styles.eyebrow)}>
                   {eyebrow}
                 </p>
               ) : null}
               <div
                 role="heading"
                 aria-level={2}
-                className="text-[15px] font-semibold leading-tight tracking-tight text-foreground sm:text-[16px]"
+                className="text-[15px] font-medium leading-tight tracking-normal text-foreground sm:text-[16px]"
               >
                 {title}
               </div>
@@ -311,7 +321,7 @@ export function SectionHeader({
           </div>
         </div>
       </div>
-      <div className={cn("h-px w-full", styles.divider)} />
+      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </div>
   );
 }

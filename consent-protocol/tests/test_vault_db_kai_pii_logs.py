@@ -7,6 +7,7 @@ emit plaintext user_id values in application logs (CWE-532).
 Tests exercise real call sites with mocked external dependencies so that
 captured log messages reflect actual logger invocations in production code.
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,7 +66,7 @@ def test_storage_store_trust_link_failure_no_user_id(captured):
                 session_id="sess_1",
                 decision_card={"ticker": _TICKER},
                 vault_key_hex="dead" * 16,
-                consent_token="HCT:fake"  # noqa: S106,
+                consent_token="HCT:fake",  # noqa: S106,
             )
 
     _assert_no_user_id(captured.messages)
@@ -84,7 +85,7 @@ def test_storage_retrieve_trust_link_failure_no_user_id(captured):
                 encrypted_payload=MagicMock(),
                 user_id=_USER_ID,
                 vault_key_hex="dead" * 16,
-                consent_token="HCT:fake"  # noqa: S106,
+                consent_token="HCT:fake",  # noqa: S106,
             )
 
     _assert_no_user_id(captured.messages)
@@ -103,7 +104,7 @@ def test_storage_retrieve_success_no_user_id(captured):
             encrypted_payload=MagicMock(),
             user_id=_USER_ID,
             vault_key_hex="dead" * 16,
-            consent_token="HCT:fake"  # noqa: S106,
+            consent_token="HCT:fake",  # noqa: S106,
         )
 
     assert result == {"ticker": "AAPL"}
@@ -129,7 +130,7 @@ def test_analysis_fundamentals_no_user_id(captured):
             user_id=_USER_ID,
             ticker=_TICKER,
             sec_filings={"facts": {}},
-            consent_token="HCT:fake"  # noqa: S106,
+            consent_token="HCT:fake",  # noqa: S106,
         )
 
     _assert_no_user_id(captured.messages)

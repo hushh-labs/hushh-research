@@ -481,14 +481,35 @@ class KaiPlugin : Plugin() {
         }
 
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/kai/analyze/stream"
-        val bodyStr = bodyObj.toString()
-        val requestBody = bodyStr.toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
-            .url(url)
-            .post(requestBody)
-            .addHeader("Authorization", "Bearer $vaultOwnerToken")
-            .build()
+        val runId = bodyObj.optString("run_id", "").trim()
+        val request =
+            if (runId.isNotEmpty()) {
+                val userId = bodyObj.optString("user_id", "").trim()
+                if (userId.isEmpty()) {
+                    call.reject("Missing user_id for run stream")
+                    return
+                }
+                val cursor = maxOf(0, bodyObj.optInt("resume_cursor", 0))
+                val encodedRunId = URLEncoder.encode(runId, "UTF-8")
+                val encodedUserId = URLEncoder.encode(userId, "UTF-8")
+                val url =
+                    "$backendUrl/api/kai/analyze/run/$encodedRunId/stream?user_id=$encodedUserId&cursor=$cursor"
+                Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Authorization", "Bearer $vaultOwnerToken")
+                    .addHeader("Accept", "text/event-stream")
+                    .build()
+            } else {
+                val url = "$backendUrl/api/kai/analyze/stream"
+                val bodyStr = bodyObj.toString()
+                val requestBody = bodyStr.toRequestBody("application/json".toMediaType())
+                Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .addHeader("Authorization", "Bearer $vaultOwnerToken")
+                    .build()
+            }
 
         val pluginCall = call
         Thread {

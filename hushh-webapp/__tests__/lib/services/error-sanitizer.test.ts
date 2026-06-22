@@ -164,6 +164,26 @@ describe("sanitizeErrorMessage — error category classification", () => {
       sanitizeErrorMessage(err("unknown"), undefined).isClientError
     ).toBe(false);
   });
+    it("omits debug information outside development mode", () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+
+    const error = new Error("Hidden production detail");
+    const response = formatErrorResponse(error, 500);
+
+    expect(response.debug).toBeUndefined();
+
+    process.env.NODE_ENV = originalEnv;
+  });
+      it("does not extract error codes with surrounding whitespace", () => {
+    const error = new Error(
+      "   VAULT_REQUIRED: Please unlock your vault first   "
+    );
+
+    const code = extractErrorCode(error);
+
+    expect(code).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -398,6 +418,10 @@ describe("getErrorMessage", () => {
 
   it("stringifies null", () => {
     expect(getErrorMessage(null)).toBe("null");
+  });
+
+  it("stringifies undefined", () => {
+    expect(getErrorMessage(undefined)).toBe("undefined");
   });
 
   it("stringifies objects via String()", () => {

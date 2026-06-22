@@ -146,8 +146,9 @@ export function HandshakeTimeline({
 
   if (loading) {
     return (
-      <div className={cn("flex items-center justify-center py-8", className)}>
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      <div className={cn("flex items-center justify-center py-8", className)} role="status">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+        <span className="sr-only">Loading timeline...</span>
       </div>
     );
   }

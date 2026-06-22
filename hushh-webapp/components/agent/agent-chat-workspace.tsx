@@ -7,16 +7,27 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
-  BriefcaseBusiness,
   ChevronDown,
+  Check,
+  Copy,
+  KeyRound,
+  LogIn,
+  Menu,
   Mic,
+  RotateCcw,
   Send,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   UserRound,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -27,6 +38,10 @@ import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  resolveAgentWelcomeSuggestions,
+  type AgentWelcomeSuggestion,
+} from "@/lib/agent/agent-welcome-suggestions";
 import {
   executeAgentGatewayAction,
   type AgentActionRuntimeResult,
@@ -76,6 +91,7 @@ import {
   type AgentChatToolEvent,
 } from "@/lib/services/agent-chat-client";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
@@ -119,12 +135,19 @@ type AgentVoiceTranscriptReview = {
 };
 
 type AgentTurnSource = "typed" | "voice";
+type AgentRunTurnOptions = {
+  source: AgentTurnSource;
+  appendUserMessage?: boolean;
+  replaceAssistantMessageId?: string | null;
+};
 
 export type AgentChatWorkspaceVariant = "page" | "popover";
 
 type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
+  windowControls?: ReactNode;
+  freshOpenKey?: number;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
 };
@@ -140,9 +163,11 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   updatedAt: null,
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
-const VOICE_PKM_CONTEXT_DEADLINE_MS = 1_800;
+const VOICE_PKM_CONTEXT_DEADLINE_MS = 650;
 const VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS = 25_000;
 const VOICE_AGENT_IDLE_TIMEOUT_MS = 45_000;
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const EXPLICIT_PKM_SAVE_PATTERN =
   /\b(?:add|save|store|remember)\b[\s\S]{0,140}\b(?:pkm|personal knowledge|memory|memories)\b|\b(?:add|save|store|remember)\s+(?:this|that)\b/i;
@@ -187,6 +212,113 @@ function createGreetingMessage(): AgentMessage {
   };
 }
 
+function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) =>
+      !element.hasAttribute("disabled") &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      element.offsetParent !== null
+  );
+}
+
+function trapFocusWithin(event: ReactKeyboardEvent, container: HTMLElement | null): void {
+  if (event.key !== "Tab") return;
+  const focusable = getFocusableElements(container);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0]!;
+  const last = focusable[focusable.length - 1]!;
+  const active = document.activeElement;
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function formatAgentDisplayName(displayName?: string | null, email?: string | null): string {
+  const rawName = displayName?.trim() || email?.split("@")[0]?.trim() || "";
+  const firstName = rawName
+    .replace(/[._-]+/g, " ")
+    .split(/\s+/)
+    .find(Boolean);
+  if (!firstName) return "there";
+  return firstName.charAt(0).toUpperCase() + firstName.slice(1);
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function AgentWelcomePanel({
+  name,
+  suggestions,
+  disabled,
+  onPromptSelect,
+}: {
+  name: string;
+  suggestions: AgentWelcomeSuggestion[];
+  disabled: boolean;
+  onPromptSelect: (prompt: string) => void;
+}) {
+  return (
+    <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          Kai workspace
+        </div>
+        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
+          Hi {name}
+        </h2>
+        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
+          Ask Agent about your markets, portfolio, memories, or Hushh workflows.
+        </p>
+        <div className="mt-8 grid gap-3 sm:grid-cols-3">
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onPromptSelect(suggestion.prompt)}
+              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+            >
+              <span className="block leading-5">{suggestion.label}</span>
+              <span className="mt-2 block line-clamp-2 text-[11px] font-normal leading-4 text-muted-foreground">
+                {suggestion.prompt}
+              </span>
+              <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AgentMarkdown({ text }: { text: string }) {
   return (
     <div className="agent-markdown min-w-0 break-words">
@@ -227,7 +359,7 @@ function AgentMarkdown({ text }: { text: string }) {
             <a
               href={href || "#"}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
               {children}
@@ -364,35 +496,64 @@ function AgentThinkingDots() {
   );
 }
 
-function AgentBubble({ message }: { message: AgentMessage }) {
+function AgentBubble({
+  message,
+  onRetry,
+  retryDisabled = false,
+}: {
+  message: AgentMessage;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [disliked, setDisliked] = useState(false);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const showStreamingAffordance = !isUser && animated.isAnimating;
+  const showResponseActions =
+    !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
+
+  const handleCopy = async () => {
+    try {
+      await copyTextToClipboard(message.text || assistantText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      toast.error("Could not copy response.");
+    }
+  };
 
   return (
     <div
       className={cn(
-        "flex gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
+        "flex w-full gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
         isUser ? "justify-end" : "justify-start"
       )}
     >
       {!isUser ? (
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-          <Bot className="h-4 w-4" />
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
+          <Bot className="h-3.5 w-3.5" />
         </div>
       ) : null}
-      <div className={cn("max-w-[78%]", isUser && "order-first")}>
+      <div
+        className={cn(
+          "min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]",
+          isUser && "order-first sm:max-w-[min(76%,42rem)]"
+        )}
+      >
         <div
           aria-live={!isUser && isStreaming ? "polite" : undefined}
           className={cn(
-            "rounded-lg px-4 py-3 text-sm leading-6 shadow-sm",
+            "text-sm leading-6",
             isUser
-              ? "bg-primary text-primary-foreground"
-              : "border border-border/70 bg-background text-foreground",
-            isError && "border-destructive/40 bg-destructive/10 text-destructive"
+              ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
+              : "px-0 py-1 text-foreground",
+            isError &&
+              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
           )}
         >
           {isUser ? (
@@ -411,13 +572,82 @@ function AgentBubble({ message }: { message: AgentMessage }) {
             />
           ) : null}
         </div>
-        <p className={cn("mt-1 text-xs text-muted-foreground", isUser && "text-right")}>
-          {message.timestamp}
-        </p>
+        <div
+          className={cn(
+            "mt-1 flex items-center gap-2 text-[11px] text-muted-foreground",
+            isUser && "justify-end text-right"
+          )}
+        >
+          <span>{message.timestamp}</span>
+          {showResponseActions ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                aria-label={copied ? "Response copied" : "Copy response"}
+                title={copied ? "Copied" : "Copy response"}
+              >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextLiked = !liked;
+                  setLiked(nextLiked);
+                  if (nextLiked) setDisliked(false);
+                }}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  liked
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+                )}
+                aria-label="Like response"
+                aria-pressed={liked}
+                title="Like response"
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextDisliked = !disliked;
+                  setDisliked(nextDisliked);
+                  if (nextDisliked) setLiked(false);
+                }}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  disliked
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+                )}
+                aria-label="Dislike response"
+                aria-pressed={disliked}
+                title="Dislike response"
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+              </button>
+              {onRetry ? (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={retryDisabled}
+                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label="Try again"
+                  title="Try again"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Try again</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
       {isUser ? (
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border/70 bg-background text-muted-foreground">
-          <UserRound className="h-4 w-4" />
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
+          <UserRound className="h-3.5 w-3.5" />
         </div>
       ) : null}
     </div>
@@ -473,6 +703,8 @@ function shouldMinimizeForNavigationResult(result: AgentActionRuntimeResult): bo
 export function AgentChatWorkspace({
   variant = "page",
   className,
+  windowControls,
+  freshOpenKey = 0,
   onMinimize,
   onNavigationActionComplete,
 }: AgentChatWorkspaceProps) {
@@ -504,7 +736,8 @@ export function AgentChatWorkspace({
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isHistorySidebarCollapsed, setIsHistorySidebarCollapsed] = useState(false);
+  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -525,6 +758,11 @@ export function AgentChatWorkspace({
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const historyDrawerRef = useRef<HTMLDivElement | null>(null);
+  const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const voiceTranscriptDialogRef = useRef<HTMLDivElement | null>(null);
+  const voiceTranscriptReturnFocusRef = useRef<HTMLElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const voiceSttAbortControllerRef = useRef<AbortController | null>(null);
@@ -737,6 +975,50 @@ export function AgentChatWorkspace({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pkmReviews]);
+
+  useEffect(() => {
+    const textarea = composerTextareaRef.current;
+    if (!textarea || voiceActive) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [input, voiceActive]);
+
+  useEffect(() => {
+    if (!isHistoryDrawerOpen) return;
+    historyDrawerReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsHistoryDrawerOpen(false);
+      }
+    };
+    window.requestAnimationFrame(() => {
+      getFocusableElements(historyDrawerRef.current)[0]?.focus();
+    });
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isHistoryDrawerOpen]);
+
+  useEffect(() => {
+    if (isHistoryDrawerOpen) return;
+    historyDrawerReturnFocusRef.current?.focus();
+    historyDrawerReturnFocusRef.current = null;
+  }, [isHistoryDrawerOpen]);
+
+  useEffect(() => {
+    if (!voiceTranscriptReview) return;
+    voiceTranscriptReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    window.requestAnimationFrame(() => {
+      const focusable = getFocusableElements(voiceTranscriptDialogRef.current);
+      const preferred = voiceTranscriptReview.transcript.trim() ? focusable.at(-1) : focusable[0];
+      preferred?.focus();
+    });
+    return () => {
+      voiceTranscriptReturnFocusRef.current?.focus();
+      voiceTranscriptReturnFocusRef.current = null;
+    };
+  }, [voiceTranscriptReview]);
 
   useEffect(() => {
     return () => {
@@ -982,6 +1264,19 @@ export function AgentChatWorkspace({
     ]
   );
 
+  const handleSidebarCreateNewChat = useCallback(() => {
+    setIsHistoryDrawerOpen(false);
+    handleCreateNewChat();
+  }, [handleCreateNewChat]);
+
+  const handleSidebarSelectConversation = useCallback(
+    (nextConversationId: string) => {
+      setIsHistoryDrawerOpen(false);
+      void handleSelectConversation(nextConversationId);
+    },
+    [handleSelectConversation]
+  );
+
   const handleRenameConversation = useCallback(
     async (targetConversationId: string, title: string) => {
       const token = getVaultOwnerToken();
@@ -1146,7 +1441,7 @@ export function AgentChatWorkspace({
 
   const runAgentTurn = async (
     textInput: string,
-    options: { source: AgentTurnSource } = { source: "typed" }
+    options: AgentRunTurnOptions = { source: "typed" }
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
@@ -1154,6 +1449,8 @@ export function AgentChatWorkspace({
     const userId = user.uid;
     const token = getVaultOwnerToken();
     const isVoiceTurn = options.source === "voice";
+    const appendUserMessage = options.appendUserMessage ?? true;
+    const voiceTurnEpoch = isVoiceTurn ? voiceSessionEpochRef.current : null;
     let voiceAssistantMarkdown = "";
     let voiceReceiptSpoken = false;
     const timestamp = formatNow();
@@ -1163,6 +1460,7 @@ export function AgentChatWorkspace({
     const executedToolCalls = new Set<string>();
     let toolStatusMessageId: string | null = null;
     let pkmStatusItemId: string | null = null;
+    let voiceTtsFailureReported = false;
     let assistantHasToken = false;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pkmAddToolHandled = false;
@@ -1182,9 +1480,20 @@ export function AgentChatWorkspace({
             return;
           }
           voiceTtsSpeakingRef.current = false;
-          voiceClientRef.current?.setCapturePaused(false);
-          if (voiceClientRef.current?.isActive) {
-            setAgentVoiceStatus(voiceClientRef.current.isMuted ? "muted" : "listening");
+          resumeAgentVoiceCapture(voiceTurnEpoch);
+        },
+        onError: (failure) => {
+          console.warn("[Agent voice] TTS failure", failure);
+          if (failure.stage === "fallback") {
+            if (!voiceTtsFailureReported) {
+              voiceTtsFailureReported = true;
+              addErrorMessage("Agent voice playback failed. The text response is still available.");
+            }
+            return;
+          }
+          if (!voiceTtsFailureReported) {
+            voiceTtsFailureReported = true;
+            toast.error("Agent voice audio failed. The text response is still available.");
           }
         },
       });
@@ -1241,6 +1550,10 @@ export function AgentChatWorkspace({
 
     const finishCanceledTurn = () => {
       flushAssistantDelta();
+      if (isVoiceTurn) {
+        voiceTtsQueueRef.current?.cancel();
+        voiceTtsSpeakingRef.current = false;
+      }
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.text || (isVoiceTurn ? "Voice turn canceled." : "Agent turn canceled."),
@@ -1627,23 +1940,33 @@ export function AgentChatWorkspace({
       }
     };
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: `msg-${turnId}-user`,
-        role: "user",
-        text,
-        timestamp,
-      },
-      {
-        id: assistantMessageId,
-        role: "assistant",
-        text: "",
-        timestamp,
-        status: "streaming",
-      },
-    ]);
-    if (options.source === "typed") {
+    const userMessage: AgentMessage = {
+      id: `msg-${turnId}-user`,
+      role: "user",
+      text,
+      timestamp,
+    };
+    const assistantMessage: AgentMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      timestamp,
+      status: "streaming",
+    };
+
+    setMessages((current) => {
+      if (options.replaceAssistantMessageId) {
+        let replaced = false;
+        const nextMessages = current.map((message) => {
+          if (message.id !== options.replaceAssistantMessageId) return message;
+          replaced = true;
+          return assistantMessage;
+        });
+        if (replaced) return nextMessages;
+      }
+      return [...current, ...(appendUserMessage ? [userMessage] : []), assistantMessage];
+    });
+    if (options.source === "typed" && appendUserMessage) {
       setInput("");
     }
     latestVisibleTurnIdRef.current = debugTurnId;
@@ -1691,6 +2014,7 @@ export function AgentChatWorkspace({
         text: current.text || message,
         status: "error",
       }));
+      voiceTtsQueueRef.current?.flushStream();
       voiceTtsQueueRef.current?.speakNow(message);
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -1851,6 +2175,7 @@ export function AgentChatWorkspace({
             flushAssistantDelta();
             if (isVoiceTurn) {
               voiceTtsQueueRef.current?.flushStream();
+              scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
             }
             if (nextConversationId) {
               setConversationId(nextConversationId);
@@ -1867,6 +2192,7 @@ export function AgentChatWorkspace({
             clearVoiceStreamWatchdog();
             flushAssistantDelta();
             if (isVoiceTurn) {
+              voiceTtsQueueRef.current?.flushStream();
               voiceTtsQueueRef.current?.speakNow(message);
             }
             updateMessage(assistantMessageId, (current) => ({
@@ -1891,6 +2217,7 @@ export function AgentChatWorkspace({
       flushAssistantDelta();
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
+        scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
       }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
@@ -1930,6 +2257,7 @@ export function AgentChatWorkspace({
         status: "error",
       }));
       if (isVoiceTurn) {
+        voiceTtsQueueRef.current?.flushStream();
         voiceTtsQueueRef.current?.speakNow(message);
       }
       void loadConversationList().catch(() => undefined);
@@ -1941,6 +2269,9 @@ export function AgentChatWorkspace({
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
       }
+      if (isVoiceTurn) {
+        scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
+      }
     }
   };
 
@@ -1949,10 +2280,25 @@ export function AgentChatWorkspace({
     await runAgentTurn(input, { source: "typed" });
   };
 
-  const setAgentVoiceStatus = (status: AgentVoiceStatus, message?: string | null) => {
+  const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
     setVoiceState(status);
     setGlobalVoiceStatus(status, message ?? null);
-  };
+  }, [setGlobalVoiceStatus]);
+
+  function resumeAgentVoiceCapture(expectedEpoch?: number | null) {
+    if (expectedEpoch !== undefined && expectedEpoch !== null) {
+      if (expectedEpoch !== voiceSessionEpochRef.current) return;
+    }
+    const client = voiceClientRef.current;
+    if (!client?.isActive || voiceTtsSpeakingRef.current) return;
+    if (voiceTtsQueueRef.current?.hasPendingSpeech) return;
+    client.setCapturePaused(false);
+    setAgentVoiceStatus(client.isMuted ? "muted" : "listening");
+  }
+
+  function scheduleAgentVoiceCaptureResume(expectedEpoch?: number | null) {
+    window.setTimeout(() => resumeAgentVoiceCapture(expectedEpoch), 0);
+  }
 
   const handleCancelVoice = useCallback(async () => {
     voiceSessionEpochRef.current += 1;
@@ -1975,13 +2321,18 @@ export function AgentChatWorkspace({
     if (!voiceClientRef.current?.isActive) return;
     void runAgentTurn(transcript, { source: "voice" }).finally(() => {
       voiceClientRef.current?.setMuted(false);
+      resumeAgentVoiceCapture();
     });
   };
 
-  const handleVoiceTranscriptRetry = () => {
+  const handleVoiceTranscriptRetry = useCallback(() => {
     setVoiceTranscriptReview(null);
-    voiceClientRef.current?.setMuted(false);
-  };
+    const client = voiceClientRef.current;
+    if (!client?.isActive) return;
+    client.setMuted(false);
+    client.setCapturePaused(false);
+    setAgentVoiceStatus("listening");
+  }, [setAgentVoiceStatus]);
 
   const handleToggleVoice = async () => {
     if (!agentVoiceEnabled) {
@@ -2024,19 +2375,57 @@ export function AgentChatWorkspace({
         onLevel: (level) => {
           setGlobalVoiceLevel(level);
         },
-        onUtterance: async ({ audio }) => {
+        onUtterance: async ({ audio, durationMs, nativeTranscript }) => {
           const voiceSessionEpoch = voiceSessionEpochRef.current;
           const sttAbortController = new AbortController();
           voiceSttAbortControllerRef.current?.abort();
           voiceSttAbortControllerRef.current = sttAbortController;
+          const sttStartedAt = performance.now();
           setAgentVoiceStatus("transcribing");
           try {
-            const result = await transcribeAgentVoice({
-              userId: user.uid,
-              vaultOwnerToken: token,
-              audio,
-              signal: sttAbortController.signal,
-              timeoutMs: AGENT_VOICE_STT_TIMEOUT_MS,
+            const nativeCandidate = nativeTranscript?.transcript.trim()
+              ? nativeTranscript
+              : null;
+            let transcriptionSource:
+              | "browser_native"
+              | "backend_gemini"
+              | "browser_native_uncertain"
+              | "empty" = "empty";
+            let result = nativeCandidate && !nativeCandidate.uncertain ? nativeCandidate : null;
+
+            if (result) {
+              transcriptionSource = "browser_native";
+            } else if (audio.size > 0) {
+              result = await transcribeAgentVoice({
+                userId: user.uid,
+                vaultOwnerToken: token,
+                audio,
+                signal: sttAbortController.signal,
+                timeoutMs: AGENT_VOICE_STT_TIMEOUT_MS,
+              });
+              transcriptionSource = "backend_gemini";
+            } else if (nativeCandidate) {
+              result = nativeCandidate;
+              transcriptionSource = "browser_native_uncertain";
+            } else {
+              result = {
+                transcript: "",
+                uncertain: true,
+                reason: "No speech was captured.",
+              };
+            }
+            console.info("[Agent voice] STT timing", {
+              source: transcriptionSource,
+              mime_type: audio.type || "unknown",
+              audio_bytes: audio.size,
+              captured_ms: Math.round(durationMs),
+              stt_ms: Math.round(performance.now() - sttStartedAt),
+              native_transcript_chars: nativeCandidate?.transcript.length ?? 0,
+              native_uncertain: nativeCandidate?.uncertain ?? null,
+              native_reason: nativeCandidate?.reason ?? null,
+              transcript_chars: result.transcript.length,
+              uncertain: result.uncertain,
+              reason: result.reason,
             });
             if (
               sttAbortController.signal.aborted ||
@@ -2056,7 +2445,26 @@ export function AgentChatWorkspace({
                 ) {
                   return;
                 }
-                await runAgentTurn(transcript, { source: "voice" });
+                voiceClientRef.current.setCapturePaused(true);
+                setAgentVoiceStatus("thinking");
+                void runAgentTurn(transcript, { source: "voice" })
+                  .catch((error) => {
+                    const message =
+                      error instanceof Error && error.message
+                        ? error.message
+                        : "Agent voice turn failed.";
+                    addErrorMessage(message);
+                    setAgentVoiceStatus("error", message);
+                  })
+                  .finally(() => {
+                    if (
+                      voiceSessionEpoch !== voiceSessionEpochRef.current ||
+                      !voiceClientRef.current?.isActive
+                    ) {
+                      return;
+                    }
+                    resumeAgentVoiceCapture(voiceSessionEpoch);
+                  });
               },
               requestReview: (transcript, reason) => {
                 if (
@@ -2134,6 +2542,82 @@ export function AgentChatWorkspace({
       : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
         ? "Unlock your vault to use Agent."
         : null;
+  const accessAction = authLoading
+    ? null
+    : !user?.uid
+      ? {
+          label: "Sign in",
+          icon: LogIn,
+          onClick: () => router.push(ROUTES.LOGIN),
+        }
+      : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
+        ? {
+            label: "Unlock vault",
+            icon: KeyRound,
+            onClick: () => router.push(ROUTES.PROFILE),
+          }
+        : null;
+  const displayName = useMemo(
+    () => formatAgentDisplayName(user?.displayName, user?.email),
+    [user?.displayName, user?.email]
+  );
+  const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
+  const visibleMessages = messages.filter((message) => message.id !== "agent-greeting");
+  const welcomeSuggestionSeed = useMemo(
+    () => Date.now() + Math.floor(Math.random() * 100_000),
+    // Intentionally reseed when any of these change so welcome suggestions
+    // refresh on persona/conversation/route/user transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activePersona, conversationId, freshOpenKey, hasStartedConversation, pathname, user?.uid],
+  );
+  const welcomeSuggestions = useMemo(
+    () =>
+      resolveAgentWelcomeSuggestions({
+        userId: user?.uid,
+        pathname,
+        persona: activePersona,
+        randomSeed: welcomeSuggestionSeed,
+      }),
+    [activePersona, pathname, user?.uid, welcomeSuggestionSeed],
+  );
+  const latestRetryableAssistantId =
+    [...visibleMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !message.ephemeral &&
+          message.status !== "streaming" &&
+          message.text.trim().length > 0
+      )?.id ?? null;
+  const handleRetryAssistantResponse = (messageId: string) => {
+    if (isChatLoading || isStreaming) return;
+    const assistantIndex = messages.findIndex((message) => message.id === messageId);
+    if (assistantIndex < 0) return;
+    const previousUserMessage = [...messages.slice(0, assistantIndex)]
+      .reverse()
+      .find((message) => message.role === "user" && message.text.trim().length > 0);
+    const retryText = previousUserMessage?.text.trim();
+    if (!retryText) {
+      toast.error("No previous message found to retry.");
+      return;
+    }
+    setPkmReviews([]);
+    setPkmActivity([]);
+    void runAgentTurn(retryText, {
+      source: "typed",
+      appendUserMessage: false,
+      replaceAssistantMessageId: messageId,
+    });
+  };
+  const handleWelcomePromptSelect = useCallback((prompt: string) => {
+    if (isChatLoading || isStreaming) return;
+    setInput("");
+    void runAgentTurn(prompt, { source: "typed" });
+    // runAgentTurn is a stable closure invoked imperatively; excluding it keeps
+    // this callback from re-creating on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChatLoading, isStreaming]);
   const swipeStartYRef = useRef<number | null>(null);
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMinimize || event.pointerType === "mouse") return;
@@ -2147,141 +2631,295 @@ export function AgentChatWorkspace({
       onMinimize();
     }
   };
+  const openHistoryDrawer = useCallback(() => {
+    historyDrawerReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setIsHistoryDrawerOpen(true);
+  }, []);
+  const handlePageMinimize = useCallback(() => {
+    if (onMinimize) {
+      onMinimize();
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const referrer = document.referrer ? new URL(document.referrer) : null;
+      const isSameOriginReferrer =
+        referrer?.origin === window.location.origin && referrer.pathname !== ROUTES.AGENT;
+      if (isSameOriginReferrer && window.history.length > 1) {
+        router.back();
+        return;
+      }
+    }
+    router.push(ROUTES.PROFILE);
+  }, [onMinimize, router]);
+  const handleHistoryDrawerKeyDown = useCallback((event: ReactKeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      setIsHistoryDrawerOpen(false);
+      return;
+    }
+    trapFocusWithin(event, historyDrawerRef.current);
+  }, []);
+  const handleVoiceTranscriptDialogKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        handleVoiceTranscriptRetry();
+        return;
+      }
+      trapFocusWithin(event, voiceTranscriptDialogRef.current);
+    },
+    [handleVoiceTranscriptRetry]
+  );
+  const renderHistorySidebar = (
+    sidebarClassName?: string,
+    onClose?: () => void,
+    collapsed = false
+  ) => (
+    <AgentHistorySidebar
+      conversations={conversations}
+      activeConversationId={conversationId}
+      loading={isLoadingHistory && conversations.length === 0}
+      disabled={!hasChatAccess || historyInteractionDisabled}
+      actionPendingId={historyActionPendingId}
+      className={sidebarClassName}
+      collapsed={collapsed}
+      onClose={onClose}
+      onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
+      onCreateNew={handleSidebarCreateNewChat}
+      onSelectConversation={handleSidebarSelectConversation}
+      onRenameConversation={handleRenameConversation}
+      onDeleteConversation={handleDeleteConversation}
+    />
+  );
 
   return (
     <div
       className={cn(
-        "agent-chat-workspace flex min-h-0 w-full flex-col",
-        isPopover ? "h-full overflow-hidden" : "gap-5",
+        "agent-chat-workspace flex min-h-0 w-full flex-col text-foreground",
+        isPopover
+          ? "h-full overflow-hidden bg-background"
+          : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-fixed-ui,0px)-var(--app-safe-area-bottom-effective,0px))] min-h-[420px] overflow-hidden bg-background",
         className
       )}
       data-agent-chat-workspace={variant}
     >
       <div
         className={cn(
-          "flex shrink-0 touch-pan-y items-center justify-between gap-4 border-b border-primary/35",
-          isPopover ? "px-4 py-3 sm:px-5" : "pb-5"
-        )}
-        onPointerDown={handleHeaderPointerDown}
-        onPointerUp={handleHeaderPointerEnd}
-        onPointerCancel={() => {
-          swipeStartYRef.current = null;
-        }}
-      >
-        <div className="flex min-w-0 items-center gap-4">
-          <div
-            className={cn(
-              "grid shrink-0 place-items-center rounded-full border border-primary/30 bg-primary/10 text-primary",
-              isPopover ? "h-12 w-12" : "h-24 w-16"
-            )}
-            aria-hidden
-          >
-            <BriefcaseBusiness className={isPopover ? "h-5 w-5" : "h-6 w-6"} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">
-              Kai
-            </p>
-            <h1
-              className={cn(
-                "font-semibold leading-none text-foreground",
-                isPopover ? "mt-1 text-2xl sm:text-3xl" : "mt-3 text-4xl sm:text-5xl"
-              )}
-            >
-              Agent
-            </h1>
-            <p
-              className={cn(
-                "mt-2 max-w-2xl text-muted-foreground",
-                isPopover ? "text-sm" : "text-base"
-              )}
-            >
-              A Kai-focused chat surface for markets, portfolio, analysis, and consent workflows.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden rounded-md border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:inline-flex">
-            {statusText}
-          </span>
-          {onMinimize ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              onClick={onMinimize}
-              aria-label="Minimize Agent"
-              title="Minimize Agent"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col gap-3 lg:flex-row",
-          isPopover ? "overflow-hidden p-3 sm:p-4" : ""
+          "relative flex min-h-0 flex-1",
+          isPopover ? "overflow-hidden p-2 sm:p-3" : "overflow-hidden"
         )}
       >
-        <AgentHistorySidebar
-          conversations={conversations}
-          activeConversationId={conversationId}
-          collapsed={isHistorySidebarCollapsed}
-          loading={isLoadingHistory && conversations.length === 0}
-          disabled={!hasChatAccess || historyInteractionDisabled}
-          actionPendingId={historyActionPendingId}
-          className={isPopover ? "max-lg:max-h-48 lg:h-full" : undefined}
-          onToggleCollapsed={() => setIsHistorySidebarCollapsed((current) => !current)}
-          onCreateNew={handleCreateNewChat}
-          onSelectConversation={handleSelectConversation}
-          onRenameConversation={handleRenameConversation}
-          onDeleteConversation={handleDeleteConversation}
+        <div className="hidden h-full lg:flex">
+          {renderHistorySidebar("h-full", undefined, isHistoryCollapsed)}
+        </div>
+        <div
+          className={cn(
+            "fixed inset-0 z-[520] bg-foreground/25 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
+            isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          )}
+          aria-hidden="true"
+          onClick={() => setIsHistoryDrawerOpen(false)}
         />
+        <div
+          ref={historyDrawerRef}
+          className={cn(
+            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
+            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full"
+          )}
+          role="dialog"
+          aria-modal="true"
+          aria-hidden={!isHistoryDrawerOpen}
+          aria-label="Agent chat history"
+          inert={!isHistoryDrawerOpen}
+          onKeyDown={handleHistoryDrawerKeyDown}
+        >
+          {renderHistorySidebar("h-full w-full shadow-2xl shadow-foreground/20", () =>
+            setIsHistoryDrawerOpen(false)
+          )}
+        </div>
 
-        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm">
+        <section
+          className={cn(
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
+          )}
+          inert={isHistoryDrawerOpen}
+        >
           <div
             className={cn(
-              "min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5",
-              !isPopover && "max-h-[min(68vh,680px)]"
+              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              isPopover
+                ? "h-14 sm:h-16"
+                : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
+              !isPopover && "lg:px-6"
+            )}
+            onPointerDown={handleHeaderPointerDown}
+            onPointerUp={handleHeaderPointerEnd}
+            onPointerCancel={() => {
+              swipeStartYRef.current = null;
+            }}
+          >
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 border-b border-border/70" />
+            <div className="relative z-10 flex min-w-0 items-center gap-3">
+              {!isPopover ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
+                  onClick={openHistoryDrawer}
+                  aria-label="Open chat history"
+                  title="Open chat history"
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-background text-primary shadow-sm">
+                <Bot className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
+                  Agent
+                </div>
+                <p className="hidden truncate text-xs text-muted-foreground sm:block">
+                  Kai workspace
+                </p>
+              </div>
+            </div>
+
+            <div className="relative z-10 flex shrink-0 items-center gap-2">
+              <span className="hidden rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
+                {statusText}
+              </span>
+              {!isPopover ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
+                  onClick={handlePageMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {windowControls ? <div className="ml-1">{windowControls}</div> : null}
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+              isPopover ? "pb-4 pt-5" : "pb-6 pt-8 sm:pt-10 lg:px-8 lg:pt-6"
             )}
           >
-            {accessMessage ? (
-              <div className="rounded-lg border border-border/70 bg-background px-4 py-5 text-sm text-muted-foreground">
-                {accessMessage}
-              </div>
-            ) : null}
+            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
+              {accessMessage ? (
+                <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/35 px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>{accessMessage}</span>
+                  {accessAction ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full shrink-0 gap-2 rounded-lg sm:w-auto"
+                      onClick={accessAction.onClick}
+                    >
+                      <accessAction.icon className="h-4 w-4" aria-hidden="true" />
+                      {accessAction.label}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
 
-            {messages.map((message) => (
-              <AgentBubble key={message.id} message={message} />
-            ))}
+              {!accessMessage && !hasStartedConversation ? (
+                <AgentWelcomePanel
+                  name={displayName}
+                  suggestions={welcomeSuggestions}
+                  disabled={!hasChatAccess || isChatLoading || isStreaming}
+                  onPromptSelect={handleWelcomePromptSelect}
+                />
+              ) : null}
 
-            {pkmActivity.map((item) => (
-              <AgentPkmActivityLine key={item.id} item={item} />
-            ))}
+              {visibleMessages.map((message) => (
+                <AgentBubble
+                  key={message.id}
+                  message={message}
+                  retryDisabled={isChatLoading || isStreaming}
+                  onRetry={
+                    message.id === latestRetryableAssistantId
+                      ? () => handleRetryAssistantResponse(message.id)
+                      : undefined
+                  }
+                />
+              ))}
 
-            {pkmReviews.map((review) => (
-              <AgentPkmReviewPanel
-                key={review.id}
-                cards={review.cards}
-                saving={review.saving}
-                onSave={() => void handleSavePkmReview(review.id)}
-                onDismiss={() => handleDismissPkmReview(review.id)}
-              />
-            ))}
-            <div ref={messagesEndRef} />
+              {pkmActivity.map((item) => (
+                <AgentPkmActivityLine key={item.id} item={item} />
+              ))}
+
+              {pkmReviews.map((review) => (
+                <AgentPkmReviewPanel
+                  key={review.id}
+                  cards={review.cards}
+                  saving={review.saving}
+                  onSave={() => void handleSavePkmReview(review.id)}
+                  onDismiss={() => handleDismissPkmReview(review.id)}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
           {voiceTranscriptReview ? (
-            <div className="absolute inset-0 z-20 grid place-items-end bg-background/30 p-4 backdrop-blur-[1px] sm:place-items-center">
+            <div className="absolute inset-0 z-20 grid place-items-end bg-foreground/20 p-4 backdrop-blur-[2px] sm:place-items-center">
               <div
-                className="w-full max-w-sm rounded-md border border-primary/30 bg-background p-4 shadow-xl"
+                ref={voiceTranscriptDialogRef}
+                className="agent-themed-popover-surface w-full max-w-sm rounded-xl border border-border p-4 shadow-xl"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Confirm voice transcript"
+                onKeyDown={handleVoiceTranscriptDialogKeyDown}
               >
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
                   Confirm voice transcript
@@ -2320,46 +2958,72 @@ export function AgentChatWorkspace({
 
           <form
             onSubmit={handleSubmit}
-            className="flex shrink-0 items-center gap-2 border-t border-border/70 bg-background/80 p-3"
-          >
-            {voiceActive ? (
-              <AgentVoiceWaveInput
-                status={voiceState}
-                level={voiceLevel}
-                muted={voiceMuted}
-                disabled={!hasChatAccess || isVoiceConnecting}
-                onToggleMute={handleToggleVoice}
-                onCancel={() => {
-                  void handleCancelVoice();
-                }}
-              />
-            ) : (
-              <>
-                <input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
-                  placeholder="Ask Agent about markets, portfolio, analysis..."
-                  className="h-11 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-4 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60"
-                />
-                {agentVoiceEnabled ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    disabled={!canToggleVoice}
-                    onClick={handleToggleVoice}
-                    aria-label="Start voice mode"
-                    title="Start voice mode"
-                  >
-                    <Mic className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                <Button type="submit" size="icon" disabled={!canSend} aria-label="Send message">
-                  <Send className="h-4 w-4" />
-                </Button>
-              </>
+            className={cn(
+              "shrink-0 border-t border-border/70 bg-background/92 px-3 py-3 backdrop-blur sm:px-5",
+              !isPopover && "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
             )}
+          >
+            <div className="mx-auto w-full max-w-3xl">
+              {voiceActive ? (
+                <div className="rounded-xl bg-[#f5f5f7] p-1 shadow-sm shadow-black/[0.04] dark:bg-[#0f1116] dark:shadow-black/10">
+                  <AgentVoiceWaveInput
+                    status={voiceState}
+                    level={voiceLevel}
+                    muted={voiceMuted}
+                    disabled={!hasChatAccess || isVoiceConnecting}
+                    onToggleMute={handleToggleVoice}
+                    onCancel={() => {
+                      void handleCancelVoice();
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
+                  <textarea
+                    ref={composerTextareaRef}
+                    aria-label="Message Agent"
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                        return;
+                      }
+                      event.preventDefault();
+                      if (canSend) {
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
+                    placeholder="Message Agent..."
+                    rows={1}
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  {agentVoiceEnabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
+                      disabled={!canToggleVoice}
+                      onClick={handleToggleVoice}
+                      aria-label="Start voice mode"
+                      title="Start voice mode"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="submit"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
+                    disabled={!canSend}
+                    aria-label="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </form>
         </section>
       </div>

@@ -177,6 +177,7 @@ https://api.uat.hushh.ai/mcp/?token=<developer-token>
 
 ### Public tools
 
+- `prepare_campaign_context`
 - `discover_user_domains`
 - `request_consent`
 - `check_consent_status`
@@ -189,13 +190,19 @@ https://api.uat.hushh.ai/mcp/?token=<developer-token>
 - `hushh://info/server`
 - `hushh://info/protocol`
 - `hushh://info/connector`
+- `hushh://info/developer-api`
+- `hushh://info/consent-lifecycle`
 
 ### Consent flow
 
+Campaign/customer-experience agents should call `prepare_campaign_context` first. It performs discovery, least-privilege scope selection, grant reuse, consent request/reuse, bounded polling, and encrypted-export metadata lookup. Use the lower-level tools below only when implementing the lifecycle manually.
+
 1. Call `discover_user_domains`.
-2. Request one returned scope with `request_consent`.
-3. Wait for user approval in Kai.
-4. Call `check_consent_status` and then `get_encrypted_scoped_export`.
+2. Choose the least-privilege returned scope for the stated purpose.
+3. Call `check_consent_status` with `user_id` and `scope` to reuse an active grant before creating a request.
+4. Call `request_consent` only when no grant exists, passing connector public-key fields plus optional `expiry_hours` and `approval_timeout_minutes`.
+5. If pending, use bounded `check_consent_status` polling. Consent SSE waiting is disabled for this flow today.
+6. After granted, call `get_encrypted_scoped_export` and decrypt locally with the connector private key.
 
 The data flow is:
 
@@ -228,6 +235,21 @@ Use this path when:
 - you are contributing to `consent-protocol`
 
 ### Runtime expectations
+
+For national phone numbers, callers may also provide:
+
+- `country_iso2`, such as `US`, `GB`, or `IN`
+- `country`, such as `United States`, `USA`, or `UK`
+
+If no country hint is provided, national phone numbers stay ambiguous and are not auto-parsed to any default region.
+
+Read-only self-documentation resources:
+
+- `hushh://info/server`
+- `hushh://info/protocol`
+- `hushh://info/connector`
+- `hushh://info/developer-api`
+- `hushh://info/consent-lifecycle`
 
 - Python 3 must be available locally.
 - The first full stdio launch creates a local cache and installs the bundled Python requirements.
