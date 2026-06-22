@@ -1048,7 +1048,7 @@ function TopPicksEditor({
             </TableHeader>
             <TableBody>
               {visibleRows.map((row) => (
-                <TableRow key={row.id} className="align-top">
+                <TableRow key={row.id} data-ria-picks-row-id={row.id} className="align-top">
                   <TableCell className="space-y-2 px-3 py-2.5 align-top">
                     <TickerLookupField
                       rowId={row.id}
@@ -1360,7 +1360,7 @@ function AvoidEditor({
             </TableHeader>
             <TableBody>
               {visibleRows.map((row) => (
-                <TableRow key={row.id} className="align-top">
+                <TableRow key={row.id} data-ria-picks-row-id={row.id} className="align-top">
                   <TableCell className="space-y-2 px-3 py-2.5 align-top">
                     <TickerLookupField
                       rowId={row.id}
@@ -1852,6 +1852,23 @@ export default function RiaPicksPage() {
       setValidationState({ packageErrors: [], rowErrors: {} });
     }
   }, [editing, picksResource.data?.package]);
+
+  useEffect(() => {
+    if (!focusedIssueRowId) return;
+    const timeoutId = window.setTimeout(() => {
+      const row = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-ria-picks-row-id]")
+      ).find((element) => element.dataset.riaPicksRowId === focusedIssueRowId);
+      if (!row) return;
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+      row
+        .querySelector<HTMLElement>(
+          'input:not([disabled]):not([readonly]), textarea:not([disabled]), button[aria-haspopup="dialog"]:not([disabled])'
+        )
+        ?.focus();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [category, focusedIssueRowId, showIssuesOnly]);
 
   useEffect(() => {
     if (!user || kaiRows.length > 0) return;
