@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-05-22
+Last updated: 2026-06-18
 
 ## Visual Map
 
@@ -23,8 +23,9 @@ public shared resolver and server-readable latest coordinate rows. They are not
 the One Location Agent architecture and should not receive more product entry
 points.
 
-The production direction is One-owned, authenticated, recipient-scoped, and
-ciphertext-only for live coordinates.
+The production direction is One-owned. Authenticated recipient-scoped live
+location remains ciphertext-only. Owner-created public location links are a
+separate, explicit, duration-bounded snapshot-sharing mode.
 
 ## Plaintext Boundary
 
@@ -32,16 +33,26 @@ Plain coordinates are allowed only on:
 
 - the owner's device while capturing foreground location
 - the approved recipient's device after local decryption
+- `one_location_public_invites.metadata.publicLocation` when the owner
+  explicitly creates a snapshot-backed public location link
+- public invite resolve responses when the owner explicitly attached a captured
+  `publicLocation` snapshot to a public link
 
 Plain coordinates are forbidden in:
 
-- backend database rows
-- backend API responses
+- backend database rows outside the explicit public invite snapshot field
+- backend API responses outside snapshot-backed public invite resolve
 - logs and analytics
 - notification payloads
 - consent/audit metadata
-- public URLs and share links
+- public URLs themselves
 - support tooling and server fallback buffers
+
+Public links may store one sanitized `publicLocation` snapshot in invite
+metadata only when created through the explicit public location flow. That
+snapshot is returned by token resolve while the invite is active. It is not a
+live grant, ciphertext envelope, movement trail, raw owner identity, address, or
+reverse-geocoded enrichment.
 
 ## Ciphertext Envelope
 
@@ -76,18 +87,21 @@ reverse geocode, map, notify, or inspect latitude/longitude.
 ## Authorization Contract
 
 All live-location grant, envelope, approval, revocation, and state routes
-require a VAULT_OWNER bearer token. Scope-2 public invite routes are the only
-public exceptions, and they are request-only. They may resolve safe owner/link
-metadata and accept visitor name/phone/message, but they never return
-coordinates, ciphertext, grants, map embeds, or share authority.
+require a VAULT_OWNER bearer token. Public invite routes are the only public
+exceptions. Request-only invites resolve safe owner/link metadata and accept
+visitor name/phone/message. Snapshot-backed public location invites resolve safe
+owner/link metadata plus the attached public location snapshot.
 
 - `actor_identity_cache.phone_verified = true` is eligibility only.
 - Each recipient needs a separate active grant.
 - Expiry and revocation block reads before ciphertext is returned.
 - Referrals create access requests only; they never forward access.
-- Public invite submissions create access requests only when the visitor maps
+- Request-only public invite submissions create access requests only when the visitor maps
   to a verified Hussh user with active recipient key material; otherwise they
   remain metadata-only intent for follow-up.
+- Snapshot-backed public invite resolves do not create grants, requests, or
+  recipient-scoped access. Anyone with the active token can view the attached
+  public snapshot until expiry or revocation.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -106,24 +120,28 @@ envelope publishing, ciphertext viewing, revocation, access requests, request
 resolution, and referrals. Tools validate their capability scope per invocation
 and delegate persistence to `OneLocationAgentService`.
 
-The agent refuses public bearer links that reveal location, plaintext server
-coordinates, and referrals or public submissions that grant access without owner
-approval.
+The agent refuses referrals or public submissions that grant private access
+without owner approval. Public bearer links may reveal only the explicit
+owner-attached public snapshot, never private grants, ciphertext, movement
+trails, raw tokens, or raw owner identity.
 
-## Public Request Links
+## Public Links
 
-Scope-2 public sharing is a request-link workflow, not a public live-location
-viewer.
+Public sharing has two modes: snapshot-backed public location links and legacy
+request-only links.
 
-1. The authenticated owner creates a duration-bounded public request link from
+1. The authenticated owner creates a duration-bounded public link from
    `/one/location`.
 2. The backend returns the raw token once and stores only its hash.
-3. The public page `/one/location/request/{token}` asks the visitor for name, phone,
-   and optional message.
-4. The public resolve response exposes only a safe owner label, status,
-   duration, and expiry. By default the safe label is "a trusted person".
-5. The public page submits metadata only. It never displays a map or location.
-6. If the phone maps to a verified/keyed Hussh user, One creates a normal
+3. If the owner attached a `publicLocation` snapshot, the public resolve
+   response returns safe owner/link metadata plus that snapshot. The public page
+   displays the map immediately with no name, phone, or message form.
+4. If no snapshot is attached, the link is request-only and the public resolve
+   response exposes only a safe owner label, status, duration, and expiry. By
+   default the safe label is "a trusted person".
+5. Request-only public links may submit metadata only. They do not display a map
+   or location.
+6. If the phone maps to a verified/keyed Hussh user in a request-only flow, One creates a normal
    pending access request for owner approval.
 7. If the phone does not have usable Hussh identity/key material, the submission
    stays pending identity/key setup.
@@ -131,11 +149,12 @@ viewer.
    device still encrypts the coordinate envelope for that recipient.
 
 Public invite tables store token hashes, status, expiry, visitor display name,
-phone hash/last4, matched user id when available, and request linkage. They must
-not store raw phone numbers, raw invite tokens, coordinates, addresses, map
-previews, or movement/freshness trails. Public submissions are bounded per token,
-throttled per phone/fingerprint hash, and never return request internals, grants,
-ciphertext, or location payloads to the anonymous caller.
+phone hash/last4, matched user id when available, request linkage, and an
+optional sanitized public location snapshot for snapshot-backed links. They must
+not store raw phone numbers, raw invite tokens, addresses, map previews, or
+movement/freshness trails. Public submissions are bounded per token, throttled
+per phone/fingerprint hash, and never return request internals, grants, or
+ciphertext to the anonymous caller.
 
 ## KAI Circle Recommendation Contract
 
@@ -208,7 +227,8 @@ The implementation must prove:
 - expired/revoked grants block reads
 - referrals create requests but no access
 - notification and audit metadata contain no coordinates
-- public request links store token hashes only and never reveal location
+- public links store token hashes only; snapshot-backed links reveal only the
+  explicit public snapshot, while request-only links never reveal location
 - web, iOS, and Android have foreground permission parity
 - A/B/C/D flow is covered at service, authenticated API route, and browser
   crypto levels

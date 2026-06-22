@@ -251,7 +251,7 @@ async def gmail_reconcile(
 @router.get("/gmail/sync/{run_id}")
 async def gmail_sync_run(
     run_id: str,
-    user_id: str = Query(..., min_length=1),
+    user_id: str = Query(..., min_length=1, max_length=128),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, user_id)
@@ -372,7 +372,10 @@ async def gmail_webhook(request: Request):
         logger.warning("kai.gmail.webhook.invalid_json: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "GMAIL_WEBHOOK_INVALID_JSON", "message": "Webhook payload is not valid JSON."},
+            detail={
+                "code": "GMAIL_WEBHOOK_INVALID_JSON",
+                "message": "Webhook payload is not valid JSON.",
+            },
         ) from exc
 
     if not isinstance(payload, dict):

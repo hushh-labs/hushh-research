@@ -42,7 +42,8 @@ import {
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 
 function entrySummary(entry: ConsentCenterEntry) {
-  if (isEmailHelperConsent(entry.metadata)) return emailHelperConsentSummary(entry.metadata);
+  if (isEmailHelperConsent(entry.metadata))
+    return emailHelperConsentSummary(entry.metadata);
   if (entry.additional_access_summary) return entry.additional_access_summary;
   if (entry.scope_description) return entry.scope_description;
   if (entry.reason) return entry.reason;
@@ -77,13 +78,13 @@ function entryHref(actor: ConsentCenterActor, entry: ConsentCenterEntry): string
   const requestId = entry.request_id || entry.id;
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending", { requestId })
-    : buildConsentCenterHref("pending", { actor: "investor", requestId });
+    : buildConsentCenterHref("pending", { requestId });
 }
 
 function managerHref(actor: ConsentCenterActor): string {
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending")
-    : buildConsentCenterHref("pending", { actor: "investor" });
+    : buildConsentCenterHref("pending");
 }
 
 export function ConsentInboxDropdown({
@@ -268,33 +269,37 @@ export function ConsentInboxDropdown({
           ) : null}
 
           {items.length > 0 ? (
-            <div role="list" aria-label="Pending consents" className="divide-y divide-border/45">
+            <div
+              role="list"
+              aria-label="Pending consents"
+              className="divide-y divide-border/45"
+            >
               {items.map((entry) => (
                 <div key={entry.id} role="listitem">
                   <Link
-                  href={entryHref(actor, entry)}
-                  prefetch={false}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"
-                >
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium tracking-tight text-foreground">
-                        {entryLabel(entry)}
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
-                        {entrySummary(entry)}
-                      </p>
+                    href={entryHref(actor, entry)}
+                    prefetch={false}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-medium tracking-tight text-foreground">
+                          {entryLabel(entry)}
+                        </p>
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+                          {entrySummary(entry)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {formatRelative(entry.expires_at) ||
+                          entry.counterpart_email ||
+                          entry.counterpart_secondary_label ||
+                          ""}
+                      </span>
                     </div>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
-                      {formatRelative(entry.expires_at) ||
-                        entry.counterpart_email ||
-                        entry.counterpart_secondary_label ||
-                        ""}
-                    </span>
-                  </div>
-                </Link>
-              </div>
+                  </Link>
+                </div>
               ))}
             </div>
           ) : null}

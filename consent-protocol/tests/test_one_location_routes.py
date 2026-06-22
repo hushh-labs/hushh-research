@@ -224,7 +224,7 @@ def test_public_location_invite_route_creates_request_without_returning_location
     assert "reverse_geocode" not in serialized
 
 
-def test_public_location_invite_route_returns_snapshot_after_visitor_intake(
+def test_public_location_invite_route_returns_snapshot_on_resolve(
     monkeypatch,
 ) -> None:
     service = FourUserMemoryService()
@@ -246,9 +246,10 @@ def test_public_location_invite_route_returns_snapshot_after_visitor_intake(
 
     resolve_response = client.get(f"/api/one/location/public-invites/{token}")
     assert resolve_response.status_code == 200
-    assert resolve_response.json()["invite"]["locationAvailable"] is True
-    assert "latitude" not in json.dumps(resolve_response.json())
-    assert "longitude" not in json.dumps(resolve_response.json())
+    resolve_payload = resolve_response.json()
+    assert resolve_payload["invite"]["locationAvailable"] is True
+    assert resolve_payload["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert resolve_payload["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
 
     submit_response = client.post(
         f"/api/one/location/public-invites/{token}/submit",
@@ -267,7 +268,6 @@ def test_public_location_invite_route_returns_snapshot_after_visitor_intake(
 
     serialized_private_surfaces = json.dumps(
         {
-            "resolve": resolve_response.json(),
             "notifications": service.notifications,
             "submissions": service.public_submissions,
         },

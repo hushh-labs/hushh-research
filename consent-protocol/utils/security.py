@@ -20,9 +20,7 @@ from typing import Any
 
 # RFC 5321 simplified — captures local-part and domain separately so we can
 # reconstruct the masked form without a second parse pass.
-_EMAIL_RE = re.compile(
-    r"\b([A-Za-z0-9._%+\-]+)@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b"
-)
+_EMAIL_RE = re.compile(r"\b([A-Za-z0-9._%+\-]+)@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b")
 
 # E.164, North-American `(NNN) NNN-NNNN`, and common regional formats.
 # Pattern: optional `(` and/or `+`, then opening digit, then 5-13 mixed
@@ -38,6 +36,7 @@ _PHONE_RE = re.compile(
 # ---------------------------------------------------------------------------
 # Low-level maskers
 # ---------------------------------------------------------------------------
+
 
 def _mask_email(local: str, domain: str) -> str:
     """Return a masked email that preserves domain and first/last local chars."""
@@ -58,6 +57,7 @@ def _mask_phone_digits(raw: str) -> str:
 # ---------------------------------------------------------------------------
 # Public string-level sanitizers
 # ---------------------------------------------------------------------------
+
 
 def mask_email(value: str) -> str:
     """

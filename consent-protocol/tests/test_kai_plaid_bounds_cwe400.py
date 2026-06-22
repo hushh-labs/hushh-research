@@ -123,9 +123,7 @@ class TestPlaidFundingBrokerageAccountRequest:
 
     def test_alpaca_account_id_bounds(self):
         with pytest.raises(ValidationError):
-            PlaidFundingBrokerageAccountRequest(
-                user_id="user-123", alpaca_account_id="A" * 257
-            )
+            PlaidFundingBrokerageAccountRequest(user_id="user-123", alpaca_account_id="A" * 257)
 
 
 class TestPlaidTransferCreateRequest:
@@ -194,9 +192,7 @@ class TestAlpacaConnectCompleteRequest:
 
     def test_code_bounds(self):
         with pytest.raises(ValidationError):
-            AlpacaConnectCompleteRequest(
-                user_id="user-123", state="state123", code="A" * 2049
-            )
+            AlpacaConnectCompleteRequest(user_id="user-123", state="state123", code="A" * 2049)
 
 
 class TestPlaidFundedTradeCreateRequest:

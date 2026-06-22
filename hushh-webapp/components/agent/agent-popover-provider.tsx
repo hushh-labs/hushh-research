@@ -16,7 +16,14 @@ import {
   type SetStateAction,
 } from "react";
 import { usePathname } from "next/navigation";
-import { Bot, Grip, Maximize2, Minimize2, Minus, X } from "lucide-react";
+import {
+  Grip,
+  Maximize2,
+  MessageCircleMore,
+  Minimize2,
+  Minus,
+  X,
+} from "lucide-react";
 
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
@@ -58,7 +65,9 @@ const AGENT_TRIGGER_FALLBACK_SIZE = 44;
 const AGENT_TRIGGER_DRAG_THRESHOLD_PX = 5;
 const AGENT_TRIGGER_TOP_GUARD_PX = 88;
 
-const AgentPopoverContext = createContext<AgentPopoverContextValue | null>(null);
+const AgentPopoverContext = createContext<AgentPopoverContextValue | null>(
+  null,
+);
 
 function getViewportSize() {
   if (typeof window === "undefined") {
@@ -73,12 +82,16 @@ function getViewportSize() {
 function readStoredSizeMode(): AgentPopoverSizeMode {
   if (typeof window === "undefined") return AGENT_POPOVER_DEFAULT_SIZE_MODE;
   const stored = window.localStorage.getItem(AGENT_POPOVER_STORAGE_KEYS.mode);
-  return isAgentPopoverSizeMode(stored) ? stored : AGENT_POPOVER_DEFAULT_SIZE_MODE;
+  return isAgentPopoverSizeMode(stored)
+    ? stored
+    : AGENT_POPOVER_DEFAULT_SIZE_MODE;
 }
 
 function readStoredCustomSize(): AgentPopoverSize {
   if (typeof window === "undefined") return DEFAULT_CUSTOM_SIZE;
-  const stored = window.localStorage.getItem(AGENT_POPOVER_STORAGE_KEYS.customSize);
+  const stored = window.localStorage.getItem(
+    AGENT_POPOVER_STORAGE_KEYS.customSize,
+  );
   if (!stored) return DEFAULT_CUSTOM_SIZE;
   try {
     const parsed = JSON.parse(stored) as Partial<AgentPopoverSize>;
@@ -86,7 +99,11 @@ function readStoredCustomSize(): AgentPopoverSize {
       return DEFAULT_CUSTOM_SIZE;
     }
     const viewport = getViewportSize();
-    return clampAgentPopoverSize(parsed as AgentPopoverSize, viewport.width, viewport.height);
+    return clampAgentPopoverSize(
+      parsed as AgentPopoverSize,
+      viewport.width,
+      viewport.height,
+    );
   } catch {
     return DEFAULT_CUSTOM_SIZE;
   }
@@ -94,7 +111,9 @@ function readStoredCustomSize(): AgentPopoverSize {
 
 function readStoredTriggerPosition(): AgentTriggerPosition | null {
   if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(AGENT_POPOVER_STORAGE_KEYS.triggerPosition);
+  const stored = window.localStorage.getItem(
+    AGENT_POPOVER_STORAGE_KEYS.triggerPosition,
+  );
   if (!stored) return null;
   try {
     const parsed = JSON.parse(stored) as Partial<AgentTriggerPosition>;
@@ -135,7 +154,8 @@ function resolveCssLength(anchor: HTMLElement | null, value: string): number {
 }
 
 function measureVisibleReservedBottom(selector: string): number {
-  if (typeof window === "undefined" || typeof document === "undefined") return 0;
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return 0;
   const viewportHeight = window.innerHeight;
   let reservedBottom = 0;
 
@@ -149,20 +169,22 @@ function measureVisibleReservedBottom(selector: string): number {
   return reservedBottom;
 }
 
-function getAgentTriggerBounds(trigger: HTMLElement | null): AgentTriggerBounds {
+function getAgentTriggerBounds(
+  trigger: HTMLElement | null,
+): AgentTriggerBounds {
   const rect = trigger?.getBoundingClientRect();
   const reservedBottomFromChrome = Math.max(
     measureVisibleReservedBottom('[data-tour-id="kai-command-bar"]'),
     measureVisibleReservedBottom('[data-testid="ria-action-bar"]'),
-    measureVisibleReservedBottom('[aria-label="Main navigation"]')
+    measureVisibleReservedBottom('[aria-label="Main navigation"]'),
   );
   const reservedBottomFromCss = Math.max(
     resolveCssLength(trigger, "var(--bottom-chrome-full-height, 0px)"),
     resolveCssLength(trigger, "var(--bottom-chrome-stack-height, 0px)"),
     resolveCssLength(
       trigger,
-      "calc(var(--app-bottom-fixed-ui, 76px) + var(--kai-command-fixed-ui, 82px) + var(--bottom-chrome-fade-overscan, 18px))"
-    )
+      "calc(var(--app-bottom-fixed-ui, 76px) + var(--kai-command-fixed-ui, 82px) + var(--bottom-chrome-fade-overscan, 18px))",
+    ),
   );
 
   return {
@@ -172,7 +194,10 @@ function getAgentTriggerBounds(trigger: HTMLElement | null): AgentTriggerBounds 
     triggerHeight: Math.max(AGENT_TRIGGER_FALLBACK_SIZE, rect?.height ?? 0),
     reservedBottom: Math.max(reservedBottomFromChrome, reservedBottomFromCss),
     reservedTop: AGENT_TRIGGER_TOP_GUARD_PX,
-    safeTop: resolveCssLength(trigger, "var(--app-safe-area-top-effective, 0px)"),
+    safeTop: resolveCssLength(
+      trigger,
+      "var(--app-safe-area-top-effective, 0px)",
+    ),
     margin: 16,
   };
 }
@@ -194,8 +219,11 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   const [hasOpened, setHasOpened] = useState(false);
   const [motionState, setMotionState] =
     useState<AgentPopoverMotionState>("idle");
-  const [sizeMode, setSizeModeState] = useState<AgentPopoverSizeMode>(AGENT_POPOVER_DEFAULT_SIZE_MODE);
-  const [customSize, setCustomSize] = useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
+  const [sizeMode, setSizeModeState] = useState<AgentPopoverSizeMode>(
+    AGENT_POPOVER_DEFAULT_SIZE_MODE,
+  );
+  const [customSize, setCustomSize] =
+    useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
 
   useEffect(() => {
     setSizeModeState(readStoredSizeMode());
@@ -261,7 +289,15 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
       minimizeAgent,
       setSizeMode,
     }),
-    [expanded, hasOpened, minimizeAgent, motionState, openAgent, setSizeMode, sizeMode]
+    [
+      expanded,
+      hasOpened,
+      minimizeAgent,
+      motionState,
+      openAgent,
+      setSizeMode,
+      sizeMode,
+    ],
   );
 
   useEffect(() => {
@@ -271,7 +307,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     window.localStorage.setItem(
       AGENT_POPOVER_STORAGE_KEYS.customSize,
-      JSON.stringify(customSize)
+      JSON.stringify(customSize),
     );
   }, [customSize]);
 
@@ -279,7 +315,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
     const handleResize = () => {
       const viewport = getViewportSize();
       setCustomSize((current) =>
-        clampAgentPopoverSize(current, viewport.width, viewport.height)
+        clampAgentPopoverSize(current, viewport.width, viewport.height),
       );
     };
     window.addEventListener("resize", handleResize);
@@ -289,7 +325,10 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   return (
     <AgentPopoverContext.Provider value={value}>
       {children}
-      <AgentPopoverSurface customSize={customSize} setCustomSize={setCustomSize} />
+      <AgentPopoverSurface
+        customSize={customSize}
+        setCustomSize={setCustomSize}
+      />
     </AgentPopoverContext.Provider>
   );
 }
@@ -299,11 +338,21 @@ type AgentPopoverSurfaceProps = {
   setCustomSize: Dispatch<SetStateAction<AgentPopoverSize>>;
 };
 
-function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceProps) {
+function AgentPopoverSurface({
+  customSize,
+  setCustomSize,
+}: AgentPopoverSurfaceProps) {
   const { isAuthenticated } = useAuth();
   const pathname = usePathname();
-  const { expanded, hasOpened, motionState, sizeMode, setSizeMode, openAgent, minimizeAgent } =
-    useAgentPopover();
+  const {
+    expanded,
+    hasOpened,
+    motionState,
+    sizeMode,
+    setSizeMode,
+    openAgent,
+    minimizeAgent,
+  } = useAgentPopover();
   const chromeState = getKaiChromeState(pathname);
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
@@ -312,9 +361,13 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
     !isLegacyAgentRoute &&
     !isPhoneMandateRoute &&
     !chromeState.hideCommandBar;
-  const isKaiSurfaceRoute = Boolean(pathname?.startsWith("/kai"));
+  const isKaiSurfaceRoute = Boolean(
+    pathname?.startsWith(ROUTES.KAI_HOME) || pathname?.startsWith(ROUTES.LEGACY_KAI_HOME)
+  );
   const useEmbeddedAgentTrigger =
-    isKaiSurfaceRoute || isRiaActionBarRoute(pathname) || !chromeState.hideCommandBar;
+    isKaiSurfaceRoute ||
+    isRiaActionBarRoute(pathname) ||
+    !chromeState.hideCommandBar;
   const isCollapsing = motionState === "closing";
   const surfaceVisible = expanded || motionState !== "idle";
   const isFullscreen = sizeMode === "fullscreen";
@@ -342,7 +395,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
     return clampAgentPopoverSize(
       resolveAgentPopoverSize(sizeMode, customSize),
       viewport.width,
-      viewport.height
+      viewport.height,
     );
   }, [customSize, sizeMode]);
 
@@ -352,7 +405,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         "--agent-popover-width": `${resolvedPanelSize.width}px`,
         "--agent-popover-height": `${resolvedPanelSize.height}px`,
       }) as CSSProperties,
-    [resolvedPanelSize.height, resolvedPanelSize.width]
+    [resolvedPanelSize.height, resolvedPanelSize.width],
   );
 
   const handleNavigationActionComplete = useCallback(() => {
@@ -376,7 +429,12 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
       };
       setSizeMode("custom");
     },
-    [isFullscreen, resolvedPanelSize.height, resolvedPanelSize.width, setSizeMode]
+    [
+      isFullscreen,
+      resolvedPanelSize.height,
+      resolvedPanelSize.width,
+      setSizeMode,
+    ],
   );
 
   const handleResizePointerMove = useCallback(
@@ -392,11 +450,11 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
             height: start.startHeight + start.startY - event.clientY,
           },
           viewport.width,
-          viewport.height
-        )
+          viewport.height,
+        ),
       );
     },
-    [setCustomSize]
+    [setCustomSize],
   );
 
   const handleResizePointerEnd = useCallback(
@@ -408,11 +466,14 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
     },
-    []
+    [],
   );
 
   const clampTriggerPosition = useCallback((position: AgentTriggerPosition) => {
-    return clampAgentTriggerPosition(position, getAgentTriggerBounds(triggerRef.current));
+    return clampAgentTriggerPosition(
+      position,
+      getAgentTriggerBounds(triggerRef.current),
+    );
   }, []);
 
   const clampStoredTriggerPosition = useCallback(() => {
@@ -434,7 +495,10 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
     window.addEventListener("orientationchange", clampStoredTriggerPosition);
     return () => {
       window.removeEventListener("resize", clampStoredTriggerPosition);
-      window.removeEventListener("orientationchange", clampStoredTriggerPosition);
+      window.removeEventListener(
+        "orientationchange",
+        clampStoredTriggerPosition,
+      );
     };
   }, [canShowAgent, clampStoredTriggerPosition, useEmbeddedAgentTrigger]);
 
@@ -442,7 +506,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
     if (!triggerPosition) return;
     window.localStorage.setItem(
       AGENT_POPOVER_STORAGE_KEYS.triggerPosition,
-      JSON.stringify(triggerPosition)
+      JSON.stringify(triggerPosition),
     );
   }, [triggerPosition]);
 
@@ -455,7 +519,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         triggerPosition ?? {
           x: rect.left,
           y: rect.top,
-        }
+        },
       );
 
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -467,7 +531,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         moved: false,
       };
     },
-    [clampTriggerPosition, triggerPosition]
+    [clampTriggerPosition, triggerPosition],
   );
 
   const handleTriggerPointerMove = useCallback(
@@ -488,10 +552,10 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         clampTriggerPosition({
           x: start.startPosition.x + deltaX,
           y: start.startPosition.y + deltaY,
-        })
+        }),
       );
     },
-    [clampTriggerPosition]
+    [clampTriggerPosition],
   );
 
   const handleTriggerPointerEnd = useCallback(
@@ -508,7 +572,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         skipTriggerClickRef.current = true;
       }
     },
-    []
+    [],
   );
 
   const handleTriggerClick = useCallback(() => {
@@ -533,7 +597,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         <div
           className={cn(
             "pointer-events-none fixed inset-0 z-[460] transition-opacity duration-300 motion-reduce:transition-none",
-            surfaceVisible ? "opacity-100" : "opacity-0"
+            surfaceVisible ? "opacity-100" : "opacity-0",
           )}
           aria-hidden={!expanded}
         >
@@ -546,7 +610,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
               expanded
                 ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0"
                 : "pointer-events-none translate-x-3 translate-y-[calc(100%-5.75rem)] scale-[0.2] opacity-0 blur-sm",
-              isCollapsing && "rounded-2xl ring-1 ring-primary/25"
+              isCollapsing && "rounded-2xl ring-1 ring-primary/25",
             )}
             style={panelStyle}
             role="dialog"
@@ -604,7 +668,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
             expanded && !isCollapsing
               ? "pointer-events-none translate-y-3 scale-95 opacity-0"
               : "translate-y-0 scale-100 opacity-100",
-            isCollapsing && "ring-1 ring-primary/30 shadow-primary/20"
+            isCollapsing && "ring-1 ring-primary/30 shadow-primary/20",
           )}
           style={
             triggerPosition
@@ -626,7 +690,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
           aria-label="Open Agent"
           title="Drag to reposition Agent, tap to open"
         >
-          <Bot className="h-4 w-4" />
+          <MessageCircleMore className="h-4 w-4" />
           <span className="hidden text-sm font-medium sm:inline">Agent</span>
         </Button>
       ) : null}
@@ -672,9 +736,9 @@ function AgentPopoverWindowControls({
         size="icon-xs"
         className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100"
         onClick={() => setSizeMode(isFullscreen ? "large" : "fullscreen")}
-      aria-label={isFullscreen ? "Restore Agent" : "Maximize Agent"}
-      title={isFullscreen ? "Restore Agent" : "Maximize Agent"}
-    >
+        aria-label={isFullscreen ? "Restore Agent" : "Maximize Agent"}
+        title={isFullscreen ? "Restore Agent" : "Maximize Agent"}
+      >
         {isFullscreen ? (
           <Minimize2 className="h-3.5 w-3.5" />
         ) : (

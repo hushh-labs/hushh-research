@@ -30,11 +30,12 @@ import {
   setLocalItem,
   setSessionItem,
 } from "@/lib/utils/session-storage";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const PKM_UPGRADE_TASK_KIND = "pkm_upgrade";
 const PKM_UPGRADE_SNAPSHOT_PREFIX = "pkm_upgrade_snapshot_v1";
 const PKM_UPGRADE_REHEARSAL_SESSION_PREFIX = "pkm_upgrade_rehearsal_v1";
-const PKM_UPGRADE_ROUTE = "/profile?panel=my-data";
+const PKM_UPGRADE_ROUTE = ROUTES.PKM;
 const MAX_CONFLICT_RETRIES = 3;
 export const PKM_UPGRADE_COMPLETED_EVENT = "pkm-upgrade-completed";
 

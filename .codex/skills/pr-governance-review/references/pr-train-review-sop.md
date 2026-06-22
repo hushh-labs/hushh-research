@@ -3,6 +3,27 @@
 Use this SOP when a reviewer handles more than one PR, chooses the next batch,
 revisits `changes_requested`, or scales throughput without weakening quality.
 
+## Decision Philosophy — Autonomous Intelligence, No Human-Review Limbo
+
+The governance engine takes every decision autonomously based on one question:
+**does this change make the codebase stronger and is it verifiably safe?** There
+is no "defer to human review" terminal state and no parking lot. Verdicts are
+driven by the *direction and content* of the diff, never by proxies like file
+count or the mere presence of a security keyword:
+
+- A diff that **strengthens** a boundary (adds validation, null-safety, format/
+  length checks, stricter typing, redaction, a11y/security attributes) and is
+  CI-green is **merged** — it improves the codebase.
+- A diff that **weakens** a boundary (removes validation, adds bypass/skip-auth,
+  `catch(err: any)`, allow-all, `verify=False`) is **refused** with a concrete
+  change request — it makes the codebase weaker.
+- File count and line count are **not** risk proxies. A 1-file change to vault
+  crypto gets real diff reasoning; a 12-file a11y sweep is not "broad". Only a
+  genuinely unreviewable mega-diff (>25 files / >1500 lines) is asked to split.
+- The merge queue runs CI and auto-ejects failures, so a strengthening change
+  that breaks a test cannot reach main. Safety comes from CI + directional diff
+  analysis, not from a human gate.
+
 ## Branch Intake Model
 
 This SOP uses the PR governance subagent train as the default maintainer
@@ -115,6 +136,12 @@ Record the starting developer branch before any worktree, PR checkout, detached 
 10. If a temporary-looking worktree or branch has local commits ahead of its
     upstream, mark it `preserve_required` and do not delete it until the accepted
     value is moved, merged, or explicitly abandoned.
+
+### tmp/ scratch + report retention
+
+Use `pr-train-retention.md` for scratch/report retention. The short rule here:
+run `scripts/maintenance/clean_tmp.sh` at the end of interactive or cron PR
+governance waves; never use a blanket `rm -rf tmp/*`.
 
 ## Subagent Taskforce And Worker Pool
 

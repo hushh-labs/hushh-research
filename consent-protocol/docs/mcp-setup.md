@@ -49,6 +49,7 @@ Use the trailing-slash endpoint shape:
 
 The hosted public developer lane exposes the consent core only:
 
+- `prepare_campaign_context`
 - `discover_user_domains`
 - `request_consent`
 - `check_consent_status`
@@ -70,8 +71,21 @@ Read-only self-documentation resources:
 - `hushh://info/server`
 - `hushh://info/protocol`
 - `hushh://info/connector`
+- `hushh://info/developer-api`
+- `hushh://info/consent-lifecycle`
 
 Use [`reference/developer-api.md`](./reference/developer-api.md) for the HTTP contract, example payloads, and consent/export semantics.
+
+Expected coding-agent lifecycle:
+
+Campaign/customer-experience agents should call `prepare_campaign_context` first. It performs discovery, least-privilege scope selection, grant reuse, consent request/reuse, bounded polling, and encrypted-export metadata lookup. Use the lower-level tools below only when implementing the lifecycle manually.
+
+1. Call `discover_user_domains` for the specific user identifier.
+2. Choose the least-privilege returned scope for the stated purpose.
+3. Call `check_consent_status` with `user_id` and `scope` before creating a request.
+4. Call `request_consent` only when no active grant exists. Include connector public-key fields plus optional `expiry_hours` and `approval_timeout_minutes`.
+5. If pending, bounded-poll `check_consent_status`; SSE waiting is disabled for this consent flow today.
+6. After approval, fetch `get_encrypted_scoped_export` and decrypt locally with the connector private key.
 
 ## Contributor-Local Fallback
 
