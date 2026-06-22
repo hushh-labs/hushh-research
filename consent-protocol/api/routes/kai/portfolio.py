@@ -93,6 +93,14 @@ _MAX_PROFILE_PICKS = 8
 _MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024
 _MAX_IMPORT_FILE_SIZE_MESSAGE = "File too large. Maximum size is 25MB."
 
+# Sticky cache of symbol -> sector. Sector is essentially static metadata, so
+# once resolved we keep it. This decouples profile-pick determinism from live
+# quote-provider availability: when providers are in cooldown a fresh lookup may
+# return no sector, which would silently drop that holding from the dominant-
+# sector blend and reshuffle the picks for the SAME portfolio. Caching the last
+# known sector keeps "same portfolio -> same picks" stable across quote flaps.
+_HOLDING_SECTOR_CACHE: dict[str, str] = {}
+
 _NUMERIC_STRIP_RE = re.compile(r"[$,\s]")
 _FILENAME_DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
 _FILENAME_ACCOUNT_RE = re.compile(r"(?:acct|account|inv|#)?\s*(\d{4,})", flags=re.IGNORECASE)
@@ -2036,7 +2044,8 @@ def _candidate_rank(
     sector: str,
     dominant_sectors: list[str],
     tier_rank: Optional[int],
-) -> tuple[float, int, str]:
+    symbol: str = "",
+) -> tuple[float, int, str, str]:
     tier_upper = str(tier or "").strip().upper()
     sector_clean = str(sector or "").strip()
     score = float(TIER_WEIGHTS.get(tier_upper, 0.5))
@@ -2046,7 +2055,11 @@ def _candidate_rank(
         elif sector_clean in dominant_sectors:
             score += 0.12
     tie_breaker = tier_rank if isinstance(tier_rank, int) else 999_999
-    return (score, -tie_breaker, tier_upper)
+    # Final, fully deterministic tiebreaker: the symbol. With identical inputs
+    # the ordering is now independent of dict/iteration/async-completion order.
+    # (Callers sort with reverse=True, so equal-scored candidates fall back to
+    # descending symbol order — arbitrary but stable, which is what we need.)
+    return (score, -tie_breaker, tier_upper, str(symbol or "").strip().upper())
 
 
 def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[str]) -> str:
@@ -2279,11 +2292,18 @@ async def get_dashboard_profile_picks(
         sector_sem = asyncio.Semaphore(4)
 
         async def resolve_holding_sector(symbol: str) -> Optional[str]:
+            symbol_key = symbol.strip().upper()
             async with sector_sem:
                 try:
                     quote = await fetch_market_data(symbol, user_id, consent_token)
                     sector = str(quote.get("sector") or "").strip()
-                    return sector or None
+                    if sector:
+                        # Persist last-known sector so future calls stay stable
+                        # even when quote providers are in cooldown.
+                        _HOLDING_SECTOR_CACHE[symbol_key] = sector
+                        return sector
+                    # Live lookup returned no sector — fall back to last known.
+                    return _HOLDING_SECTOR_CACHE.get(symbol_key)
                 except Exception as exc:
                     logger.warning(
                         "[Kai Picks] failed to resolve holding sector for %s (%s): %s",
@@ -2291,16 +2311,29 @@ async def get_dashboard_profile_picks(
                         user_id,
                         exc,
                     )
-                    return None
+                    # On hard failure, reuse the last known sector if we have one
+                    # so the dominant-sector blend (and thus picks) stays stable.
+                    return _HOLDING_SECTOR_CACHE.get(symbol_key)
 
+        # Resolve in a deterministic (sorted) order so Counter.most_common ties
+        # break the same way every call.
+        ordered_symbols = sorted(requested_symbols)
         sector_rows = await asyncio.gather(
-            *(resolve_holding_sector(symbol) for symbol in requested_symbols)
+            *(resolve_holding_sector(symbol) for symbol in ordered_symbols)
         )
         for sector in sector_rows:
             if sector:
                 holdings_sector_counter[sector] += 1
 
-    dominant_sectors = [sector for sector, _ in holdings_sector_counter.most_common(2)]
+    # most_common is order-stable, but make tie-breaks fully deterministic by
+    # sorting on (-count, sector_name) so equal-count sectors always resolve the
+    # same way regardless of insertion order.
+    dominant_sectors = [
+        sector
+        for sector, _count in sorted(
+            holdings_sector_counter.items(), key=lambda kv: (-kv[1], kv[0])
+        )[:2]
+    ]
     dominant_sector = dominant_sectors[0] if dominant_sectors else None
 
     renaissance_service = get_renaissance_service()
@@ -2327,6 +2360,7 @@ async def get_dashboard_profile_picks(
             sector=str(getattr(stock, "sector", "")),
             dominant_sectors=dominant_sectors,
             tier_rank=getattr(stock, "tier_rank", None),
+            symbol=str(getattr(stock, "ticker", "")),
         ),
         reverse=True,
     )

@@ -39,6 +39,10 @@ import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  resolveAgentWelcomeSuggestions,
+  type AgentWelcomeSuggestion,
+} from "@/lib/agent/agent-welcome-suggestions";
+import {
   executeAgentGatewayAction,
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
@@ -143,6 +147,7 @@ type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
   windowControls?: ReactNode;
+  freshOpenKey?: number;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
 };
@@ -150,11 +155,6 @@ type AgentChatWorkspaceProps = {
 const AGENT_GREETING =
   "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
-const AGENT_WELCOME_PROMPTS = [
-  "Review my portfolio",
-  "Save a PKM memory",
-  "Explain consent flows",
-] as const;
 
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
@@ -275,10 +275,12 @@ async function copyTextToClipboard(text: string): Promise<void> {
 
 function AgentWelcomePanel({
   name,
+  suggestions,
   disabled,
   onPromptSelect,
 }: {
   name: string;
+  suggestions: AgentWelcomeSuggestion[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
@@ -296,15 +298,18 @@ function AgentWelcomePanel({
           Ask Agent about your markets, portfolio, memories, or Hushh workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+          {suggestions.map((suggestion) => (
             <button
-              key={prompt}
+              key={suggestion.id}
               type="button"
               disabled={disabled}
-              onClick={() => onPromptSelect(prompt)}
-              className="agent-themed-card-surface group min-h-24 rounded-xl border border-border/70 p-4 text-left text-sm font-medium shadow-sm transition hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => onPromptSelect(suggestion.prompt)}
+              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
-              <span className="block leading-5">{prompt}</span>
+              <span className="block leading-5">{suggestion.label}</span>
+              <span className="mt-2 block line-clamp-2 text-[11px] font-normal leading-4 text-muted-foreground">
+                {suggestion.prompt}
+              </span>
               <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
             </button>
           ))}
@@ -699,6 +704,7 @@ export function AgentChatWorkspace({
   variant = "page",
   className,
   windowControls,
+  freshOpenKey = 0,
   onMinimize,
   onNavigationActionComplete,
 }: AgentChatWorkspaceProps) {
@@ -2557,6 +2563,23 @@ export function AgentChatWorkspace({
   );
   const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
   const visibleMessages = messages.filter((message) => message.id !== "agent-greeting");
+  const welcomeSuggestionSeed = useMemo(
+    () => Date.now() + Math.floor(Math.random() * 100_000),
+    // Intentionally reseed when any of these change so welcome suggestions
+    // refresh on persona/conversation/route/user transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activePersona, conversationId, freshOpenKey, hasStartedConversation, pathname, user?.uid],
+  );
+  const welcomeSuggestions = useMemo(
+    () =>
+      resolveAgentWelcomeSuggestions({
+        userId: user?.uid,
+        pathname,
+        persona: activePersona,
+        randomSeed: welcomeSuggestionSeed,
+      }),
+    [activePersona, pathname, user?.uid, welcomeSuggestionSeed],
+  );
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -2588,9 +2611,13 @@ export function AgentChatWorkspace({
     });
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
-    setInput(prompt);
-    window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
-  }, []);
+    if (isChatLoading || isStreaming) return;
+    setInput("");
+    void runAgentTurn(prompt, { source: "typed" });
+    // runAgentTurn is a stable closure invoked imperatively; excluding it keeps
+    // this callback from re-creating on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChatLoading, isStreaming]);
   const swipeStartYRef = useRef<number | null>(null);
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMinimize || event.pointerType === "mouse") return;
@@ -2715,13 +2742,13 @@ export function AgentChatWorkspace({
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            isPopover && "rounded-lg border border-border shadow-sm"
+            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
           )}
           inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "relative flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
               isPopover
                 ? "h-14 sm:h-16"
                 : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
@@ -2751,7 +2778,7 @@ export function AgentChatWorkspace({
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-background text-primary shadow-sm">
                 <Bot className="h-4 w-4" />
               </div>
-              <div className="min-w-0 bg-background/95 pr-1">
+              <div className="min-w-0">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
                   Agent
                 </div>
@@ -2791,6 +2818,32 @@ export function AgentChatWorkspace({
                   <X className="h-4 w-4" />
                 </Button>
               ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
             </div>
           </div>
@@ -2822,6 +2875,7 @@ export function AgentChatWorkspace({
               {!accessMessage && !hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
+                  suggestions={welcomeSuggestions}
                   disabled={!hasChatAccess || isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />
@@ -2911,7 +2965,7 @@ export function AgentChatWorkspace({
           >
             <div className="mx-auto w-full max-w-3xl">
               {voiceActive ? (
-                <div className="agent-themed-card-surface rounded-2xl border border-border p-2 shadow-[var(--app-card-shadow-standard)]">
+                <div className="rounded-xl bg-[#f5f5f7] p-1 shadow-sm shadow-black/[0.04] dark:bg-[#0f1116] dark:shadow-black/10">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}

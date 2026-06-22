@@ -1,16 +1,11 @@
-<svg
-  xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 512 512"
-  role="img"
-  aria-label="Quiet emoji"
->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Hussh One app icon">
+  <rect width="1024" height="1024" fill="#1d1d1f"/>
   <text
-    x="50%"
-    y="50%"
+    x="512"
+    y="560"
     dominant-baseline="middle"
     text-anchor="middle"
-    font-size="420"
-  >
-    🤫
-  </text>
+    font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
+    font-size="610"
+  >🤫</text>
 </svg>

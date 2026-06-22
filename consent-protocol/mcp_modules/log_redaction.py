@@ -81,9 +81,7 @@ def _is_sensitive_string(value: str) -> bool:
     if stripped.startswith(_TOKEN_PREFIXES):
         return True
     return bool(
-        _EMAIL_RE.match(stripped)
-        or _PHONE_RE.match(stripped)
-        or _UID_LIKE_RE.match(stripped)
+        _EMAIL_RE.match(stripped) or _PHONE_RE.match(stripped) or _UID_LIKE_RE.match(stripped)
     )
 
 
