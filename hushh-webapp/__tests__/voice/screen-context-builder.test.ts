@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   ARRAY_DIMENSION_CAP_ERROR,
+  INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
   buildStructuredScreenContext,
   enforceArrayDimensionCap,
@@ -47,6 +48,110 @@ function makeRuntimeState(pathname: string, screen: string): AppRuntimeState {
     },
   };
 }
+
+// ── enforceArrayDimensionCap unit tests ───────────────────────────────────────
+
+describe("enforceArrayDimensionCap — structured input array bounds", () => {
+
+  // ── Non-array input rejection ────────────────────────────────────────────
+
+  it("rejects null and signals INVALID_ARRAY_TYPE_ERROR", () => {
+    const result = enforceArrayDimensionCap(null);
+    expect(result.isValidAllocation).toBe(false);
+    expect(result.items).toHaveLength(0);
+    expect(result.errorLabel).toBe(INVALID_ARRAY_TYPE_ERROR);
+  });
+
+  it("rejects undefined and signals INVALID_ARRAY_TYPE_ERROR", () => {
+    const result = enforceArrayDimensionCap(undefined);
+    expect(result.isValidAllocation).toBe(false);
+    expect(result.items).toHaveLength(0);
+    expect(result.errorLabel).toBe(INVALID_ARRAY_TYPE_ERROR);
+  });
+
+  it("rejects a plain object (non-array) and signals INVALID_ARRAY_TYPE_ERROR", () => {
+    const result = enforceArrayDimensionCap({ 0: "a", length: 1 } as never);
+    expect(result.isValidAllocation).toBe(false);
+    expect(result.items).toHaveLength(0);
+    expect(result.errorLabel).toBe(INVALID_ARRAY_TYPE_ERROR);
+  });
+
+  // ── Valid allocation — below or at cap ───────────────────────────────────
+
+  it("accepts an empty array as a valid zero-item allocation", () => {
+    const result = enforceArrayDimensionCap([]);
+    expect(result.isValidAllocation).toBe(true);
+    expect(result.items).toHaveLength(0);
+    expect(result.errorLabel).toBeNull();
+  });
+
+  it("accepts a single-item array well within the cap", () => {
+    const result = enforceArrayDimensionCap(["only"]);
+    expect(result.isValidAllocation).toBe(true);
+    expect(result.items).toEqual(["only"]);
+    expect(result.errorLabel).toBeNull();
+  });
+
+  it("accepts an array whose length equals the default cap exactly", () => {
+    const atCap = Array.from({ length: STRUCTURED_CONTEXT_ARRAY_CAP }, (_, i) => i);
+    const result = enforceArrayDimensionCap(atCap);
+    expect(result.isValidAllocation).toBe(true);
+    expect(result.items).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(result.errorLabel).toBeNull();
+  });
+
+  // ── Clamping — oversized inputs ──────────────────────────────────────────
+
+  it("clamps an array one item over the cap and flags ARRAY_DIMENSION_CAP_ERROR", () => {
+    const overByOne = Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP + 1 },
+      (_, i) => `item_${i}`,
+    );
+    const result = enforceArrayDimensionCap(overByOne);
+    expect(result.isValidAllocation).toBe(false);
+    expect(result.items).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(result.errorLabel).toBe(ARRAY_DIMENSION_CAP_ERROR);
+  });
+
+  it("preserves input order — first N items are kept, tail is dropped", () => {
+    // 11 items with default cap 10: the last entry must be absent from result.
+    const ordered = [
+      "alpha","beta","gamma","delta","epsilon",
+      "zeta","eta","theta","iota","kappa","lambda",
+    ];
+    const result = enforceArrayDimensionCap(ordered);
+    expect(result.items[0]).toBe("alpha");
+    expect(result.items[STRUCTURED_CONTEXT_ARRAY_CAP - 1]).toBe("kappa");
+    expect(result.items).not.toContain("lambda");
+  });
+
+  it("clamps a severely oversized array (100 items) to the default cap", () => {
+    const huge = Array.from({ length: 100 }, (_, i) => `action_${i}`);
+    const result = enforceArrayDimensionCap(huge);
+    expect(result.isValidAllocation).toBe(false);
+    expect(result.items).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(result.items[0]).toBe("action_0");
+  });
+
+  // ── Custom cap parameter ─────────────────────────────────────────────────
+
+  it("respects a custom cap smaller than the default", () => {
+    const result = enforceArrayDimensionCap(["a","b","c","d","e"], 3);
+    expect(result.isValidAllocation).toBe(false);
+    expect(result.items).toEqual(["a","b","c"]);
+    expect(result.errorLabel).toBe(ARRAY_DIMENSION_CAP_ERROR);
+  });
+
+  it("respects a custom cap larger than the default — all items pass through", () => {
+    const data = Array.from({ length: 15 }, (_, i) => `item_${i}`);
+    const result = enforceArrayDimensionCap(data, 20);
+    expect(result.isValidAllocation).toBe(true);
+    expect(result.items).toHaveLength(15);
+    expect(result.errorLabel).toBeNull();
+  });
+});
+
+// ── End enforceArrayDimensionCap unit tests ───────────────────────────────────
 
 describe("buildStructuredScreenContext", () => {
   beforeEach(() => {
@@ -535,6 +640,70 @@ describe("buildStructuredScreenContext", () => {
     expect(context.screen_metadata).toMatchObject({
       market_mode: "baseline",
       signal_count: 3,
+    });
+  });
+
+  // ── Array bounds coverage added below the existing suite ─────────────────
+
+  it("clamps oversized voice_aliases on control definitions", () => {
+    publishVoiceSurfaceMetadata("test_surface", {
+      controls: [
+        {
+          id: "oversized-control",
+          label: "Oversized Control",
+          voiceAliases: Array.from({ length: 15 }, (_, i) => `alias_${i}`),
+        },
+      ],
+    });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/kai", "kai_home"),
+      voiceContext: {},
+    });
+
+    const control = context.surface.controls.find((c) => c.id === "oversized-control");
+    expect(control).toBeDefined();
+    expect(control?.voice_aliases).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+  });
+
+  it("clamps oversized concept aliases in nested concept definitions", () => {
+    publishVoiceSurfaceMetadata("test_surface", {
+      concepts: [
+        {
+          id: "big-concept",
+          label: "Big Concept",
+          aliases: Array.from({ length: 20 }, (_, i) => `alias_${i}`),
+        },
+      ],
+    });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/kai", "kai_home"),
+      voiceContext: {},
+    });
+
+    const concept = context.surface.concepts.find((c) => c.label === "Big Concept");
+    expect(concept).toBeDefined();
+    expect(concept?.aliases).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+  });
+
+  it("preserves item order at the sections cap boundary — first N items retained", () => {
+    const overCap = Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP + 3 },
+      (_, i) => ({ id: `section_${i}`, title: `Section ${i}` }),
+    );
+
+    publishVoiceSurfaceMetadata("test_surface", { sections: overCap });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/kai", "kai_home"),
+      voiceContext: {},
+    });
+
+    expect(context.surface.sections).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(context.surface.sections[0]).toMatchObject({ id: "section_0" });
+    expect(context.surface.sections[STRUCTURED_CONTEXT_ARRAY_CAP - 1]).toMatchObject({
+      id: `section_${STRUCTURED_CONTEXT_ARRAY_CAP - 1}`,
     });
   });
 

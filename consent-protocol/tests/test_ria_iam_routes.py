@@ -166,7 +166,11 @@ def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch
                 "evidence": {
                     "confidence": "official_public_records",
                     "sources": ["SEC EDGAR", "Form 13F"],
-                    "business_address": {"city": "KIRKLAND", "state": "WA", "zip": "98033"},
+                    "business_address": {
+                        "city": "KIRKLAND",
+                        "state": "WA",
+                        "zip": "98033",
+                    },
                 },
                 "is_test_profile": False,
             }
@@ -258,7 +262,9 @@ def test_marketplace_investor_deck_is_authenticated_and_returns_metadata(monkeyp
     assert payload["deck_complete"] is False
 
 
-def test_marketplace_investor_action_routes_are_authenticated_and_forwarded(monkeypatch):
+def test_marketplace_investor_action_routes_are_authenticated_and_forwarded(
+    monkeypatch,
+):
     async def _mock_record(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
         assert kwargs == {
@@ -520,7 +526,11 @@ def test_ria_client_picks_share_toggle(monkeypatch):
         assert user_id == "user_test_123"
         assert investor_user_id == "investor_1"
         assert enabled is False
-        return {"enabled": False, "status": "revoked", "grant_key": "ria_active_picks_feed_v1"}
+        return {
+            "enabled": False,
+            "status": "revoked",
+            "grant_key": "ria_active_picks_feed_v1",
+        }
 
     monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
     monkeypatch.setattr(RIAIAMService, "set_ria_pick_share_state", _mock_toggle)
@@ -720,6 +730,32 @@ def test_consent_center_summary_route_returns_actor_counts(monkeypatch):
     assert payload["counts"] == {"pending": 3, "active": 4, "previous": 5}
 
 
+def test_consent_center_summary_route_allows_missing_actor(monkeypatch):
+    async def _mock_summary(self, user_id: str, *, actor: str | None, mode: str = "consents"):
+        assert user_id == "user_test_123"
+        assert actor is None
+        assert mode == "consents"
+        return {
+            "user_id": user_id,
+            "actor": "investor",
+            "counts": {
+                "pending": 1,
+                "active": 0,
+                "previous": 0,
+            },
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "get_center_summary", _mock_summary)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/consent/center/summary")
+
+    assert response.status_code == 200
+    assert response.json()["actor"] == "investor"
+
+
 def test_consent_center_list_route_returns_page_contract(monkeypatch):
     async def _mock_list(
         self,
@@ -767,6 +803,51 @@ def test_consent_center_list_route_returns_page_contract(monkeypatch):
     assert payload["limit"] == 20
     assert payload["total"] == 21
     assert payload["items"][0]["kind"] == "incoming_request"
+
+
+def test_consent_center_list_route_treats_actor_one_as_compatible(monkeypatch):
+    async def _mock_list(
+        self,
+        user_id: str,
+        *,
+        actor: str | None,
+        surface: str,
+        mode: str = "consents",
+        query: str | None = None,
+        top: int | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ):
+        assert user_id == "user_test_123"
+        assert actor == "one"
+        assert surface == "pending"
+        assert query is None
+        assert top is None
+        assert page == 1
+        assert limit == 20
+        return {
+            "user_id": user_id,
+            "actor": "investor",
+            "surface": surface,
+            "query": "",
+            "page": page,
+            "limit": limit,
+            "total": 0,
+            "has_more": False,
+            "items": [],
+        }
+
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    monkeypatch.setattr(ConsentCenterService, "list_center", _mock_list)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/consent/center/list?actor=one&surface=pending")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["actor"] == "investor"
+    assert payload["items"] == []
 
 
 def test_consent_center_list_route_supports_top_preview(monkeypatch):

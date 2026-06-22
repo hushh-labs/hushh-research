@@ -4,6 +4,10 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES, isRiaActionBarRoute } from "@/lib/navigation/routes";
 
 describe("RIA action bar route contract", () => {
+  it("shows the shared command surface on the signed-in One dashboard", () => {
+    expect(getKaiChromeState(ROUTES.ONE_HOME).hideCommandBar).toBe(false);
+  });
+
   it("shows the shared command surface on RIA workspace routes", () => {
     for (const pathname of [
       ROUTES.RIA_HOME,
@@ -19,9 +23,24 @@ describe("RIA action bar route contract", () => {
   });
 
   it("keeps RIA onboarding as a fullscreen flow without the action bar", () => {
-    for (const pathname of [ROUTES.RIA_ONBOARDING, `${ROUTES.RIA_ONBOARDING}/step-2`]) {
+    for (const pathname of [
+      ROUTES.RIA_ONBOARDING,
+      `${ROUTES.RIA_ONBOARDING}/step-2`,
+    ]) {
       expect(isRiaActionBarRoute(pathname)).toBe(false);
       expect(getKaiChromeState(pathname).hideCommandBar).toBe(true);
+    }
+  });
+
+  it("keeps auth and phone mandate flows without the shared command bar", () => {
+    for (const pathname of [
+      ROUTES.LOGIN,
+      `${ROUTES.LOGIN}?redirect=%2Fone%2Flocation`,
+      ROUTES.PHONE_MANDATE,
+      `${ROUTES.PHONE_MANDATE}?redirect=%2Fone%2Flocation`,
+    ]) {
+      expect(getKaiChromeState(pathname).hideCommandBar).toBe(true);
+      expect(getKaiChromeState(pathname).hideBottomNav).toBe(true);
     }
   });
 

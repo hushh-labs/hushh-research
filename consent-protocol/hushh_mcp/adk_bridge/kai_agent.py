@@ -95,7 +95,9 @@ class KaiA2AServer(A2AServer):
 
         except Exception as e:
             logger.exception("Error in handle_message exc_type=%s", type(e).__name__)
-            return self._create_error_response(message, "Internal analysis error. Please try again.")
+            return self._create_error_response(
+                message, "Internal analysis error. Please try again."
+            )
 
     def _run_async(self, coro):
         """Helper to run async code in this sync method."""

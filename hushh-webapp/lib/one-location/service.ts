@@ -2,6 +2,8 @@ import { HushhLocation } from "@/lib/capacitor";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import type {
   OneLocationAccessRequest,
+  OneLocationActivityRange,
+  OneLocationActivityResponse,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -63,6 +65,18 @@ export class OneLocationService {
     return HushhLocation.getPermissionState();
   }
 
+  static async requestLocationPermission() {
+    return HushhLocation.requestLocationPermission();
+  }
+
+  static async openAppSettings() {
+    return HushhLocation.openAppSettings();
+  }
+
+  static async openLocationSettings() {
+    return HushhLocation.openLocationSettings();
+  }
+
   static async captureCurrentPosition(): Promise<PlainLocationPoint> {
     return HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
@@ -97,9 +111,23 @@ export class OneLocationService {
     });
   }
 
+  static async getActivity(params: {
+    vaultOwnerToken: string;
+    range: OneLocationActivityRange;
+  }): Promise<OneLocationActivityResponse> {
+    const searchParams = new URLSearchParams({ range: params.range });
+    return apiJsonWithRetry<OneLocationActivityResponse>(
+      `/api/one/location/activity?${searchParams.toString()}`,
+      {
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+  }
+
   static async createPublicInvite(params: {
     vaultOwnerToken: string;
     durationHours: number;
+    locationSnapshot: PlainLocationPoint;
   }): Promise<{
     invite: OneLocationPublicInvite;
     publicToken: string;
@@ -110,7 +138,10 @@ export class OneLocationService {
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          locationSnapshot: params.locationSnapshot,
+        }),
       },
       1,
     );
@@ -118,6 +149,7 @@ export class OneLocationService {
 
   static async resolvePublicInvite(publicToken: string): Promise<{
     invite: OneLocationPublicInvite;
+    publicLocation?: PlainLocationPoint | null;
   }> {
     return apiJsonWithRetry(
       `/api/one/location/public-invites/${encodeURIComponent(publicToken)}`,
@@ -133,6 +165,7 @@ export class OneLocationService {
     message?: string;
   }): Promise<{
     submission: OneLocationPublicInviteSubmission;
+    publicLocation?: PlainLocationPoint | null;
     request?: OneLocationAccessRequest | null;
   }> {
     return apiJsonWithRetry(

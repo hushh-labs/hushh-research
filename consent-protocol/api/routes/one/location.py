@@ -1,7 +1,7 @@
 """One Location Agent routes with bounded path parameters (CWE-400).
 
 Live-location reads are authenticated and ciphertext-only. Public invite routes
-are request-only and never return coordinates, ciphertext, or grants.
+can stay request-only or return an owner-captured snapshot after visitor intake.
 Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max.
 """
 
@@ -11,7 +11,7 @@ import hmac
 import os
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
@@ -66,6 +66,7 @@ class ReferralRequest(_CamelModel):
 
 class CreatePublicInviteRequest(_CamelModel):
     duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
 
 
 class SubmitPublicInviteRequest(_CamelModel):
@@ -149,6 +150,22 @@ async def get_location_state(token_data: dict = Depends(require_vault_owner_toke
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/activity")
+async def get_location_activity(
+    range_key: str = Query(default="30d", alias="range", pattern="^(7d|30d|90d|all)$"),
+    limit: int = Query(default=40, ge=1, le=100),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return _service().list_activity(
+            user_id=_user_id(token_data),
+            range_key=range_key,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/retention/purge")
 async def purge_location_retention(request: Request, older_than_hours: float = 12):
     _require_retention_auth(request)
@@ -179,6 +196,7 @@ async def create_public_location_invite(
         return _service().create_public_invite(
             owner_user_id=_user_id(token_data),
             duration_hours=payload.duration_hours,
+            location_snapshot=payload.location_snapshot,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

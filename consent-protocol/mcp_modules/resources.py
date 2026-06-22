@@ -37,6 +37,12 @@ async def list_resources() -> list[Resource]:
             description="Developer API base path, authentication transport, MCP setup, and resource summary",
             mimeType="application/json",
         ),
+        Resource(
+            uri="hushh://info/consent-lifecycle",
+            name="Consent Lifecycle For Coding Agents",
+            description="Expected MCP flow for scope discovery, consent reuse, bounded polling, export fetch, and local decrypt",
+            mimeType="application/json",
+        ),
     ]
 
 
@@ -78,86 +84,74 @@ async def read_resource(uri: str) -> str:
         return json.dumps(protocol_info, indent=2)
 
     elif uri_str == "hushh://info/connector":
+        public_tools = [
+            "prepare_campaign_context",
+            "list_scopes",
+            "discover_user_domains",
+            "request_consent",
+            "check_consent_status",
+            "get_encrypted_scoped_export",
+            "validate_token",
+        ]
         connector_info = {
             "what": "The Hussh connector provides consent-first personal data access for AI agents. Data is only returned after explicit user approval. Zero-knowledge and scoped access apply where applicable.",
             "tools": [
                 {
-                    "name": "request_consent",
-                    "purpose": "Request user consent for a scope",
-                    "when_to_use": "Before accessing any user data; pass scope from discover_user_domains or list_scopes",
-                },
-                {
-                    "name": "validate_token",
-                    "purpose": "Validate a consent token",
-                    "when_to_use": "Before using a token with get_* tools or external APIs",
-                },
-                {
-                    "name": "discover_user_domains",
-                    "purpose": "Discover user domains and scope strings",
-                    "when_to_use": "First step to know which scopes to request for a user",
+                    "name": "prepare_campaign_context",
+                    "purpose": "High-level consent loop for external campaign/customer-experience agents",
+                    "when_to_use": "Preferred when an operator gives a user identifier plus an ads, campaign, or personalization goal",
                 },
                 {
                     "name": "list_scopes",
-                    "purpose": "List available scope categories",
-                    "when_to_use": "Static reference for scope names if not using discover_user_domains",
+                    "purpose": "Static scope reference",
+                    "when_to_use": "Use only for orientation; discover_user_domains is authoritative for a specific user",
+                },
+                {
+                    "name": "discover_user_domains",
+                    "purpose": "Discover user domains and exact scope strings",
+                    "when_to_use": "First step for a specific One user",
                 },
                 {
                     "name": "check_consent_status",
-                    "purpose": "Check current status of pending consent",
-                    "when_to_use": "After request_consent when status is pending",
+                    "purpose": "Check active grant or request state",
+                    "when_to_use": "Before request_consent for reuse; after request_consent for bounded polling",
                 },
                 {
-                    "name": "get_food_preferences",
-                    "purpose": "Get food/dining preferences",
-                    "when_to_use": "After consent for attr.food.* or approved pkm.read",
+                    "name": "request_consent",
+                    "purpose": "Request or reuse user consent for a discovered scope",
+                    "when_to_use": "Only after selecting a least-privilege discovered scope and checking status",
                 },
                 {
-                    "name": "get_professional_profile",
-                    "purpose": "Get professional profile",
-                    "when_to_use": "After consent for attr.professional.* or approved pkm.read",
+                    "name": "get_encrypted_scoped_export",
+                    "purpose": "Fetch wrapped-key ciphertext for an approved token",
+                    "when_to_use": "After check_consent_status or request_consent returns granted",
                 },
                 {
-                    "name": "delegate_to_agent",
-                    "purpose": "Create TrustLink for agent delegation",
-                    "when_to_use": "When one agent needs to delegate access to another",
-                },
-                {
-                    "name": "list_ria_profiles",
-                    "purpose": "List discoverable RIA marketplace profiles (read-only)",
-                    "when_to_use": "When building advisor discovery experiences",
-                },
-                {
-                    "name": "get_ria_profile",
-                    "purpose": "Get discoverable RIA profile details by id (read-only)",
-                    "when_to_use": "After advisor selection from marketplace search",
-                },
-                {
-                    "name": "list_marketplace_investors",
-                    "purpose": "List discoverable opt-in investor profiles (read-only)",
-                    "when_to_use": "When building RIA client discovery experiences",
-                },
-                {
-                    "name": "get_ria_verification_status",
-                    "purpose": "Get RIA verification status for a user (read-only)",
-                    "when_to_use": "With same-user VAULT_OWNER token during advisor control-plane checks",
-                },
-                {
-                    "name": "get_ria_client_access_summary",
-                    "purpose": "Get RIA relationship/access summary (read-only)",
-                    "when_to_use": "With same-user VAULT_OWNER token before advisor workspace actions",
+                    "name": "validate_token",
+                    "purpose": "Validate consent token signature, expiration, and scope",
+                    "when_to_use": "Before using a token in non-MCP code paths",
                 },
             ],
             "recommended_flow": [
-                "1. discover_user_domains(user_id) to get domains and scope strings for this user",
-                "2. request_consent(user_id, scope) for each scope needed (for example attr.food.*; pkm.read is reserved for approved first-party/internal full-PKM access)",
-                "3. If status is pending, return control to caller; user approves in app and caller can re-check status later",
-                "4. Use the returned consent_token with scoped export tools or PKM data APIs",
+                "Campaign/customer-experience agents should call prepare_campaign_context first; it performs the steps below and returns selected_scope, request_id, duration, status, and encrypted-export readiness.",
+                "1. discover_user_domains(user_id) to get the exact scope strings for this One user",
+                "2. choose the least-privilege discovered scope for the stated purpose",
+                "3. check_consent_status(user_id, scope) to reuse existing approval before creating a request",
+                "4. request_consent(user_id, scope, connector_public_key, connector_key_id, connector_wrapping_alg, expiry_hours, approval_timeout_minutes) only when status is not_found or requires_reconsent",
+                "5. if status is pending, bounded-poll check_consent_status(user_id, scope, request_id); do not fabricate approval",
+                "6. when granted, call get_encrypted_scoped_export and decrypt locally with the connector private key",
             ],
+            "public_tools": public_tools,
             "scopes_are_dynamic": True,
             "supported_scopes": "pkm.read, pkm.write, attr.{domain}.*, and attr.{domain}.{subintent}.* when metadata exposes subintents. No fixed dynamic-domain list.",
             "discover_scopes": "Call discover_user_domains(user_id) first to get this user's domains and scope strings. Backend uses GET /api/v1/user-scopes/{user_id} (developer-auth) and validates against PKM metadata + domain_registry metadata.",
             "server_backend": "Backend: FastAPI consent API. Set CONSENT_API_URL if not using default (e.g. http://localhost:8000).",
-            "consent_ui_required": "When request_consent returns 'pending', the user must approve in the Hussh app (consents/dashboard). Delivery is FCM-first in production; consent SSE/polling is disabled for this flow.",
+            "duration_controls": {
+                "requestor_expiry_hours": "24 to 2160 hours; default 24",
+                "approval_timeout_minutes": "5 to 1440 minutes; default 1440",
+                "one_user_can_adjust_duration": True,
+            },
+            "consent_ui_required": "When request_consent returns pending, the user must approve in the Hussh app. Delivery is FCM-first in production. SSE consent waiting is disabled for this flow; MCP clients should use bounded status polling.",
         }
         return json.dumps(connector_info, indent=2)
 
@@ -175,20 +169,93 @@ async def read_resource(uri: str) -> str:
                 "hushh://info/protocol",
                 "hushh://info/connector",
                 "hushh://info/developer-api",
+                "hushh://info/consent-lifecycle",
             ],
             "developer_endpoints": [
                 "/api/v1/list-scopes",
                 "/api/v1/user-scopes/{user_id}",
                 "/api/v1/request-consent",
-                "/api/v1/check-consent-status",
+                "/api/v1/consent-status",
+                "/api/v1/scoped-export",
                 "/api/v1/validate-token",
+                "/api/v1/tool-catalog",
             ],
             "notes": [
                 "Remote MCP clients should use /mcp/ with the developer token carried in the query string when headers are unavailable.",
-                "Scopes are dynamic. Call user-scopes before requesting attr.{domain}.* access.",
+                "Scopes are dynamic. Call user-scopes or discover_user_domains before requesting attr.{domain}.* access.",
+                "Requestors can set expiry_hours and approval_timeout_minutes; the One user can approve with an adjusted duration.",
             ],
         }
         return json.dumps(developer_api_info, indent=2)
+
+    elif uri_str == "hushh://info/consent-lifecycle":
+        lifecycle = {
+            "purpose": "Teach coding agents the expected Hussh MCP consent loop without hardcoded scope assumptions.",
+            "steps": [
+                {
+                    "step": "discover",
+                    "tool": "discover_user_domains",
+                    "expectation": "Use the returned scopes for the specific One user. Do not invent domains or scopes.",
+                },
+                {
+                    "step": "select_least_privilege",
+                    "expectation": "Pick the narrowest discovered scope that fits the operator's stated purpose.",
+                },
+                {
+                    "step": "reuse_check",
+                    "tool": "check_consent_status",
+                    "expectation": "Call with user_id and scope before request_consent. status=granted means use the returned token; status=not_found means create a request.",
+                },
+                {
+                    "step": "request",
+                    "tool": "request_consent",
+                    "expectation": "Send connector_public_key, connector_key_id, connector_wrapping_alg, reason, expiry_hours, and approval_timeout_minutes. Exact pending requests are reused.",
+                },
+                {
+                    "step": "bounded_poll",
+                    "tool": "check_consent_status",
+                    "expectation": "Poll with user_id, scope, and request_id for a bounded window. If still pending, tell the operator the One user must approve.",
+                },
+                {
+                    "step": "fetch_export",
+                    "tool": "get_encrypted_scoped_export",
+                    "expectation": "Call only after granted status. Hussh returns ciphertext plus wrapped key metadata; decrypt locally.",
+                },
+            ],
+            "response_contract": {
+                "preferred_campaign_tool": "prepare_campaign_context",
+                "always_surface_to_operator": [
+                    "selected scope",
+                    "category label",
+                    "request id when available",
+                    "requested duration",
+                    "approval timeout",
+                    "status: already granted, pending, denied, expired, or ready",
+                ],
+                "never_fabricate": [
+                    "approval",
+                    "plaintext user data",
+                    "scope names",
+                    "encrypted export readiness",
+                ],
+            },
+            "examples": {
+                "already_granted": {
+                    "status": "granted",
+                    "next": "fetch encrypted scoped export",
+                },
+                "pending": {
+                    "status": "pending",
+                    "next": "bounded-poll, then ask operator to wait for One approval",
+                },
+                "denied_or_expired": {
+                    "status": "denied|expired|revoked|denied_recently",
+                    "next": "do not fetch export",
+                },
+            },
+            "sse": "Consent SSE waiting is disabled for this flow today; use bounded polling.",
+        }
+        return json.dumps(lifecycle, indent=2)
 
     else:
         logger.warning(f"❌ Unknown resource URI: {uri_str}")

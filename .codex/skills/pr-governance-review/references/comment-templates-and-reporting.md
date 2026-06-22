@@ -3,6 +3,43 @@
 Use this reference after `comment-and-report-contract.md` selects the public
 write lane.
 
+## Communication Personality (applies to every contributor-facing write)
+
+Hussh PR governance speaks to contributors as a mentor, not a gatekeeper. Every
+public comment — merge, changes-requested, or close — must leave the contributor
+knowing exactly what happened, why, and what a great next step looks like. Hold
+this voice on every record:
+
+1. `Lead with genuine, specific appreciation.` Name the real value in their work
+   ("the temporal-expiry guard is exactly the right instinct"), not a generic
+   "thanks for the PR". If nothing is salvageable, still respect the effort.
+2. `Be unambiguous about the decision.` The contributor must never wonder whether
+   they are merged, need to act, or are closed. State it plainly in the heading
+   and the first line.
+3. `Explain the why from repo truth, not preference.` Tie the blocker to a
+   concrete contract, file, trust boundary, or test — link it — so the feedback
+   teaches the codebase, not just this PR.
+4. `Make the next step concrete and achievable.` Give the smallest real path to
+   merge: the exact file/contract to attach to, the guard to add, the test to
+   evolve. Prefer "do X on file Y and assert Z" over "narrow the scope".
+5. `Encourage continuation.` End change-requests and closures with a sincere
+   invitation to keep contributing and, where true, point to which of their
+   other PRs are landing well. Contributors should leave motivated, not deflated.
+6. `Be honest and firm without being harsh.` When a boundary (regulated advice,
+   consent, vault, security) is non-negotiable, say so clearly and kindly, and
+   explain the principle so they internalize it for next time. Repeated
+   submissions of the same boundary violation get firmer clarity, never sarcasm.
+7. `Never leak internal governance.` No lane names, queue mechanics, scanner
+   findings, CI dumps, or maintainer sequencing in public comments — translate
+   them into plain contributor-facing language.
+8. `Credit fairly.` When work is harvested or co-authored, say so and link the
+   landing commit/PR; never let a contributor wonder if their work was used.
+
+The headings and required sections below are fixed; this personality governs HOW
+the prose inside them reads. Direction/Why-it-matters sections carry the warmth
+and the teaching; Blocker/Path-To-Merge/Proof sections carry the precise,
+actionable engineering guidance.
+
 ## Post-Merge Without Maintainer Patch
 
 ```markdown

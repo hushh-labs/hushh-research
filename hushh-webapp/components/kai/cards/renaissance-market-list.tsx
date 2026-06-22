@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Rows3, Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
@@ -22,6 +22,7 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@/components/profile/settings-ui";
+import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
 import {
   Pagination,
   PaginationContent,
@@ -40,7 +41,6 @@ import { cn } from "@/lib/utils";
 const ALL_FILTER = "all";
 const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
-const PICKS_SWIPE_THRESHOLD_PX = 44;
 
 function parsePageSize(value: string, options: readonly number[], fallback: number): number {
   const parsed = Number(value);
@@ -168,7 +168,6 @@ export function RiaPicksList({
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
   const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const [page, setPage] = useState(1);
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setPageSize((current) => {
@@ -283,34 +282,9 @@ export function RiaPicksList({
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
   };
 
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
-  };
-
-  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.changedTouches[0];
-    const start = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (!touch || !start || totalPages <= 1) return;
-
-    const deltaX = touch.clientX - start.x;
-    const deltaY = touch.clientY - start.y;
-    if (Math.abs(deltaX) < PICKS_SWIPE_THRESHOLD_PX) return;
-    if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
-
-    if (deltaX < 0) {
-      goToPage(page + 1);
-      return;
-    }
-
-    goToPage(page - 1);
-  };
-
   if (!rows.length) {
     return (
-      <SettingsGroup>
+      <SettingsGroup className={marketSettingsGroupClassName}>
         <div className="px-4 py-4 text-sm text-muted-foreground">
           The default list is unavailable at the moment.
         </div>
@@ -320,7 +294,7 @@ export function RiaPicksList({
 
   return (
     <div className="space-y-4 sm:mx-auto sm:w-full sm:max-w-[1040px]">
-      <SettingsGroup>
+      <SettingsGroup className={marketSettingsGroupClassName}>
         <div className="space-y-3 px-4 py-3 sm:px-4">
           {useAdaptiveSurfaceControls ? (
             <>
@@ -400,6 +374,9 @@ export function RiaPicksList({
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Search symbol, company, sector, or thesis"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                         className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
                       />
                     </div>
@@ -543,6 +520,9 @@ export function RiaPicksList({
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search symbol, company, sector, or thesis"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
                     />
                   </div>
@@ -606,9 +586,6 @@ export function RiaPicksList({
         ) : (
           <div
             className={cn("touch-pan-y", isMobile && "space-y-2 px-3 py-3", !isMobile && "")}
-            data-no-route-swipe
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
           >
             {currentPageRows.map((row) => {
               const changePct =
@@ -630,13 +607,12 @@ export function RiaPicksList({
                 <button
                   key={`${row.symbol}-${row.tier || "tierless"}`}
                   type="button"
-                  data-no-route-swipe
                   onClick={() => setSelectedRow(row)}
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
                     isMobile
-                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
-                      : "items-center overflow-hidden border-t border-border/55 px-4 py-2.5 hover:bg-foreground/[0.04] active:bg-foreground/[0.06] first:border-t-0"
+                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] backdrop-blur-[16px] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
+                      : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8"
                   )}
                 >
                   <div className="shrink-0">
@@ -712,19 +688,11 @@ export function RiaPicksList({
         )}
 
         {filteredRows.length > pageSize ? (
-          <div
-            className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
-            data-no-route-swipe
-          >
+          <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
             <div className="space-y-1">
               <p className="text-xs leading-5 text-muted-foreground">
                 Page {page} of {totalPages}
               </p>
-              {totalPages > 1 ? (
-                <p className="text-[11px] leading-5 text-muted-foreground">
-                  Swipe left or right anywhere in this list to move between pages.
-                </p>
-              ) : null}
             </div>
             <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
               <PaginationContent className="flex-nowrap justify-start sm:justify-end">
@@ -865,7 +833,11 @@ export function RiaPicksList({
               </div>
             </SurfaceInset>
 
-            <SettingsGroup eyebrow="Context" title="Market snapshot and conviction">
+            <SettingsGroup
+              eyebrow="Context"
+              title="Market snapshot and conviction"
+              className={marketSettingsGroupClassName}
+            >
               <SettingsRow
                 title="Market cap"
                 description="Current capitalization snapshot from the latest available quote."
@@ -891,7 +863,11 @@ export function RiaPicksList({
               />
             </SettingsGroup>
 
-            <SettingsGroup eyebrow="Thesis" title="Why this name is in the list">
+            <SettingsGroup
+              eyebrow="Thesis"
+              title="Why this name is in the list"
+              className={marketSettingsGroupClassName}
+            >
               <div className="px-4 py-4 text-sm leading-7 text-foreground/90">
                 {selectedRow.investment_thesis ||
                   "Renaissance thesis is unavailable for this name right now."}

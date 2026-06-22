@@ -99,6 +99,29 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         keychainSet(emailVerified ? "true" : "false", forKey: "hushh_user_email_verified")
     }
 
+    private func publishIMessageIdentitySilently(
+        uid: String,
+        email: String?,
+        displayName: String?,
+        photoUrl: String?,
+        firebaseIDToken: String?
+    ) {
+        guard let firebaseIDToken, !firebaseIDToken.isEmpty else {
+            return
+        }
+
+        let expiresAt = jwtExpiresAtMillis(firebaseIDToken)
+
+        HusshIMessageSessionStore.shared.publishIdentitySilently(
+            userID: uid,
+            displayName: displayName,
+            email: email,
+            avatarURL: photoUrl,
+            firebaseIDToken: firebaseIDToken,
+            firebaseIDTokenExpiresAt: expiresAt
+        )
+    }
+
     private func cachedUserData() -> [String: Any]? {
         guard let uid = keychainGet("hushh_user_id"), !uid.isEmpty else {
             return nil
@@ -132,16 +155,33 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         return json
     }
 
+    private func jwtExpiresAtMillis(_ token: String) -> Int64? {
+        guard let expValue = decodeJwtPayload(token)?["exp"] else {
+            return nil
+        }
+        if let number = expValue as? NSNumber {
+            return number.int64Value * 1_000
+        }
+        if let int = expValue as? Int {
+            return Int64(int) * 1_000
+        }
+        if let double = expValue as? Double {
+            return Int64(double * 1_000)
+        }
+        if let string = expValue as? String, let double = Double(string) {
+            return Int64(double * 1_000)
+        }
+        return nil
+    }
+
     private func isUsableCachedIdToken(_ token: String?) -> Bool {
         guard let token, !token.isEmpty,
-              let payload = decodeJwtPayload(token),
-              let expValue = payload["exp"] as? NSNumber else {
+              let expiresAtMs = jwtExpiresAtMillis(token) else {
             return false
         }
 
-        let expiresAtMs = expValue.doubleValue * 1000
         let minRemainingMs = Date().timeIntervalSince1970 * 1000 + 60_000
-        return expiresAtMs > minRemainingMs
+        return Double(expiresAtMs) > minRemainingMs
     }
 
     private func freshCachedIdToken() -> String? {
@@ -269,6 +309,13 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                         photoUrl: firebaseUser.photoURL?.absoluteString,
                         emailVerified: firebaseUser.isEmailVerified
                     )
+                    self.publishIMessageIdentitySilently(
+                        uid: firebaseUser.uid,
+                        email: firebaseUser.email,
+                        displayName: firebaseUser.displayName,
+                        photoUrl: firebaseUser.photoURL?.absoluteString,
+                        firebaseIDToken: firebaseIdToken
+                    )
                     
                     let response: [String: Any] = [
                         "idToken": firebaseIdToken ?? "",
@@ -313,6 +360,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         keychainDelete("hushh_user_display_name")
         keychainDelete("hushh_user_photo_url")
         keychainDelete("hushh_user_email_verified")
+        HusshIMessageSessionStore.shared.clearSilently()
         
         print("✅ [\(TAG)] Signed out")
         call.resolve()
@@ -328,8 +376,22 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 if let token = token {
                     self.currentIdToken = token
                     self.keychainSet(token, forKey: "hushh_id_token")
+                    self.publishIMessageIdentitySilently(
+                        uid: user.uid,
+                        email: user.email,
+                        displayName: user.displayName,
+                        photoUrl: user.photoURL?.absoluteString,
+                        firebaseIDToken: token
+                    )
                     call.resolve(["idToken": token])
                 } else if let cached = self.freshCachedIdToken() {
+                    self.publishIMessageIdentitySilently(
+                        uid: user.uid,
+                        email: user.email,
+                        displayName: user.displayName,
+                        photoUrl: user.photoURL?.absoluteString,
+                        firebaseIDToken: cached
+                    )
                     call.resolve(["idToken": cached])
                 } else {
                     call.resolve(["idToken": NSNull()])
@@ -493,6 +555,13 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                     displayName: displayName,
                     photoUrl: firebaseUser.photoURL?.absoluteString,
                     emailVerified: firebaseUser.isEmailVerified
+                )
+                self.publishIMessageIdentitySilently(
+                    uid: firebaseUser.uid,
+                    email: firebaseUser.email ?? appleIDCredential.email,
+                    displayName: displayName,
+                    photoUrl: firebaseUser.photoURL?.absoluteString,
+                    firebaseIDToken: firebaseIdToken
                 )
                 
                 let response: [String: Any] = [

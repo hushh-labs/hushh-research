@@ -10,10 +10,20 @@ function geolocationAvailable(): boolean {
 export class HushhLocationWeb implements HushhLocationPlugin {
   async getPermissionState(): Promise<HushhLocationPermissionState> {
     if (!geolocationAvailable()) {
-      return { state: "unavailable", precise: false, background: "unavailable" };
+      return {
+        state: "unavailable",
+        precise: false,
+        background: "unavailable",
+        locationServicesEnabled: false,
+      };
     }
     if (!navigator.permissions?.query) {
-      return { state: "prompt", precise: null, background: "foreground-only" };
+      return {
+        state: "prompt",
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: null,
+      };
     }
     const result = await navigator.permissions.query({
       name: "geolocation" as PermissionName,
@@ -22,7 +32,39 @@ export class HushhLocationWeb implements HushhLocationPlugin {
       state: result.state,
       precise: null,
       background: "foreground-only",
+      locationServicesEnabled: null,
     };
+  }
+
+  async requestLocationPermission(): Promise<HushhLocationPermissionState> {
+    if (!geolocationAvailable()) {
+      return {
+        state: "unavailable",
+        precise: false,
+        background: "unavailable",
+        locationServicesEnabled: false,
+      };
+    }
+
+    await this.getCurrentPosition({
+      enableHighAccuracy: true,
+      timeoutMs: 15_000,
+    });
+    return this.getPermissionState();
+  }
+
+  async openAppSettings(): Promise<{
+    opened: boolean;
+    sourcePlatform: "web";
+  }> {
+    return { opened: false, sourcePlatform: "web" };
+  }
+
+  async openLocationSettings(): Promise<{
+    opened: boolean;
+    sourcePlatform: "web";
+  }> {
+    return { opened: false, sourcePlatform: "web" };
   }
 
   async getCurrentPosition(options?: {

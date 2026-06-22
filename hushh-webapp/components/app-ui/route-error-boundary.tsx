@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
 import { AlertTriangle } from "lucide-react";
@@ -21,6 +21,8 @@ interface State {
  * Catches render errors and shows a morphy-styled recovery UI.
  */
 export class RouteErrorBoundary extends Component<Props, State> {
+  private errorContainerRef = createRef<HTMLDivElement>();
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -28,6 +30,12 @@ export class RouteErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
+  }
+
+  componentDidUpdate(_prevProps: Props, prevState: State) {
+    if (this.state.hasError && !prevState.hasError) {
+      this.errorContainerRef.current?.focus();
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -54,8 +62,11 @@ export class RouteErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div
+          ref={this.errorContainerRef}
           role="alert"
-          className="flex min-h-[60vh] flex-col items-center justify-center px-6"
+          aria-atomic="true"
+          tabIndex={-1}
+          className="flex min-h-[60vh] flex-col items-center justify-center px-6 outline-none"
         >
           <Card
             preset="default"
@@ -65,7 +76,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
           >
             <div className="flex flex-col items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500/12 to-orange-500/12 dark:from-red-400/16 dark:to-orange-400/16">
-                <AlertTriangle className="h-7 w-7 text-red-500 dark:text-red-400" />
+                <AlertTriangle className="h-7 w-7 text-red-500 dark:text-red-400" aria-hidden="true" />
               </div>
               <div className="space-y-1.5">
                 <h2 className="text-lg font-semibold tracking-tight">Something went wrong</h2>
@@ -75,6 +86,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
               </div>
               <div className="flex gap-3 pt-1">
                 <Button
+                  type="button"
                   variant="muted"
                   effect="glass"
                   size="sm"
@@ -84,6 +96,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   Try again
                 </Button>
                 <Button
+                  type="button"
                   variant="blue-gradient"
                   effect="fill"
                   size="sm"

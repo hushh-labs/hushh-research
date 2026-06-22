@@ -52,7 +52,10 @@ import {
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  PlaidPortfolioService,
+  requirePlaidLinkTokenReady,
+} from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -515,14 +518,6 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     parse_fallback: normalized.parse_fallback === true,
   };
 
-  console.log("[KaiFlow] Final normalized data:", {
-    holdingsCount: result.holdings?.length || 0,
-    hasAccountInfo: !!result.account_info,
-    hasAccountSummary: !!result.account_summary,
-    totalValue: result.total_value,
-    cashBalance: result.cash_balance,
-  });
-
   return result;
 }
 
@@ -667,6 +662,19 @@ export function KaiFlow({
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  const portfolioImportSurfaceActive =
+    state === "import_required" ||
+    state === "importing" ||
+    state === "import_complete" ||
+    state === "reviewing";
+
+  useEffect(() => {
+    setBusyOperation("portfolio_import_surface", portfolioImportSurfaceActive);
+    return () => {
+      setBusyOperation("portfolio_import_surface", false);
+    };
+  }, [portfolioImportSurfaceActive, setBusyOperation]);
 
   useScrollReset(`${mode}:${state}`, { enabled: true, behavior: "auto" });
 
@@ -2537,9 +2545,7 @@ export function KaiFlow({
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
         trackImportTerminalTelemetry("success");
 
-        console.log("[KaiFlow] Portfolio parsed via streaming:", {
-          holdings: parsedPortfolioData.holdings?.length || 0,
-        });
+
 
         // Store parsed portfolio and transition to review state
         setFlowData((prev) => ({
@@ -2618,7 +2624,7 @@ export function KaiFlow({
             setState("importing");
             return;
           }
-          console.log("[KaiFlow] Import cancelled by user");
+
           persistBackgroundSnapshot("canceled");
           clearImportBackgroundSnapshot(userId);
           importResumeAppliedRef.current = false;
@@ -2875,7 +2881,7 @@ export function KaiFlow({
     // Update cache context so other pages (Manage, etc.) can access the data
     setPortfolioData(userId, portfolioData);
     CacheSyncService.onPortfolioUpserted(userId, portfolioData);
-    console.log("[KaiFlow] Portfolio data saved to cache");
+
 
     setFlowData({
       hasFinancialData: true,
@@ -2932,14 +2938,12 @@ export function KaiFlow({
         redirectUri,
       });
 
-      if (!linkToken.configured || !linkToken.link_token) {
-        throw new Error("Plaid is not configured for this environment.");
-      }
-      if (linkToken.resume_session_id) {
+      const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+      if (readyLinkToken.resume_session_id) {
         savePlaidOAuthResumeSession({
           version: 1,
           userId,
-          resumeSessionId: linkToken.resume_session_id,
+          resumeSessionId: readyLinkToken.resume_session_id,
           returnPath: ROUTES.KAI_DASHBOARD,
           startedAt: new Date().toISOString(),
         });
@@ -2955,14 +2959,14 @@ export function KaiFlow({
         };
 
         const handler = Plaid.create({
-          token: linkToken.link_token,
+          token: readyLinkToken.link_token,
           onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
             void PlaidPortfolioService.exchangePublicToken({
               userId,
               publicToken,
               vaultOwnerToken: effectiveVaultOwnerToken,
               metadata,
-              resumeSessionId: linkToken.resume_session_id || null,
+              resumeSessionId: readyLinkToken.resume_session_id || null,
             })
               .then((status) => {
                 clearPlaidOAuthResumeSession();

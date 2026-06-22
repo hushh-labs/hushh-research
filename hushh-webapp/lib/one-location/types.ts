@@ -5,6 +5,29 @@ export type LocationSourcePlatform =
   | "native"
   | "unknown";
 
+export type OneLocationRecommendationTier =
+  | "needs_action"
+  | "trusted_circle"
+  | "kai_network"
+  | "contacts"
+  | "setup_needed"
+  | "available"
+  | string;
+
+export type OneLocationRecommendationCategory =
+  | "needs_action"
+  | "trusted_circle"
+  | "professional_network"
+  | "location_ready"
+  | "needs_setup"
+  | string;
+
+export type OneLocationRecommendationReason = {
+  code: string;
+  label: string;
+  weight?: number;
+};
+
 export type OneLocationRecipient = {
   userId: string;
   displayName: string;
@@ -15,6 +38,99 @@ export type OneLocationRecipient = {
   keyAlgorithm: string;
   keyRegisteredAt?: string | null;
   canReceiveLocation: boolean;
+  recommendationScore?: number;
+  recommendationRank?: number;
+  recommendationTier?: OneLocationRecommendationTier | null;
+  recommendationCategory?: OneLocationRecommendationCategory | null;
+  recommendationCategoryLabel?: string | null;
+  recommendationReasons?: OneLocationRecommendationReason[];
+  recommendationSummary?: string | null;
+  trustLevel?: "high" | "medium" | "new" | "setup_needed" | string | null;
+  relationshipType?: string | null;
+  profileHeadline?: string | null;
+  verificationBadge?: string | null;
+  lastInteractionAt?: string | null;
+};
+
+export type OneLocationViewerCapabilities = {
+  hasLocationRecipientKey?: boolean;
+  canBootstrapRecipientKey?: boolean;
+  canShareLocation?: boolean;
+  canRequestLocation?: boolean;
+};
+
+type KaiCircleCandidateReadiness =
+  | "location_ready"
+  | "target_setup_needed"
+  | "viewer_setup_needed"
+  | "invite_only"
+  | "not_shareable";
+
+export type KaiCircleCandidate = {
+  candidateId: string;
+  userId?: string | null;
+  displayName: string;
+  maskedPhone?: string | null;
+  phoneVerified: boolean;
+  keyId?: string | null;
+  publicKeyJwk?: JsonWebKey | null;
+  keyAlgorithm: string;
+  keyRegisteredAt?: string | null;
+  canReceiveLocation: boolean;
+  isShareReady: boolean;
+  readiness: KaiCircleCandidateReadiness;
+  connectCandidateId?: string | null;
+  connectKind?: string | null;
+  connectStatus?: string | null;
+  sourceTypes: string[];
+  profileHref?: string | null;
+  connectionHref?: string | null;
+  isPublicProfileOnly?: boolean;
+  isDiscoverable: boolean;
+  recommendationScore?: number;
+  recommendationRank?: number;
+  recommendationTier?: OneLocationRecommendationTier | null;
+  recommendationCategory?: OneLocationRecommendationCategory | null;
+  recommendationCategoryLabel?: string | null;
+  recommendationReasons?: OneLocationRecommendationReason[];
+  recommendationSummary?: string | null;
+  trustLevel?: "high" | "medium" | "new" | "setup_needed" | string | null;
+  relationshipType?: string | null;
+  profileHeadline?: string | null;
+  verificationBadge?: string | null;
+  lastInteractionAt?: string | null;
+};
+
+export type KaiCircleSectionKey =
+  | "needs_action"
+  | "trusted_circle"
+  | "professional_network"
+  | "connect_matches"
+  | "location_ready"
+  | "needs_setup";
+
+export type KaiCircleSection = {
+  key: KaiCircleSectionKey;
+  title: string;
+  description: string;
+  candidates: KaiCircleCandidate[];
+};
+
+type KaiCircleCtaId =
+  | "share_location"
+  | "request_location"
+  | "ask_to_setup_one_location"
+  | "open_connect_profile"
+  | "approve"
+  | "deny"
+  | "view_shared_location"
+  | "revoke_access";
+
+export type KaiCircleCta = {
+  id: KaiCircleCtaId;
+  label: string;
+  enabled: boolean;
+  reason?: string | null;
 };
 
 export type OneLocationGrant = {
@@ -69,6 +185,7 @@ export type OneLocationPublicInvite = {
   ownerLabel?: string | null;
   ownerDisplayName?: string | null;
   ownerMaskedPhone?: string | null;
+  locationAvailable?: boolean;
   status: "active" | "expired" | "revoked" | string;
   durationHours: number;
   expiresAt?: string | null;
@@ -101,6 +218,8 @@ export type OneLocationPublicInviteSubmission = {
 
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
+  kaiCircleCandidates?: KaiCircleCandidate[];
+  viewerCapabilities?: OneLocationViewerCapabilities;
   ownerGrants: OneLocationGrant[];
   receivedGrants: OneLocationGrant[];
   requests: OneLocationAccessRequest[];
@@ -108,6 +227,49 @@ export type OneLocationState = {
   publicInvites: OneLocationPublicInvite[];
   publicInviteSubmissions: OneLocationPublicInviteSubmission[];
   capabilityScopes: string[];
+};
+
+export type OneLocationActivityRange = "7d" | "30d" | "90d" | "all";
+
+export type OneLocationActivityKind = "share" | "request" | "public";
+
+export type OneLocationActivityEvent = {
+  id: string;
+  kind: OneLocationActivityKind;
+  eventType?: string;
+  occurredAt: string;
+  bucketKey?: string;
+  bucketLabel?: string;
+  title: string;
+  detail: string;
+};
+
+export type OneLocationActivityBucket = {
+  key: string;
+  label: string;
+  shares: number;
+  requests: number;
+  views: number;
+  publicActivity: number;
+  total: number;
+};
+
+type OneLocationActivitySummary = {
+  sharedWithCount: number;
+  activeShareCount: number;
+  requestsReceivedCount: number;
+  requestsSentCount: number;
+  viewsCount: number;
+  publicLinkCount: number;
+  publicResponseCount: number;
+  totalEvents: number;
+};
+
+export type OneLocationActivityResponse = {
+  range: OneLocationActivityRange;
+  summary: OneLocationActivitySummary;
+  buckets: OneLocationActivityBucket[];
+  events: OneLocationActivityEvent[];
 };
 
 export type PlainLocationPoint = {

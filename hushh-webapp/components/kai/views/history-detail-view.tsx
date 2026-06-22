@@ -170,7 +170,7 @@ export function HistoryDetailView({
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <SymbolAvatar symbol={entry.ticker} name={entry.ticker} size="md" />
-                <h2 className="text-2xl font-black tracking-tight">{entry.ticker}</h2>
+                <h2 className="text-2xl font-semibold tracking-tight">{entry.ticker}</h2>
                 <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
                 {todayChangePct !== null ? (
                   <span
@@ -234,7 +234,7 @@ export function HistoryDetailView({
               <div className="flex items-start gap-3">
                 <SymbolAvatar symbol={entry.ticker} name={entry.ticker} size="lg" className="mt-0.5" />
                 <div>
-                  <h1 className="text-2xl font-black tracking-tighter text-foreground leading-none">
+                  <h1 className="text-2xl font-semibold tracking-tighter text-foreground leading-none">
                     {entry.ticker}
                   </h1>
                   <div className="mt-1 flex items-center gap-2">

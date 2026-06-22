@@ -165,9 +165,9 @@ describe("investor-kai-action-registry", () => {
 
     expect(gmailActions).toEqual(
       expect.arrayContaining([
-        "route.profile_gmail_panel",
         "profile.gmail.connect",
         "profile.gmail.sync_now",
+        "profile.gmail.disconnect",
       ])
     );
 
@@ -179,7 +179,6 @@ describe("investor-kai-action-registry", () => {
 
     expect(pkmActions).toEqual(
       expect.arrayContaining([
-        "route.profile_pkm_agent_lab",
         "profile.pkm.preview_capture",
         "profile.pkm.save_capture",
       ])

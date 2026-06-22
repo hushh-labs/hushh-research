@@ -19,6 +19,10 @@ const config: NextConfig = {
   // Keep file tracing and workspace discovery scoped to this monorepo.
   outputFileTracingRoot: path.join(process.cwd(), ".."),
 
+  // Local QA uses 127.0.0.1 so browser checks and user-opened localhost URLs
+  // can receive Next.js dev resources such as the HMR websocket.
+  allowedDevOrigins: ["127.0.0.1"],
+
   // Dynamic output mode
   // 'standalone' is REQUIRED for Docker/Cloud Run builds to reduce image size
   output: isCapacitorBuild ? "export" : "standalone",
@@ -52,6 +56,12 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: false,
   productionBrowserSourceMaps: false,
+  experimental: {
+    optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
+    preloadEntriesOnStart: false,
+    serverComponentsHmrCache: true,
+    webpackMemoryOptimizations: true,
+  },
 };
 
 export default config;

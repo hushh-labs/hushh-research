@@ -201,6 +201,8 @@ export interface KaiPlugin {
 
   /**
    * Stream Kai stock analysis (SSE) from native.
+   * When body.run_id is present, native bridges must stream
+   * GET /api/kai/analyze/run/{run_id}/stream to preserve resumable run locks.
    * Subscribe to events via Kai.addListener('kaiStreamEvent', handler).
    * Resolves when stream ends.
    */

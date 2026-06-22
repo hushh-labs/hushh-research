@@ -174,6 +174,27 @@ export interface HushhConsentPlugin {
     scope: string;
   }>;
 
+  /**
+   * Publish the current unlocked VAULT_OWNER session to the shared iMessage
+   * Keychain group. Native only; no-op fallback on web.
+   */
+  publishIMessageSession(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+    accessToken?: string; // Legacy alias for vaultOwnerToken.
+    vaultKey?: string;
+    expiresAt: number;
+    firebaseIDToken?: string;
+    idToken?: string; // Legacy alias for firebaseIDToken.
+    displayName?: string | null;
+    email?: string | null;
+    avatarURL?: string | null;
+    photoUrl?: string | null; // Legacy alias for avatarURL.
+  }): Promise<{ published: boolean }>;
+
+  /** Clear the shared iMessage session when the vault locks or user signs out. */
+  clearIMessageSession(): Promise<{ cleared: boolean }>;
+
   getPending(options: {
     userId: string;
     vaultOwnerToken?: string;
@@ -747,10 +768,20 @@ export type HushhLocationPermissionState = {
   state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
   precise: boolean | null;
   background: "foreground-only" | "available" | "restricted" | "unavailable";
+  locationServicesEnabled?: boolean | null;
 };
 
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
+  requestLocationPermission(): Promise<HushhLocationPermissionState>;
+  openAppSettings(): Promise<{
+    opened: boolean;
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
+  openLocationSettings(): Promise<{
+    opened: boolean;
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
   getCurrentPosition(options?: {
     enableHighAccuracy?: boolean;
     timeoutMs?: number;
@@ -778,6 +809,7 @@ export type HushhContactRecord = {
   id?: string | null;
   displayName?: string | null;
   phoneNumbers: string[];
+  emailAddresses?: string[];
 };
 
 export interface HushhContactsPlugin {

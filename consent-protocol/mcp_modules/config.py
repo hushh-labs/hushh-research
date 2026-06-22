@@ -47,8 +47,12 @@ SERVER_INFO = {
     "protocol": "HushhMCP",
     "transport": "stdio",
     "description": "Consent-first personal data access for AI agents; no data without explicit user approval. Scopes are dynamic from the Personal Knowledge Model registry; use discover_user_domains to get per-user scope strings.",
-    "tools_count": 6,
+    "tools_count": 7,
     "tools": [
+        {
+            "name": "prepare_campaign_context",
+            "purpose": "Discover, select, reuse/request consent, and fetch encrypted-export metadata for campaign/customer-experience context",
+        },
         {"name": "request_consent", "purpose": "Request user consent for a data scope"},
         {
             "name": "validate_token",

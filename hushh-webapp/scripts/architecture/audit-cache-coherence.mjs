@@ -118,7 +118,14 @@ function screenClassForRoute(route, mode, flags) {
   }
   if (flags.sse_or_streaming || route === "/agent") return "realtime/SSE";
   if (route.startsWith("/ria") || route.startsWith("/marketplace")) return "RIA/provider";
-  if (route === "/one/kyc" || route.startsWith("/profile/pkm") || route === "/profile/receipts") {
+  if (
+    route === "/one/kyc" ||
+    route === "/pkm" ||
+    route === "/gmail" ||
+    route === "/connected-systems" ||
+    route.startsWith("/profile/pkm") ||
+    route === "/profile/receipts"
+  ) {
     return "PKM-secure";
   }
   if (route.startsWith("/kai")) return "vault-backed";
@@ -143,6 +150,9 @@ function routeCacheKeys(route) {
   if (route === "/agent") return ["PKM_METADATA", "KAI_PROFILE", "ANALYSIS_HISTORY"];
   if (route === "/one/kyc") return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
   if (route === "/profile") return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
+  if (route === "/pkm") return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
+  if (route === "/gmail") return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
+  if (route === "/connected-systems") return ["CONNECTED_SYSTEMS", "CONNECTED_SYSTEM_INTENTS"];
   if (route === "/profile/pkm-agent-lab") return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/profile/receipts") return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
   if (route === "/kai") return ["KAI_MARKET_HOME", "KAI_MARKET_HOME_BASELINE", "KAI_DASHBOARD_PROFILE_PICKS"];
@@ -165,7 +175,13 @@ function resourceClassesFor(route, screenClass) {
   if (route === "/consents") return ["consent_list"];
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
   if (route === "/profile") return ["vault_metadata", "pkm_metadata"];
-  if (route.startsWith("/profile/pkm") || route === "/profile/receipts") {
+  if (
+    route === "/pkm" ||
+    route === "/gmail" ||
+    route === "/connected-systems" ||
+    route.startsWith("/profile/pkm") ||
+    route === "/profile/receipts"
+  ) {
     return ["pkm_metadata", "pkm_projection"];
   }
   if (route === "/kai/portfolio" || route === "/kai/analysis") {
@@ -251,7 +267,14 @@ function refreshTriggerFor(screenClass) {
 function invalidatorFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static") return "none";
   if (route === "/consents" || route.includes("/requests")) return "CacheSyncService.onConsentMutated";
-  if (route.startsWith("/kai") || route === "/profile/receipts" || route === "/one/kyc") {
+  if (
+    route.startsWith("/kai") ||
+    route === "/pkm" ||
+    route === "/gmail" ||
+    route === "/connected-systems" ||
+    route === "/profile/receipts" ||
+    route === "/one/kyc"
+  ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";
   }
   if (route.startsWith("/ria") || route.startsWith("/marketplace")) return "RIA service invalidation plus CacheSyncService consent hooks";

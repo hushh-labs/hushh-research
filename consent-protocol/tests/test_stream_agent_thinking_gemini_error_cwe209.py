@@ -67,9 +67,7 @@ async def test_sentinel_not_in_fallback_token() -> None:
         )
 
     full_output = str(events)
-    assert SENTINEL not in full_output, (
-        f"Gemini error sentinel leaked into SSE output: {SENTINEL}"
-    )
+    assert SENTINEL not in full_output, f"Gemini error sentinel leaked into SSE output: {SENTINEL}"
 
 
 @pytest.mark.asyncio
@@ -97,6 +95,7 @@ async def test_fallback_token_is_opaque_static_string() -> None:
 
     # At least one fallback token must be yielded
     assert events, "Expected at least one fallback token event when Gemini errors"
+
     # create_event serialises the payload into a JSON string under the "data" key.
     # Decode each frame and gather the text tokens from the envelope payload.
     def _frame_text(event: Any) -> str:

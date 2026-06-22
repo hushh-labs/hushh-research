@@ -18,8 +18,31 @@ const PUBLIC_ROUTES = [
 // API routes are handled separately
 const API_PREFIX = "/api";
 
+const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
+  [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
+  [ROUTES.LEGACY_KAI_ANALYSIS]: ROUTES.KAI_ANALYSIS,
+  [ROUTES.LEGACY_KAI_IMPORT]: ROUTES.KAI_IMPORT,
+  [ROUTES.LEGACY_KAI_INVESTMENTS]: ROUTES.KAI_INVESTMENTS,
+  [ROUTES.LEGACY_KAI_FUNDING_TRADE]: ROUTES.KAI_FUNDING_TRADE,
+  [ROUTES.LEGACY_KAI_ONBOARDING]: ROUTES.ONE_ONBOARDING,
+  [ROUTES.LEGACY_ONE_KAI_ONBOARDING]: ROUTES.ONE_ONBOARDING,
+  [ROUTES.LEGACY_KAI_OPTIMIZE]: ROUTES.KAI_OPTIMIZE,
+  [ROUTES.LEGACY_KAI_PORTFOLIO]: ROUTES.KAI_PORTFOLIO,
+  [ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN]: ROUTES.KAI_PLAID_OAUTH_RETURN,
+  [ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN]: ROUTES.KAI_ALPACA_OAUTH_RETURN,
+  "/kai/dashboard": ROUTES.KAI_PORTFOLIO,
+  "/kai/dashboard/analysis": ROUTES.KAI_ANALYSIS,
+};
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
+  if (legacyRedirectTarget) {
+    const url = request.nextUrl.clone();
+    url.pathname = legacyRedirectTarget;
+    return NextResponse.redirect(url);
+  }
 
   // Allow all API routes (they handle their own auth)
   if (pathname.startsWith(API_PREFIX)) {
@@ -61,10 +84,9 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
+     * - _next/* (static files, image optimization, and dev HMR websocket)
      * - favicon.ico (favicon file)
      */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/|favicon.ico).*)",
   ],
 };
