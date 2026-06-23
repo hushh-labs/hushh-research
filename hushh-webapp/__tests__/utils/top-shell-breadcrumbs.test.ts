@@ -200,4 +200,10 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+   it("returns null for unknown profile panels", () => {
+    const params = new URLSearchParams();
+    params.set("panel", "does-not-exist");
+
+    expect(resolveTopShellBreadcrumb("/profile", params)).toBeNull();
+  });
 });
