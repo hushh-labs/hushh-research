@@ -60,7 +60,20 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 
 import { useRequireAuth } from "@/hooks/use-auth";
 
+type LocationTab = "compose" | "activity";
+
+const LOCATION_TAB_PARAM = "tab";
+const LOCATION_TAB_OPTIONS: { value: LocationTab; label: string }[] = [
+  { value: "compose", label: "Share & Request" },
+  { value: "activity", label: "Activity & Links" },
+];
+
+function normalizeLocationTab(value: string | null | undefined): LocationTab {
+  return value === "activity" ? "activity" : "compose";
+}
+
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+
 import {
   decryptLocationEnvelope,
   encryptLocationForRecipient,
