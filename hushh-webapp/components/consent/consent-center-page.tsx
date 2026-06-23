@@ -72,7 +72,13 @@ import {
   emailHelperWorkflowHref,
   isEmailHelperConsent,
 } from "@/lib/consent/email-helper-consent";
+import {
+  isLocationConsent,
+  locationConsentSummary,
+  locationConsentWorkflowHref,
+} from "@/lib/consent/location-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
+
 import {
   CONSENT_CENTER_PAGE_SIZE,
   ConsentCenterService,
@@ -294,9 +300,13 @@ function entrySummary(entry: ConsentCenterEntry) {
   if (isEmailHelperConsent(entry.metadata)) {
     return emailHelperConsentSummary(entry.metadata);
   }
+  if (isLocationConsent(entry.metadata, entry.scope)) {
+    return locationConsentSummary(entry.metadata);
+  }
   return resolveConsentSupportingCopy({
     scope: entry.scope,
     scopeDescription: entry.scope_description,
+
     reason: entry.reason,
     additionalAccessSummary: entry.additional_access_summary,
     kind: entry.kind,
@@ -859,6 +869,10 @@ function ConsentEntryDetail({
   const emailHelperHref = isEmailHelperConsent(entry.metadata)
     ? normalizeInternalAppHref(emailHelperWorkflowHref(entry.metadata))
     : null;
+  const locationHref = isLocationConsent(entry.metadata, entry.scope)
+    ? normalizeInternalAppHref(locationConsentWorkflowHref(entry.metadata))
+    : null;
+
   const approvedDurationLabel =
     formatDurationHours(selectedDuration) ||
     formatDurationHours(requestedDurationHours);
@@ -999,7 +1013,19 @@ function ConsentEntryDetail({
             }
           />
         ) : null}
+        {locationHref ? (
+          <SettingsRow
+            title="Location sharing"
+            description="Review this location request, active access, and expiry in One Location."
+            trailing={
+              <Button asChild variant="none" effect="fade" size="sm">
+                <Link href={locationHref}>Open Location</Link>
+              </Button>
+            }
+          />
+        ) : null}
       </SettingsGroup>
+
 
       <SettingsGroup
         embedded
