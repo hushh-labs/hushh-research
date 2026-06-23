@@ -55,8 +55,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+
 import { useRequireAuth } from "@/hooks/use-auth";
+
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import {
   decryptLocationEnvelope,
@@ -124,6 +127,8 @@ const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
+const REQUEST_MESSAGE_MAX_LENGTH = 200;
+
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
 const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
 const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
@@ -682,7 +687,14 @@ function locationSourceLabel(sourcePlatform: PlainLocationPoint["sourcePlatform"
   }
 }
 
-function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
+function LocalMapPreview({
+  point,
+  showNavigation = true,
+}: {
+  point: PlainLocationPoint;
+  // Self-location previews do not need Directions/Start - you are already there.
+  showNavigation?: boolean;
+}) {
   const captured = formatDateTime(point.capturedAt);
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
@@ -690,6 +702,7 @@ function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
   const directionsUrl = googleMapsDirectionsUrl(point);
   const startUrl = googleMapsStartNavigationUrl(point);
   const statusLabel = isStale ? "Last known location" : "Live location";
+
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
@@ -734,40 +747,43 @@ function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
           </p>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-10 w-full min-w-0 rounded-full border-[#0a84ff]/30 bg-[#0a84ff]/10 text-[#0066cc] hover:bg-[#0a84ff]/15 dark:text-[#76b7ff]"
-          >
-            <a
-              href={directionsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open Google Maps directions to shared live location"
+        {showNavigation ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-10 w-full min-w-0 rounded-full border-[#0a84ff]/30 bg-[#0a84ff]/10 text-[#0066cc] hover:bg-[#0a84ff]/15 dark:text-[#76b7ff]"
             >
-              <Route className="h-4 w-4" aria-hidden="true" />
-              Directions
-            </a>
-          </Button>
-          <Button
-            asChild
-            size="sm"
-            className="h-10 w-full min-w-0 rounded-full bg-[#1c1c1e] text-white hover:bg-black dark:bg-white dark:text-[#1c1c1e] dark:hover:bg-white/90"
-          >
-            <a
-              href={startUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Start Google Maps navigation to shared live location"
+              <a
+                href={directionsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open Google Maps directions to shared live location"
+              >
+                <Route className="h-4 w-4" aria-hidden="true" />
+                Directions
+              </a>
+            </Button>
+            <Button
+              asChild
+              size="sm"
+              className="h-10 w-full min-w-0 rounded-full bg-[#1c1c1e] text-white hover:bg-black dark:bg-white dark:text-[#1c1c1e] dark:hover:bg-white/90"
             >
-              <Navigation className="h-4 w-4" aria-hidden="true" />
-              Start
-            </a>
-          </Button>
-        </div>
+              <a
+                href={startUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Start Google Maps navigation to shared live location"
+              >
+                <Navigation className="h-4 w-4" aria-hidden="true" />
+                Start
+              </a>
+            </Button>
+          </div>
+        ) : null}
       </div>
+
 
       {isStale ? (
         <div
@@ -1449,6 +1465,25 @@ function OneLocationAgentPageContent() {
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
+  const locationTab = normalizeLocationTab(
+    searchParams.get(LOCATION_TAB_PARAM),
+  );
+  const setLocationTab = useCallback(
+    (next: LocationTab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "compose") {
+        params.delete(LOCATION_TAB_PARAM);
+      } else {
+        params.set(LOCATION_TAB_PARAM, next);
+      }
+      const query = params.toString();
+      router.replace(query ? `/one/location?${query}` : "/one/location", {
+        scroll: false,
+      });
+    },
+    [router, searchParams],
+  );
+
   const [shareReviewOpen, setShareReviewOpen] = useState(false);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
@@ -2542,6 +2577,29 @@ function OneLocationAgentPageContent() {
     [viewGrantEnvelope],
   );
 
+  // When a received grant is revoked or expires, immediately drop its decrypted
+  // map point so the "Shared with me" map view for that person disappears.
+  useEffect(() => {
+    const activeGrantIds = new Set(
+      (state?.receivedGrants ?? [])
+        .filter((grant) => grant.status === "active")
+        .map((grant) => grant.id),
+    );
+    setDecryptedPoints((current) => {
+      const next: Record<string, PlainLocationPoint> = {};
+      let changed = false;
+      for (const [grantId, point] of Object.entries(current)) {
+        if (activeGrantIds.has(grantId)) {
+          next[grantId] = point;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [state?.receivedGrants]);
+
+
   useEffect(() => {
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
     if (busy && busy !== "load") return;
@@ -3563,9 +3621,24 @@ function OneLocationAgentPageContent() {
           <OneLocationInitialSkeleton />
         ) : (
           <div className="flex min-w-0 max-w-full flex-col gap-6">
-            <div className="min-w-0 max-w-full space-y-7">
+            <div className="px-1">
+              <SegmentedTabs
+                value={locationTab}
+                onValueChange={(value) =>
+                  setLocationTab(normalizeLocationTab(value))
+                }
+                options={LOCATION_TAB_OPTIONS}
+              />
+            </div>
+            <div
+              className={cn(
+                "min-w-0 max-w-full space-y-7",
+                locationTab === "compose" ? "" : "hidden",
+              )}
+            >
               <section className="min-w-0 max-w-full space-y-2 px-1">
                 {sectionLabel("Device readiness")}
+
                 <div
                   className={cn(
                     "flex min-w-0 max-w-full flex-col items-center gap-3 overflow-hidden rounded-[20px] border px-4 py-4 text-center shadow-sm sm:flex-row sm:justify-between sm:text-left",
@@ -3657,9 +3730,13 @@ function OneLocationAgentPageContent() {
 
                   {myLocationPoint ? (
                     <div className="px-3.5 pb-3.5">
-                      <LocalMapPreview point={myLocationPoint} />
+                      <LocalMapPreview
+                        point={myLocationPoint}
+                        showNavigation={false}
+                      />
                     </div>
                   ) : null}
+
                 </div>
               </section>
 
@@ -4041,15 +4118,27 @@ function OneLocationAgentPageContent() {
                             )} selected for approval-first requests.`
                           : "Select one or more One users before requesting location access."}
                       </p>
-                      <Textarea
-                        value={requestMessage}
-                        onChange={(event) =>
-                          setRequestMessage(event.target.value)
-                        }
-                        placeholder="Optional reason"
-                        rows={3}
-                        className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
-                      />
+                      <div className="space-y-1">
+                        <Textarea
+                          value={requestMessage}
+                          onChange={(event) =>
+                            setRequestMessage(
+                              event.target.value.slice(
+                                0,
+                                REQUEST_MESSAGE_MAX_LENGTH,
+                              ),
+                            )
+                          }
+                          placeholder="Optional reason"
+                          rows={3}
+                          maxLength={REQUEST_MESSAGE_MAX_LENGTH}
+                          className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
+                        />
+                        <p className="px-1 text-right text-[11px] font-medium text-[#8e8e93] dark:text-white/45">
+                          {requestMessage.length}/{REQUEST_MESSAGE_MAX_LENGTH}
+                        </p>
+                      </div>
+
                       <ActionButton
                         busy={busy}
                         busyKey="request"
@@ -4069,8 +4158,14 @@ function OneLocationAgentPageContent() {
               </section>
             </div>
 
-            <div className="min-w-0 max-w-full space-y-6">
+            <div
+              className={cn(
+                "min-w-0 max-w-full space-y-6",
+                locationTab === "activity" ? "" : "hidden",
+              )}
+            >
               {SHOW_LOCATION_ACTIVITY_SECTION ? (
+
                 <section
                   ref={activitySectionRef}
                   tabIndex={-1}
