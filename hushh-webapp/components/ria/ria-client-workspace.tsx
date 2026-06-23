@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
@@ -269,6 +269,8 @@ export function RiaClientWorkspace({
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [requestReason, setRequestReason] = useState("");
+  const disconnectInFlightRef = useRef(false);
+  const requestAccessInFlightRef = useRef(false);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -302,6 +304,8 @@ export function RiaClientWorkspace({
 
   async function handleDisconnect() {
     if (!user || !detail || isTestProfile) return;
+    if (disconnectInFlightRef.current) return;
+    disconnectInFlightRef.current = true;
     try {
       setDisconnecting(true);
       const idToken = await user.getIdToken();
@@ -316,12 +320,14 @@ export function RiaClientWorkspace({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to disconnect relationship");
     } finally {
+      disconnectInFlightRef.current = false;
       setDisconnecting(false);
     }
   }
 
   async function handleRequestAccess() {
     if (!user || !detail || !activeTemplate || isTestProfile) return;
+    if (requestAccessInFlightRef.current) return;
     if (selectedScopes.length === 0) {
       toast.error("Select at least one access area to request.");
       return;
@@ -331,6 +337,7 @@ export function RiaClientWorkspace({
       return;
     }
 
+    requestAccessInFlightRef.current = true;
     try {
       setRequestingAccess(true);
       const idToken = await user.getIdToken();
@@ -349,6 +356,7 @@ export function RiaClientWorkspace({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send access request");
     } finally {
+      requestAccessInFlightRef.current = false;
       setRequestingAccess(false);
     }
   }
