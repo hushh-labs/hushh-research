@@ -49,6 +49,32 @@ describe("config", () => {
 
     expect(config.BACKEND_URL).toBe("http://127.0.0.1:8000");
   });
+  it("uses development backend fallback when runtime backend url is whitespace only", async () => {
+  const { resolveAppEnvironment } = await import("@/lib/app-env");
+  const { resolveRuntimeBackendUrl } = await import(
+    "@/lib/runtime/settings"
+  );
+
+  vi.mocked(resolveAppEnvironment).mockReturnValue("development");
+  vi.mocked(resolveRuntimeBackendUrl).mockReturnValue("   ");
+
+  const config = await import("@/lib/config");
+
+  expect(config.BACKEND_URL).toBe("http://127.0.0.1:8000");
+ });
+ it("uses development frontend fallback when runtime frontend url is whitespace only", async () => {
+  const { resolveAppEnvironment } = await import("@/lib/app-env");
+  const { resolveRuntimeFrontendUrl } = await import(
+    "@/lib/runtime/settings"
+  );
+
+  vi.mocked(resolveAppEnvironment).mockReturnValue("development");
+  vi.mocked(resolveRuntimeFrontendUrl).mockReturnValue("   ");
+
+  const config = await import("@/lib/config");
+
+  expect(config.APP_FRONTEND_ORIGIN).toBe("http://localhost:3000");
+ });
 
   it("resolves configured development backend url", async () => {
     const { resolveAppEnvironment } = await import("@/lib/app-env");
