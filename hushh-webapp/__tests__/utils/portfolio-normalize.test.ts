@@ -272,3 +272,4 @@ describe("portfolio normalizer - negative currency boundaries", () => {
     expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
   });
 });
+
