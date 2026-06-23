@@ -9,15 +9,18 @@ def test_connected_systems_migration_is_registered_before_current_release_head()
     assert migration.exists()
 
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
-    assert manifest["ordered_migrations"][-3:] == [
-        "066_marketplace_visibility_posture.sql",
-        "067_connected_systems.sql",
-        "068_one_location_circle_invites.sql",
-    ]
+    ordered = manifest["ordered_migrations"]
+    # Invariant (not a tail snapshot): 067 is registered, ordered immediately
+    # after 066, and before the migrations that follow it. Asserting the
+    # relationship rather than a fixed [-3:] slice keeps this stable as new
+    # migrations land at the head.
+    idx = ordered.index("067_connected_systems.sql")
+    assert ordered[idx - 1] == "066_marketplace_visibility_posture.sql"
+    assert ordered[idx + 1] == "068_one_location_circle_invites.sql"
     assert "067_connected_systems.sql" in manifest["groups"]["iam"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 68
+    assert contract["expected_migration_version"] == 70
     assert contract["migration_version_policy"] == "exact"
 
 

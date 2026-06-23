@@ -83,6 +83,27 @@ Consent and audit metadata for these scopes may include actor ids, request ids,
 grant ids, duration, timestamps, status, and reason codes. It must not include
 coordinates, addresses, map previews, or movement traces.
 
+### Capability token enforcement
+
+Each live-location grant mints a signed HCT consent token scoped
+`cap.location.live.view`, bound to a `device:<recipient_user_id>` agent identity,
+and expiring with the grant. The token is the cryptographic capability the
+recipient device exercises; it is persisted in the grant's metadata and
+validated (signature, expiry, scope) before any ciphertext envelope is accepted.
+Grants created before per-grant minting carry no token and fall back to the
+DB-backed status and expiry checks, so the change is backward compatible.
+
+### Zero-knowledge envelope model
+
+Live coordinates are never stored in the clear. Recipient devices generate an
+ECDH P-256 keypair locally and register only the public key
+(`one_location_recipient_keys`). Senders derive a per-message shared secret with
+an ephemeral key and AES-256-GCM, and the backend persists ciphertext-only
+envelopes (`one_location_envelopes`). The legacy plaintext prototype
+(`kai_location_*`, migration 060) was removed in migration
+`069_drop_kai_location_plaintext.sql`; the One Location Agent
+(`one_location_*`) is the only live-location system.
+
 ## One Email Disclosure Bundles
 
 One Email KYC/dev-UAT disclosure workflows use the same bundle metadata pattern

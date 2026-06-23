@@ -45,7 +45,9 @@
     "065_one_location_retention_indexes.sql",
     "066_marketplace_visibility_posture.sql",
     "067_connected_systems.sql",
-    "068_one_location_circle_invites.sql"
+    "068_one_location_circle_invites.sql",
+    "069_drop_kai_location_plaintext.sql",
+    "070_developer_registry.sql"
   ],
   "groups": {
     "iam": [
@@ -77,7 +79,8 @@
       "065_one_location_retention_indexes.sql",
       "066_marketplace_visibility_posture.sql",
       "067_connected_systems.sql",
-      "068_one_location_circle_invites.sql"
+      "068_one_location_circle_invites.sql",
+      "069_drop_kai_location_plaintext.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -90,6 +93,9 @@
       "048_merge_pkm_domain_summary_rpc.sql",
       "062_consent_exports_export_key_guard.sql",
       "063_pkm_default_available_visibility.sql"
+    ],
+    "developer": [
+      "070_developer_registry.sql"
     ]
   }
 }

@@ -1837,3 +1837,64 @@ def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> Non
     assert duplicate.value.status_code == 429
     assert len(service.public_submissions) == 1
     assert len(service.requests) == 1
+
+
+# ── Phase 3: HCT capability token on device-to-device grants ────────────────
+
+
+def test_mint_grant_capability_token_issues_scoped_hct() -> None:
+    from hushh_mcp.consent.token import validate_token
+
+    service = OneLocationAgentService()
+    minted = service._mint_grant_capability_token(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        duration_hours=1,
+    )
+
+    assert minted["token"].startswith("HCT:")
+    valid, reason, token = validate_token(minted["token"], expected_scope="cap.location.live.view")
+    assert valid is True, reason
+    assert token is not None
+    assert token.user_id == "user_a"
+    assert token.agent_id == "device:user_b"
+
+
+def test_assert_grant_capability_token_accepts_valid_metadata_token() -> None:
+    service = OneLocationAgentService()
+    minted = service._mint_grant_capability_token(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        duration_hours=1,
+    )
+
+    # Valid token in metadata must pass without raising.
+    service._assert_grant_capability_token({"metadata": {"capability_token": minted["token"]}})
+    # Same, when metadata arrives as a JSON string (DB round-trip shape).
+    service._assert_grant_capability_token(
+        {"metadata": json.dumps({"capability_token": minted["token"]})}
+    )
+
+
+def test_assert_grant_capability_token_rejects_tampered_token() -> None:
+    service = OneLocationAgentService()
+    minted = service._mint_grant_capability_token(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        duration_hours=1,
+    )
+    tampered = minted["token"][:-4] + "AAAA"
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service._assert_grant_capability_token({"metadata": {"capability_token": tampered}})
+    assert exc.value.code == "LOCATION_GRANT_CAPABILITY_INVALID"
+    assert exc.value.status_code == 403
+
+
+def test_assert_grant_capability_token_allows_legacy_tokenless_grant() -> None:
+    """Grants created before per-grant minting carry no token; DB checks govern."""
+    service = OneLocationAgentService()
+    # No capability_token in metadata → no raise (backward compatible).
+    service._assert_grant_capability_token({"metadata": {"reason": "owner_approved"}})
+    service._assert_grant_capability_token({"metadata": None})
+    service._assert_grant_capability_token({})

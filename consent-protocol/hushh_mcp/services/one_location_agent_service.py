@@ -12,14 +12,23 @@ from typing import Any
 from api.utils.fcm_messages import build_push_message
 from api.utils.firebase_admin import ensure_firebase_admin
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.consent.token import issue_token, validate_token
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
     normalize_duration_hours,
     normalize_source_platform,
 )
+from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)
+
+# Capability scope minted into the per-grant HCT consent token. Live-location
+# viewing is the authority the recipient device exercises when reading
+# ciphertext envelopes, so the grant's signed token carries this scope.
+LOCATION_GRANT_CONSENT_SCOPE = "cap.location.live.view"
+
 _NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, int(os.getenv("ONE_LOCATION_NOTIFICATION_WORKERS", "2"))),
     thread_name_prefix="one-location-notify",
@@ -2353,6 +2362,62 @@ class OneLocationAgentService:
             )
         return row
 
+    def _mint_grant_capability_token(
+        self,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+        duration_hours: float,
+    ) -> dict[str, str]:
+        """Mint a signed HCT capability token for a device-to-device grant.
+
+        The token is the cryptographic capability that authorizes the recipient
+        device to read live-location ciphertext for this grant. Scope is
+        cap.location.live.view; the agent identity binds the token to the
+        recipient device principal. Expiry mirrors the grant duration so the
+        capability and the row expire together.
+        """
+        expires_in_ms = max(1, int(round(duration_hours * 60 * 60 * 1000)))
+        token = issue_token(
+            user_id=UserID(owner_user_id),
+            agent_id=AgentID(f"device:{recipient_user_id}"),
+            scope=ConsentScope.CAP_LOCATION_LIVE_VIEW,
+            expires_in_ms=expires_in_ms,
+        )
+        return {"token": token.token, "token_id": token.token}
+
+    def _assert_grant_capability_token(self, grant_row: dict[str, Any]) -> None:
+        """Cryptographically validate a grant's capability token before use.
+
+        Older grants created before per-grant HCT minting carry no token in
+        metadata; those fall back to the DB status/expiry checks already
+        performed by the caller. When a token is present it must validate:
+        signature, expiry, and cap.location.live.view scope. This makes the
+        grant's authority a verifiable capability rather than a descriptive
+        string column.
+        """
+        metadata = grant_row.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError):
+                metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        capability = metadata.get("capability_token")
+        if not capability:
+            return
+        valid, reason, _token = validate_token(
+            capability,
+            expected_scope=LOCATION_GRANT_CONSENT_SCOPE,
+        )
+        if not valid:
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_CAPABILITY_INVALID",
+                "Location share capability is no longer valid.",
+                status_code=403,
+            )
+
     def create_grant(
         self,
         *,
@@ -2386,6 +2451,11 @@ class OneLocationAgentService:
         owner_label = _identity_display_label(owner_identity)
         key_id = str(recipient.get("key_id") or "")
         expires_at = _utcnow() + timedelta(hours=duration)
+        capability = self._mint_grant_capability_token(
+            owner_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+            duration_hours=duration,
+        )
         self._execute_many(
             """
             UPDATE one_location_share_grants
@@ -2420,7 +2490,13 @@ class OneLocationAgentService:
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
                 "expires_at": expires_at,
-                "metadata_json": _json_param({"reason": reason or "owner_approved"}),
+                "metadata_json": _json_param(
+                    {
+                        "reason": reason or "owner_approved",
+                        "capability_token": capability["token"],
+                        "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+                    }
+                ),
                 "recipient_display_name": recipient.get("display_name"),
                 "recipient_phone_number": recipient.get("phone_number"),
             },
@@ -2508,6 +2584,10 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_GRANT_EXPIRED", "Location share has expired.", status_code=410
             )
+        # Cryptographically verify the grant's HCT capability token (signature,
+        # expiry, cap.location.live.view scope) before accepting ciphertext.
+        # Grants minted before per-grant tokens fall back to the DB checks above.
+        self._assert_grant_capability_token(grant_row)
         recipient_key_id = str(grant_row.get("recipient_key_id") or "")
         if str(envelope.get("recipientKeyId") or recipient_key_id) != recipient_key_id:
             raise OneLocationAgentError(

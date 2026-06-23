@@ -25,6 +25,10 @@ CREATE_TABLE_RE = re.compile(
     r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-zA-Z_][\w]*)",
     re.IGNORECASE,
 )
+DROP_TABLE_RE = re.compile(
+    r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-zA-Z_][\w]*)",
+    re.IGNORECASE,
+)
 SQL_WRITE_TEMPLATE = r"\b(?:INSERT\s+INTO|UPDATE)\s+(?:public\.)?{table}\b"
 SUPABASE_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
 
@@ -38,12 +42,23 @@ def _rel(path: Path) -> str:
 
 
 def _migration_tables() -> OrderedDict[str, list[str]]:
+    """Return the NET set of tables defined by the migration chain.
+
+    Tables are accumulated from CREATE TABLE statements in migration order and
+    removed when a later migration issues DROP TABLE. This keeps the audit
+    aligned with the real end-state schema: a prototype table created in an
+    early migration and dropped in a later decommission migration (e.g. the
+    plaintext kai_location_* tables dropped in 069) is not surfaced as a live
+    table the data-plane contract must classify.
+    """
     tables: OrderedDict[str, list[str]] = OrderedDict()
     for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
         text = migration.read_text(encoding="utf-8", errors="ignore")
         for match in CREATE_TABLE_RE.finditer(text):
             table_name = match.group(1)
             tables.setdefault(table_name, []).append(migration.name)
+        for match in DROP_TABLE_RE.finditer(text):
+            tables.pop(match.group(1), None)
     return tables
 
 

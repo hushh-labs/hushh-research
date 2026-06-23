@@ -91,12 +91,6 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM pkm_migration_state",
         "DELETE FROM kai_receipt_memory_artifacts",
         "DELETE FROM kai_portfolio_source_preferences",
-        "DELETE FROM kai_location_access_requests",
-        "DELETE FROM kai_location_events",
-        "DELETE FROM kai_location_latest",
-        "DELETE FROM kai_location_update_sessions",
-        "DELETE FROM kai_location_shares",
-        "DELETE FROM kai_location_contacts",
         "DELETE FROM relationship_share_events",
         "DELETE FROM relationship_share_grants",
         "DELETE FROM ria_pick_share_artifacts",
@@ -139,9 +133,6 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     )
     assert executed_sql.index("DELETE FROM connected_system_record_bindings") < executed_sql.index(
         "DELETE FROM connected_system_intents"
-    )
-    assert executed_sql.index("DELETE FROM kai_location_shares") < executed_sql.index(
-        "DELETE FROM kai_location_contacts"
     )
     assert executed_sql.index("DELETE FROM relationship_share_events") < executed_sql.index(
         "DELETE FROM relationship_share_grants"

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 68,
+  "expected_migration_version": 70,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -587,6 +587,42 @@
       "status",
       "metadata_json",
       "created_at"
+    ],
+    "developer_applications": [
+      "id",
+      "slug",
+      "display_name",
+      "contact_email",
+      "requested_tool_groups",
+      "status",
+      "created_at",
+      "updated_at"
+    ],
+    "developer_apps": [
+      "app_id",
+      "agent_id",
+      "display_name",
+      "contact_email",
+      "status",
+      "allowed_tool_groups",
+      "owner_firebase_uid",
+      "owner_email",
+      "owner_display_name",
+      "owner_provider_ids",
+      "created_at",
+      "updated_at"
+    ],
+    "developer_tokens": [
+      "id",
+      "app_id",
+      "token_prefix",
+      "token_hash",
+      "label",
+      "created_by",
+      "revoked_by",
+      "created_at",
+      "revoked_at",
+      "last_used_at"
     ]
   }
 }

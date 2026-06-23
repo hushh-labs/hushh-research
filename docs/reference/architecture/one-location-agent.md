@@ -216,12 +216,16 @@ the web control surface.
 
 ## Migration From KAI Prototype
 
-1. Keep existing KAI location tables/routes as transitional prototype history.
-2. Do not mount public KAI location routes as product traffic.
-3. Stop adding UX entry points to bearer-token share links.
-4. Store new live-location updates only in `one_location_envelopes`.
-5. Migrate or purge any future plaintext `kai_location_latest` rows before
-   launch readiness.
+The legacy KAI location prototype (`kai_location_*` tables, migration 060) has
+been fully decommissioned. Its plaintext `kai_location_latest` table stored raw
+coordinates at rest, violating the zero-knowledge invariant.
+
+1. The prototype tables were dropped in migration
+   `069_drop_kai_location_plaintext.sql` (children before parents, idempotent).
+2. The unmounted KAI location router and `KaiLocationService` were removed.
+3. The One Location Agent (`one_location_*`) is now the only live-location
+   system; updates are stored only as ciphertext in `one_location_envelopes`.
+4. Account-deletion cleanup no longer references the dropped tables.
 
 ## Test Bar
 
