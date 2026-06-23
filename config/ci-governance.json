@@ -4,10 +4,12 @@
     "promotion_branch": "main",
     "main_allowed_head_branches": [
       "integration/pr-train",
-      "maintainer/promote-damria-one-location-to-main"
+      "maintainer/promote-damria-one-location-to-main",
+      "maintainer/promote-damria-one-location-consent"
     ]
   },
   "main": {
+
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
     "require_last_push_approval": true,
