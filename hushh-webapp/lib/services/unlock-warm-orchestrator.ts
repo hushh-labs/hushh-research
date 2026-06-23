@@ -9,6 +9,8 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
@@ -158,11 +160,39 @@ export class UnlockWarmOrchestrator {
     });
   }
 
+  private static locationKeyBootstrappedByUser = new Set<string>();
+
+  // Eagerly provision the One Location recipient key right after vault unlock so
+  // EVERY signed-in user (new or returning) can receive and request location
+  // without ever opening the One Location page first. The key is an ECDH P-256
+  // keypair held on-device; this only registers the public half. Idempotent:
+  // ensureLocationRecipientKey reuses the device key and the backend upserts on
+  // (user_id, key_id), so it is safe to attempt once per session.
+  private static queueLocationRecipientKeyBootstrap(params: {
+    userId: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (this.locationKeyBootstrappedByUser.has(params.userId)) return;
+    this.locationKeyBootstrappedByUser.add(params.userId);
+    void bootstrapCurrentUserLocationRecipientKey({
+      userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      // Never block unlock warming; allow a later retry this session.
+      this.locationKeyBootstrappedByUser.delete(params.userId);
+      console.warn(
+        "[UnlockWarmOrchestrator] One Location recipient key bootstrap failed:",
+        error
+      );
+    });
+  }
+
   private static queueConsentExportRefresh(params: {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
+
     void ConsentExportRefreshOrchestrator.ensureRunning({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -499,9 +529,17 @@ export class UnlockWarmOrchestrator {
     }
 
     this.queuePkmUpgrade(params);
+    // Provision the One Location recipient key for every user on every unlock,
+    // regardless of which route they unlocked on, so receiving/requesting
+    // location never requires visiting the One Location page first.
+    this.queueLocationRecipientKeyBootstrap({
+      userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
     if (warmPriority === "consents") {
       this.queueConsentExportRefresh(params);
     }
+
     const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
     trackEvent("startup_readiness_warmup_completed", {
       result: "success",
