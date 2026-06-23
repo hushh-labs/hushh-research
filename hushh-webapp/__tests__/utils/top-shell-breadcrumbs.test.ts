@@ -200,4 +200,20 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
-});
+      it("ignores unsafe external from params for consent back navigation", () => {
+    const params = new URLSearchParams();
+    params.set("from", "https://evil.example.com/phish");
+
+    expect(resolveTopShellBreadcrumb("/consents", params)).toEqual({
+      backHref: "/profile?panel=access",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile?panel=access" },
+        { label: "Privacy", href: "/profile?panel=access" },
+        { label: "Consent center" },
+      ],
+    });
+  });
+    });
+ 
