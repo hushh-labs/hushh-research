@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveRuntimeBackendUrl } from "@/lib/runtime/settings";
+import {
+  resolveRuntimeBackendUrl,
+  resolveVoiceDirectBackendPreference,
+} from "@/lib/runtime/settings";
 
 describe("runtime settings", () => {
   const originalBackendUrl = process.env.BACKEND_URL;
   const originalPublicBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const originalVoiceDirectBackend = process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND;
 
   afterEach(() => {
     process.env.BACKEND_URL = originalBackendUrl;
     process.env.NEXT_PUBLIC_BACKEND_URL = originalPublicBackendUrl;
+    process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = originalVoiceDirectBackend;
   });
 
   it("normalizes carriage return line endings around runtime backend urls", () => {
@@ -27,5 +32,10 @@ describe("runtime settings", () => {
     );
 
     expect(resolveFreshRuntimeBackendUrl()).toBe("");
+  });
+  it("treats enabled as truthy for direct backend preference", () => {
+  process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "enabled";
+
+  expect(resolveVoiceDirectBackendPreference()).toBe(true);
   });
 });
