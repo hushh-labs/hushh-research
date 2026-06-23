@@ -200,4 +200,12 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+    it("ignores protocol-relative from params for consent back navigation", () => {
+    const params = new URLSearchParams();
+    params.set("from", "//evil.example.com/phish");
+
+    expect(resolveTopShellBreadcrumb("/consents", params)?.backHref).toBe(
+      "/profile?panel=access"
+    );
+  });
 });
