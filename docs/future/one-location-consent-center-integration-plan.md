@@ -3,7 +3,26 @@
 Status: implementation-ready plan (frontend half already shipped)
 Owner surface: `consent-protocol` (ConsentCenterService) + `hushh-webapp` (already wired)
 
+## Visual Map
+
+```
+One Location tables ──> OneLocationAgentService.list_state(user_id)
+        (coordinate-free DTO: grants / requests / invites)
+                              │
+                              ▼
+        OneLocationCenterContributor.collect(user_id)
+        (maps DTO -> ConsentCenterEntry, asserts coordinate-free)
+                              │
+                              ▼
+        ConsentCenterService.get_center / list_center / get_center_summary
+        (unions location buckets behind ONE_LOCATION_CONSENT_CENTER_ENABLED)
+                              │
+                              ▼
+        /consents tabs  (Requests · Active Access · History) + bell counts
+```
+
 ## Why this doc exists
+
 
 The `/consents` "Access manager" page (Requests / Active Access / History /
 Relationships) renders only what `ConsentCenterService.get_center`,
@@ -188,8 +207,9 @@ cd hushh-webapp && npm run typecheck
     `tests/test_ria_iam_service_architecture.py` (124 passed, no regression with
     flag off).
   - To activate in an environment: set
-    `ONE_LOCATION_CONSENT_CENTER_ENABLED=true`. Still TODO before prod:
+    `ONE_LOCATION_CONSENT_CENTER_ENABLED=true`. Remaining before prod:
     `./bin/hushh codex data-model-audit` and a flag-ON integration test.
+
 
 - DONE: `consent-protocol/hushh_mcp/services/one_location_center_contributor.py`
 
