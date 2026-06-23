@@ -12,14 +12,14 @@ def test_developer_registry_migration_is_registered_at_release_head():
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
     ordered = manifest["ordered_migrations"]
 
-    # 070 is registered and unique (release head in this train).
+    # 070 is registered and unique (071 enterprise_crm_registry is the new head).
     assert "070_developer_registry.sql" in ordered
     assert len(ordered) == len(set(ordered))
     # Registered under its own developer lane.
     assert "070_developer_registry.sql" in manifest["groups"]["developer"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 70
+    assert contract["expected_migration_version"] == 71
     assert contract["migration_version_policy"] == "exact"
 
 

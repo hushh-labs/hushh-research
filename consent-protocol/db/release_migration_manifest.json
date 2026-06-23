@@ -47,7 +47,8 @@
     "067_connected_systems.sql",
     "068_one_location_circle_invites.sql",
     "069_drop_kai_location_plaintext.sql",
-    "070_developer_registry.sql"
+    "070_developer_registry.sql",
+    "071_enterprise_crm_registry.sql"
   ],
   "groups": {
     "iam": [
@@ -80,7 +81,8 @@
       "066_marketplace_visibility_posture.sql",
       "067_connected_systems.sql",
       "068_one_location_circle_invites.sql",
-      "069_drop_kai_location_plaintext.sql"
+      "069_drop_kai_location_plaintext.sql",
+      "071_enterprise_crm_registry.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

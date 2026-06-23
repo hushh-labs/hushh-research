@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,12 +14,22 @@ from uuid import uuid4
 
 from db.db_client import DatabaseExecutionError, get_db
 
+logger = logging.getLogger(__name__)
+
 CONNECTED_SYSTEM_SALESFORCE_ID = "salesforce-fsc-customer0"
 DEFAULT_TARGET = "Macys"
 DEFAULT_OBJECT_TYPE = "Contact"
 EXTERNAL_CRM_TRANSPORT = "external_crm_streamable_mcp"
 REGISTRY_SOURCE = "customer0_connected_system_registry"
-REGISTRY_MCP_ENDPOINT = "https://external-crm-mcp-gateway-a3e0me.y4rjsf.usa-e2.cloudhub.io/mcp"
+# Fallback (in-code) endpoint when the DB registry is disabled or the row is
+# missing. Points at the secured Omni Gateway, but the in-code definition carries
+# NO transport_headers — so an unauthenticated fallback call fails closed at the
+# gateway (411/401) rather than silently reaching an unauthenticated endpoint.
+# Production must use the DB registry (CRM_REGISTRY_DB_ENABLED=true) so credentials
+# are supplied as decrypted headers.
+REGISTRY_MCP_ENDPOINT = (
+    "https://hussh-og-nonprod-ingress-a3e0me.y4rjsf.usa-e2.cloudhub.io/crm-connect/v1/mcp"
+)
 TERMINAL_INTENT_STATUSES = frozenset({"rejected", "succeeded", "partial", "failed"})
 
 EXTERNAL_CRM_TOOL_CATALOG = (
@@ -582,6 +593,11 @@ class ConnectedSystemDefinition:
     transport_endpoint: str | None
     registry_source: str
     tool_catalog: tuple[dict[str, Any], ...]
+    # Decrypted transport auth headers (e.g. client_id / client_secret) carried
+    # from the DB registry into the MCP streamable-HTTP call. Default empty keeps
+    # the hardcoded in-code definitions backward compatible. NEVER surfaced in
+    # to_summary() — headers must not leak through the API.
+    transport_headers: tuple[tuple[str, str], ...] = ()
 
     def to_summary(self, *, endpoint_configured: bool, delete_enabled: bool) -> dict[str, Any]:
         return {
@@ -635,10 +651,12 @@ class ExternalCrmStreamableMcpAdapter:
         *,
         timeout_seconds: float = 30.0,
         tool_catalog: tuple[dict[str, Any], ...] | None = None,
+        headers: tuple[tuple[str, str], ...] = (),
     ):
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.tool_catalog = tuple(tool_catalog or ())
+        self.headers = tuple(headers or ())
         self._demo_record: dict[str, Any] = {
             "Id": "003gK00000jlmaLQAQ",
             "FirstName": "Maria",
@@ -661,6 +679,7 @@ class ExternalCrmStreamableMcpAdapter:
         return cls(
             endpoint=system.transport_endpoint,
             tool_catalog=system.tool_catalog,
+            headers=system.transport_headers,
         )
 
     @property
@@ -694,7 +713,15 @@ class ExternalCrmStreamableMcpAdapter:
             from mcp.client.session import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
 
-            async with streamablehttp_client(self.endpoint) as (read_stream, write_stream, _):
+            client_kwargs: dict[str, Any] = {}
+            if self.headers:
+                client_kwargs["headers"] = dict(self.headers)
+
+            async with streamablehttp_client(self.endpoint, **client_kwargs) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
                     result = await session.call_tool(name, arguments)
@@ -1258,7 +1285,7 @@ class ConnectedSystemsService:
         registry: tuple[ConnectedSystemDefinition, ...] | None = None,
     ):
         self.registry = registry or REGISTERED_CONNECTED_SYSTEMS
-        default_system = self._registry_system(CONNECTED_SYSTEM_SALESFORCE_ID)
+        default_system = self._resolve_system(CONNECTED_SYSTEM_SALESFORCE_ID)
         self.adapter = adapter or ExternalCrmStreamableMcpAdapter.from_registry(default_system)
         self.store = store or DatabaseConnectedSystemIntentStore()
         self.delete_enabled = True if delete_enabled is None else delete_enabled
@@ -1273,6 +1300,33 @@ class ConnectedSystemsService:
         ]
 
     def get_system(self, system_id: str) -> ConnectedSystemDefinition:
+        return self._resolve_system(system_id)
+
+    def _resolve_system(self, system_id: str) -> ConnectedSystemDefinition:
+        """Resolve a connected system definition.
+
+        When CRM_REGISTRY_DB_ENABLED is on, the DB-backed enterprise CRM registry
+        is the ONLY source of truth: a missing/inactive row raises
+        ConnectedSystemNotFoundError ("no data found") rather than silently
+        falling back to a hardcoded definition. A decryption/configuration error
+        also surfaces (raised by the repo) so a misconfigured row fails loudly.
+
+        When the flag is off, the legacy hardcoded in-code registry is used.
+        """
+        from hushh_mcp.runtime_settings import crm_registry_db_enabled
+
+        if crm_registry_db_enabled():
+            from hushh_mcp.services import crm_registry_repo
+
+            definition = crm_registry_repo.load_active_definition(system_id)
+            if definition is None:
+                logger.warning("crm_registry.no_active_row system_id=%s db_enabled=true", system_id)
+                raise ConnectedSystemNotFoundError(
+                    "No active CRM registry entry found for this system.",
+                    code="CONNECTED_SYSTEM_REGISTRY_ROW_NOT_FOUND",
+                )
+            return definition
+
         return self._registry_system(system_id)
 
     def _registry_system(self, system_id: str) -> ConnectedSystemDefinition:
@@ -1372,7 +1426,49 @@ class ConnectedSystemsService:
         phone: str,
         search_fields: dict[str, Any] | None = None,
         return_fields: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
+        # Bound-read optimization: read is a SOQL search on the CRM, which is
+        # the most expensive operation. When an active binding already holds the
+        # record id for this (user, system, object_type), serve it directly and
+        # skip the redundant CRM search. Pass force_refresh=True to bypass the
+        # cache and re-search (e.g. to reconcile a possibly-stale binding).
+        object_type_value = _normalize_object_type(object_type)
+        if not force_refresh:
+            existing = self.store.get_binding(
+                user_id=user_id,
+                system_id=system_id,
+                object_type=object_type_value,
+            )
+            existing_record_id = (
+                _clean_text(existing.get("record_id"), max_length=128) if existing else None
+            )
+            if existing and existing_record_id:
+                system = self.get_system(system_id)
+                self._audit(
+                    user_id=user_id,
+                    system_id=system_id,
+                    action="read",
+                    object_type=object_type_value,
+                    record_id=existing_record_id,
+                    field_names=[],
+                    mcp_result_class="served_from_binding",
+                    readback_result_class=None,
+                    status="succeeded",
+                    metadata={"served_from_binding": True},
+                )
+                return {
+                    "systemId": system_id,
+                    "target": system.target,
+                    "objectType": object_type_value,
+                    "resultClass": "succeeded",
+                    "recordId": existing_record_id,
+                    "servedFromBinding": True,
+                    "mcp": None,
+                    "bindingStatus": "active",
+                    "binding": self._public_binding(existing),
+                }
+
         read = await self.read_record(
             user_id=user_id,
             system_id=system_id,
@@ -1386,7 +1482,6 @@ class ConnectedSystemsService:
         binding: dict[str, Any] | None = None
         if read.get("resultClass") == "succeeded" and record_id:
             system = self.get_system(system_id)
-            object_type_value = _normalize_object_type(object_type)
             binding = self.store.upsert_binding(
                 {
                     "binding_id": _binding_id(),
@@ -1401,6 +1496,7 @@ class ConnectedSystemsService:
             )
         return {
             **read,
+            "servedFromBinding": False,
             "bindingStatus": "active" if binding else "unbound",
             "binding": self._public_binding(binding) if binding else None,
         }

@@ -42,7 +42,15 @@ class CrmReadRequest(BaseModel):
 
 
 class CrmSearchRequest(CrmReadRequest):
-    pass
+    force_refresh: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("forceRefresh", "force_refresh"),
+        description=(
+            "Bypass the bound-read cache and re-search the CRM. When false "
+            "(default) and an active record binding exists, the bound record id "
+            "is returned without an MCP search call."
+        ),
+    )
 
 
 class CrmCreateIntentRequest(BaseModel):
@@ -227,6 +235,7 @@ async def search_connected_system_record(
             phone=body.phone,
             search_fields=body.search_fields,
             return_fields=body.return_fields,
+            force_refresh=body.force_refresh,
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)

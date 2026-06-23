@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 70,
+  "expected_migration_version": 71,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -623,6 +623,45 @@
       "created_at",
       "revoked_at",
       "last_used_at"
+    ],
+    "enterprise_crm_registry": [
+      "crm_id",
+      "crm_enterprise_name",
+      "crm_type",
+      "environment",
+      "crm_base_url",
+      "crm_token_url",
+      "crm_mcp_endpoint",
+      "crm_client_id_ciphertext",
+      "crm_client_id_iv",
+      "crm_client_id_tag",
+      "crm_client_secret_ciphertext",
+      "crm_client_secret_iv",
+      "crm_client_secret_tag",
+      "encryption_algorithm",
+      "key_id",
+      "auth_header_style",
+      "supports_create",
+      "supports_read",
+      "supports_update",
+      "supports_delete",
+      "user_object_name",
+      "rate_limit_per_min",
+      "timeout_seconds",
+      "retry_count",
+      "is_active",
+      "business_owner",
+      "technical_owner",
+      "created_at",
+      "updated_at"
+    ],
+    "crm_operation_endpoints": [
+      "crm_id",
+      "operation",
+      "tool_name",
+      "http_method",
+      "path",
+      "description"
     ]
   }
 }

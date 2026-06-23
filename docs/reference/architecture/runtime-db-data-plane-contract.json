@@ -385,6 +385,22 @@
       "expected_row_growth": "medium_append_only"
     },
     {
+      "id": "enterprise_crm_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "enterprise_crm_registry",
+        "crm_operation_endpoints"
+      ],
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
+      "retention_policy": "Retain active enterprise CRM integration config and per-operation tool catalog while the integration is provisioned; deactivate via is_active rather than delete to preserve audit lineage.",
+      "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
+      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
+      "plaintext_posture": "config_urls_plaintext_credentials_encrypted",
+      "expected_row_growth": "low_reference"
+    },
+    {
       "id": "developer_access",
       "owner": "mcp-developer-surface",
       "data_class": "audit_regulated",

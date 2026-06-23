@@ -37,7 +37,7 @@ def test_one_location_public_invite_migration_sequence_is_current_and_unique() -
         path.name for path in MIGRATIONS_DIR.glob("*one_location_retention_indexes.sql")
     }
     assert len(ordered) == len(set(ordered))
-    assert schema_contract["expected_migration_version"] == 70
+    assert schema_contract["expected_migration_version"] == 71
     assert migration_name in manifest["groups"]["iam"]
     assert retention_name in manifest["groups"]["iam"]
     assert circle_invite_name in manifest["groups"]["iam"]

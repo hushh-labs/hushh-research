@@ -172,6 +172,13 @@ def get_optional_plaid_access_token_key() -> str:
     return _clean_env(PLAID_ACCESS_TOKEN_KEY_ENV)
 
 
+def crm_registry_db_enabled() -> bool:
+    """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
+    registry (decrypting credentials with VAULT_DATA_KEY) instead of the
+    hardcoded in-code definition. Defaults off until cutover."""
+    return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
+
+
 @lru_cache(maxsize=1)
 def get_core_security_settings() -> CoreSecuritySettings:
     app_signing_key = _clean_env(APP_SIGNING_KEY_ENV)
