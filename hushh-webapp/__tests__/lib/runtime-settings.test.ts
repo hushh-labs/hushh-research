@@ -18,6 +18,15 @@ describe("runtime settings", () => {
     expect(resolveRuntimeBackendUrl()).toBe("https://runtime.example.com");
   });
 
+  it("prefers BACKEND_URL over NEXT_PUBLIC_BACKEND_URL", () => {
+  process.env.BACKEND_URL = "https://internal.example.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL = "https://public.example.com";
+
+  expect(resolveRuntimeBackendUrl()).toBe(
+    "https://internal.example.com"
+  );
+  });
+
   it("returns an empty string when runtime backend urls are empty", async () => {
     process.env.BACKEND_URL = "";
     process.env.NEXT_PUBLIC_BACKEND_URL = "   ";
