@@ -39,4 +39,21 @@ describe("Alert", () => {
       container.querySelector('[data-slot="alert-description"]'),
     ).toBeTruthy();
   });
+
+  it("preserves alert data-slot contracts in a composed alert", () => {
+    const { container } = render(
+      <Alert>
+        <AlertTitle>Account notice</AlertTitle>
+        <AlertDescription>Review your account details.</AlertDescription>
+      </Alert>,
+    );
+
+    const alert = container.querySelector('[data-slot="alert"]');
+    const slots = Array.from(container.querySelectorAll("[data-slot]")).map(
+      (element) => element.getAttribute("data-slot"),
+    );
+
+    expect(alert?.getAttribute("role")).toBe("alert");
+    expect(slots).toEqual(["alert", "alert-title", "alert-description"]);
+  });
 });
