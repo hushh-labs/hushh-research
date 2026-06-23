@@ -2302,20 +2302,18 @@ class OneLocationAgentService:
               LIMIT 1
             ) k ON TRUE
             WHERE a.user_id <> :owner_user_id
-              AND (
-                a.phone_verified = TRUE
-                OR EXISTS (
-                  SELECT 1
-                  FROM one_location_network_connections nc
-                  WHERE nc.status = 'active'
-                    AND (
-                      (nc.user_a_id = :owner_user_id AND nc.user_b_id = a.user_id)
-                      OR (nc.user_b_id = :owner_user_id AND nc.user_a_id = a.user_id)
-                    )
-                )
+              AND EXISTS (
+                SELECT 1
+                FROM one_location_network_connections nc
+                WHERE nc.status = 'active'
+                  AND (
+                    (nc.user_a_id = :owner_user_id AND nc.user_b_id = a.user_id)
+                    OR (nc.user_b_id = :owner_user_id AND nc.user_a_id = a.user_id)
+                  )
               )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
+
             """,
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )

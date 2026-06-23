@@ -109,8 +109,13 @@ def test_verified_recipient_directory_filters_self_and_allows_explicit_network_c
     service = RecipientDirectoryProbe()
 
     assert service.list_verified_recipients(owner_user_id="owner") == []
-    assert "a.phone_verified = TRUE" in service.sql
+    # Recipients are gated strictly on an active One Network (Invite-to-One)
+    # connection, NOT a broad phone-verified directory. phone_verified is only a
+    # capability signal (canReceiveLocation) inside the connected set, so it must
+    # NOT appear as a membership condition in the directory SQL.
+    assert "a.phone_verified = TRUE" not in service.sql
     assert "one_location_network_connections" in service.sql
+    assert "nc.status = 'active'" in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
     assert "ORDER BY COALESCE" in service.sql
     assert service.params["owner_user_id"] == "owner"
@@ -271,9 +276,12 @@ class FourUserMemoryService(OneLocationAgentService):
             for user_id, identity in self.identities.items():
                 if user_id == owner:
                     continue
-                if not identity["phone_verified"] and user_id not in connected_ids:
+                # Mirror the real SQL: recipients are gated strictly on an active
+                # One Network connection, regardless of phone_verified.
+                if user_id not in connected_ids:
                     continue
                 key = self._active_key(user_id)
+
                 rows.append(
                     {
                         **identity,
@@ -1090,6 +1098,27 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         "phone_verified": True,
     }
 
+    # Recipients are now gated strictly on active One Network connections, so
+    # seed an Invite-to-One connection between the owner and each candidate.
+    for index, other_user_id in enumerate(
+        (user_b, user_c, user_d, user_e, user_f, user_g), start=1
+    ):
+        pair = tuple(sorted((user_a, other_user_id)))
+        service.network_connections[f"conn-{index}"] = {
+            "id": f"conn-{index}",
+            "user_a_id": pair[0],
+            "user_b_id": pair[1],
+            "inviter_user_id": user_a,
+            "invitee_user_id": other_user_id,
+            "invite_id": None,
+            "status": "active",
+            "connected_at": now - timedelta(days=index),
+            "created_at": now - timedelta(days=index),
+            "updated_at": now - timedelta(days=index),
+            "revoked_at": None,
+            "metadata": {},
+        }
+
     for user_id in (user_a, user_b, user_c, user_d, user_f, user_g):
         service.register_recipient_key(
             user_id=user_id,
@@ -1210,15 +1239,26 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         reason["code"] == "pending_location_request"
         for reason in by_id[user_c]["recommendationReasons"]
     )
-    assert by_id[user_d]["recommendationCategory"] == "professional_network"
-    assert by_id[user_d]["relationshipType"] == "Advisor relationship"
+    # Every visible recipient is now an active One Network connection, so the
+    # "Accepted Invite to One" signal applies to all of them and they surface as
+    # trusted_circle. The richer professional/marketplace/org signals still attach
+    # as recommendation REASONS even though the top-level category is trusted.
+    assert by_id[user_d]["recommendationCategory"] == "trusted_circle"
     assert by_id[user_d]["profileHeadline"] == "Retirement planning specialist"
-    assert by_id[user_f]["recommendationCategory"] == "professional_network"
+    assert any(
+        reason["code"] == "one_network_connection"
+        for reason in by_id[user_d]["recommendationReasons"]
+    )
+
+    assert by_id[user_f]["recommendationCategory"] == "trusted_circle"
     assert any(
         reason["code"] == "shared_marketplace_categories"
         for reason in by_id[user_f]["recommendationReasons"]
     )
     assert by_id[user_g]["recommendationCategory"] == "trusted_circle"
+    # Reasons are capped at the top 4 by weight. one_network_connection (42) now
+    # leads for every connected recipient, so user_g surfaces its strongest
+    # remaining signals: prior consent and organization membership.
     assert any(
         reason["code"] == "prior_consent_relationship"
         for reason in by_id[user_g]["recommendationReasons"]
@@ -1227,12 +1267,16 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         reason["code"] == "organization_membership"
         for reason in by_id[user_g]["recommendationReasons"]
     )
-    assert any(
-        reason["code"] == "mutual_kai_relationship"
-        for reason in by_id[user_g]["recommendationReasons"]
-    )
-    assert by_id[user_e]["recommendationCategory"] == "needs_setup"
+
+    # user_e is connected but has no recipient key yet: trusted connection,
+    # setup still needed before sharing.
+    assert by_id[user_e]["recommendationCategory"] == "trusted_circle"
+    assert by_id[user_e]["recommendationTier"] == "setup_needed"
     assert by_id[user_e]["canReceiveLocation"] is False
+    assert any(
+        reason["code"] == "one_network_connection"
+        for reason in by_id[user_e]["recommendationReasons"]
+    )
 
     ranks = [recipient["recommendationRank"] for recipient in recipients]
     assert ranks == sorted(ranks)
