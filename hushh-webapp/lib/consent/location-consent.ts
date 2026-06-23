@@ -10,7 +10,10 @@
 // shared read model (tracked as the Phase C backend follow-up). This helper is
 // the frontend half of that contract so the UI is ready when rows arrive.
 
+import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
+
 type MetadataLike = Record<string, unknown> | null | undefined;
+
 
 function readString(metadata: MetadataLike, key: string): string {
   const value = metadata?.[key];
@@ -42,13 +45,27 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
   const section = readString(metadata, "section");
   const grantId = readString(metadata, "grant_id");
   const requestId = readString(metadata, "request_id");
-  const params = new URLSearchParams();
-  if (section) params.set("oneLocationSection", section);
-  if (grantId) params.set("oneLocationGrantId", grantId);
-  if (requestId) params.set("oneLocationRequestId", requestId);
-  const query = params.toString();
-  return query ? `/one/location?${query}` : "/one/location";
+  // Use the canonical One Location query params (section / grantId / requestId)
+  // so the consent-manager deep link drives the exact same tab-switch + scroll
+  // behavior as in-app notifications. A "shared" grant link also marks the
+  // grant opened so its "Shared with me" map block is revealed on arrival.
+  const isSharedGrant = Boolean(grantId) && (!section || section === "shared");
+  return buildOneLocationWorkflowHref({
+    grantId: grantId || null,
+    requestId: requestId || null,
+    section:
+      (section as
+        | "people"
+        | "approvals"
+        | "shared"
+        | "my_requests"
+        | "public_responses"
+        | "activity"
+        | null) || null,
+    openGrant: isSharedGrant,
+  });
 }
+
 
 /**
  * Human summary for a location consent row. Coordinate-free by contract:

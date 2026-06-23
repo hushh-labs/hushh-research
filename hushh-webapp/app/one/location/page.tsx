@@ -140,7 +140,8 @@ const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
-const REQUEST_MESSAGE_MAX_LENGTH = 200;
+const REQUEST_MESSAGE_MAX_LENGTH = 80;
+
 
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
 const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
@@ -1698,22 +1699,42 @@ function OneLocationAgentPageContent() {
         public_responses: publicResponsesSectionRef,
         activity: activitySectionRef,
       };
-      window.setTimeout(() => {
+      // Every deep-link focus target (Shared with me, Approvals, My requests,
+      // etc.) lives inside the "Activity & Links" tab. The default tab is
+      // "compose", where those sections render inside a `hidden` container, so
+      // scrollIntoView would silently no-op. Switch to the Activity tab first,
+      // then wait for the section to become visible (offsetParent !== null)
+      // before scrolling — retrying a few frames to cover the tab transition.
+      setLocationTab("activity");
+
+      let attempts = 0;
+      const tryScroll = () => {
         const element = sectionRefs[target]?.current;
-        if (!element) return;
-        element.scrollIntoView({ behavior: "smooth", block: "start" });
-        element.focus({ preventScroll: true });
-        setFocusedSection(target);
-        if (focusClearRef.current) {
-          window.clearTimeout(focusClearRef.current);
+        const isVisible = Boolean(element && element.offsetParent !== null);
+        if (element && isVisible) {
+          element.scrollIntoView({ behavior: "smooth", block: "start" });
+          element.focus({ preventScroll: true });
+          setFocusedSection(target);
+          if (focusClearRef.current) {
+            window.clearTimeout(focusClearRef.current);
+          }
+          focusClearRef.current = window.setTimeout(() => {
+            setFocusedSection((current) =>
+              current === target ? null : current,
+            );
+          }, 2200);
+          return;
         }
-        focusClearRef.current = window.setTimeout(() => {
-          setFocusedSection((current) => (current === target ? null : current));
-        }, 2200);
-      }, 80);
+        attempts += 1;
+        if (attempts <= 12) {
+          window.setTimeout(tryScroll, 80);
+        }
+      };
+      window.setTimeout(tryScroll, 80);
     },
-    [],
+    [setLocationTab],
   );
+
 
   const sectionFocusClassName = useCallback(
     (target: OneLocationFocusTarget) =>
@@ -2145,6 +2166,38 @@ function OneLocationAgentPageContent() {
       return;
     }
 
+    const introSeen =
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(
+        `one_location_onboarding_v1:${auth.userId}`,
+      ) === "1";
+    // Re-show the permission screen only when location is *actionably* off:
+    // the phone Location switch is disabled, or the user explicitly denied /
+    // restricted access. Neutral states ("prompt" = never asked yet, or
+    // "unavailable" = web Permissions API can't determine state) must NOT trap
+    // the user on the permission screen — they can use the app, see their
+    // circle, and grant access at the moment they actually share.
+    const deviceLocationBlocked =
+      isLocationServicesDisabled(permission) ||
+      permission?.state === "denied" ||
+      permission?.state === "restricted";
+
+    // The marketing intro screen only ever shows once per user (persisted in
+    // localStorage). After that, the second "Allow location" screen is driven
+    // purely by the real device location state: it re-appears only when access
+    // is explicitly off / blocked, and stays hidden otherwise.
+    if (introSeen) {
+      if (deviceLocationBlocked) {
+        setLocationOnboardingStep("permission");
+        setLocationOnboardingGate("show");
+        return;
+      }
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+
+
+
     if (locationOnboardingGate !== "show") {
       setLocationOnboardingStep("intro");
     }
@@ -2154,8 +2207,10 @@ function OneLocationAgentPageContent() {
     auth.userId,
     loadError,
     locationOnboardingGate,
+    permission,
     vaultOwnerToken,
   ]);
+
 
   useEffect(() => {
     return () => {
@@ -3472,8 +3527,23 @@ function OneLocationAgentPageContent() {
   }, []);
 
   const handleContinueLocationOnboardingIntro = useCallback(() => {
+    // Persist that the one-time marketing intro has been seen so it never
+    // shows again for this user; only the location-permission screen can
+    // re-appear, and only when device location is actually off.
+    if (typeof window !== "undefined" && auth.userId) {
+      try {
+        window.localStorage.setItem(
+          `one_location_onboarding_v1:${auth.userId}`,
+          "1",
+        );
+      } catch {
+        // localStorage may be unavailable (private mode); intro will simply
+        // show again next time, which is acceptable.
+      }
+    }
     setLocationOnboardingStep("permission");
-  }, []);
+  }, [auth.userId]);
+
 
   const handleSkipLocationOnboarding = useCallback(() => {
     dismissLocationOnboarding();
@@ -3642,9 +3712,36 @@ function OneLocationAgentPageContent() {
                 onValueChange={(value) =>
                   setLocationTab(normalizeLocationTab(value))
                 }
-                options={LOCATION_TAB_OPTIONS}
+                options={
+                  pendingOwnerRequests.length
+                    ? LOCATION_TAB_OPTIONS.map((option) =>
+                        option.value === "activity"
+                          ? {
+                              ...option,
+                              label: `${option.label} (${pendingOwnerRequests.length})`,
+                            }
+                          : option,
+                      )
+                    : LOCATION_TAB_OPTIONS
+                }
               />
             </div>
+            {pendingOwnerRequests.length && locationTab !== "activity" ? (
+              <button
+                type="button"
+                onClick={() => setLocationTab("activity")}
+                className="mx-1 flex items-center gap-2 rounded-[14px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 px-3.5 py-2.5 text-left text-[13px] font-semibold text-[#b42318] transition-colors hover:bg-[#ff3b30]/15 dark:text-[#ff9f9a]"
+              >
+                <UserRoundCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  {pendingOwnerRequests.length === 1
+                    ? "1 person is waiting for you to approve their location request."
+                    : `${pendingOwnerRequests.length} people are waiting for you to approve their location requests.`}
+                </span>
+                <span className="shrink-0 underline">Review</span>
+              </button>
+            ) : null}
+
             <div
               className={cn(
                 "min-w-0 max-w-full space-y-7",
