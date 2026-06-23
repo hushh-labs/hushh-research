@@ -2187,6 +2187,14 @@ function OneLocationAgentPageContent() {
     // purely by the real device location state: it re-appears only when access
     // is explicitly off / blocked, and stays hidden otherwise.
     if (introSeen) {
+      // If onboarding is already visible (the user is mid-flow, e.g. just
+      // advanced from the intro to the permission step), never auto-hide or
+      // redirect — let them finish the current step. Dismissal happens through
+      // the flow's own handlers. Device-state-driven (re)appearance only
+      // applies on a fresh load when onboarding is not already showing.
+      if (locationOnboardingGate === "show") {
+        return;
+      }
       if (deviceLocationBlocked) {
         setLocationOnboardingStep("permission");
         setLocationOnboardingGate("show");
@@ -2195,6 +2203,7 @@ function OneLocationAgentPageContent() {
       setLocationOnboardingGate("hidden");
       return;
     }
+
 
 
 
@@ -3522,14 +3531,11 @@ function OneLocationAgentPageContent() {
   }, [ensureForegroundLocationReady]);
 
   const dismissLocationOnboarding = useCallback(() => {
-    setLocationOnboardingGate("hidden");
-    setLocationOnboardingBusy(false);
-  }, []);
-
-  const handleContinueLocationOnboardingIntro = useCallback(() => {
-    // Persist that the one-time marketing intro has been seen so it never
+    // Persist that onboarding is complete so the one-time marketing intro never
     // shows again for this user; only the location-permission screen can
-    // re-appear, and only when device location is actually off.
+    // re-appear, and only when device location is actually off. We persist on
+    // dismissal/completion (not when merely advancing to the permission step)
+    // so a partially-seen flow still re-shows next time.
     if (typeof window !== "undefined" && auth.userId) {
       try {
         window.localStorage.setItem(
@@ -3541,8 +3547,14 @@ function OneLocationAgentPageContent() {
         // show again next time, which is acceptable.
       }
     }
-    setLocationOnboardingStep("permission");
+    setLocationOnboardingGate("hidden");
+    setLocationOnboardingBusy(false);
   }, [auth.userId]);
+
+  const handleContinueLocationOnboardingIntro = useCallback(() => {
+    setLocationOnboardingStep("permission");
+  }, []);
+
 
 
   const handleSkipLocationOnboarding = useCallback(() => {

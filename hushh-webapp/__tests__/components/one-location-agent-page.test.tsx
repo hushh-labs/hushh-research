@@ -597,10 +597,15 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "One Location Agent" }),
     ).toBeTruthy();
-    expect(window.localStorage.getItem("one_location_onboarding_v1:user_a")).toBeNull();
+    // Completing onboarding persists the one-time intro flag so the marketing
+    // intro never shows again for this user.
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v1:user_a"),
+    ).toBe("1");
   });
 
   it("shows the location entry flow even when foreground permission is already granted", async () => {
+
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       ownerGrants: [],
@@ -625,10 +630,14 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "One Location Agent" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem("one_location_onboarding_v1:user_a")).toBeNull();
+    // Completing onboarding persists the one-time intro flag.
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v1:user_a"),
+    ).toBe("1");
   });
 
   it("renders One Network recommendation metadata without phone-derived labels", async () => {
+
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
