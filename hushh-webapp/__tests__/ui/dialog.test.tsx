@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 
@@ -30,5 +31,18 @@ describe("DialogContent", () => {
     );
 
     expect(screen.queryByRole("button", { name: /close/i })).toBeNull();
+  });
+
+  it("renders dialog description content", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Test dialog</DialogTitle>
+          <DialogDescription>Helpful dialog description</DialogDescription>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(screen.getByText("Helpful dialog description")).toBeTruthy();
   });
 });
