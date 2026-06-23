@@ -62,14 +62,16 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const Comp = asChild ? Slot : "button"
 
     // When using asChild, we must ensure only one child is passed to Slot.
-    // If loading, we handle the content inside a single span.
-    const content = (
-      <>
-        {isLoading && (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-        )}
-        {isLoading ? <span className="opacity-0">{children}</span> : children}
-      </>
+    // If loading, keep the label's footprint while centering the spinner.
+    const content = isLoading ? (
+      <span className="relative inline-grid min-w-0 max-w-full items-center">
+        <span className="min-w-0 truncate opacity-0">{children}</span>
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        </span>
+      </span>
+    ) : (
+      children
     )
 
     return (
