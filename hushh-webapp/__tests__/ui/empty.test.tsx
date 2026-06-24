@@ -73,6 +73,24 @@ describe("Empty", () => {
     ).toBeTruthy();
   });
 
+  it("renders title and description slots together", () => {
+    const { container } = render(
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>No matches</EmptyTitle>
+          <EmptyDescription>Adjust your filters.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="empty-title"]')?.textContent,
+    ).toBe("No matches");
+    expect(
+      container.querySelector('[data-slot="empty-description"]')?.textContent,
+    ).toBe("Adjust your filters.");
+  });
+
   it("renders content with data-slot='empty-content'", () => {
     const { container } = render(
       <Empty>
