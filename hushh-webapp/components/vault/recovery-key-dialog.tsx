@@ -84,6 +84,7 @@ export function RecoveryKeyDialog({
 
           <div className="grid grid-cols-2 gap-2">
             <Button
+              type="button"
               onClick={handleCopy}
               className="w-full"
             >
@@ -101,6 +102,7 @@ export function RecoveryKeyDialog({
             </Button>
 
             <Button
+              type="button"
               onClick={handleDownload}
               className="w-full"
             >
@@ -112,6 +114,7 @@ export function RecoveryKeyDialog({
 
         <DialogFooter>
           <Button
+            type="button"
             onClick={onContinue}
             variant="gradient"
             effect="glass"
