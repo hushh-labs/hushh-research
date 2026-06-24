@@ -3,7 +3,7 @@ status: partial
 phase: 01-agent-pkm-update-intent
 source: [01-01-SUMMARY.md, 01-02-SUMMARY.md, 01-03-SUMMARY.md]
 started: 2026-06-24T23:41:02Z
-updated: 2026-06-24T23:41:02Z
+updated: 2026-06-24T23:55:00Z
 ---
 
 ## Current Test
@@ -33,16 +33,22 @@ skipped: 0
 ## Gaps
 
 - truth: "PKM update intent routes to pkm.update, identifies the correct domain, and shows a confirmation panel before writing"
-  status: failed
-  reason: "User reported: input 'Save my pkm records, address should be 123 Main st...' produced an auto-save to the wrong domain ('Financial') with no confirmation panel."
+  status: resolved
+  reason: "User reported: input 'Save my pkm records, address should be 123 Main st...' produced an auto-save to the wrong domain ('Financial') with no confirmation panel. Root cause: Kai backend had no pkm.update tool, so update intents fell through to pkm.add. Fixed by adding the update_pkm tool to the backend planner (commits below)."
   severity: major
   test: 1
   artifacts:
     - consent-protocol/hushh_mcp/services/agent_chat_service.py
-  missing:
-    - "Kai backend `update_pkm` LLM function declaration (pkm.update tool)"
-    - "Kai backend `_PKM_UPDATE_PATTERNS` regex fallback emitting action_id=pkm.update"
-    - "Backend slot mapping for domain, field_path, proposed_value, current_value"
+    - consent-protocol/tests/services/test_agent_chat_service.py
+  resolution:
+    - "Added `update_pkm` LLM function declaration (domain, field_path, proposed_value, current_value)"
+    - "Added function-call handler emitting action_id=pkm.update with those slots; guards on domain+field+value"
+    - "Updated AGENT_ACTION_PLANNER_PROMPT to route update/correct intents to update_pkm and infer domain from PKM routing context"
+    - "Regex fallback intentionally NOT extended (cannot infer domain without LLM context) — documented"
+  commits:
+    - "test(01-04): failing tests for Kai pkm.update tool (TDD RED)"
+    - "feat(01-04): add Kai pkm.update tool to agent chat planner (TDD GREEN)"
+  remaining: "Live re-test by user: deterministic unit tests confirm correct emit+slots when the model calls update_pkm; the model's tool selection itself is non-deterministic and needs an in-app re-test."
 
 ## Diagnosis
 
