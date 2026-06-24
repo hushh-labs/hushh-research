@@ -8,6 +8,7 @@ import {
   shouldDisableExternalTelemetryForAutomation,
   shouldSkipFirstWelcomeForAutomation,
   shouldSkipGeneratedVaultUnlockForAutomation,
+  getNativeTestConfig,
 } from "@/lib/testing/native-test";
 
 describe("native test automation guards", () => {
