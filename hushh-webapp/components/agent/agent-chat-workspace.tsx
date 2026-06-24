@@ -56,6 +56,8 @@ import {
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
+  previewAgentPkmUpdate,
+  saveAgentPkmUpdate,
   type AgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
@@ -121,6 +123,12 @@ type AgentPkmReview = {
   sourceMessage: string;
   cards: AgentPkmPreviewCard[];
   saving: boolean;
+  updateContext?: {
+    domain: string;
+    fieldPath: string;
+    currentValue: string;
+    proposedValue: string;
+  };
 };
 
 type AgentPkmActivity = {
@@ -1394,6 +1402,43 @@ export function AgentChatWorkspace({
       });
 
       try {
+        if (review.updateContext) {
+          // UPDATE PATH (per D-07, D-10) — write the proposed field value via saveAgentPkmUpdate.
+          // saveAgentPkmUpdate uses the coordinator's fresh read, not the LLM current_value
+          // (T-03-02), and calls AgentPkmContextStore.invalidateUser internally.
+          const updateContext = review.updateContext;
+          const updateResult = await saveAgentPkmUpdate({
+            userId: user.uid,
+            domain: updateContext.domain,
+            fieldPath: updateContext.fieldPath,
+            proposedValue: updateContext.proposedValue,
+            vaultKey,
+            vaultOwnerToken: token,
+          });
+          appendDebugEvent(review.turnId, "pkm_review_save_result", updateResult);
+          if (!updateResult.success) {
+            throw new Error(updateResult.message || "Failed to update PKM memory.");
+          }
+          setPkmActivity((current) => [
+            ...current.slice(-4),
+            {
+              id: `pkm-review-saved-${Date.now()}`,
+              text: `Updated ${updateContext.domain} - ${updateContext.fieldPath}.`,
+              status: "done",
+            },
+          ]);
+          setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+          void loadAgentPkmContext({
+            userId: user.uid,
+            vaultOwnerToken: token,
+            vaultKey,
+            forceRefresh: true,
+          }).catch(() => undefined);
+          toast.success("Saved to PKM.");
+          return;
+        }
+
+        // ADD PATH — unchanged (per D-11)
         const result = await addToPKM({
           userId: user.uid,
           cards: review.cards,
@@ -1775,6 +1820,93 @@ export function AgentChatWorkspace({
       }
     };
 
+    const executePkmUpdateTool = async (toolEvent: AgentChatToolEvent) => {
+      if (!vaultKey || !token) {
+        appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
+          reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
+          tool: toolEvent,
+        });
+        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        return;
+      }
+
+      // D-07 slot reads — all four slots type-guarded before use (T-03-01 mitigation)
+      const domain =
+        typeof toolEvent.slots.domain === "string" ? toolEvent.slots.domain.trim() : "";
+      const fieldPath =
+        typeof toolEvent.slots.field_path === "string" ? toolEvent.slots.field_path.trim() : "";
+      const proposedValue =
+        typeof toolEvent.slots.proposed_value === "string"
+          ? toolEvent.slots.proposed_value.trim()
+          : "";
+      const currentValue =
+        typeof toolEvent.slots.current_value === "string"
+          ? toolEvent.slots.current_value.trim()
+          : "";
+
+      setActivePkmToolCount((count) => count + 1);
+      appendDebugEvent(debugTurnId, "pkm_tool_preview_start", {
+        tool: "pkm.update",
+        current_domains: turnPkmContext.domains,
+        domain,
+        fieldPath,
+        proposedValue,
+        currentValue,
+      });
+      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+
+      try {
+        const preview = await previewAgentPkmUpdate({
+          userId,
+          domain,
+          fieldPath,
+          currentValue,
+          proposedValue,
+          currentDomains: turnPkmContext.domains,
+          vaultOwnerToken: token,
+        });
+        appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
+          tool: "pkm.update",
+          preview,
+        });
+
+        const reviewCards = getReviewRequiredPkmCards(preview.cards ?? []);
+
+        if (reviewCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+          setPkmReviews((current) => [
+            ...current.filter((review) => review.turnId !== debugTurnId),
+            {
+              id: `${debugTurnId}-pkm-review`,
+              turnId: debugTurnId,
+              sourceMessage: `Update ${domain} - ${fieldPath}`,
+              cards: reviewCards,
+              saving: false,
+              updateContext: { domain, fieldPath, currentValue, proposedValue },
+            },
+          ]);
+          appendDebugEvent(debugTurnId, "pkm_tool_review_required", {
+            tool: "pkm.update",
+            candidate_count: reviewCards.length,
+            cards: reviewCards,
+          });
+        } else {
+          upsertPkmStatusMessage("PKM update reviewed — no write needed.", "done");
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent could not save that PKM memory.";
+        appendDebugEvent(debugTurnId, "pkm_tool_failed", {
+          message,
+          tool: "pkm.update",
+        });
+        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+      } finally {
+        setActivePkmToolCount((count) => Math.max(0, count - 1));
+      }
+    };
+
     const executeFrontendTool = async (toolEvent: AgentChatToolEvent) => {
       if (!toolEvent.actionId) return;
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
@@ -1782,6 +1914,11 @@ export function AgentChatWorkspace({
       if (toolEvent.actionId === "pkm.add") {
         pkmAddToolHandled = true;
         await executePkmAddTool(toolEvent);
+        return;
+      }
+
+      if (toolEvent.actionId === "pkm.update") {
+        await executePkmUpdateTool(toolEvent);
         return;
       }
 
@@ -2915,6 +3052,8 @@ export function AgentChatWorkspace({
                   key={review.id}
                   cards={review.cards}
                   saving={review.saving}
+                  mode={review.updateContext ? "update" : "add"}
+                  updateContext={review.updateContext}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
