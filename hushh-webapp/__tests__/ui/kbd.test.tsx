@@ -20,4 +20,15 @@ describe("Kbd", () => {
 
     expect(container.querySelector('[data-slot="kbd-group"]')).toBeTruthy();
   });
+
+  it("renders keyboard shortcut keys with data-slot='kbd'", () => {
+    const { container } = render(
+      <KbdGroup>
+        <Kbd>Ctrl</Kbd>
+        <Kbd>K</Kbd>
+      </KbdGroup>,
+    );
+
+    expect(container.querySelectorAll('[data-slot="kbd"]')).toHaveLength(2);
+  });
 });
