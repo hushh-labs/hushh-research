@@ -185,6 +185,23 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(Number.isInteger(resolveSlowRequestTimeoutMs(9_999.1))).toBe(true);
   });
 
+  it("normalizes sub-millisecond fractional timeout inputs into integer ticks", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    const microTick = resolveSlowRequestTimeoutMs(0.0045);
+    const lowLatencyTick = resolveSlowRequestTimeoutMs(0.85);
+
+    expect(microTick).toBe(0);
+    expect(lowLatencyTick).toBe(1);
+    expect(Number.isFinite(microTick)).toBe(true);
+    expect(Number.isFinite(lowLatencyTick)).toBe(true);
+    expect(Number.isInteger(microTick)).toBe(true);
+    expect(Number.isInteger(lowLatencyTick)).toBe(true);
+    expect(Number.isNaN(microTick)).toBe(false);
+    expect(Number.isNaN(lowLatencyTick)).toBe(false);
+  });
+
   // ── Empty options object ───────────────────────────────────────────────────
 
   it("behaves identically whether options is omitted or passed as an empty object", () => {
