@@ -424,6 +424,7 @@ function SidebarGroupAction({
 
   return (
     <Comp
+      type={asChild ? undefined : "button"}
       data-slot="sidebar-group-action"
       data-sidebar="group-action"
       className={cn(
