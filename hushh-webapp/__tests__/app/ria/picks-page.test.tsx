@@ -251,20 +251,22 @@ vi.mock("@/lib/morphy-ux/button", async () => {
       onClick,
       disabled,
       asChild = false,
+      ...props
     }: {
       children: React.ReactNode;
       onClick?: () => void;
       disabled?: boolean;
       asChild?: boolean;
-    }) => {
+    } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
       if (asChild && ReactModule.isValidElement(children)) {
         return ReactModule.cloneElement(children, {
           onClick,
           "data-disabled": disabled ? "true" : undefined,
+          ...props,
         });
       }
       return (
-        <button type="button" onClick={onClick} disabled={disabled}>
+        <button type="button" onClick={onClick} disabled={disabled} {...props}>
           {children}
         </button>
       );
@@ -502,6 +504,40 @@ describe("RiaPicksPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^screening$/i }));
     expect(await screen.findByDisplayValue("Positive free cash flow")).toBeTruthy();
     expect(screen.getAllByText(/convert demand into durable free cash flow/i).length).toBeGreaterThan(0);
+  });
+
+  it("labels icon-only draft row removal actions", async () => {
+    mocks.riaService.getRenaissanceAvoid.mockResolvedValue({
+      items: [
+        {
+          ticker: "TSLA",
+          company_name: "Tesla",
+          sector: "Automotive",
+          category: "valuation",
+          why_avoid: "Valuation remains disconnected from our discipline.",
+        },
+      ],
+    });
+
+    render(<RiaPicksPage />);
+
+    await screen.findByText("NVDA");
+    fireEvent.click(screen.getByRole("button", { name: /my list/i }));
+    fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole("button", { name: /remove top pick nvda/i }).length,
+      ).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^avoid$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole("button", { name: /remove avoid row tsla/i }).length,
+      ).toBeGreaterThan(0);
+    });
   });
 
   it("lets My list save in-app edits through the validated upload flow", async () => {
