@@ -49,4 +49,20 @@ describe("Select", () => {
 
     expect(trigger?.getAttribute("data-size")).toBe("sm");
   });
+
+  it("renders the decorative trigger icon with aria-hidden='true'", () => {
+    const { container } = render(
+      <Select>
+        <SelectTrigger>
+          <SelectValue placeholder="Pick one" />
+        </SelectTrigger>
+      </Select>,
+    );
+
+    const icon = container.querySelector(
+      '[data-slot="select-trigger"] [aria-hidden="true"]',
+    );
+
+    expect(icon).toBeTruthy();
+  });
 });
