@@ -111,13 +111,12 @@ export async function POST(request: NextRequest) {
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: errorText || "Backend error" },
-        { status: response.status },
-      );
-    }
+if (!response.ok) {
+  return NextResponse.json(
+    { error: "Backend error" },
+    { status: response.status },
+  );
+}
 
     const result = await response.json();
     logSecurityEvent("VAULT_SETUP_SUCCESS", { userId, primaryMethod });
