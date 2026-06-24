@@ -32,3 +32,19 @@ describe("DialogContent", () => {
     expect(screen.queryByRole("button", { name: /close/i })).toBeNull();
   });
 });
+
+describe("Dialog", () => {
+  it("defaults to modal=false", () => {
+    render(
+      <Dialog open>
+        <DialogContent showCloseButton={false}>
+          <DialogTitle>Test dialog</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog.getAttribute("aria-modal")).not.toBe("true");
+  });
+});
