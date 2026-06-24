@@ -26,6 +26,20 @@ describe("InputGroup", () => {
     expect(addon?.getAttribute("role")).toBe("group");
   });
 
+  it("preserves addon data-slot when align is set", () => {
+    const { container } = render(
+      <InputGroup>
+        <InputGroupAddon align="inline-end">icon</InputGroupAddon>
+      </InputGroup>,
+    );
+
+    expect(
+      container.querySelector(
+        '[data-slot="input-group-addon"][data-align="inline-end"]',
+      ),
+    ).toBeTruthy();
+  });
+
   it("defaults addon to data-align='inline-start'", () => {
     const { container } = render(
       <InputGroup>
