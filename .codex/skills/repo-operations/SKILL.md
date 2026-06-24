@@ -62,6 +62,7 @@ Non-owned surfaces:
 7. For DB migration/contract changes, run the DB release gate before calling UAT ready.
 8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.
 9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
+10. To add/remove a maintainer or change deploy/merge authority, edit `config/ci-governance.json` (single source of truth) then run `python3 scripts/ci/apply-governance.py --apply` to sync GitHub; the JSON edit must LAND ON MAIN for runtime UAT/merge gates to see it. Full runbook in `docs/reference/operations/branch-governance.md` ("Adding or removing a maintainer").
 
 ## Handoff Rules
 
@@ -80,5 +81,6 @@ Non-owned surfaces:
 ./bin/hushh docs verify
 ./bin/hushh ci
 ./scripts/ci/verify-main-branch-protection.sh
+./scripts/ci/apply-governance.py
 ./scripts/ci/verify-production-environment-governance.sh
 ```

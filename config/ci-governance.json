@@ -6,7 +6,8 @@
       "integration/pr-train",
       "maintainer/promote-damria-one-location-to-main",
       "maintainer/promote-damria-one-location-consent",
-      "maintainer/promote-gautam-recaptcha-fix"
+      "maintainer/promote-gautam-recaptcha-fix",
+      "maintainer/promote-governance-gautam-maintainer"
     ]
   },
   "main": {
@@ -22,7 +23,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "ahujagautam024"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -35,7 +37,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "ahujagautam024"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -43,7 +46,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "ahujagautam024"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -65,7 +69,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "ahujagautam024"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -78,7 +83,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "ahujagautam024"
     ]
   },
   "uat": {
@@ -91,7 +97,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "ahujagautam024"
     ]
   },
   "production": {

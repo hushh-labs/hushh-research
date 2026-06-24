@@ -92,15 +92,44 @@ def detect_repass(cr):
             if last_rev and last_act and last_act>last_rev: repass.append(n)
     return sorted(repass)
 
-def engine_scan(prs,tag,max_chunks):
+def engine_scan(prs,tag,max_chunks,max_age_s=7200):
+    """Scan actionable PRs in chunks of 50, caching each chunk's engine report.
+
+    REALTIME-DRAIN CACHE SEMANTICS (fixed 2026-06): the per-chunk cache file is
+    keyed by chunk INDEX, but the actionable PR set changes every run (new PRs,
+    repass activity). A stale cache therefore silently skips freshly-opened PRs
+    (the June-19 tranche bug). We now invalidate a cached chunk when EITHER:
+      (a) it is older than ``max_age_s`` (default 2h), OR
+      (b) the exact PR-number set in that chunk differs from what the cache was
+          built for (membership drift).
+    The cache stores the chunk's PR list alongside the reports so (b) is exact.
+    """
     os.makedirs(WORK,exist_ok=True)
     chunks=[prs[i:i+50] for i in range(0,len(prs),50)][:max_chunks]
     reps={}
     for idx,ch in enumerate(chunks):
         out=f"{WORK}/{tag}-{idx}.json"
-        if not os.path.exists(out):
+        fresh=False
+        if os.path.exists(out):
+            try:
+                age=time.time()-os.path.getmtime(out)
+                cached=json.load(open(out))
+                cached_prs=cached.get("_autodrive_chunk_prs")
+                # Fresh only if young AND same membership as this run's chunk.
+                fresh=(age<=max_age_s and cached_prs==list(ch))
+            except Exception:
+                fresh=False
+        if not fresh:
             run(["python3",ENGINE,"--repo",REPO,"--prs",",".join(map(str,ch)),
                  "--repass-after-changes","--json","--output",out],timeout=420,retries=1)
+            # Tag the freshly written report with the chunk's PR set so the next
+            # run can detect membership drift and avoid stale reuse.
+            try:
+                d=json.load(open(out))
+                d["_autodrive_chunk_prs"]=list(ch)
+                json.dump(d,open(out,"w"),default=str)
+            except Exception:
+                pass
         if os.path.exists(out):
             d=json.load(open(out))
             for r in d["reports"]:
@@ -158,8 +187,13 @@ def post_record(n,body,head=None):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--max-merge",type=int,default=40)
-    ap.add_argument("--max-chunks",type=int,default=8)
+    # Drain-to-zero defaults (2026-06): the goal is MINIMUM standing backlog —
+    # every actionable PR (unattended + repass) is driven to terminal each run,
+    # not a fixed slice. First cycle is heavy; steady state is light because only
+    # newly-opened or newly-updated (repass) PRs remain actionable. Override with
+    # smaller values for a quick partial pass. max-chunks 200 ⇒ up to 10k PRs/run.
+    ap.add_argument("--max-merge",type=int,default=10000)
+    ap.add_argument("--max-chunks",type=int,default=200)
     a=ap.parse_args()
     res={"queued":[],"block_recorded":[],"operator_patch":[],"security_review":[],
          "conflicting":[],"collision_defer":[],"self_hold":[],"skipped":[],"fail":[],
