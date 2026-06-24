@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveRuntimeBackendUrl } from "@/lib/runtime/settings";
+import { resolveRuntimeBackendUrl, resolveRuntimeFrontendUrl,
+resolveVoiceDirectBackendPreference,
+resolveVoiceForceProxyPreference,
+resolveLegacyLocalTtsCompatEnabled} from "@/lib/runtime/settings";
 
 describe("runtime settings", () => {
   const originalBackendUrl = process.env.BACKEND_URL;
@@ -27,5 +30,111 @@ describe("runtime settings", () => {
     );
 
     expect(resolveFreshRuntimeBackendUrl()).toBe("");
+  });
+});
+
+describe("resolveRuntimeFrontendUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns an empty string when unset", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    expect(resolveRuntimeFrontendUrl()).toBe("");
+  });
+
+  it("trims whitespace and trailing slashes", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_APP_URL",
+      "  https://app.hushh.ai///  ",
+    );
+
+    expect(resolveRuntimeFrontendUrl()).toBe(
+      "https://app.hushh.ai",
+    );
+  });
+});
+
+describe("resolveVoiceDirectBackendPreference", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns true for a truthy value", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_VOICE_DIRECT_BACKEND",
+      "true",
+    );
+
+    expect(
+      resolveVoiceDirectBackendPreference(),
+    ).toBe(true);
+  });
+
+  it("returns false when unset", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_VOICE_DIRECT_BACKEND",
+      "",
+    );
+
+    expect(
+      resolveVoiceDirectBackendPreference(),
+    ).toBe(false);
+  });
+});
+
+describe("resolveVoiceForceProxyPreference", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns true for a truthy value", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_VOICE_FORCE_PROXY",
+      "true",
+    );
+
+    expect(
+      resolveVoiceForceProxyPreference(),
+    ).toBe(true);
+  });
+
+  it("returns false when unset", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_VOICE_FORCE_PROXY",
+      "",
+    );
+
+    expect(
+      resolveVoiceForceProxyPreference(),
+    ).toBe(false);
+  });
+});
+
+describe("resolveLegacyLocalTtsCompatEnabled", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns true for a truthy value", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_ENABLE_LEGACY_LOCAL_TTS_COMPAT",
+      "true",
+    );
+
+    expect(
+      resolveLegacyLocalTtsCompatEnabled(),
+    ).toBe(true);
+  });
+
+  it("returns false when unset", () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_ENABLE_LEGACY_LOCAL_TTS_COMPAT",
+      "",
+    );
+
+    expect(
+      resolveLegacyLocalTtsCompatEnabled(),
+    ).toBe(false);
   });
 });
