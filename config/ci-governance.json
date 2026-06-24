@@ -5,7 +5,8 @@
     "main_allowed_head_branches": [
       "integration/pr-train",
       "maintainer/promote-damria-one-location-to-main",
-      "maintainer/promote-damria-one-location-consent"
+      "maintainer/promote-damria-one-location-consent",
+      "maintainer/promote-gautam-recaptcha-fix"
     ]
   },
   "main": {
