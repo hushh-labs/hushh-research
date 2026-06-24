@@ -109,4 +109,20 @@ describe("config", () => {
 
     expect(config.BACKEND_URL).toBe("https://uat-api.hushh.ai");
   });
+
+  it("uses runtime frontend origin in production environment", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeFrontendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("production");
+    vi.mocked(resolveRuntimeFrontendUrl).mockReturnValue(
+      "https://app.hushh.ai/"
+    );
+
+    const config = await import("@/lib/config");
+
+    expect(config.APP_FRONTEND_ORIGIN).toBe("https://app.hushh.ai");
+  });
 });
