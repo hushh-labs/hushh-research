@@ -19,17 +19,18 @@ logger = logging.getLogger(__name__)
 def _one_location_consent_center_enabled() -> bool:
     """Feature flag: union One Location rows into the consent center.
 
-    Defaults OFF so the shared consent surface stays stable until the
-    integration is verified end to end (see
-    docs/future/one-location-consent-center-integration-plan.md).
+    Defaults ON so location requests/approvals/active shares/history appear in
+    the shared Access Manager (the canonical consent surface) instead of only
+    the notification bell. The contributor is coordinate-free and the merge in
+    ``_location_buckets`` is wrapped in try/except, so a location failure can
+    never destabilize the consent surface. Set the env var to a falsey value
+    ("0"/"false"/"off") to explicitly disable.
+    See docs/future/one-location-consent-center-integration-plan.md.
     """
-    return os.getenv("ONE_LOCATION_CONSENT_CENTER_ENABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
+    raw = os.getenv("ONE_LOCATION_CONSENT_CENTER_ENABLED", "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
 
 
 class ConsentCenterService:
@@ -89,7 +90,6 @@ class ConsentCenterService:
                 exc,
             )
             return empty
-
 
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
@@ -1374,9 +1374,7 @@ class ConsentCenterService:
             )
         if normalized_actor == "investor":
             location_buckets = (
-                self._location_buckets(user_id)
-                if normalized_mode == "consents"
-                else None
+                self._location_buckets(user_id) if normalized_mode == "consents" else None
             )
             location_count = 0
             if location_buckets:
@@ -1424,7 +1422,6 @@ class ConsentCenterService:
                 )
                 + location_count
             )
-
 
         if surface == "active":
             payload = await self._load_ria_active_entries(user_id, page=1, limit=1)
@@ -1635,7 +1632,6 @@ class ConsentCenterService:
             "active_grants": active_entries,
             "history": history_entries,
             "invites": invite_entries,
-
             "developer_requests": developer_requests,
             "requestor_groups": {
                 "pending": investor_pending_groups,
@@ -1745,9 +1741,7 @@ class ConsentCenterService:
                 else self._collapse_consent_chains(entries)
             )
             location_buckets = (
-                self._location_buckets(user_id)
-                if normalized_mode == "consents"
-                else None
+                self._location_buckets(user_id) if normalized_mode == "consents" else None
             )
             if location_buckets:
                 if normalized_surface == "pending":
@@ -1763,7 +1757,6 @@ class ConsentCenterService:
                 query=query,
             )
         elif normalized_surface == "active":
-
             paged = await self._load_ria_active_entries(
                 user_id,
                 query=query,

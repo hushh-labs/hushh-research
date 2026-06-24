@@ -3366,9 +3366,44 @@ class OneLocationAgentService:
         return invite
 
     def list_state(self, *, user_id: str) -> dict[str, Any]:
-        self._expire_stale_grants(user_id)
-        recipients = self.list_verified_recipients(owner_user_id=user_id)
-        owner_grants = self._execute_many(
+        # Resilience: one failing auxiliary section (e.g. schema drift on a
+        # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
+        # into the consent-center contributor (which then returns empty buckets)
+        # AND breaks the One Location page on every load. Each section is wrapped
+        # so a partial failure degrades to an empty list, logged for triage,
+        # while the rest of the state still loads. The backend still enforces
+        # real access on every read/write path.
+        def _safe_many(label: str, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            try:
+                return self._execute_many(sql, params)
+            except Exception as exc:  # noqa: BLE001 - degrade, never 500 the page
+                logger.warning(
+                    "one_location.list_state.section_failed section=%s user=%s error=%s",
+                    label,
+                    user_id,
+                    exc,
+                )
+                return []
+
+        try:
+            self._expire_stale_grants(user_id)
+        except Exception as exc:  # noqa: BLE001 - housekeeping must not block reads
+            logger.warning(
+                "one_location.list_state.expire_stale_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+        try:
+            recipients = self.list_verified_recipients(owner_user_id=user_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "one_location.list_state.recipients_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+            recipients = []
+        owner_grants = _safe_many(
+            "owner_grants",
             """
             SELECT
               g.*,
@@ -3382,7 +3417,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        received_grants = self._execute_many(
+        received_grants = _safe_many(
+            "received_grants",
             """
             SELECT
               g.*,
@@ -3396,7 +3432,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        requests = self._execute_many(
+        requests = _safe_many(
+            "requests",
             """
             SELECT
               req.*,
@@ -3410,7 +3447,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        referrals = self._execute_many(
+        referrals = _safe_many(
+            "referrals",
             """
             SELECT *
             FROM one_location_referrals
@@ -3422,7 +3460,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        public_invites = self._execute_many(
+        public_invites = _safe_many(
+            "public_invites",
             """
             SELECT *
             FROM one_location_public_invites
@@ -3432,7 +3471,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        circle_invites = self._execute_many(
+        circle_invites = _safe_many(
+            "circle_invites",
             """
             SELECT *
             FROM one_location_circle_invites
@@ -3443,7 +3483,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        network_connections = self._execute_many(
+        network_connections = _safe_many(
+            "network_connections",
             """
             SELECT *
             FROM one_location_network_connections
@@ -3454,7 +3495,8 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
-        public_submissions = self._execute_many(
+        public_submissions = _safe_many(
+            "public_submissions",
             """
             SELECT
               submission.*,

@@ -83,11 +83,14 @@ import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
   isOneLocationGrantOpened,
+  isOneLocationGrantUnwatched,
   locationShareNotificationDescription,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
+  markOneLocationGrantUnwatched,
   ONE_LOCATION_GRANT_ID_PARAM,
   ONE_LOCATION_GRANT_OPENED_EVENT,
+  ONE_LOCATION_GRANT_UNWATCHED_EVENT,
   ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
   ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
   ONE_LOCATION_REFERRAL_ID_PARAM,
@@ -1531,6 +1534,9 @@ function OneLocationAgentPageContent() {
     Record<string, PlainLocationPoint>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
+  // Bumped whenever the recipient unwatches a share, so the memoized
+  // "Shared with me" list recomputes immediately.
+  const [unwatchedTick, setUnwatchedTick] = useState(0);
   const [focusedSection, setFocusedSection] =
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -1624,26 +1630,36 @@ function OneLocationAgentPageContent() {
       ),
     [auth.userId, state?.requests],
   );
+  // Every ACTIVE received share is shown inline in "Shared with me" so the
+  // recipient can view the live map directly - opening a notification is a
+  // convenience deep-link, NOT a requirement. Shares the recipient explicitly
+  // "unwatched" are hidden. Terminal (revoked/expired) grants are never listed
+  // here (the backend keeps them for ~12h for history only).
   const visibleReceivedGrants = useMemo(() => {
     void openedGrantTick;
-    return (state?.receivedGrants ?? []).filter((grant) =>
-      isOneLocationGrantOpened(auth.userId, grant.id),
+    void unwatchedTick;
+    return (state?.receivedGrants ?? []).filter(
+      (grant) =>
+        grant.status === "active" &&
+        !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
-  }, [auth.userId, openedGrantTick, state?.receivedGrants]);
+  }, [auth.userId, openedGrantTick, unwatchedTick, state?.receivedGrants]);
   const activeOwnerGrants = useMemo(
     () =>
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
-  const activeVisibleReceivedGrants = useMemo(
-    () => visibleReceivedGrants.filter((grant) => grant.status === "active"),
-    [visibleReceivedGrants],
-  );
-  const hiddenReceivedGrantCount = (state?.receivedGrants ?? []).filter(
-    (grant) =>
-      grant.status === "active" &&
-      !isOneLocationGrantOpened(auth.userId, grant.id),
-  ).length;
+  const activeVisibleReceivedGrants = visibleReceivedGrants;
+  // Active shares the recipient unwatched (hidden locally). Used only to tailor
+  // the empty-state copy.
+  const unwatchedActiveReceivedGrantCount = useMemo(() => {
+    void unwatchedTick;
+    return (state?.receivedGrants ?? []).filter(
+      (grant) =>
+        grant.status === "active" &&
+        isOneLocationGrantUnwatched(auth.userId, grant.id),
+    ).length;
+  }, [auth.userId, unwatchedTick, state?.receivedGrants]);
   const activePublicInvites = useMemo(
     () =>
       (state?.publicInvites ?? []).filter(
@@ -2333,6 +2349,37 @@ function OneLocationAgentPageContent() {
   }, [auth.userId]);
 
   useEffect(() => {
+    if (!auth.userId || typeof window === "undefined") return;
+    const handleGrantUnwatched = (event: Event) => {
+      const detail =
+        (event as CustomEvent<{ userId?: string; grantId?: string }>).detail ||
+        {};
+      if (detail.userId && detail.userId !== auth.userId) return;
+      setUnwatchedTick((value) => value + 1);
+      // Drop any decrypted map point for the unwatched grant immediately.
+      const grantId = String(detail.grantId || "").trim();
+      if (grantId) {
+        setDecryptedPoints((current) => {
+          if (!(grantId in current)) return current;
+          const next = { ...current };
+          delete next[grantId];
+          return next;
+        });
+      }
+    };
+    window.addEventListener(
+      ONE_LOCATION_GRANT_UNWATCHED_EVENT,
+      handleGrantUnwatched,
+    );
+    return () => {
+      window.removeEventListener(
+        ONE_LOCATION_GRANT_UNWATCHED_EVENT,
+        handleGrantUnwatched,
+      );
+    };
+  }, [auth.userId]);
+
+  useEffect(() => {
     if (!auth.userId || !state?.receivedGrants?.length) return;
     for (const grant of state.receivedGrants) {
       if (grant.status !== "active") continue;
@@ -2392,7 +2439,30 @@ function OneLocationAgentPageContent() {
       }
     }
 
+    // Owners who currently have an ACTIVE share with me. When a person re-shares
+    // their location within an existing window, the backend silently supersedes
+    // the prior grant (sets it to "revoked" with NO push), so a stale
+    // revoked/expired row sits alongside a fresh active one. We must NOT raise a
+    // "location removed" / "expired" notification in that case - it is the core
+    // source of the false "location removed by this user" spam. Only notify when
+    // the owner has genuinely stopped sharing (no active grant remains).
+    const ownersWithActiveReceivedGrant = new Set(
+      (state.receivedGrants ?? [])
+        .filter((grant) => grant.status === "active")
+        .map((grant) => String(grant.ownerUserId || "").trim())
+        .filter(Boolean),
+    );
     for (const grant of state.receivedGrants ?? []) {
+      const ownerId = String(grant.ownerUserId || "").trim();
+      const supersededByNewerShare =
+        Boolean(ownerId) && ownersWithActiveReceivedGrant.has(ownerId);
+      // A recipient who unwatched this share does not want any follow-up noise.
+      const recipientUnwatched = isOneLocationGrantUnwatched(
+        auth.userId,
+        grant.id,
+      );
+      if (supersededByNewerShare || recipientUnwatched) continue;
+
       if (grant.status === "revoked") {
         showWorkflowToast({
           notificationType: "location_share_revoked",
@@ -2654,6 +2724,29 @@ function OneLocationAgentPageContent() {
       await viewGrantEnvelope(grant);
     },
     [viewGrantEnvelope],
+  );
+
+  // Recipient-side "Unwatch": locally hide a received share so it stops
+  // appearing in "Shared with me" and stops surfacing notifications. The owner's
+  // grant is unaffected server-side (a recipient cannot revoke it); the backend
+  // continues to enforce real access. The choice persists across refreshes.
+  const handleUnwatch = useCallback(
+    (grant: OneLocationGrant) => {
+      if (!auth.userId) return;
+      markOneLocationGrantUnwatched(auth.userId, grant.id);
+      // Optimistically reflect the change even before the event listener fires.
+      setUnwatchedTick((value) => value + 1);
+      setDecryptedPoints((current) => {
+        if (!(grant.id in current)) return current;
+        const next = { ...current };
+        delete next[grant.id];
+        return next;
+      });
+      toast.success(
+        `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`,
+      );
+    },
+    [auth.userId],
   );
 
   // When a received grant is revoked or expires, immediately drop its decrypted
@@ -4663,20 +4756,32 @@ function OneLocationAgentPageContent() {
                               </div>
                             </div>
                             {grant.status === "active" ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleView(grant)}
-                                disabled={busy === "view"}
-                                className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
-                              >
-                                {busy === "view" ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : (
-                                  <ShieldCheck className="mr-2 h-4 w-4" />
-                                )}
-                                View
-                              </Button>
+                              <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleView(grant)}
+                                  disabled={busy === "view"}
+                                  className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                                >
+                                  {busy === "view" ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="mr-2 h-4 w-4" />
+                                  )}
+                                  View
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label={`Stop watching ${receivedGrantOwnerLabel(grant)}'s location`}
+                                  onClick={() => handleUnwatch(grant)}
+                                  className="w-full rounded-full border-black/[0.06] bg-transparent text-[#8e8e93] hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] sm:w-auto dark:border-white/[0.08] dark:text-white/55 dark:hover:bg-[#ff453a]/15 dark:hover:text-[#ff9f9a]"
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Unwatch
+                                </Button>
+                              </div>
                             ) : null}
                           </div>
                           {point ? (
@@ -4691,14 +4796,14 @@ function OneLocationAgentPageContent() {
                     <EmptyOneState
                       icon={MapPin}
                       title={
-                        hiddenReceivedGrantCount > 0
-                          ? "Open notification to view"
+                        unwatchedActiveReceivedGrantCount > 0
+                          ? "You unwatched your active shares"
                           : "Nothing shared with you"
                       }
                       description={
-                        hiddenReceivedGrantCount > 0
-                          ? "A location share is waiting in the notification bell."
-                          : "Approved recipient grants appear after you open their notification."
+                        unwatchedActiveReceivedGrantCount > 0
+                          ? "Refresh to start watching a hidden share again, or ask them to re-share."
+                          : "When someone shares their live location with you, it appears here automatically - no need to open a notification."
                       }
                     />
                   )}
