@@ -6,6 +6,7 @@ import {
   FieldContent,
   FieldDescription,
   FieldGroup,
+  FieldLabel,
   FieldLegend,
   FieldSet,
   FieldTitle,
@@ -61,6 +62,14 @@ describe("Field", () => {
 
   it("renders FieldTitle with data-slot='field-label'", () => {
     const { container } = render(<FieldTitle>Title</FieldTitle>);
+
+    expect(
+      container.querySelector('[data-slot="field-label"]'),
+    ).toBeTruthy();
+  });
+
+  it("renders FieldLabel with data-slot='field-label'", () => {
+    const { container } = render(<FieldLabel>Label</FieldLabel>);
 
     expect(
       container.querySelector('[data-slot="field-label"]'),
