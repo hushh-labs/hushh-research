@@ -2,7 +2,7 @@
 
 > **Your agents. Yours to own.**
 
-**TL;DR:** A complete, shoot-ready pitch film for the One launch — the emotional flagship that makes people *feel* the category before they understand it. Opens on the quiet harm that started Hussh, turns to hope, lands the 60-Second Challenge with consent shown on camera, and closes on the punchline. Two cuts included: a **90-second hero film** (agency/keynote grade) and a **one-take "shoot-it-this-weekend"** version the founder or a Champion can record on a phone or Mac today. Clean teleprompter VO at the end.
+**TL;DR:** A complete, shoot-ready pitch film for the One launch — the emotional flagship that makes people *feel* the category before they understand it. Opens on the quiet harm that started Hussh, turns to hope, lands the 60-Second Challenge with consent shown on camera, and closes on the punchline. Selected launch direction: the **consumer hero, voiceover + product only** (no people on camera) — emotion carried by chaos resolving into calm. Also included: a 90-second reference cut with people, and a one-take "shoot-it-this-weekend" founder version. Clean teleprompter VO at the end.
 
 Companion to the [One Launch Content Strategy](./one-content-strategy.md). All financial / One Puppy cuts marked **INTERNAL** stay internal-only until McDermott clears them. Everything else is built to survive legal review.
 
@@ -52,6 +52,30 @@ The whole film is **restraint as the flex**. Apple doesn't shout. Neither do we.
 **Total: ~90 seconds.**
 
 > **INTERNAL alt-ending (RIA / One Puppy cut — do NOT publish pre-McDermott):** swap 0:50–1:06 for the canonical close — *"Connect one account. See your whole financial picture, with a real number, in sixty seconds."* The dollar-figure reveal is the money shot. Gate: Sprint 3 Aha Moment passing + counsel sign-off. No performance or compliance claims.
+
+---
+
+## ★ SELECTED CUT — Consumer Hero, *Voiceover + Product Only* (no people on camera)
+
+**This is the chosen direction for the launch hero.** No actors, no founder face — the whole film is the device, the interface, motion type, the 🐶 mark, light, and one warm voice. The emotion comes from **chaos resolving into calm.** This is the most Apple, most premium cut we can ship. ~80 seconds.
+
+**Format:** macro product cinematography of a real iPhone/Mac, screen content as pristine motion graphics (SF Pro, Liquid Glass, dark-mode). No hands needed; if used, a single calm hand only. Cold-blue → warm-gold light arc. One piano motif, unresolved until the punchline.
+
+| TC | Visual (product + graphics only) | On-screen text | VO | Audio |
+|---|---|---|---|---|
+| **0:00–0:08** | Black. A phone on a dark surface lights itself. Notifications **cascade and pile up** — "accessed from a new device," "your data was shared," permission prompts — a cold, overwhelming stack. | — | *(silence, then:)* **VO:** "This is what the world does with you." | Low piano note; soft digital clutter rising. |
+| **0:08–0:16** | The clutter **freezes**, then dissolves card by card until the screen is calm and dark. One soft light blooms from the center. | *Nothing about you should move without you.* | **VO:** "We thought it should be the opposite." | Clutter cuts to silence. A single warm chord. |
+| **0:16–0:24** | A single Liquid Glass card rises. A gentle timer: **0:60**. The 🤫 mark breathes once. | *The 60-Second Challenge* | **VO:** "Meet One. Give it sixty seconds." | Piano opens, hopeful. |
+| **0:24–0:34** | The card shows One listening — a soft waveform, then a request, rendered as pure UI. No chat log, just one card at a time. | One: *"May I look at this week's calendar?"* → **Approve** | **VO:** "It asks. You decide. Always." | Soft chime on the ask. |
+| **0:34–0:44** | **The hero moment.** The Approve toggle slides on. A receipt animates into a private ledger: **Consent granted ✓ — written to a ledger only you can read.** | *Ask. Approve. Audit.* | **VO:** "Every yes is yours — and written somewhere only you can see." | Deeply satisfying confirm tone. |
+| **0:44–0:52** | The card resolves an action: *Thursday, 4:00 — moved. Done.* The interface exhales — negative space, calm. | *It only touched what you pointed at.* | **VO:** "It didn't read your life. It helped with the one thing you asked." | Piano lifts. |
+| **0:52–1:02** | 🐶 **One Puppy** animates in: it fetches **one** glowing card from a neat stack of locked cards — and sits calmly on the rest. | *🐶 Fetches what you point at. Guards the rest.* | **VO:** "It fetches what you point at — and guards the rest like it's home." | Bright, warm motif. |
+| **1:02–1:12** | The same calm card appears across device silhouettes — iPhone, then Mac — each glowing softly. A key glyph sits beside them. | *On what you already own. Your key. Never sold.* | **VO:** "It runs on what you already own. Your key. Your rules. Never sold." | Motif swells gently. |
+| **1:12–1:18** | The timer hits **0:00.** Hold on the single, calm, resolved screen. Pure stillness. | — | **VO:** "Sixty seconds of listening. Then it just… helps." | Music breathes. |
+| **1:18–1:28** | Cut to clean dark. The 🤫 mark resolves. The line types in, letter by letter. | **🤫 Your agents. Yours to own.** | **VO:** "Your agents. Yours to own." | Piano resolves to home chord. |
+| **1:28–1:34** | Final card. | *Reserve One for $0.69 · hushh.ai/one* | *(silence)* | Last note fades. |
+
+**Total: ~80 seconds.** Hearts are won here by the **before/after of the interface** — the suffocating notification pile in the first eight seconds, and the single calm card it becomes. That contrast *is* the feeling.
 
 ---
 
