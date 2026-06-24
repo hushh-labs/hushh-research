@@ -12,6 +12,14 @@ describe("Input", () => {
     ).toBeTruthy();
   });
 
+  it("preserves data-slot='input' when type is set", () => {
+    const { container } = render(<Input type="search" />);
+
+    expect(
+      container.querySelector('input[type="search"][data-slot="input"]'),
+    ).toBeTruthy();
+  });
+
   it("forwards className to the input element", () => {
     const { container } = render(<Input className="test-class" />);
     const el = container.querySelector('[data-slot="input"]');
