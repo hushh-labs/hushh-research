@@ -329,6 +329,95 @@ export async function addToPKM(params: {
   };
 }
 
+// ─── Update-flow helpers ──────────────────────────────────────────────────────
+
+/**
+ * applyFieldPatch — module-private utility.
+ *
+ * Applies a dot-notation path set against `data`, returning a new object
+ * without mutating the original. Uses `structuredClone` for deep isolation.
+ *
+ * Examples:
+ *   applyFieldPatch({}, "a.b.c", "v")                    → { a: { b: { c: "v" } } }
+ *   applyFieldPatch({ a: { b: { x: 1 } } }, "a.b.c", "v") → { a: { b: { x: 1, c: "v" } } }
+ *   applyFieldPatch({ name: "old" }, "name", "new")       → { name: "new" }
+ */
+function applyFieldPatch(
+  data: Record<string, unknown>,
+  path: string,
+  value: unknown
+): Record<string, unknown> {
+  const cloned = structuredClone(data) as Record<string, unknown>;
+  const segments = path.split(".");
+  let cursor: Record<string, unknown> = cloned;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const segment = segments[i] as string;
+    if (
+      cursor[segment] === null ||
+      cursor[segment] === undefined ||
+      typeof cursor[segment] !== "object" ||
+      Array.isArray(cursor[segment])
+    ) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  const leaf = segments[segments.length - 1] as string;
+  cursor[leaf] = value;
+  return cloned;
+}
+
+export async function previewAgentPkmUpdate(params: {
+  userId: string;
+  domain: string;
+  fieldPath: string;
+  currentValue: string;
+  proposedValue: string;
+  currentDomains: string[];
+  vaultOwnerToken: string;
+}): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
+  const message = `Update ${params.domain} - ${params.fieldPath}: change from "${params.currentValue}" to "${params.proposedValue}"`;
+  return previewAgentPkmMemory({
+    userId: params.userId,
+    message,
+    currentDomains: params.currentDomains,
+    vaultOwnerToken: params.vaultOwnerToken,
+  });
+}
+
+export async function saveAgentPkmUpdate(params: {
+  userId: string;
+  domain: string;
+  fieldPath: string;
+  proposedValue: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+}): Promise<PkmWriteCoordinatorResult> {
+  const result = await PkmWriteCoordinator.savePreparedDomain({
+    userId: params.userId,
+    domain: params.domain,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    build: async (context) => {
+      const updatedData = applyFieldPatch(
+        context.currentDomainData as Record<string, unknown>,
+        params.fieldPath,
+        params.proposedValue
+      );
+      return {
+        domainData: updatedData,
+        summary: {
+          source: "agent_chat_update",
+          field_path: params.fieldPath,
+          proposed_value: params.proposedValue,
+        },
+      };
+    },
+  });
+  AgentPkmContextStore.invalidateUser(params.userId);
+  return result;
+}
+
 export function buildAgentPkmContextFromMetadata(
   metadata: PersonalKnowledgeModelMetadata | null
 ): AgentPkmContext {
