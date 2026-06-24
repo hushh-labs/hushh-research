@@ -9,6 +9,7 @@ Run with: uvicorn server:app --reload --port 8000
 import logging
 import os
 import time
+from utils.env_validation import validate_required_env_vars
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -130,7 +131,7 @@ app = FastAPI(
     version="1.0.0",
     root_path=root_path,
 )
-
+validate_required_env_vars()
 app.middleware("http")(observability_middleware)
 
 # Rate limiting

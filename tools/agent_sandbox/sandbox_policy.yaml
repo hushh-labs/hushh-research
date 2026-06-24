@@ -1,0 +1,12 @@
+blocked_commands:
+  - "rm -rf"
+  - "shutdown"
+  - "format"
+  - "curl | bash"
+  - "powershell -enc"
+
+restricted_tools:
+  - "subprocess"
+  - "os.system"
+  - "eval"
+  - "exec"
