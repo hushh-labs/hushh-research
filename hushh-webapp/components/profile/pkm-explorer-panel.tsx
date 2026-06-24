@@ -241,6 +241,7 @@ export function PkmExplorerPanel() {
             />
           </div>
           <Button
+            type="button"
             variant="none"
             effect="fade"
             onClick={() => void handleRefresh()}
