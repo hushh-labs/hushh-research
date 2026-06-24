@@ -3947,25 +3947,28 @@ function ProfilePageContent() {
           ? "Verify a new number to replace the current one."
           : "Add a verified phone number to this account.",
         content: (
-          <PhoneVerificationFlow
-            mode={phoneNumber ? "replace" : "link"}
-            currentPhoneNumber={phoneNumber}
-            startVerification={
-              phoneNumber ? startPhoneReplacement : startPhoneVerification
-            }
-            confirmVerification={
-              phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification
-            }
-            onCompleted={handleAccountPhoneCompleted}
-            onCancel={popProfileStack}
-            confirmLabel="Save phone number"
-            className="gap-5"
-            helperText={
-              phoneNumber
-                ? "Choose your country code and enter the new phone number you want to use for this account."
-                : "Choose your country code and enter your phone number. We’ll send you a verification code."
-            }
-          />
+          <>
+            <PhoneVerificationFlow
+              mode={phoneNumber ? "replace" : "link"}
+              currentPhoneNumber={phoneNumber}
+              startVerification={
+                phoneNumber ? startPhoneReplacement : startPhoneVerification
+              }
+              confirmVerification={
+                phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification
+              }
+              onCompleted={handleAccountPhoneCompleted}
+              onCancel={popProfileStack}
+              confirmLabel="Save phone number"
+              className="gap-5"
+              helperText={
+                phoneNumber
+                  ? "Choose your country code and enter the new phone number you want to use for this account."
+                  : "Choose your country code and enter your phone number. We’ll send you a verification code."
+              }
+            />
+            <div id="recaptcha-container" className="min-h-0" />
+          </>
         ),
       });
     }
