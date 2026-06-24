@@ -17,6 +17,34 @@
 
 ---
 
+## Visual Map
+
+How the two test users, the surfaces under test, and the notification routing
+relate during this UAT:
+
+```text
+   User A (Owner)                         User B (Recipient)
+   /one/location                          /one/location
+        |                                      |
+        |  1. Share live location  ───────────►|  sees "Shared with me"
+        |     (E2EE envelope)                   |  + can Unwatch
+        |                                      |
+        |◄── 2. Request access ─────────────────|
+        |    (approve / deny)                   |
+        |                                      |
+        +───────────────┬──────────────────────+
+                        │ consent events
+                        ▼
+            Consent icon (shield)  +  Consent manager (/consents)
+            Requests · Active Access · History
+            (NOT the general bell)
+```
+
+- Coordinates never reach the backend; only encrypted envelopes do.
+- Location **consent** events route to the shield + `/consents`, never the bell.
+
+---
+
 ## 0. Pre-requisites & Setup
 
 ### 0.1 Accounts / devices
