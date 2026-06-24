@@ -7,7 +7,8 @@
       "maintainer/promote-damria-one-location-to-main",
       "maintainer/promote-damria-one-location-consent",
       "maintainer/promote-gautam-recaptcha-fix",
-      "maintainer/promote-governance-gautam-maintainer"
+      "maintainer/promote-governance-gautam-maintainer",
+      "maintainer/promote-uat-summary-hardening"
     ]
   },
   "main": {
