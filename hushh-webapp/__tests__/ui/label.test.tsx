@@ -10,6 +10,14 @@ describe("Label", () => {
     expect(container.querySelector('[data-slot="label"]')).toBeTruthy();
   });
 
+  it("preserves data-slot='label' when htmlFor is set", () => {
+    const { container } = render(<Label htmlFor="email">Email</Label>);
+
+    expect(
+      container.querySelector('label[for="email"][data-slot="label"]'),
+    ).toBeTruthy();
+  });
+
   it("applies disabled peer styling class", () => {
     const { container } = render(<Label>Email</Label>);
 
