@@ -80,6 +80,22 @@ describe("config", () => {
     expect(config.APP_FRONTEND_ORIGIN).toBe("http://localhost:3000");
   });
 
+  it("resolves production frontend origin to the production domain", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeFrontendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("production");
+    vi.mocked(resolveRuntimeFrontendUrl).mockReturnValue(
+      "https://kai.hushh.ai/"
+    );
+
+    const config = await import("@/lib/config");
+
+    expect(config.APP_FRONTEND_ORIGIN).toBe("https://kai.hushh.ai");
+  });
+
   it("keeps production backend empty when runtime backend url is empty", async () => {
     const { resolveAppEnvironment } = await import("@/lib/app-env");
     const { resolveRuntimeBackendUrl } = await import(
