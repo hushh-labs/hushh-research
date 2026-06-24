@@ -1402,6 +1402,43 @@ export function AgentChatWorkspace({
       });
 
       try {
+        if (review.updateContext) {
+          // UPDATE PATH (per D-07, D-10) — write the proposed field value via saveAgentPkmUpdate.
+          // saveAgentPkmUpdate uses the coordinator's fresh read, not the LLM current_value
+          // (T-03-02), and calls AgentPkmContextStore.invalidateUser internally.
+          const updateContext = review.updateContext;
+          const updateResult = await saveAgentPkmUpdate({
+            userId: user.uid,
+            domain: updateContext.domain,
+            fieldPath: updateContext.fieldPath,
+            proposedValue: updateContext.proposedValue,
+            vaultKey,
+            vaultOwnerToken: token,
+          });
+          appendDebugEvent(review.turnId, "pkm_review_save_result", updateResult);
+          if (!updateResult.success) {
+            throw new Error(updateResult.message || "Failed to update PKM memory.");
+          }
+          setPkmActivity((current) => [
+            ...current.slice(-4),
+            {
+              id: `pkm-review-saved-${Date.now()}`,
+              text: `Updated ${updateContext.domain} - ${updateContext.fieldPath}.`,
+              status: "done",
+            },
+          ]);
+          setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+          void loadAgentPkmContext({
+            userId: user.uid,
+            vaultOwnerToken: token,
+            vaultKey,
+            forceRefresh: true,
+          }).catch(() => undefined);
+          toast.success("Saved to PKM.");
+          return;
+        }
+
+        // ADD PATH — unchanged (per D-11)
         const result = await addToPKM({
           userId: user.uid,
           cards: review.cards,
@@ -3015,6 +3052,8 @@ export function AgentChatWorkspace({
                   key={review.id}
                   cards={review.cards}
                   saving={review.saving}
+                  mode={review.updateContext ? "update" : "add"}
+                  updateContext={review.updateContext}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
