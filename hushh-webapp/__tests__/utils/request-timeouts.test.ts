@@ -290,4 +290,17 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(Number.isFinite(result)).toBe(true);
     expect(Number.isInteger(result)).toBe(true);
   });
+
+  it("applies the development floor for extreme sub-millisecond defaults", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "development";
+    delete process.env.APP_RUNTIME_PROFILE;
+    delete process.env.ENVIRONMENT;
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    const result = resolveSlowRequestTimeoutMs(Number("0.000025"));
+
+    expect(result).toBe(SAFE_FLOOR);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(Number.isInteger(result)).toBe(true);
+  });
 });
