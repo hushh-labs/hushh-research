@@ -75,7 +75,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 2. The workflow checks out that exact chosen green `main` SHA.
-3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`): `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, and `DamriaNeelesh`. This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart.
+3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 6. The canonical GitHub deployment environment for this lane is `uat`.
@@ -135,8 +135,8 @@ outside it, and the boundaries are enforced, not informal:
 
 | Ring | Who | Authority | Source of truth |
 |---|---|---|---|
-| Merge cohort | `allowed-maintainers-to-approve` team (6) | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
-| UAT deploy cohort | same 6 | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
+| Merge cohort | `allowed-maintainers-to-approve` team | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
+| UAT deploy cohort | same as merge cohort | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
 | Production deploy cohort | `kushaltrivedi5` only | dispatch production deploy | `production.manual_dispatch_users` |
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
@@ -153,6 +153,39 @@ Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
 cohort lists are protected-surface edits: they require maintainer-team code-owner
 review, pass the CI guard, and should be authored/merged by the owner. Widening
 who can deploy is never a routine, self-mergeable change.
+
+### Adding or removing a maintainer (the one standardized procedure)
+
+`config/ci-governance.json` is the single source of truth. Editing it is the only
+thing you author. One apply command pushes it to GitHub — never edit GitHub
+settings by hand, that is what drifts (and silently leaves a "maintainer" who
+cannot actually approve on `main`).
+
+```bash
+# 1. Edit config/ci-governance.json. For a full maintainer, add the GitHub login to:
+#      main.review_bypass_users
+#      main.merge_queue_bypass_users
+#      uat.manual_dispatch_users        (held equal to the merge cohort)
+#    Leave production.manual_dispatch_users = ["kushaltrivedi5"] unless the owner says otherwise.
+
+# 2. Push intent to GitHub (idempotent). Dry-run first, then apply:
+python3 scripts/ci/apply-governance.py
+python3 scripts/ci/apply-governance.py --apply
+
+# 3. Confirm no drift (these run in CI too):
+./scripts/ci/verify-main-branch-protection.sh
+python3 scripts/ci/verify-deployment-environment-governance.py
+
+# 4. Land the JSON edit through the train (it is a protected_pipeline_path —
+#    needs maintainer-team review and should be merged by the owner).
+```
+
+`apply-governance.py` is the write side (JSON → GitHub branch-protection
+review-bypass + the `allowed-maintainers-to-approve` team). The `verify-*`
+scripts are the read side (drift detection). They are mirror images: if a verify
+reports drift, run apply. UAT/production deploy authority needs no GitHub sync —
+`scripts/ci/assert-governed-actor.py` reads `manual_dispatch_users` from the JSON
+at workflow runtime.
 
 ## Hotfix Playbook
 
@@ -202,8 +235,8 @@ Current operating note:
 - admin ownership does not count as an independent PR approval
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
-- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, and `DamriaNeelesh`
-- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 6 users only
+- the current live branch protection review-bypass allowlist is whatever `config/ci-governance.json` `main.review_bypass_users` declares (kept in sync by `scripts/ci/apply-governance.py`); do not transcribe names here — they drift
+- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, whose membership equals `main.merge_queue_bypass_users`
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path

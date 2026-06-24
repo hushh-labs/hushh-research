@@ -63,6 +63,61 @@ Non-owned surfaces:
 8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.
 9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
 
+## Maintainer Allowlist & Merge-to-Main (standardized — do this once)
+
+`config/ci-governance.json` is the SINGLE SOURCE OF TRUTH for who can approve/merge
+to `main` and who can deploy. Editing that file is the ONLY thing a maintainer
+authors; one apply command pushes the intent to GitHub. Never click GitHub
+settings by hand — that is exactly what drifts.
+
+The four allowlists in `config/ci-governance.json`:
+
+1. `main.review_bypass_users` — can satisfy the required review on `main`
+   (a single-maintainer PR can self-clear the approval gate).
+2. `main.merge_queue_bypass_users` — backed by the org team
+   `allowed-maintainers-to-approve`; team membership IS this list.
+3. `uat.manual_dispatch_users` — can run the UAT deploy workflow.
+4. `production.manual_dispatch_users` — can run the production deploy (kept tiny).
+
+### To add (or remove) a maintainer — end to end
+
+```bash
+# 1. Edit the JSON. Add the GitHub login to the relevant list(s). For a full
+#    maintainer add the login to: main.review_bypass_users,
+#    main.merge_queue_bypass_users, and uat.manual_dispatch_users.
+#    (production stays restricted — add only on explicit owner instruction.)
+
+# 2. Push the intent to GitHub (idempotent; dry-run first).
+python3 scripts/ci/apply-governance.py            # dry-run: shows the plan
+python3 scripts/ci/apply-governance.py --apply    # writes branch protection + team
+
+# 3. Confirm zero drift.
+./scripts/ci/verify-main-branch-protection.sh     # must print ✅, no ERROR lines
+
+# 4. Land the JSON change through the train (it is a protected_pipeline_path).
+```
+
+Why both an apply AND a verify script: `apply-governance.py` is the write side
+(JSON -> GitHub); `verify-main-branch-protection.sh` is the read side (drift
+detection, runs in CI). They are mirror images. If verify ever reports drift,
+run apply.
+
+### "How do I merge my own PR to main?" (maintainer FAQ)
+
+Direct topic-branch PRs into `main` are blocked by `PR Base Policy`. Two
+sanctioned paths:
+
+- DEFAULT: target `integration/pr-train`. The train promotes to `main`.
+- PROMOTION (maintainer fast-path): branch named `maintainer/promote-*`, add
+  that exact branch name to `branch_flow.main_allowed_head_branches` (same JSON),
+  open the PR to `main`. Because you are in `main.review_bypass_users` and
+  `merge_queue_bypass_users` (after step 2 above), you can approve + enqueue your
+  own promotion PR. `gh pr merge <n> --squash --admin` works for the cohort.
+
+UAT deploy needs NO GitHub sync — `scripts/ci/assert-governed-actor.py` reads
+`uat.manual_dispatch_users` from the JSON at workflow runtime. Being in the list
+is sufficient.
+
 ## Handoff Rules
 
 1. Broad repo orientation starts with `repo-context`.
@@ -80,5 +135,6 @@ Non-owned surfaces:
 ./bin/hushh docs verify
 ./bin/hushh ci
 ./scripts/ci/verify-main-branch-protection.sh
+./scripts/ci/apply-governance.py            # write side: sync ci-governance.json -> GitHub (use --apply)
 ./scripts/ci/verify-production-environment-governance.sh
 ```
