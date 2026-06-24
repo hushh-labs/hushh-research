@@ -2357,7 +2357,11 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_UNAVAILABLE",
                 unavailable_message
-                or "Choose someone marked One Network, or ask them to open One Location once.",
+                or (
+                    "They are in your One Network but their secure location key "
+                    "isn't ready yet. Ask them to open One Location and unlock "
+                    "their vault once, then try again."
+                ),
                 status_code=409,
             )
         return row
