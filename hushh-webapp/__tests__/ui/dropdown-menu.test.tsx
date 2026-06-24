@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DropdownMenu,
+  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -27,6 +28,14 @@ describe("DropdownMenu", () => {
 
     expect(
       container.querySelector('[data-slot="dropdown-menu-shortcut"]'),
+    ).toBeTruthy();
+  });
+
+  it("renders separator with data-slot='dropdown-menu-separator'", () => {
+    const { container } = render(<DropdownMenuSeparator />);
+
+    expect(
+      container.querySelector('[data-slot="dropdown-menu-separator"]'),
     ).toBeTruthy();
   });
 });
