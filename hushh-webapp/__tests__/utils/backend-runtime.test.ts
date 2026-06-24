@@ -113,4 +113,13 @@ describe("backend runtime resolution", () => {
 
     expect(helper.getPythonApiUrl()).toContain("127.0.0.1");
   });
+        it("keeps IPv6 loopback backend hints as valid local development URLs", async () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "development";
+    process.env.NEXT_PUBLIC_BACKEND_URL = "http://[::1]:8000";
+
+    const helper = await loadHelper();
+
+    expect(helper.getPythonApiUrl()).toBe("http://[::1]:8000");
+  });
 });
+
