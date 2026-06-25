@@ -82,6 +82,7 @@ See [docs/reference/operations/branch-governance.md](./docs/reference/operations
 ## Docs You Actually Need
 
 - [README.md](./README.md)
+- [docs/guides/contributor-onboarding.md](./docs/guides/contributor-onboarding.md) - **Start here for first PRs**
 - [docs/guides/getting-started.md](./docs/guides/getting-started.md)
 - [docs/guides/environment-model.md](./docs/guides/environment-model.md)
 - [docs/reference/architecture/architecture.md](./docs/reference/architecture/architecture.md)
