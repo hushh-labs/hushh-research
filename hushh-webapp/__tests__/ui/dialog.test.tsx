@@ -69,7 +69,7 @@ describe("DialogContent", () => {
 
 describe("DialogTitle", () => {
   it("renders with data-slot='dialog-title'", () => {
-    const { container } = render(
+    render(
       <Dialog open>
         <DialogContent>
           <DialogTitle>Title text</DialogTitle>
