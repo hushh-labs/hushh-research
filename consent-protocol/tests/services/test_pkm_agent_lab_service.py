@@ -60,6 +60,14 @@ def _registry_choices():
             "description": "Work preferences, professional context, and goals",
             "scope_paths": ["work_preferences", "goals", "profile"],
         },
+        {
+            "domain_key": "identity",
+            "display_name": "Identity",
+            "description": (
+                "Legal name, contact, and verified identity attributes for KYC/compliance"
+            ),
+            "scope_paths": ["profile"],
+        },
     ]
 
 
@@ -1740,3 +1748,214 @@ def test_identity_hints_contain_no_ssn_tokens():
     assert "ssn" not in blob
     assert "social_security" not in blob
     assert "social security" not in blob
+
+
+# ---------------------------------------------------------------------------
+# Phase 02-01 Task 4: identity routing + confirm_first regression (UAT)
+# ---------------------------------------------------------------------------
+
+
+# Mirrors the phase-01 reality: the user already has identity attributes stored,
+# so an "update my address" correction has a stable target to correct.
+IDENTITY_SIMULATED_STATE = {
+    "domains": ["identity", "financial"],
+    "memories": [
+        {
+            "domain": "identity",
+            "entity_id": "identity_profile_001",
+            "entity_scope": "profile",
+            "intent_class": "profile_fact",
+            "message": "My address is 1 Old Street, Seattle.",
+            "active": True,
+        }
+    ],
+}
+
+
+def _identity_agent_calls(
+    message: str,
+    *,
+    save_class: str = "durable",
+    mutation_intent: str = "update",
+    structure_write_mode: str = "can_save",
+    merge_mode: str = "correct_entity",
+):
+    """Build the 5-call _run_agent_contract side_effect for an identity message."""
+    return [
+        _single_segment(message),
+        {
+            "routing_decision": "non_financial_or_ephemeral",
+            "confidence": 0.95,
+            "reason": "Identity PII, not finance.",
+            "source_agent": "financial_guard_agent",
+            "contract_version": 1,
+        },
+        {
+            "save_class": save_class,
+            "intent_class": "profile_fact",
+            "mutation_intent": mutation_intent,
+            "requires_confirmation": False,
+            "confirmation_reason": "",
+            "candidate_domain_choices": [
+                {"domain_key": "identity", "recommended": True},
+            ],
+            "confidence": 0.92,
+            "source_agent": "memory_intent_agent",
+            "contract_version": 1,
+        },
+        {
+            "merge_mode": merge_mode,
+            "target_domain": "identity",
+            "target_entity_id": "identity_profile_001",
+            "target_entity_path": "profile.entities.identity_profile_001",
+            "match_confidence": 0.9,
+            "match_reason": "Identity profile attribute.",
+            "source_agent": "memory_merge_agent",
+            "contract_version": 1,
+        },
+        {
+            "candidate_payload": {"profile": {"value": message}},
+            "structure_decision": {
+                "action": "create_domain",
+                "target_domain": "identity",
+                "json_paths": ["profile", "profile.value"],
+                "top_level_scope_paths": ["profile"],
+                "externalizable_paths": ["profile.value"],
+                "summary_projection": {},
+                "sensitivity_labels": {},
+                "confidence": 0.88,
+                "source_agent": "pkm_structure_agent",
+                "contract_version": 1,
+            },
+            "write_mode": structure_write_mode,
+            "target_entity_scope": "profile",
+            "validation_hints": [],
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_routes_update_address_to_identity(monkeypatch):
+    """Exact phase-01 UAT regression: 'update my address' -> identity + confirm_first."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls("update my address to 500 Market St, San Francisco")
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="update my address to 500 Market St, San Francisco",
+        current_domains=["identity", "financial"],
+        simulated_state=IDENTITY_SIMULATED_STATE,
+    )
+
+    assert result["structure_decision"]["target_domain"] == "identity"
+    assert result["structure_decision"]["target_domain"] != "financial"
+    assert result["write_mode"] == "confirm_first"
+    assert "identity_domain_requires_confirmation" in result["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_routes_name_to_identity(monkeypatch):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                "my name is now Jane Doe",
+                mutation_intent="create",
+                merge_mode="create_entity",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="my name is now Jane Doe",
+        current_domains=["identity"],
+    )
+
+    assert result["structure_decision"]["target_domain"] == "identity"
+    assert result["write_mode"] == "confirm_first"
+
+
+@pytest.mark.asyncio
+async def test_identity_write_mode_never_can_save(monkeypatch):
+    """An LLM-emitted can_save for an identity target is force-escalated to confirm_first."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    # Fresh create (no correction cue): the structure agent emits can_save and the
+    # normalizer must still force confirm_first purely because target is identity.
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                "my email address is jane@example.com",
+                mutation_intent="create",
+                merge_mode="create_entity",
+                structure_write_mode="can_save",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="my email address is jane@example.com",
+        current_domains=["identity"],
+    )
+
+    assert result["write_mode"] == "confirm_first"
+    assert "identity_domain_requires_confirmation" in result["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_identity_read_only_query_stays_do_not_save(monkeypatch):
+    """Read-only/ephemeral identity flow ('what's my address?') stays do_not_save."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                "what's my address?",
+                save_class="ephemeral",
+                mutation_intent="no_op",
+                merge_mode="no_op",
+                structure_write_mode="do_not_save",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="what's my address?",
+        current_domains=["identity"],
+    )
+
+    assert result["write_mode"] == "do_not_save"
+    assert "identity_domain_requires_confirmation" not in result["validation_hints"]
