@@ -22,6 +22,21 @@ describe("Select", () => {
     ).toBeTruthy();
   });
 
+  it("preserves trigger data-slot when className is provided", () => {
+    const { container } = render(
+      <Select>
+        <SelectTrigger className="custom-select-trigger">
+          <SelectValue placeholder="Pick one" />
+        </SelectTrigger>
+      </Select>,
+    );
+
+    const trigger = container.querySelector('[data-slot="select-trigger"]');
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.classList.contains("custom-select-trigger")).toBe(true);
+  });
+
   it("defaults trigger to data-size='default'", () => {
     const { container } = render(
       <Select>
