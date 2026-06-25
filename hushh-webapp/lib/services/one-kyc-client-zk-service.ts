@@ -1433,3 +1433,156 @@ export class OneKycClientZkService {
     };
   }
 }
+
+/**
+ * Injectable LLM rewrite interface (D-G forward-compat). The default implementation
+ * is `OneKycService.redraftWithLlm` (server Gemini Vertex via the Wave 2 proxy), but
+ * an on-device model can be swapped in without touching the redact/refill pipeline.
+ */
+export type KycLlmRewriteCallable = (
+  tokenizedTemplate: string,
+  instruction: string
+) => Promise<string>;
+
+/**
+ * Returns true when `instruction` is a pure keyword/formatting instruction that the
+ * existing regex path (`redraftTransformFromInstructions`) can handle locally — i.e.
+ * it matches at least one keyword regex AND contains no semantic-intent phrasing.
+ *
+ * Routing rule (D-F):
+ *  - keyword-only ("make it shorter", "bullet list") -> regex path (return true)
+ *  - free-form / semantic ("rephrase the intro", "shorter and warmer") -> LLM path (return false)
+ *
+ * The keyword regexes are reused verbatim from `redraftTransformFromInstructions`.
+ */
+export function isKeywordOnlyInstruction(instruction: string): boolean {
+  const text = String(instruction || "").toLowerCase().trim();
+  if (!text) return false;
+  // Keyword regexes reused EXACTLY from redraftTransformFromInstructions (renderer).
+  const keywordPatterns: RegExp[] = [
+    /\b(human|natural|plain english|readable|less programmatic|rewrite|polish|polished|email)\b/,
+    /\b(format|formatted|structure|structured|headings|sections|sectioned|readable|clean|beautiful)\b/,
+    /\b(table|tabular|columns|spreadsheet)\b/,
+    /\b(shorter|short|concise|summary|brief|direct|tighten)\b/,
+    /\b(formal|professional|polished)\b/,
+    /\b(bullet|bullets|list)\b/,
+    /\b(full detail|all details|complete|everything|full)\b/,
+    /\b(double headers?|duplicate headers?|remove headers?|clean headers?|headings?)\b/,
+  ];
+  const matchesKeyword = keywordPatterns.some((pattern) => pattern.test(text));
+  if (!matchesKeyword) return false;
+  // Semantic-intent phrases route to the LLM even if a keyword also matched.
+  const semanticIntent =
+    /\b(rephrase|rewrite|reword|warmer|friendlier|colder|intro|opening|paragraph|sentence|tone|voice|style|explain|describe)\b/i;
+  if (semanticIntent.test(text)) return false;
+  return true;
+}
+
+/**
+ * Deterministically redact every PII value from `body` (D-B). Iterates `approvedValues`
+ * (map-driven, not scan-driven) assigning each value an opaque placeholder `{{F0}}..{{FN}}`,
+ * keeping the token->value map for client-side re-substitution. Throws (D-H guardrail 1) if
+ * any value of length >= 3 still appears verbatim in the tokenized template.
+ */
+export function redactDraftForLlm(params: {
+  body: string;
+  approvedValues: Record<string, string>;
+}): { tokenizedTemplate: string; tokenMap: Record<string, string> } {
+  const tokenMap: Record<string, string> = {};
+  // Preserve insertion order for token-index assignment.
+  const orderedEntries = Object.entries(params.approvedValues);
+  orderedEntries.forEach(([, value], index) => {
+    tokenMap[`F${index}`] = value;
+  });
+
+  // Substitute longest values first to avoid partial-match shadowing, but keep the
+  // original insertion-order index in the token name.
+  const substitutionOrder = orderedEntries
+    .map(([, value], index) => ({ index, value }))
+    .sort((a, b) => b.value.length - a.value.length);
+
+  let tokenizedTemplate = params.body;
+  for (const { index, value } of substitutionOrder) {
+    if (!value) continue;
+    tokenizedTemplate = tokenizedTemplate.replaceAll(value, `{{F${index}}}`);
+  }
+
+  // Completeness assertion (D-H guardrail 1): no real value of length >= 3 may remain.
+  for (const [key, value] of Object.entries(tokenMap)) {
+    if (value.length >= 3 && tokenizedTemplate.includes(value)) {
+      throw new Error(
+        `KYC redact incomplete: value for key "${key}" still present in tokenized template`
+      );
+    }
+  }
+
+  return { tokenizedTemplate, tokenMap };
+}
+
+/**
+ * Re-fill placeholders with their real values from `tokenMap` (client-side only, D-B).
+ * Unknown placeholders are left as-is — the integrity check rejects those upstream.
+ */
+export function resubstituteDraft(
+  tokenizedTemplate: string,
+  tokenMap: Record<string, string>
+): string {
+  let result = tokenizedTemplate;
+  for (const [key, value] of Object.entries(tokenMap)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  return result;
+}
+
+/**
+ * Hard token-integrity gate (D-H guardrail 2). Returns true only if EVERY token in
+ * `tokenMap` appears exactly once in `rewrittenTemplate` AND no token outside `tokenMap`
+ * is present. Returns false on any dropped, duplicated, or invented token — never throws.
+ */
+export function validateTokenIntegrity(
+  _tokenizedTemplate: string,
+  rewrittenTemplate: string,
+  tokenMap: Record<string, string>
+): boolean {
+  for (const key of Object.keys(tokenMap)) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matches = rewrittenTemplate.match(new RegExp(`\\{\\{${escapedKey}\\}\\}`, "g"));
+    if (!matches || matches.length !== 1) {
+      return false;
+    }
+  }
+  // Reject any token present in the output that is not in the map (invented token).
+  const tokenPattern = /\{\{([^}]+)\}\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(rewrittenTemplate)) !== null) {
+    const tokenKey = match[1];
+    if (tokenKey === undefined || !Object.prototype.hasOwnProperty.call(tokenMap, tokenKey)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Convert LLM-rewritten plaintext into safe preview HTML. The KYC DraftReplyPreview
+ * renders `htmlBody` via `dangerouslySetInnerHTML`, so all of &, <, >, ", ' are escaped
+ * (& first to avoid double-escaping) and the text is paragraph-formatted: double newlines
+ * become paragraph breaks, single newlines become <br/>.
+ */
+export function htmlFromPlaintext(text: string): string {
+  const escape = (input: string): string =>
+    input
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const paragraphs = String(text ?? "").split(/\n\n+/);
+  return paragraphs
+    .map((paragraph) => {
+      const escaped = escape(paragraph).replace(/\n/g, "<br/>");
+      return `<p style="margin:0 0 12px 0;">${escaped}</p>`;
+    })
+    .join("");
+}
