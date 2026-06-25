@@ -63,8 +63,8 @@ async def create_crd_scrape_job(
 @router.get("/crd-scrape-jobs/{job_id}")
 @limiter.limit("60/minute")
 async def get_crd_scrape_job(
-    job_id: _JobId,
     request: Request,
+    job_id: str = Path(..., min_length=1, max_length=128),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
     result = await _call_provider(
@@ -95,8 +95,8 @@ async def create_financial_verification_job(
 @router.get("/financial-verification-jobs/{job_id}")
 @limiter.limit("60/minute")
 async def get_financial_verification_job(
-    job_id: _JobId,
     request: Request,
+    job_id: str = Path(..., min_length=1, max_length=128),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
     result = await _call_provider(
