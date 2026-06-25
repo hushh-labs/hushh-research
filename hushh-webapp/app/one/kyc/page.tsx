@@ -93,8 +93,15 @@ import {
 } from "@/lib/services/kyc-pkm-write-service";
 import {
   effectiveOneKycRequiredFields,
+  htmlFromPlaintext,
+  isKeywordOnlyInstruction,
   OneKycClientZkService,
+  redactDraftForLlm,
+  resubstituteDraft,
+  sha256Hex,
+  validateTokenIntegrity,
   type KycDraftBuildResult,
+  type KycLlmRewriteCallable,
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
@@ -981,6 +988,93 @@ function OneKycWorkspace() {
             setError("Prepare the email draft before revising it.");
             return;
           }
+          // Routing (D-F): keyword-only instructions take the fast local regex path;
+          // free-form / semantic instructions take the LLM redact -> rewrite -> re-fill path.
+          const isKeyword = isKeywordOnlyInstruction(redraftInstructions.trim());
+          if (!isKeyword) {
+            // --- LLM path ---
+            // 1. Redact: every PII value -> opaque token; map stays in the browser (D-B).
+            const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+              body: localDraft.body,
+              approvedValues: localDraft.approvedValues,
+            });
+
+            // 2. Rewrite through the injectable callable (D-G). Default impl is the
+            //    server Gemini Vertex proxy from Wave 2.
+            const llmRewrite: KycLlmRewriteCallable = (tmpl, instr) =>
+              OneKycService.redraftWithLlm({
+                ...input,
+                tokenizedTemplate: tmpl,
+                instruction: instr,
+              }).then((response) => response.rewritten_template);
+
+            const rewrittenTemplate = await llmRewrite(
+              tokenizedTemplate,
+              redraftInstructions.trim(),
+            );
+
+            // 3. Token integrity gate (D-H guardrail 2). On failure, fall back to the
+            //    prior draft — never set a mangled draft as localDraft.
+            const integrityOk = validateTokenIntegrity(
+              tokenizedTemplate,
+              rewrittenTemplate,
+              tokenMap,
+            );
+            if (!integrityOk) {
+              setError(
+                "AI output failed token integrity check — using original draft. Try again or use a simpler instruction.",
+              );
+              setRedraftInstructions("");
+              return;
+            }
+
+            // 4. Re-substitute real values locally (values never left the browser, D-B).
+            const resubstitutedBody = resubstituteDraft(rewrittenTemplate, tokenMap);
+
+            // 5. Field re-validation (D-H guardrail 3): re-run buildDraft and confirm the
+            //    consented field set is unchanged (no field added, dropped, or renamed).
+            const exportPayloads =
+              localExportPayloads[workflow.workflow_id] || [];
+            const revalidatedDraft = await OneKycClientZkService.buildDraft({
+              workflow,
+              exportPayloads,
+            });
+            const beforeKeys = new Set(Object.keys(localDraft.approvedValues));
+            const afterKeys = new Set(
+              Object.keys(revalidatedDraft.approvedValues),
+            );
+            const keysMatch =
+              beforeKeys.size === afterKeys.size &&
+              [...beforeKeys].every((key) => afterKeys.has(key));
+            if (!keysMatch) {
+              setError(
+                "AI output altered the consented field set — using original draft. Try again.",
+              );
+              setRedraftInstructions("");
+              return;
+            }
+
+            // 6. Build the LLM draft. body AND htmlBody both reflect the LLM output;
+            //    htmlBody is re-derived from the resubstituted plaintext via
+            //    htmlFromPlaintext (NOT the revalidated draft html, which is rebuilt from
+            //    the original render model with no LLM input — DraftReplyPreview renders
+            //    htmlBody, so reusing the stale html would show the OLD draft).
+            const llmHtmlBody = htmlFromPlaintext(resubstitutedBody);
+            const llmDraftHash = await sha256Hex(resubstitutedBody);
+            const llmDraft: KycDraftBuildResult = {
+              ...revalidatedDraft,
+              body: resubstitutedBody,
+              htmlBody: llmHtmlBody,
+              draftHash: llmDraftHash,
+            };
+            setLocalDrafts((current) => ({
+              ...current,
+              [workflow.workflow_id]: llmDraft,
+            }));
+            setRedraftInstructions("");
+            return;
+          }
+          // --- Keyword path (unchanged) ---
           const next = await OneKycService.redraft({
             ...input,
             instructions: redraftInstructions.trim(),
