@@ -193,6 +193,31 @@ _LOCATION_HINTS = {
     "san",
     "francisco",
 }
+_IDENTITY_HINTS = {
+    # Single-token PII keys (NO SSN per D-A).
+    "name",
+    "full_name",
+    "first_name",
+    "last_name",
+    "email",
+    "e-mail",
+    "address",
+    # NOTE: bare "city"/"street" are intentionally excluded — they collide with
+    # location-residence statements ("I live in New York City now"), which must
+    # stay in the location domain. "my address" / "address" still routes here.
+    "zip",
+    "postal",
+    "dob",
+    "birthday",
+    "passport",
+    "phone",
+    "mobile",
+    # Multi-word phrases (matched against the normalized message substring).
+    "date of birth",
+    "phone number",
+    "full name",
+    "my address",
+}
 _FINANCIAL_HINTS = {
     "stock",
     "stocks",
@@ -400,7 +425,7 @@ _SOFT_ONTOLOGY_KEYS = tuple(
 )
 _INTENT_DOMAIN_DEFAULTS: dict[str, tuple[str, ...]] = {
     "preference": ("food", "travel", "shopping", "social"),
-    "profile_fact": ("location", "social", "professional"),
+    "profile_fact": ("identity", "location", "social", "professional"),
     "routine": ("health", "professional", "food"),
     "task_or_reminder": ("professional", "shopping", "travel", "social"),
     "plan_or_goal": ("financial", "travel", "professional", "health"),
@@ -1002,6 +1027,15 @@ class PKMAgentLabService:
         tokens = cls._message_tokens(message)
         message_words = tokens
         ranked: list[str] = []
+        # Identity PII (name/email/address/dob/phone) must out-prioritize both
+        # financial and location, resolving the phase-01 UAT misroute where
+        # "update my address" landed in financial. Ordered FIRST intentionally.
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_IDENTITY_HINTS,
+        ):
+            ranked.append("identity")
         if cls._contains_any_hint(
             normalized_message=normalized_message,
             message_words=message_words,
