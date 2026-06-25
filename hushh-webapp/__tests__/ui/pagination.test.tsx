@@ -119,4 +119,22 @@ describe("Pagination", () => {
     expect(links[0]?.getAttribute("aria-current")).toBe("page");
     expect(links[1]?.getAttribute("aria-current")).toBeNull();
   });
+
+  it("renders sr-only 'More pages' text inside the ellipsis for screen readers", () => {
+    const { container } = render(
+      <Pagination>
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationEllipsis />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>,
+    );
+
+    const srOnly = container.querySelector(
+      '[data-slot="pagination-ellipsis"] .sr-only',
+    );
+
+    expect(srOnly?.textContent).toBe("More pages");
+  });
 });
