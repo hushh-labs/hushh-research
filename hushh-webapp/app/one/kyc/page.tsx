@@ -322,6 +322,11 @@ function OneKycWorkspace() {
   );
   const [error, setError] = useState<string | null>(null);
   const [redraftInstructions, setRedraftInstructions] = useState("");
+  // D-E: the user must acknowledge the LLM disclosure before the first LLM redraft.
+  const [llmDisclosureAcknowledged, setLlmDisclosureAcknowledged] =
+    useState(false);
+  // D-F: routing override. null = auto-detect; true = force LLM; false = force regex.
+  const [useAiRedraft, setUseAiRedraft] = useState<boolean | null>(null);
   const [localDrafts, setLocalDrafts] = useState<
     Record<string, KycDraftBuildResult>
   >({});
@@ -990,9 +995,24 @@ function OneKycWorkspace() {
           }
           // Routing (D-F): keyword-only instructions take the fast local regex path;
           // free-form / semantic instructions take the LLM redact -> rewrite -> re-fill path.
-          const isKeyword = isKeywordOnlyInstruction(redraftInstructions.trim());
+          // The useAiRedraft override forces a path regardless of keyword detection:
+          //   false -> force regex; true -> force LLM; null -> auto-detect.
+          const isKeyword =
+            useAiRedraft === false
+              ? true // force regex
+              : useAiRedraft === true
+                ? false // force LLM
+                : isKeywordOnlyInstruction(redraftInstructions.trim());
           if (!isKeyword) {
             // --- LLM path ---
+            // D-E disclosure gate: do not proceed to the LLM until the user has
+            // acknowledged the disclosure. The banner is rendered in the Redraft
+            // SettingsGroup and the Redraft button is disabled until acknowledged;
+            // this is a defensive early-return in case the path is reached otherwise.
+            if (!llmDisclosureAcknowledged) {
+              setError(null);
+              return;
+            }
             // 1. Redact: every PII value -> opaque token; map stays in the browser (D-B).
             const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
               body: localDraft.body,
@@ -1072,6 +1092,9 @@ function OneKycWorkspace() {
               [workflow.workflow_id]: llmDraft,
             }));
             setRedraftInstructions("");
+            // Each new redraft session starts fresh (D-E re-acknowledgement, D-F reset).
+            setLlmDisclosureAcknowledged(false);
+            setUseAiRedraft(null);
             return;
           }
           // --- Keyword path (unchanged) ---
@@ -1121,6 +1144,9 @@ function OneKycWorkspace() {
             clearLocalWorkflowState(workflow.workflow_id);
           }
           setRedraftInstructions("");
+          // Each new redraft session starts fresh (D-E re-acknowledgement, D-F reset).
+          setLlmDisclosureAcknowledged(false);
+          setUseAiRedraft(null);
           return;
         }
 
@@ -1263,6 +1289,8 @@ function OneKycWorkspace() {
       localExportPayloads,
       localDrafts,
       redraftInstructions,
+      llmDisclosureAcknowledged,
+      useAiRedraft,
       refreshWorkflowState,
       updateWorkflow,
       vaultKey,
@@ -2045,36 +2073,102 @@ function OneKycWorkspace() {
 
               {selectedCanReviewDraft ? (
                 <SettingsGroup embedded title="Redraft">
-                  <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                    <Textarea
-                      value={redraftInstructions}
-                      onChange={(event) =>
-                        setRedraftInstructions(event.target.value)
-                      }
-                      maxLength={1000}
-                      placeholder="Make it shorter, more formal, or use a bullet list."
-                      className="min-h-24"
-                      data-voice-control-id="one-kyc-redraft-instructions"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => void runAction("redraft", selected)}
-                      disabled={
-                        Boolean(busy) ||
-                        !redraftInstructions.trim() ||
-                        !selectedDraft
-                      }
-                      data-voice-control-id="one-kyc-redraft"
-                      data-voice-action-id="kyc.draft.request_redraft"
-                    >
-                      {busy === "redraft" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <PenLine className="size-4" />
-                      )}
-                      {busy === "redraft" ? "Redrafting..." : "Redraft"}
-                    </Button>
-                  </div>
+                  {(() => {
+                    // Will this instruction take the LLM path? Mirror the runAction
+                    // routing: useAiRedraft override wins; otherwise auto-detect via
+                    // isKeywordOnlyInstruction. A pending (not-yet-acknowledged) LLM
+                    // instruction must show the disclosure and disable the button.
+                    const willUseLlm =
+                      useAiRedraft === false
+                        ? false
+                        : useAiRedraft === true
+                          ? true
+                          : !isKeywordOnlyInstruction(
+                              redraftInstructions.trim(),
+                            );
+                    const llmDisclosurePending =
+                      willUseLlm && !llmDisclosureAcknowledged;
+                    return (
+                      <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">Rewrite mode</span>
+                          <select
+                            value={
+                              useAiRedraft === true
+                                ? "ai"
+                                : useAiRedraft === false
+                                  ? "regex"
+                                  : ""
+                            }
+                            onChange={(event) => {
+                              const val = event.target.value;
+                              setUseAiRedraft(
+                                val === "ai"
+                                  ? true
+                                  : val === "regex"
+                                    ? false
+                                    : null,
+                              );
+                            }}
+                            className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+                            data-voice-control-id="one-kyc-redraft-mode"
+                          >
+                            <option value="">Auto-detect</option>
+                            <option value="ai">Use AI</option>
+                            <option value="regex">Use keywords only</option>
+                          </select>
+                        </label>
+                        {llmDisclosurePending ? (
+                          <div
+                            role="alert"
+                            className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+                          >
+                            {/* prettier-ignore */}
+                            <p>AI will rewrite your draft. Only redacted placeholders are sent — never your actual details.</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setLlmDisclosureAcknowledged(true)
+                              }
+                              data-voice-control-id="one-kyc-redraft-disclosure-ack"
+                            >
+                              I understand
+                            </Button>
+                          </div>
+                        ) : null}
+                        <Textarea
+                          value={redraftInstructions}
+                          onChange={(event) =>
+                            setRedraftInstructions(event.target.value)
+                          }
+                          maxLength={1000}
+                          placeholder="Make it shorter, more formal, or use a bullet list."
+                          className="min-h-24"
+                          data-voice-control-id="one-kyc-redraft-instructions"
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => void runAction("redraft", selected)}
+                          disabled={
+                            Boolean(busy) ||
+                            !redraftInstructions.trim() ||
+                            !selectedDraft ||
+                            llmDisclosurePending
+                          }
+                          data-voice-control-id="one-kyc-redraft"
+                          data-voice-action-id="kyc.draft.request_redraft"
+                        >
+                          {busy === "redraft" ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <PenLine className="size-4" />
+                          )}
+                          {busy === "redraft" ? "Redrafting..." : "Redraft"}
+                        </Button>
+                      </div>
+                    );
+                  })()}
                 </SettingsGroup>
               ) : null}
 
