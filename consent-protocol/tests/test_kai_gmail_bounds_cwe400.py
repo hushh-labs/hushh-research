@@ -93,11 +93,7 @@ class TestGmailSyncRunQueryBounds:
 
     def test_user_id_query_max_length_is_bounded(self):
         src = (
-            pathlib.Path(__file__).parent.parent
-            / "api"
-            / "routes"
-            / "kai"
-            / "gmail.py"
+            pathlib.Path(__file__).parent.parent / "api" / "routes" / "kai" / "gmail.py"
         ).read_text()
 
         match = re.search(

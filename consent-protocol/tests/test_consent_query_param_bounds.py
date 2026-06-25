@@ -75,9 +75,7 @@ class TestConsentQueryParamBounds:
         oversized_rid = "r" * 200
         client = TestClient(_build_app(user_id="user_abc"), raise_server_exceptions=False)
 
-        resp = client.post(
-            f"/api/consent/pending/deny?userId=user_abc&requestId={oversized_rid}"
-        )
+        resp = client.post(f"/api/consent/pending/deny?userId=user_abc&requestId={oversized_rid}")
 
         assert resp.status_code == 422
 

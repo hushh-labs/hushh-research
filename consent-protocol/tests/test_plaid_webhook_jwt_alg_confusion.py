@@ -7,6 +7,7 @@ unverified token header, an attacker can supply `alg: "none"` (to skip
 signature verification) or `alg: "HS256"` (HMAC confusion). The verifier
 must reject any algorithm other than the expected RS256.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,6 +19,7 @@ from hushh_mcp.services.broker_funding_service import (
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_service():
     """Return a BrokerFundingService with the Plaid config marked as configured.

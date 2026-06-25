@@ -66,9 +66,7 @@ def test_get_data_valid_user_id_passes_path_guard(client: TestClient) -> None:
         svc.get_encrypted_data = AsyncMock(return_value=None)
         mock_svc_factory.return_value = svc
         resp = client.get(f"/api/pkm/data/{_USER_ID}")
-    assert resp.status_code != 422, (
-        "Valid user_id must pass path guard and reach the handler"
-    )
+    assert resp.status_code != 422, "Valid user_id must pass path guard and reach the handler"
 
 
 # ---------------------------------------------------------------------------

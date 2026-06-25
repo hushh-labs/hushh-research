@@ -119,8 +119,8 @@ class TestRefreshExportUploadReasonReflection:
         if resp.status_code == 401:
             detail = resp.json().get("detail", "")
             # Must not contain internal reason keywords
-            assert "expired" not in detail.lower() or detail == "Invalid or expired consent token", (
-                "401 detail must be static; internal reason must not be reflected"
-            )
+            assert (
+                "expired" not in detail.lower() or detail == "Invalid or expired consent token"
+            ), "401 detail must be static; internal reason must not be reflected"
             assert "signature" not in detail.lower()
             assert "hmac" not in detail.lower()

@@ -4208,9 +4208,7 @@ class BrokerFundingService:
                 header_alg,
                 _PLAID_WEBHOOK_JWT_ALG,
             )
-            raise PlaidWebhookVerificationError(
-                "Plaid webhook signature validation failed."
-            )
+            raise PlaidWebhookVerificationError("Plaid webhook signature validation failed.")
 
         modulus = self._jwk_to_int(key_payload.get("n"))
         exponent = self._jwk_to_int(key_payload.get("e"))
