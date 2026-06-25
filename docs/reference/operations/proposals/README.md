@@ -1,4 +1,4 @@
-# CI and Deploy Proposals
+﻿# CI and Deploy Proposals
 
 ## Visual Map
 
