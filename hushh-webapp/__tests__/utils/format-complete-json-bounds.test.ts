@@ -123,4 +123,26 @@ describe("formatCompleteJson — array bounds with null and mixed primitives", (
     expect(out).toContain("--- Legal Disclosures (2 items) ---");
     expect(out).toContain("2 disclosure(s) extracted");
   });
+    
+  it("truncates the activity_and_transactions array to the first 5 items and reports the remainder", () => {
+    // Mirrors the already-tested holdings (10-item) and generic-array (3-item)
+    // truncation boundaries. The activity_and_transactions branch truncates
+    // at 5 and emits "... and N more transactions" — previously uncharacterized.
+    const transactions = Array.from({ length: 7 }, (_, i) => ({
+      date: `2024-01-0${i + 1}`,
+      transaction_type: "Buy",
+      amount: 100 + i,
+    }));
+
+    const out = formatCompleteJson({
+      activity_and_transactions: transactions,
+    });
+
+    expect(out).toContain("--- Transactions (7 items) ---");
+    expect(out).toContain("2024-01-01 - Buy");
+    expect(out).toContain("2024-01-05 - Buy");
+    expect(out).not.toContain("2024-01-06 - Buy");
+    expect(out).not.toContain("2024-01-07 - Buy");
+    expect(out).toContain("... and 2 more transactions");
+  });
 });
