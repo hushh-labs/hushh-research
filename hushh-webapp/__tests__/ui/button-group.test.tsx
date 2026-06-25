@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -28,5 +28,19 @@ describe("ButtonGroup", () => {
     const group = container.querySelector('[data-slot="button-group"]');
 
     expect(group?.getAttribute("data-orientation")).toBe("vertical");
+  });
+
+  it("renders group data-slot contract", () => {
+    render(
+      <ButtonGroup aria-label="Formatting controls">
+        <button type="button">Bold</button>
+      </ButtonGroup>,
+    );
+
+    expect(
+      screen
+        .getByRole("group", { name: "Formatting controls" })
+        .getAttribute("data-slot"),
+    ).toBe("button-group");
   });
 });
