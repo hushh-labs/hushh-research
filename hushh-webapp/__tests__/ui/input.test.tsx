@@ -26,4 +26,12 @@ describe("Input", () => {
 
     expect(el?.classList.contains("test-class")).toBeTruthy();
   });
+
+  it("does not force autoCapitalize='none' for type='text'", () => {
+    const { container } = render(<Input type="text" />);
+
+    const el = container.querySelector('[data-slot="input"]');
+
+    expect(el?.getAttribute("autocapitalize")).not.toBe("none");
+  });
 });

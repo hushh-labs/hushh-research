@@ -115,4 +115,20 @@ describe("Accordion", () => {
 
     expect(icon).toBeTruthy();
   });
+
+  it("renders AccordionTrigger wrapping element with data-slot='accordion-header'", () => {
+    const { container } = render(
+      <Accordion type="single">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Trigger</AccordionTrigger>
+          <AccordionContent>Content</AccordionContent>
+        </AccordionItem>
+      </Accordion>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="accordion-header"]'),
+    ).toBeTruthy();
+  });
+
 });

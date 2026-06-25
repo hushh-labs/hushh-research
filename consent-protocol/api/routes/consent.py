@@ -14,7 +14,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -300,8 +300,8 @@ class PendingConsentOpenedRequest(BaseModel):
 
 class GenericConsentRequestCreate(BaseModel):
     subject_user_id: str = Field(min_length=1, max_length=128)
-    requester_actor_type: str = Field(default="ria", max_length=64)
-    subject_actor_type: str = Field(default="investor", max_length=64)
+    requester_actor_type: Literal["investor", "ria"] = "ria"
+    subject_actor_type: Literal["investor", "ria"] = "investor"
     scope_template_id: str = Field(min_length=1, max_length=256)
     selected_scope: str | None = Field(default=None, max_length=256)
     duration_mode: str = Field(default="preset", max_length=64)

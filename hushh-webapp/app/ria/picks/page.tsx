@@ -792,7 +792,7 @@ function TopPicksEditor({
                   <p className="text-sm font-semibold text-foreground">Top pick {displayIndex}</p>
                   <p className="text-xs text-muted-foreground">Compact mobile editor</p>
                 </div>
-                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -902,7 +902,7 @@ function TopPicksEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                      <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1026,7 +1026,7 @@ function AvoidEditor({
                   <p className="text-sm font-semibold text-foreground">Avoid row {displayIndex}</p>
                   <p className="text-xs text-muted-foreground">Compact mobile editor</p>
                 </div>
-                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -1159,7 +1159,7 @@ function AvoidEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                      <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1255,7 +1255,7 @@ function ScreeningEditor({
                   </p>
                 </div>
                 <div className="flex justify-start sm:justify-end">
-                  <Button variant="none" effect="fade" size="sm" onClick={() => onAddRow(section.key)} className="w-full justify-center sm:w-auto">
+                  <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onAddRow(section.key)} className="w-full justify-center sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
                     Add rule
                   </Button>

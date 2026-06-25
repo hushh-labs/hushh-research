@@ -283,7 +283,7 @@ def get_db_engine() -> Engine:
             # Cloud SQL Unix socket path must be passed in query host param.
             encoded_socket = quote_plus(db_unix_socket)
             database_url = (
-                f"postgresql+psycopg2://{db_user}:{db_password}@/{db_name}?host={encoded_socket}"
+                f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@/{db_name}?host={encoded_socket}"
             )
             target = db_unix_socket
         else:
@@ -292,7 +292,7 @@ def get_db_engine() -> Engine:
                 if ("supabase.com" in str(db_host) or "pooler.supabase" in str(db_host))
                 else ""
             )
-            database_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
+            database_url = f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
             target = f"{db_host}:{db_port}/{db_name}"
 
         connect_args: dict[str, Any] = {

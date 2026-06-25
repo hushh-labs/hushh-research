@@ -173,8 +173,8 @@ def get_database_url() -> str:
         )
     if db_unix_socket:
         # Cloud SQL Unix socket path must be provided via query host parameter.
-        return f"postgresql://{db_user}:{db_password}@/{db_name}?host={quote_plus(db_unix_socket)}"
-    return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@/{db_name}?host={quote_plus(db_unix_socket)}"
+    return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}"
 
 
 def get_database_ssl():
