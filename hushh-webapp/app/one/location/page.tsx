@@ -20,6 +20,7 @@ import {
   ContactRound,
   Copy,
   ExternalLink,
+  Hand,
   Loader2,
   LocateFixed,
   MapPin,
@@ -65,7 +66,7 @@ type LocationTab = "compose" | "activity";
 const LOCATION_TAB_PARAM = "tab";
 const LOCATION_TAB_OPTIONS: { value: LocationTab; label: string }[] = [
   { value: "compose", label: "Share & Request" },
-  { value: "activity", label: "Activity & Links" },
+  { value: "activity", label: "Activity" },
 ];
 
 function normalizeLocationTab(value: string | null | undefined): LocationTab {
@@ -977,6 +978,58 @@ function EmptyOneState({
         </div>
       </div>
     </div>
+  );
+}
+
+const ONE_LOCATION_TRUST_CHIPS: {
+  icon: LucideIcon;
+  label: string;
+  detail: string;
+}[] = [
+  {
+    icon: ShieldCheck,
+    label: "End-to-end encrypted",
+    detail: "Only the people you pick can see it. We can't.",
+  },
+  {
+    icon: Clock3,
+    label: "Auto-expires",
+    detail: "Sharing stops on its own when the timer ends.",
+  },
+  {
+    icon: Hand,
+    label: "Stop anytime",
+    detail: "One tap ends sharing instantly - no waiting.",
+  },
+];
+
+// Compact reassurance row shown above the tabs so a first-time user immediately
+// sees the three trust promises ("why this is safe") before doing anything.
+function OneLocationTrustStrip() {
+  return (
+    <ul
+      aria-label="How One Location keeps you safe"
+      className="grid min-w-0 max-w-full grid-cols-1 gap-2 sm:grid-cols-3"
+    >
+      {ONE_LOCATION_TRUST_CHIPS.map(({ icon: Icon, label, detail }) => (
+        <li
+          key={label}
+          className="flex min-w-0 items-start gap-2.5 rounded-[14px] border border-black/[0.05] bg-white/80 px-3 py-2.5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
+        >
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#34c759]/12 text-[#2dbd5a] dark:bg-[#34c759]/15">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold leading-tight text-[#1c1c1e] dark:text-white">
+              {label}
+            </span>
+            <span className="mt-0.5 block text-[11.5px] leading-snug text-[#8e8e93] dark:text-white/55">
+              {detail}
+            </span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -3770,15 +3823,15 @@ function OneLocationAgentPageContent() {
         <div className="flex flex-col gap-4 px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
           <header className="max-w-[560px] min-w-0 space-y-2">
             <span className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-[#007aff] dark:text-[#76b7ff]">
-              When it matters most
+              Private location sharing
             </span>
             <h1 className="text-[28px] font-medium leading-[1.12] tracking-normal text-[#1c1c1e] sm:text-[32px] dark:text-white">
               Your circle, safely connected.
             </h1>
             <h2 className="sr-only">One Location Agent</h2>
-            <p className="max-w-[440px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
-              Share your location with selected contacts, or ask to see theirs
-              after they approve.
+            <p className="max-w-[460px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
+              Let the people you trust see where you are - only when you choose,
+              only for as long as you choose. We can never see it.
             </p>
           </header>
           <div className="flex items-center gap-2">
@@ -3830,6 +3883,10 @@ function OneLocationAgentPageContent() {
                     : LOCATION_TAB_OPTIONS
                 }
               />
+            </div>
+
+            <div className="px-1">
+              <OneLocationTrustStrip />
             </div>
             {pendingOwnerRequests.length && locationTab !== "activity" ? (
               <button
