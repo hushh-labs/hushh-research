@@ -740,7 +740,21 @@ class PKMAgentLabService:
     @classmethod
     def _infer_sensitivity(cls, path: str) -> str | None:
         normalized = path.lower()
-        if any(token in normalized for token in ("ssn", "tax", "account_number", "routing")):
+        # Restricted: highest-sensitivity identifiers. `ssn`/`social_security` are
+        # classified defensively (D-A: no SSN is ever stored, but if such a token
+        # ever appears it must be treated as restricted and masked).
+        if any(
+            token in normalized
+            for token in (
+                "ssn",
+                "social_security",
+                "tax",
+                "account_number",
+                "routing",
+                "passport",
+                "national_id",
+            )
+        ):
             return "restricted"
         if any(
             token in normalized
@@ -752,6 +766,15 @@ class PKMAgentLabService:
                 "allergy",
                 "medical",
                 "relationship",
+                # Identity PII (D-09): name, address, dob, phone, nationality.
+                "full_name",
+                "first_name",
+                "last_name",
+                "date_of_birth",
+                "dob",
+                "address",
+                "phone_number",
+                "nationality",
             )
         ):
             return "confidential"
