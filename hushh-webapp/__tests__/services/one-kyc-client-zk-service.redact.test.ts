@@ -23,7 +23,6 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
 }));
 
 import {
-  htmlFromPlaintext,
   isKeywordOnlyInstruction,
   reassembleDraftTemplate,
   redactDraftForLlm,
@@ -255,40 +254,10 @@ describe("redraft routing override (useAiRedraft)", () => {
   });
 });
 
-describe("htmlFromPlaintext", () => {
-  it("escapes all HTML-significant characters", () => {
-    const html = htmlFromPlaintext("Hello <b> & 'you' \"q\"");
-    expect(html).toContain("&lt;b&gt;");
-    expect(html).toContain("&amp;");
-    expect(html).toContain("&#39;");
-    expect(html).toContain("&quot;");
-    // No raw special characters survive inside the text content.
-    expect(html).not.toContain("<b>");
-    expect(html).not.toMatch(/ & /);
-  });
-
-  it("does not double-escape ampersands", () => {
-    const html = htmlFromPlaintext("a & <b>");
-    expect(html).toContain("&amp;");
-    expect(html).not.toContain("&amp;amp;");
-    expect(html).not.toContain("&amp;lt;");
-  });
-
-  it("splits double newlines into separate paragraph blocks", () => {
-    const html = htmlFromPlaintext("Line1\n\nLine2");
-    const paragraphCount = (html.match(/<p /g) || []).length;
-    expect(paragraphCount).toBe(2);
-    expect(html).toContain("Line1");
-    expect(html).toContain("Line2");
-  });
-
-  it("converts single newlines to <br/> within a paragraph", () => {
-    const html = htmlFromPlaintext("Line1\nLine2");
-    const paragraphCount = (html.match(/<p /g) || []).length;
-    expect(paragraphCount).toBe(1);
-    expect(html).toContain("Line1<br/>Line2");
-  });
-});
+// NB: the former htmlFromPlaintext renderer (and its tests) was retired — the
+// LLM-redraft path now renders through renderLlmRedraftHtml in the approved-
+// disclosure renderer (escaping + markdown + shared shell), covered by
+// __tests__/services/one-kyc-approved-disclosure-renderer.test.ts.
 
 describe("splitDraftTemplate", () => {
   const OPENING = "I am replying on behalf of Jane Doe.";

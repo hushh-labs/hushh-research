@@ -1564,30 +1564,6 @@ export function validateTokenIntegrity(
 }
 
 /**
- * Convert LLM-rewritten plaintext into safe preview HTML. The KYC DraftReplyPreview
- * renders `htmlBody` via `dangerouslySetInnerHTML`, so all of &, <, >, ", ' are escaped
- * (& first to avoid double-escaping) and the text is paragraph-formatted: double newlines
- * become paragraph breaks, single newlines become <br/>.
- */
-export function htmlFromPlaintext(text: string): string {
-  const escape = (input: string): string =>
-    input
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-
-  const paragraphs = String(text ?? "").split(/\n\n+/);
-  return paragraphs
-    .map((paragraph) => {
-      const escaped = escape(paragraph).replace(/\n/g, "<br/>");
-      return `<p style="margin:0 0 12px 0;">${escaped}</p>`;
-    })
-    .join("");
-}
-
-/**
  * The fixed signature the renderer appends to every approved-disclosure draft.
  * Kept byte-identical to `buildApprovedDisclosurePlainText` (renderer) so that
  * `splitDraftTemplate` can strip it deterministically.

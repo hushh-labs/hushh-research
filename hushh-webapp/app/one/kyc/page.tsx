@@ -91,9 +91,9 @@ import {
   type KycWorkflowSentReplySnapshot,
   type KycWorkflowStatus,
 } from "@/lib/services/kyc-pkm-write-service";
+import { renderLlmRedraftHtml } from "@/lib/services/one-kyc-approved-disclosure-renderer";
 import {
   effectiveOneKycRequiredFields,
-  htmlFromPlaintext,
   isKeywordOnlyInstruction,
   OneKycClientZkService,
   reassembleDraftTemplate,
@@ -1088,10 +1088,13 @@ function OneKycWorkspace() {
 
             // 6. Build the LLM draft. body AND htmlBody both reflect the LLM output;
             //    htmlBody is re-derived from the resubstituted plaintext via
-            //    htmlFromPlaintext (NOT the revalidated draft html, which is rebuilt from
-            //    the original render model with no LLM input — DraftReplyPreview renders
-            //    htmlBody, so reusing the stale html would show the OLD draft).
-            const llmHtmlBody = htmlFromPlaintext(resubstitutedBody);
+            //    renderLlmRedraftHtml (NOT the revalidated draft html, which is rebuilt
+            //    from the original render model with no LLM input — DraftReplyPreview
+            //    renders htmlBody, so reusing the stale html would show the OLD draft).
+            //    renderLlmRedraftHtml renders the LLM markdown into the SAME themed
+            //    email shell as the structured draft, so the preview/sent email stays
+            //    visually consistent before vs after an LLM redraft.
+            const llmHtmlBody = renderLlmRedraftHtml(resubstitutedBody);
             const llmDraftHash = await sha256Hex(resubstitutedBody);
             const llmDraft: KycDraftBuildResult = {
               ...revalidatedDraft,
