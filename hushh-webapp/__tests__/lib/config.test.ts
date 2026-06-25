@@ -167,4 +167,20 @@ describe("config", () => {
 
     expect(config.APP_FRONTEND_ORIGIN).toBe("https://app.hushh.ai");
   });
+
+  it("resolves staging backend url through the normalized UAT environment", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeBackendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("uat");
+    vi.mocked(resolveRuntimeBackendUrl).mockReturnValue(
+      "https://staging-api.hushh.ai/",
+    );
+
+    const config = await import("@/lib/config");
+
+    expect(config.BACKEND_URL).toBe("https://staging-api.hushh.ai");
+  });
 });
