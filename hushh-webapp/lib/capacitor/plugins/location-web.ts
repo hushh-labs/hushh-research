@@ -6,7 +6,6 @@ import type {
 function geolocationAvailable(): boolean {
   return typeof navigator !== "undefined" && "geolocation" in navigator;
 }
-
 export class HushhLocationWeb implements HushhLocationPlugin {
   async getPermissionState(): Promise<HushhLocationPermissionState> {
     if (!geolocationAvailable()) {
@@ -169,6 +168,81 @@ export class HushhLocationWeb implements HushhLocationPlugin {
         (error as Error | undefined)?.message ||
           "Could not get your location. Try again.",
       );
+    }
+  }
+
+  // Continuous, movement-driven tracking via the browser Geolocation watch API.
+  // Each new fix the device reports (as the user moves) invokes the callback, so
+  // recipients see live movement rather than only a 20s poll. Foreground-only.
+  async watchPosition(
+    options: {
+      enableHighAccuracy?: boolean;
+      timeoutMs?: number;
+    },
+    callback: (
+      point: {
+        latitude: number;
+        longitude: number;
+        accuracyM: number | null;
+        capturedAt: string;
+        sourcePlatform: "web" | "ios" | "android" | "native";
+      } | null,
+      error?: { message: string; code?: number } | null,
+    ) => void,
+  ): Promise<string> {
+
+    if (!geolocationAvailable()) {
+      callback(null, {
+        message: "Location is unavailable in this browser.",
+      });
+      return "";
+    }
+
+    const enableHighAccuracy = options?.enableHighAccuracy ?? true;
+    const timeoutMs = options?.timeoutMs ?? 20_000;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        callback(
+          {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracyM: Number.isFinite(position.coords.accuracy)
+              ? position.coords.accuracy
+              : null,
+            capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
+            sourcePlatform: "web",
+          },
+          null,
+        );
+      },
+      (error) => {
+        // Code 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT.
+        // Surface the error but keep the watch alive so a transient
+        // unavailable/timeout can recover on the next fix.
+        callback(null, {
+          message:
+            error?.code === 1
+              ? "Location permission is blocked for this site. Allow location access in your browser's site settings, then try again."
+              : "Could not get your location. Turn on Location for your device/browser and try again.",
+          code: error?.code,
+        });
+      },
+      {
+        enableHighAccuracy,
+        timeout: timeoutMs,
+        maximumAge: 0,
+      },
+    );
+
+    return String(watchId);
+  }
+
+  async clearWatch(options: { id: string }): Promise<void> {
+    if (!geolocationAvailable()) return;
+    const watchId = Number(options?.id);
+    if (Number.isFinite(watchId)) {
+      navigator.geolocation.clearWatch(watchId);
     }
   }
 }
