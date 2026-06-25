@@ -48,12 +48,13 @@ export async function POST(request: NextRequest) {
     );
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error("[API] Backend error:", error);
-      return NextResponse.json(
-        { error: "Failed to deny consent" },
-        { status: response.status }
-      );
+      const errorPayload = await response
+        .json()
+        .catch(async () => ({
+          error: (await response.text().catch(() => "")) || "Failed to deny consent",
+        }));
+      console.error("[API] Backend error:", response.status, errorPayload);
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
     const data = await response.json();
