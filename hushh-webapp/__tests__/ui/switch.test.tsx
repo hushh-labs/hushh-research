@@ -34,5 +34,12 @@ describe("Switch", () => {
         .querySelector('[data-slot="switch-thumb"]')
         ?.getAttribute("data-slot"),
     ).toBe("switch-thumb");
+  });  
+  it("renders root with data-slot='switch'", () => {
+    render(<Switch />);
+
+    expect(
+      screen.getByRole("switch").getAttribute("data-slot"),
+    ).toBe("switch");
   });
 });
