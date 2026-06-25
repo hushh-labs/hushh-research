@@ -129,6 +129,14 @@ export async function GET(request: NextRequest) {
         .json()
         .catch(async () => ({ error: await response.text().catch(() => "") }));
 
+      if (response.status === 404) {
+        writeVaultCheck(userId, false);
+        return {
+          status: 200,
+          payload: { hasVault: false },
+        };
+      }
+
       if (!response.ok) {
         return {
           status: response.status,

@@ -5,6 +5,7 @@
 
 export const ROUTES = {
   HOME: "/",
+  ONE_HOME: "/one",
   DEVELOPERS: "/developers",
   LOGIN: "/login",
   LOGOUT: "/logout",
@@ -15,6 +16,10 @@ export const ROUTES = {
   PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
+  ONE_ONBOARDING: "/one/onboarding",
+  GMAIL: "/one/gmail",
+  PKM: "/one/pkm",
+  CONNECTED_SYSTEMS: "/one/connected-systems",
   CONSENTS: "/consents",
   AGENT: "/agent",
   MARKETPLACE: "/marketplace",
@@ -22,6 +27,20 @@ export const ROUTES = {
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
   ONE_LOCATION: "/one/location",
+  LEGACY_GMAIL: "/gmail",
+  LEGACY_PKM: "/pkm",
+  LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
+  LEGACY_KAI_HOME: "/kai",
+  LEGACY_KAI_ONBOARDING: "/kai/onboarding",
+  LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
+  LEGACY_KAI_IMPORT: "/kai/import",
+  LEGACY_KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
+  LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
+  LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
+  LEGACY_KAI_INVESTMENTS: "/kai/investments",
+  LEGACY_KAI_FUNDING_TRADE: "/kai/funding-trade",
+  LEGACY_KAI_ANALYSIS: "/kai/analysis",
+  LEGACY_KAI_OPTIMIZE: "/kai/optimize",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -29,17 +48,17 @@ export const ROUTES = {
   RIA_REQUESTS: "/ria/requests",
   RIA_PICKS: "/ria/picks",
   RIA_SETTINGS: "/ria/settings",
-  KAI_HOME: "/kai",
-  KAI_ONBOARDING: "/kai/onboarding",
-  KAI_IMPORT: "/kai/import",
-  KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
-  KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
-  KAI_PORTFOLIO: "/kai/portfolio",
-  KAI_INVESTMENTS: "/kai/investments",
-  KAI_FUNDING_TRADE: "/kai/funding-trade",
-  KAI_DASHBOARD: "/kai/portfolio",
-  KAI_ANALYSIS: "/kai/analysis",
-  KAI_OPTIMIZE: "/kai/optimize",
+  KAI_HOME: "/one/kai",
+  KAI_ONBOARDING: "/one/onboarding",
+  KAI_IMPORT: "/one/kai/import",
+  KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
+  KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
+  KAI_PORTFOLIO: "/one/kai/portfolio",
+  KAI_INVESTMENTS: "/one/kai/investments",
+  KAI_FUNDING_TRADE: "/one/kai/funding-trade",
+  KAI_DASHBOARD: "/one/kai/portfolio",
+  KAI_ANALYSIS: "/one/kai/analysis",
+  KAI_OPTIMIZE: "/one/kai/optimize",
 } as const;
 
 function withQuery(pathname: string, entries: Record<string, string | null | undefined>) {
@@ -64,14 +83,47 @@ export function buildPhoneMandateRoute(redirect?: string | null) {
   return withQuery(ROUTES.PHONE_MANDATE, { redirect });
 }
 
+export function normalizeInternalRouteHref(value: string | null | undefined): string | null {
+  const href = String(value ?? "").trim();
+  if (!href) return null;
+  if (!href.startsWith("/") || href.startsWith("//")) return null;
+  if (/[\r\n]/.test(href)) return null;
+  return href;
+}
+
+export function resolveInternalRouteHref(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  return normalizeInternalRouteHref(value) ?? fallback;
+}
+
+export function buildOneOnboardingRoute(entries?: {
+  from?: string | null;
+  invite?: string | null;
+}) {
+  return withQuery(ROUTES.ONE_ONBOARDING, {
+    from: normalizeInternalRouteHref(entries?.from),
+    invite: entries?.invite,
+  });
+}
+
+export const buildKaiOnboardingRoute = buildOneOnboardingRoute;
+
 export function buildMarketplaceConnectionsRoute(entries?: {
   tab?: "pending" | "active" | "previous" | null;
   selected?: string | null;
 }) {
-  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
+  return withQuery(ROUTES.CONSENTS, {
     tab: entries?.tab,
-    selected: entries?.selected,
+    requestId: entries?.selected,
   });
+}
+
+export function buildConnectedSystemRoute(systemId?: string | null) {
+  const normalized = String(systemId ?? "").trim();
+  if (!normalized) return ROUTES.CONNECTED_SYSTEMS;
+  return `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`;
 }
 
 export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
@@ -155,12 +207,18 @@ export function buildKaiAnalysisPreviewRoute(entries?: {
   });
 }
 
-export function isKaiOnboardingRoute(pathname: string): boolean {
+export function isOneOnboardingRoute(pathname: string): boolean {
   return (
-    pathname === ROUTES.KAI_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.KAI_ONBOARDING}/`)
+    pathname === ROUTES.ONE_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.ONE_ONBOARDING}/`) ||
+    pathname === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.LEGACY_ONE_KAI_ONBOARDING}/`) ||
+    pathname === ROUTES.LEGACY_KAI_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.LEGACY_KAI_ONBOARDING}/`)
   );
 }
+
+export const isKaiOnboardingRoute = isOneOnboardingRoute;
 
 export function isPublicRoute(pathname: string): boolean {
   return (

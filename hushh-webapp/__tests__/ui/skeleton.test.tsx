@@ -17,4 +17,12 @@ describe("Skeleton", () => {
 
     expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
   });
+
+  it("renders with pointer-events-none class", () => {
+    const { container } = render(<Skeleton />);
+
+    const skeleton = container.querySelector('[data-slot="skeleton"]');
+
+    expect(skeleton?.className).toContain("pointer-events-none");
+  });
 });

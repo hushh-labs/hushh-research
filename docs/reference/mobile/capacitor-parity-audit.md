@@ -123,7 +123,7 @@ Native parity for authenticated flows now includes the verified phone mandate af
   Android, and the `HushhLocation` plugin on web, iOS, and Android.
 - One Location Agent v1 must not add iOS background location mode or Android
   background location permission.
-- `/kai/funding-trade` is part of the native route inventory because voice/action parity can
+- `/one/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is
   a platform permission surface, not a web-only route.

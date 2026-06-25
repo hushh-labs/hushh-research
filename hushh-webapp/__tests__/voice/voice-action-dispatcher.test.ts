@@ -35,6 +35,7 @@ vi.mock("@/lib/voice/investor-kai-action-registry", () => ({
 }));
 
 import { dispatchVoiceToolCall } from "@/lib/voice/voice-action-dispatcher";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function baseInput() {
   return {
@@ -212,7 +213,7 @@ describe("dispatchVoiceToolCall", () => {
       actionResult: {
         status: "succeeded",
         routeBefore: "/kai/dashboard",
-        routeAfter: "/kai/analysis?focus=active&run_id=run_123",
+        routeAfter: `${ROUTES.KAI_ANALYSIS}?focus=active&run_id=run_123`,
         screenBefore: "dashboard",
         screenAfter: "kai_analysis",
         resultSummary: "Resumed the active analysis run.",

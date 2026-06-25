@@ -1,0 +1,242 @@
+# TLS 1.3 Enforcement Configuration
+#
+# Enforces TLS 1.3 minimum across all API endpoints
+# Aligns with OAuth 2.1 security requirements
+#
+# Deployment: Google Cloud Run with custom policy
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hushh-consent-protocol
+spec:
+  template:
+    metadata:
+      annotations:
+        # Enforce TLS 1.3 minimum
+        autoscaling.knative.dev/minScale: "2"
+    spec:
+      # Remove TLS 1.0, 1.1, 1.2 support
+      # This is handled at Cloud Load Balancer / Cloud CDN level
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - image: hushh-research:latest
+        env:
+        - name: ENFORCE_TLS_13
+          value: "true"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+---
+# Cloud Run Service Policy Binding
+# Forces all connections through TLS 1.3
+
+apiVersion: compute.cnrm.cloud.google.com/v1
+kind: ComputeSecurityPolicy
+metadata:
+  name: hushh-tls-enforce
+spec:
+  description: "Enforce TLS 1.3 minimum for Hushh API"
+  rules:
+  # Allow TLS 1.3 only
+  - priority: 1000
+    description: "Allow TLS 1.3 only"
+    match:
+      expr:
+        expression: |
+          origin.region_code == 'US' ||
+          origin.region_code == 'EU' ||
+          origin.region_code == 'APAC'
+    action: "allow"
+    preview: false
+  
+  # Block all other TLS versions
+  - priority: 2000
+    description: "Block TLS < 1.3"
+    match:
+      expr:
+        expression: |
+          !has(request.headers['tls-version']) ||
+          !('TLSv1_3' in request.headers['tls-version'])
+    action: "deny-403"
+    preview: false
+
+---
+# Google Cloud Load Balancer Policy
+# Ensures TLS 1.3 at edge
+
+apiVersion: compute.googleapis.com/v1
+kind: compute#targetHttpsProxy
+metadata:
+  name: hushh-https-proxy
+spec:
+  description: "HTTPS proxy with TLS 1.3 enforcement"
+  sslPolicy: hushh-tls-policy
+  urlMap: hushh-url-map
+  # Additional security headers
+  httpFilters:
+  - name: "hsts"
+    config:
+      maxAge: 31536000  # 1 year
+      includeSubdomains: true
+      preload: true
+  - name: "security-headers"
+    config:
+      headers:
+        X-Frame-Options: "DENY"
+        X-Content-Type-Options: "nosniff"
+        X-XSS-Protection: "1; mode=block"
+        Content-Security-Policy: "default-src 'none'"
+        Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+
+---
+# SSL Policy with TLS 1.3
+apiVersion: compute.googleapis.com/v1
+kind: compute#sslPolicy
+metadata:
+  name: hushh-tls-policy
+spec:
+  description: "Enforce TLS 1.3 minimum"
+  # Profile: RESTRICTED (TLS 1.3 only)
+  profile: RESTRICTED
+  minTlsVersion: TLS_1_3
+  enableLogging: true
+  
+  # Approved cipher suites for TLS 1.3
+  customFeatures:
+  - TLS_AES_256_GCM_SHA384
+  - TLS_CHACHA20_POLY1305_SHA256
+  - TLS_AES_128_GCM_SHA256
+
+---
+# FastAPI configuration for TLS enforcement
+# File: consent-protocol/config/security.py
+
+import ssl
+from fastapi import FastAPI
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+def configure_tls(app: FastAPI):
+    """Configure TLS 1.3 enforcement at application level"""
+    
+    # Add HSTS middleware
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["kai.hushh.ai", "api.hushh.ai"],
+    )
+    
+    # SSL context for server
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(
+        certfile="/etc/ssl/certs/server.crt",
+        keyfile="/etc/ssl/private/server.key",
+    )
+    
+    # Enforce TLS 1.3 minimum
+    ssl_context.minimum_version = ssl.TLSVersion.TLSv1_3
+    ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
+    
+    # Disable older ciphers
+    ssl_context.set_ciphers('DEFAULT:!aNULL:!eNULL:!MD5:!3DES:!DES:!RC4:!IDEA:!SEED:!aDSS:!SRP:!PSK')
+    
+    # Modern cipher suites for TLS 1.3
+    ssl_context.set_ciphers(':'.join([
+        'TLS_AES_256_GCM_SHA384',
+        'TLS_CHACHA20_POLY1305_SHA256',
+        'TLS_AES_128_GCM_SHA256',
+    ]))
+    
+    return ssl_context
+
+# Usage in main.py:
+# uvicorn consent_protocol.main:app --ssl-keyfile /etc/ssl/private/server.key --ssl-certfile /etc/ssl/certs/server.crt
+
+---
+# Environment variables for deployment
+# File: .env.prod
+
+# TLS Configuration
+ENFORCE_TLS_13=true
+MIN_TLS_VERSION=TLSv1.3
+SSL_VERIFY_PEER=true
+SSL_VERIFY_HOSTNAME=true
+
+# HSTS Policy
+HSTS_MAX_AGE=31536000
+HSTS_INCLUDE_SUBDOMAINS=true
+HSTS_PRELOAD=true
+
+# Cipher suite ordering (prefer modern)
+PREFERRED_CIPHERS=TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+
+---
+# Nginx configuration for reverse proxy
+# File: nginx.conf (if using Nginx instead of Cloud Load Balancer)
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name api.hushh.ai kai.hushh.ai;
+    
+    # TLS Configuration
+    ssl_protocols TLSv1.3;
+    ssl_certificate /etc/ssl/certs/server.crt;
+    ssl_certificate_key /etc/ssl/private/server.key;
+    
+    # Modern cipher suites (TLS 1.3)
+    ssl_ciphers TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256;
+    ssl_ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256;
+    ssl_prefer_server_ciphers on;
+    
+    # TLS session
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    
+    # HSTS Header
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    
+    # Additional Security Headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'" always;
+    
+    # Proxy to FastAPI
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.hushh.ai kai.hushh.ai;
+    
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+---
+# Testing TLS Configuration
+# Run: openssl s_client -connect api.hushh.ai:443 -tls1_3
+
+# Expected output:
+# TLSv1.3 (OUT), TLS handshake, Client Hello (1):
+# ...
+# Cipher: TLS_AES_256_GCM_SHA384
+# Protocol: TLSv1.3

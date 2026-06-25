@@ -242,7 +242,7 @@ describe("resolveGmailStatusSummary", () => {
       }),
     ).toMatchObject({
       tone: "success",
-      title: "Your receipts are up to date",
+      title: "Receipts are up to date",
       detail: "Connected to dev@hushh.ai",
     });
   });

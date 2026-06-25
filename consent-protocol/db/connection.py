@@ -38,6 +38,23 @@ load_dotenv()
 hydrate_runtime_environment()
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Offline mode helpers — imported from db.offline_db
+# ---------------------------------------------------------------------------
+def _is_offline_mode() -> bool:
+    """Return True when running in air-gapped offline mode."""
+    return str(os.getenv("DB_OFFLINE", "0")).strip().lower() in ("1", "true", "yes", "on")
+
+
+async def _get_offline_pool():
+    """Lazy-import and return the offline SQLite-backed pool (awaited)."""
+    from db.offline_db import get_offline_pool as _goop
+
+    return await _goop()
+
+
 _DB_CONNECTION_ERROR_PATTERNS = (
     "connection refused",
     "server closed the connection unexpectedly",
@@ -156,8 +173,8 @@ def get_database_url() -> str:
         )
     if db_unix_socket:
         # Cloud SQL Unix socket path must be provided via query host parameter.
-        return f"postgresql://{db_user}:{db_password}@/{db_name}?host={quote_plus(db_unix_socket)}"
-    return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@/{db_name}?host={quote_plus(db_unix_socket)}"
+    return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}"
 
 
 def get_database_ssl():
@@ -190,6 +207,13 @@ async def get_pool() -> asyncpg.Pool:
     """
     global _pool
 
+    # ── Offline mode: return SQLite-backed pool instead of PostgreSQL ──
+    if _is_offline_mode():
+        if _pool is not None:
+            return _pool
+        _pool = await _get_offline_pool()
+        return _pool
+
     if _pool is not None:
         return _pool
 
@@ -209,7 +233,7 @@ async def get_pool() -> asyncpg.Pool:
         db_name = os.getenv("DB_NAME", "postgres")
         db_port = int(os.getenv("DB_PORT", "5432"))
         target = db_unix_socket or db_host
-        logger.info(f"Connecting to PostgreSQL at {target}...")
+        logger.info("Connecting to PostgreSQL at %s...", target)
         if ssl_config:
             logger.info("SSL enabled for Supabase pooler connection")
         try:
@@ -244,7 +268,9 @@ async def get_pool() -> asyncpg.Pool:
                 ) from exc
             raise
         logger.info(
-            f"PostgreSQL pool created: min={_pool.get_min_size()}, max={_pool.get_max_size()}"
+            "PostgreSQL pool created: min=%s, max=%s",
+            _pool.get_min_size(),
+            _pool.get_max_size(),
         )
     return _pool
 

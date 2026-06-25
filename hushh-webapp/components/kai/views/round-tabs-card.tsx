@@ -170,7 +170,7 @@ export function RoundTabsCard({
       {!isCollapsed && (
         <MorphyCardContent>
           <Tabs value={activeAgent || currentTab} onValueChange={handleTabChange} className="w-full">
-            <TabsList className="mb-4 grid h-10 w-full grid-cols-3 gap-1">
+            <TabsList className="mb-4 grid h-10 w-full grid-cols-3 items-stretch gap-1">
               {AGENT_ORDER.map((agent) => {
                 const config = AGENT_CONFIG[agent];
                 const state = agentStates[agent];
@@ -183,11 +183,15 @@ export function RoundTabsCard({
                     key={agent}
                     value={agent}
                     className={cn(
-                      "flex h-8 w-full min-w-0 items-center justify-center gap-1 px-1.5 text-center text-[11px] leading-none transition-all duration-200 sm:text-xs",
-                      isAgentComplete && "data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300"
+                      // Center reliably inside the fixed grid cell and keep the
+                      // layout stable between active/inactive. min-w-0 + the
+                      // grid cell handle responsiveness on narrow iPhones.
+                      "flex h-8 min-h-0 w-full min-w-0 items-center justify-center gap-1 px-1.5 text-center text-[11px] leading-none sm:text-xs",
+                      isAgentComplete &&
+                        "data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300"
                     )}
                   >
-                    <span className="truncate">{config.label}</span>
+                    <span className="min-w-0 truncate">{config.label}</span>
                     <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center">
                       {isAgentComplete ? (
                         <Icon icon={CheckCircle2} size="xs" className="text-emerald-500" />

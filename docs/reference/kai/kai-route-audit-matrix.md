@@ -11,12 +11,12 @@ Operational matrix for runtime audits without expanding automated test suites.
 
 | Route | Method | Expectation |
 |---|---|---|
-| `/kai/import` | `GET` | Import-first onboarding screen reachable |
-| `/kai` | `GET` | Home route reachable (full/onboarding chrome by state) |
-| `/kai/plaid/oauth/return` | `GET` | Plaid OAuth return page resumes Link without vault-key persistence |
-| `/kai/portfolio` | `GET` | Portfolio route reachable |
-| `/kai/analysis` | `GET` | Analysis route reachable |
-| `/kai/optimize` | `GET` | Optimize route reachable |
+| `/one/kai/import` | `GET` | Import-first onboarding screen reachable |
+| `/one/kai` | `GET` | Home route reachable (full/onboarding chrome by state) |
+| `/one/kai/plaid/oauth/return` | `GET` | Plaid OAuth return page resumes Link without vault-key persistence |
+| `/one/kai/portfolio` | `GET` | Portfolio route reachable |
+| `/one/kai/analysis` | `GET` | Analysis route reachable |
+| `/one/kai/optimize` | `GET` | Optimize route reachable |
 | `/api/kai/voice/capability` | `POST` | Voice capability contract reachable and gated correctly for the current user/runtime |
 | `/api/kai/voice/realtime/session` | `POST` | Realtime voice session contract reachable; response includes client secret plus English transcription model/language/prompt metadata |
 | `/api/kai/voice/plan` | `POST` | Voice planning contract reachable with canonical planner fields plus legacy response envelope |
@@ -52,7 +52,7 @@ In addition to route reachability, review these runtime behaviors:
 
 1. Stream envelope consumption parity (import/optimize/analyze).
 2. Token guard and one-refresh retry behavior for protected Kai routes.
-3. Cache-first `/kai` refresh behavior within fresh TTL windows.
+3. Cache-first `/one/kai` refresh behavior within fresh TTL windows.
 4. Onboarding chrome gating and command bar visibility during onboarding/import.
 5. Bottom chrome scroll hide/reveal behavior on mobile-sized viewports.
 6. Voice route family reachability, realtime session metadata, capability gating, and planner/compose contract health.

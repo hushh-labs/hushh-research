@@ -1549,3 +1549,149 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
     assert first["structure_decision"]["target_domain"] == "travel"
     assert second["structure_decision"]["target_domain"] == "travel"
     assert preview_stub.await_count == 1
+
+
+# ---------------------------------------------------------------------------
+# _strip_pii_from_payload_keys — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_strip_pii_from_payload_keys_removes_dollar_amount_keys():
+    payload = {
+        "account_$50000": True,
+        "view_$1000": "confirmed",
+        "preferences": {"food": "Chinese"},
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "account_$50000" not in result
+    assert "view_$1000" not in result
+    assert result["preferences"] == {"food": "Chinese"}
+
+
+def test_strip_pii_from_payload_keys_removes_large_numeric_keys():
+    payload = {
+        "100000_balance": True,
+        "transaction_75000": 3,
+        "status": "active",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "100000_balance" not in result
+    assert "transaction_75000" not in result
+    assert result["status"] == "active"
+
+
+def test_strip_pii_from_payload_keys_removes_ssn_keys():
+    payload = {
+        "ssn_123-45-6789": True,
+        "id_987_65_4321_record": True,
+        "entity_id": "mem_abc",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "ssn_123-45-6789" not in result
+    assert "id_987_65_4321_record" not in result
+    assert result["entity_id"] == "mem_abc"
+
+
+def test_strip_pii_from_payload_keys_removes_phone_number_keys():
+    payload = {
+        "9876543210_contact": "primary",
+        "phone_14155552671": True,
+        "summary": "User contact info",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "9876543210_contact" not in result
+    assert "phone_14155552671" not in result
+    assert result["summary"] == "User contact info"
+
+
+def test_strip_pii_from_payload_keys_removes_email_keys():
+    payload = {
+        "user@example.com_prefs": {"notify": True},
+        "john.doe@gmail.com": True,
+        "kind": "preference",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "user@example.com_prefs" not in result
+    assert "john.doe@gmail.com" not in result
+    assert result["kind"] == "preference"
+
+
+def test_strip_pii_from_payload_keys_preserves_safe_keys():
+    payload = {
+        "preferences": {"statements": [{"value": "I like hiking"}]},
+        "entity_id": "mem_travel_001",
+        "status": "active",
+        "kind": "routine",
+        "confidence": 0.92,
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert result == payload
+
+
+def test_strip_pii_from_payload_keys_handles_nested_dicts():
+    payload = {
+        "financial": {
+            "account_$75000": True,
+            "risk_profile": "moderate",
+            "nested": {
+                "ssn_123-45-6789": "leaked",
+                "label": "safe",
+            },
+        }
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "account_$75000" not in result["financial"]
+    assert result["financial"]["risk_profile"] == "moderate"
+    assert "ssn_123-45-6789" not in result["financial"]["nested"]
+    assert result["financial"]["nested"]["label"] == "safe"
+
+
+def test_strip_pii_from_payload_keys_handles_lists_of_dicts():
+    payload = {
+        "items": [
+            {"account_$5000": True, "name": "savings"},
+            {"name": "checking", "balance_99999": True},
+        ]
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "account_$5000" not in result["items"][0]
+    assert result["items"][0]["name"] == "savings"
+    assert "balance_99999" not in result["items"][1]
+    assert result["items"][1]["name"] == "checking"
+
+
+def test_strip_pii_from_payload_keys_values_are_never_modified():
+    payload = {
+        "observations": ["My account has $50000", "SSN: 123-45-6789"],
+        "summary": "Balance is $75000",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert result["observations"] == ["My account has $50000", "SSN: 123-45-6789"]
+    assert result["summary"] == "Balance is $75000"
+
+
+def test_sanitize_candidate_payload_applies_key_sanitization():
+    raw_llm_output = {
+        "account_$50000": True,
+        "preferences": {"food": "Chinese"},
+        "phone_9876543210": "primary",
+    }
+    result = PKMAgentLabService._sanitize_candidate_payload(
+        raw_llm_output,
+        message="I have 50000 in savings",
+        intent_frame={
+            "intent_class": "financial_event",
+            "mutation_intent": "create",
+            "save_class": "durable",
+        },
+        merge_decision={
+            "merge_mode": "create_entity",
+            "target_domain": "financial",
+            "target_entity_id": "",
+            "target_entity_path": "",
+        },
+        target_domain="financial",
+    )
+    assert "account_$50000" not in result
+    assert "phone_9876543210" not in result
+    assert result.get("preferences") == {"food": "Chinese"}

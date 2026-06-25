@@ -376,6 +376,23 @@ _PREVIEW_TOTAL_BUDGET_SECONDS = max(
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
+
+# Regex to detect PII embedded in JSON *keys* by the LLM.
+# Standard scrubbers inspect values only; this guards keys too.
+# Covers: dollar amounts, currency-suffixed numbers, large numeric tokens,
+# SSN format, phone numbers, and email addresses.
+# Note: \b word boundaries are avoided because key segments use underscores,
+# which Python regex treats as word characters, causing \b to fail at _ boundaries.
+_PII_IN_KEY_RE = re.compile(
+    r"""
+    \$\s*\d+                                            |   # $50000, $ 1000
+    \d+[_\s]*(?:dollars?|usd|inr|rupees?|euros?|gbp)     |   # 100dollars, 100_dollars, 50_usd
+    \d{5,}                                              |   # 5+ digit sequences (balances, account nums)
+    \d{3}[_\-]\d{2}[_\-]\d{4}                          |   # SSN: 123-45-6789 or 123_45_6789
+    [a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}                # email addresses
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 _SOFT_ONTOLOGY_KEYS = tuple(
     entry.domain_key
     for entry in CANONICAL_DOMAIN_REGISTRY
@@ -2819,6 +2836,25 @@ class PKMAgentLabService:
         }
 
     @classmethod
+    def _strip_pii_from_payload_keys(cls, payload: Any) -> Any:
+        """Recursively remove keys that contain PII embedded by the LLM.
+
+        LLMs can encode sensitive data (balances, phone numbers, emails, SSNs)
+        into JSON *keys* to bypass value-only scrubbers. This walks the full
+        payload tree and drops any key whose name matches a PII pattern.
+        """
+        if isinstance(payload, dict):
+            cleaned: dict[str, Any] = {}
+            for key, value in payload.items():
+                if _PII_IN_KEY_RE.search(str(key)):
+                    continue
+                cleaned[key] = cls._strip_pii_from_payload_keys(value)
+            return cleaned
+        if isinstance(payload, list):
+            return [cls._strip_pii_from_payload_keys(item) for item in payload]
+        return payload
+
+    @classmethod
     def _sanitize_candidate_payload(
         cls,
         value: Any,
@@ -2829,7 +2865,7 @@ class PKMAgentLabService:
         target_domain: str,
     ) -> dict[str, Any]:
         if isinstance(value, dict) and value:
-            return value
+            return cls._strip_pii_from_payload_keys(value)
         return cls._fallback_payload_from_intent(
             message=message,
             intent_frame=intent_frame,

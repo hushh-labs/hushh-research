@@ -661,7 +661,7 @@ export function VaultFlow({
                   Secure Your Digital Vault
                 </div>
                 <p className="mx-auto max-w-[18rem] text-balance text-[14.5px] leading-[1.45] text-muted-foreground sm:text-[15px]">
-                  Hussh uses end-to-end encryption to protect your personal data.
+                  Hussh uses end-to-end encryption to protect your personal information.
                   Create your passphrase first, then optionally enable faster sign-in.
                 </p>
               </div>
@@ -673,7 +673,7 @@ export function VaultFlow({
                   </div>
                   <p>
                     <span className="block font-medium text-foreground">You hold the only key</span>
-                    <span className="text-muted-foreground">We cannot see your data or reset your password.</span>
+                    <span className="text-muted-foreground">We cannot see your information or reset your password.</span>
                   </p>
                 </div>
                 <div className="flex gap-3">
@@ -682,7 +682,7 @@ export function VaultFlow({
                   </div>
                   <p>
                     <span className="block font-medium text-foreground">Protected by default</span>
-                    <span className="text-muted-foreground">Your data stays private and secure.</span>
+                    <span className="text-muted-foreground">Your knowledge and information stay private and secure.</span>
                   </p>
                 </div>
               </div>

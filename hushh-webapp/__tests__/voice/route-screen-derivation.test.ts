@@ -4,11 +4,11 @@ import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 
 describe("deriveVoiceRouteScreen", () => {
   it("maps canonical market and portfolio routes to richer Kai screens", () => {
-    expect(deriveVoiceRouteScreen("/kai")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/kai")).toEqual({
       screen: "kai_market",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/kai/portfolio")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/kai/portfolio")).toEqual({
       screen: "kai_portfolio_dashboard",
       subview: null,
     });
@@ -55,9 +55,25 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("preserves receipts, gmail, support, and investments screen specificity", () => {
-    expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
-      screen: "profile_receipts",
+    expect(deriveVoiceRouteScreen("/one/gmail")).toEqual({
+      screen: "gmail",
       subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/pkm")).toEqual({
+      screen: "pkm",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/connected-systems")).toEqual({
+      screen: "connected_systems",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
+      screen: "gmail",
+      subview: "legacy",
+    });
+    expect(deriveVoiceRouteScreen("/profile/pkm")).toEqual({
+      screen: "pkm",
+      subview: "legacy",
     });
     expect(deriveVoiceRouteScreen("/profile/pkm-agent-lab")).toEqual({
       screen: "profile_pkm_agent_lab",
@@ -71,11 +87,11 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_support_panel",
       subview: "account",
     });
-    expect(deriveVoiceRouteScreen("/kai/investments")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/kai/investments")).toEqual({
       screen: "kai_investments",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/kai/funding-trade")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/kai/funding-trade")).toEqual({
       screen: "kai_funding_trade",
       subview: null,
     });

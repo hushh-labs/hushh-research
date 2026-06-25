@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   Drawer,
   DrawerContent,
+  DrawerFooter,
   DrawerTitle,
 } from "@/components/ui/drawer";
 
@@ -31,8 +32,25 @@ describe("DrawerContent", () => {
       </Drawer>,
     );
 
+    expect(screen.getByText("Test drawer")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /close/i }),
     ).toBeNull();
+  });
+});
+
+describe("DrawerFooter", () => {
+  it("renders with data-slot='drawer-footer' and safe-area footer class", () => {
+    const { container } = render(<DrawerFooter />);
+
+    const footer = container.querySelector(
+      '[data-slot="drawer-footer"]',
+    );
+
+    expect(footer).toBeTruthy();
+
+    expect(footer?.className).toContain(
+      "env(safe-area-inset-bottom)",
+    );
   });
 });

@@ -11,6 +11,7 @@
     "remoteUrlTemplate": "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
   },
   "publicTools": [
+    "prepare_campaign_context",
     "discover_user_domains",
     "request_consent",
     "check_consent_status",
@@ -21,7 +22,9 @@
   "publicResources": [
     "hushh://info/server",
     "hushh://info/protocol",
-    "hushh://info/connector"
+    "hushh://info/connector",
+    "hushh://info/developer-api",
+    "hushh://info/consent-lifecycle"
   ],
   "hostExamples": [
     {

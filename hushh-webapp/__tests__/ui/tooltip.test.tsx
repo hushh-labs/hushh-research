@@ -47,4 +47,22 @@ describe("Tooltip", () => {
       document.querySelector('[data-slot="tooltip-content"]'),
     ).toBeTruthy();
   });
+
+  it("preserves TooltipContent data-slot when className is provided", () => {
+    render(
+      <TooltipProvider>
+        <Tooltip defaultOpen>
+          <TooltipTrigger>Hover me</TooltipTrigger>
+          <TooltipContent className="custom-tooltip-content">
+            Tooltip text
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+
+    const content = document.querySelector('[data-slot="tooltip-content"]');
+
+    expect(content).toBeTruthy();
+    expect(content?.classList.contains("custom-tooltip-content")).toBe(true);
+  });
 });

@@ -892,12 +892,12 @@ export default function MarketplacePage() {
         current.includes(investorId) ? current : [...current, investorId]
       );
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Connection request sent", {
-        description: "The investor can review it in their pending connections.",
+      toast.success("Information request sent", {
+        description: "They can review the request in Connect.",
       });
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -920,12 +920,12 @@ export default function MarketplacePage() {
           duration_hours: 168,
         },
       });
-      toast.success("Connection request sent", {
-        description: "The advisor can review it in their pending connections.",
+      toast.success("Information request sent", {
+        description: "They can review the request in Connect.",
       });
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -1089,9 +1089,9 @@ export default function MarketplacePage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="SEBI-registered network"
+          eyebrow="People and permissions"
           title="Connect"
-          description="Find a registered advisor. Connect with consent."
+          description="Find people, request information, and keep every share consent-scoped."
           icon={Compass}
           accent="marketplace"
           actions={
@@ -1357,11 +1357,11 @@ export default function MarketplacePage() {
                             : "Demo"
                           : Boolean(discoveryCardUserId(swipeCard)) &&
                               actionLoadingUserId === discoveryCardUserId(swipeCard)
-                            ? "Connecting..."
+                            ? "Requesting..."
                             : currentPersona === "investor"
-                              ? "Request advisory"
+                              ? "Request RIA info"
                               : swipeCard.canConnect
-                                ? "Send request"
+                                ? "Request info"
                                 : swipeCard.kind === "investor" &&
                                     isMarketplaceInvestorShortlistable(
                                       swipeCard.profile as MarketplaceInvestor
@@ -1466,11 +1466,11 @@ export default function MarketplacePage() {
                         ? "Open workspace"
                         : "Demo"
                       : Boolean(userId) && actionLoadingUserId === userId
-                        ? "Connecting..."
+                        ? "Requesting..."
                         : currentPersona === "investor"
-                          ? "Request advisory"
+                          ? "Request RIA info"
                           : item.canConnect
-                            ? "Send request"
+                            ? "Request info"
                             : item.kind === "investor" &&
                                 isMarketplaceInvestorShortlistable(
                                   item.profile as MarketplaceInvestor
@@ -1517,9 +1517,9 @@ export default function MarketplacePage() {
         description={
           selectedProfile?.kind === "ria"
             ? selectedAdvisor?.headline ||
-              "Review this advisor profile before you decide whether to connect."
+              "Review this advisor profile before requesting RIA information."
             : selectedInvestor?.headline ||
-              "Review this investor profile before you decide whether to connect."
+              "Review this investor profile before requesting information."
         }
       >
         <div className="space-y-4">
@@ -1572,8 +1572,8 @@ export default function MarketplacePage() {
                     {selectedInjectedRia
                       ? "Demo"
                       : actionLoadingUserId === selectedAdvisor.user_id
-                        ? "Connecting..."
-                        : "Request advisory"}
+                        ? "Requesting..."
+                        : "Request RIA info"}
                   </Button>
                 ) : null}
                 {selectedAdvisor.disclosures_url ? (
@@ -1631,7 +1631,7 @@ export default function MarketplacePage() {
                 <p className="mt-3 text-sm leading-7 text-foreground">
                   {selectedInvestor.strategy_summary ||
                     (selectedInvestorConnectable
-                      ? "This investor has opted into discovery and is available for a connection flow."
+                      ? "This investor has opted into discovery and can review scoped information requests."
                       : "This public investor profile is available for discovery review. Direct consent requests require a verified Hushh investor account.")}
                 </p>
               </RiaSurface>
@@ -1709,9 +1709,9 @@ export default function MarketplacePage() {
                     ? "Open workspace"
                     : Boolean(selectedInvestorUserId) &&
                         actionLoadingUserId === selectedInvestorUserId
-                      ? "Connecting..."
+                      ? "Requesting..."
                       : selectedInvestorConnectable
-                        ? "Send request"
+                        ? "Request info"
                         : selectedInvestorShortlistable
                           ? selectedInvestorIsShortlisted
                             ? "Saved lead"

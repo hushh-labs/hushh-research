@@ -12,10 +12,29 @@ describe("Textarea", () => {
     ).toBeTruthy();
   });
 
+  it("preserves data-slot when textarea props are provided", () => {
+    const { container } = render(
+      <Textarea placeholder="Write a note" rows={4} />,
+    );
+    const el = container.querySelector('[data-slot="textarea"]');
+
+    expect(el).toBeTruthy();
+    expect(el?.getAttribute("placeholder")).toBe("Write a note");
+    expect(el?.getAttribute("rows")).toBe("4");
+  });
+
   it("forwards className to the textarea element", () => {
     const { container } = render(<Textarea className="test-class" />);
     const el = container.querySelector('[data-slot="textarea"]');
 
     expect(el?.classList.contains("test-class")).toBeTruthy();
+  });
+
+  it("includes disabled:opacity-50 class for disabled styling", () => {
+    const { container } = render(<Textarea />);
+
+    const el = container.querySelector('[data-slot="textarea"]');
+
+    expect(el?.className).toContain("disabled:opacity-50");
   });
 });

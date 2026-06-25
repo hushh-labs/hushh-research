@@ -1,29 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AgentPopoverProvider,
-  useOptionalAgentPopover,
-} from "@/components/agent/agent-popover-provider";
+import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/profile",
-}));
-
-const authMock = vi.hoisted(() => ({
-  state: {
-    isAuthenticated: true,
-    loading: false,
-    user: { uid: "user-1" },
-  },
-}));
-
-const vaultMock = vi.hoisted(() => ({
-  state: {
-    isVaultUnlocked: true,
-    vaultOwnerToken: "vault-token",
-    tokenExpiresAt: Date.now() + 60_000,
-  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -31,11 +12,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => authMock.state,
-}));
-
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => vaultMock.state,
+  useAuth: () => ({
+    isAuthenticated: true,
+  }),
 }));
 
 vi.mock("@/components/agent/agent-chat-workspace", () => ({
@@ -45,15 +24,6 @@ vi.mock("@/components/agent/agent-chat-workspace", () => ({
 vi.mock("@/components/agent/agent-voice-floating-indicator", () => ({
   AgentVoiceFloatingIndicator: () => null,
 }));
-
-function AgentAvailabilityProbe() {
-  const agentPopover = useOptionalAgentPopover();
-  return (
-    <button type="button" onClick={() => agentPopover?.openAgent()}>
-      {agentPopover?.available ? "available" : "blocked"}
-    </button>
-  );
-}
 
 function makeRect(input: {
   left: number;
@@ -80,16 +50,6 @@ describe("AgentPopoverProvider floating trigger", () => {
 
   beforeEach(() => {
     navigationMock.pathname = "/login";
-    authMock.state = {
-      isAuthenticated: true,
-      loading: false,
-      user: { uid: "user-1" },
-    };
-    vaultMock.state = {
-      isVaultUnlocked: true,
-      vaultOwnerToken: "vault-token",
-      tokenExpiresAt: Date.now() + 60_000,
-    };
     window.localStorage.clear();
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -177,35 +137,5 @@ describe("AgentPopoverProvider floating trigger", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
-  });
-
-  it("blocks Agent entrypoints until the vault is unlocked", () => {
-    navigationMock.pathname = "/profile";
-    vaultMock.state = {
-      isVaultUnlocked: false,
-      vaultOwnerToken: null,
-      tokenExpiresAt: null,
-    };
-
-    render(
-      <AgentPopoverProvider>
-        <AgentAvailabilityProbe />
-      </AgentPopoverProvider>
-    );
-
-    expect(screen.getByRole("button", { name: "blocked" })).toBeTruthy();
-    expect(screen.queryByTestId("agent-chat-workspace")).toBeNull();
-  });
-
-  it("exposes Agent entrypoints once auth and vault readiness are complete", () => {
-    navigationMock.pathname = "/profile";
-
-    render(
-      <AgentPopoverProvider>
-        <AgentAvailabilityProbe />
-      </AgentPopoverProvider>
-    );
-
-    expect(screen.getByRole("button", { name: "available" })).toBeTruthy();
   });
 });

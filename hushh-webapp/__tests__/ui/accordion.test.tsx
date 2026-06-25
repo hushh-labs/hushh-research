@@ -98,4 +98,37 @@ describe("Accordion", () => {
     expect(items).toHaveLength(2);
     expect(triggers).toHaveLength(2);
   });
+
+  it("renders the decorative trigger icon with aria-hidden='true'", () => {
+    const { container } = render(
+      <Accordion type="single">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Trigger</AccordionTrigger>
+          <AccordionContent>Content</AccordionContent>
+        </AccordionItem>
+      </Accordion>,
+    );
+
+    const icon = container.querySelector(
+      '[data-slot="accordion-trigger"] [aria-hidden="true"]',
+    );
+
+    expect(icon).toBeTruthy();
+  });
+
+  it("renders AccordionTrigger wrapping element with data-slot='accordion-header'", () => {
+    const { container } = render(
+      <Accordion type="single">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Trigger</AccordionTrigger>
+          <AccordionContent>Content</AccordionContent>
+        </AccordionItem>
+      </Accordion>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="accordion-header"]'),
+    ).toBeTruthy();
+  });
+
 });

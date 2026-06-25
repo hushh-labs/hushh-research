@@ -9,8 +9,8 @@ vi.mock("next/font/google", () => ({
 import { metadata } from "@/app/layout";
 
 describe("root layout metadata", () => {
-  it("keeps the canonical One title and base URL", () => {
-    expect(metadata.title).toBe("One | Your Personal Agent");
+  it("keeps the canonical Hussh One title and base URL", () => {
+    expect(metadata.title).toBe("Hussh One | Your Personal Agent");
     expect(metadata.metadataBase?.toString()).toBe("https://hushh.ai/");
   });
 

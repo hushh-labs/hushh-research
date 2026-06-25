@@ -128,11 +128,13 @@ COMMAND_PATTERNS = [
     r"^cd hushh-webapp && npm test",
     r"^cd consent-protocol && python3 ",
     r"^cd consent-protocol && pytest ",
+    r"^cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest ",
     r"^cd packages/hushh-mcp && npm run ",
     r"^python3 \.codex/",
     r"^python3 -m py_compile ",
     r"^gh auth status$",
     r"^gh api user --jq ",
+    r"^gh run list ",
     r"^git config --get user\.(name|email)$",
     r"^# TODO$",
 ]

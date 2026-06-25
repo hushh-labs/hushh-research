@@ -104,9 +104,9 @@ function emptyLocationPrefill(): LocationPrefill {
 function hasLocationPrefill(location: LocationPrefill): boolean {
   return Boolean(
     location.city ||
-      location.areaLocality ||
-      location.pinZip ||
-      location.fullStreetAddress
+    location.areaLocality ||
+    location.pinZip ||
+    location.fullStreetAddress,
   );
 }
 
@@ -126,16 +126,16 @@ function locationValueConflicts(existing: string, next: string): boolean {
 function shouldReplaceDraftLocation(
   draft: RiaOnboardingDraft,
   location: LocationPrefill,
-  crdNumber: string
+  crdNumber: string,
 ): boolean {
   if (!hasLocationPrefill(location)) return false;
 
   const currentCrd = (draft.crdNumber || draft.individualCrd || "").trim();
   const hasDraftLocation = Boolean(
     draft.city.trim() ||
-      draft.areaLocality.trim() ||
-      draft.pinZip.trim() ||
-      draft.fullStreetAddress.trim()
+    draft.areaLocality.trim() ||
+    draft.pinZip.trim() ||
+    draft.fullStreetAddress.trim(),
   );
 
   if (hasDraftLocation && currentCrd && crdNumber && currentCrd !== crdNumber) {
@@ -153,7 +153,7 @@ function shouldReplaceDraftLocation(
 function buildLocationPatch(
   draft: RiaOnboardingDraft,
   location: LocationPrefill,
-  crdNumber: string
+  crdNumber: string,
 ): Pick<
   Partial<RiaOnboardingDraft>,
   "city" | "areaLocality" | "pinZip" | "fullStreetAddress"
@@ -175,12 +175,16 @@ function buildLocationPatch(
     pinZip: pickExistingOrNext(draft.pinZip, location.pinZip),
     fullStreetAddress: pickExistingOrNext(
       draft.fullStreetAddress,
-      location.fullStreetAddress
+      location.fullStreetAddress,
     ),
   };
 }
 
-function collectText(value: unknown, depth = 0, output: string[] = []): string[] {
+function collectText(
+  value: unknown,
+  depth = 0,
+  output: string[] = [],
+): string[] {
   if (output.length > 80 || depth > 4 || value == null) return output;
   if (typeof value === "string") {
     const text = value.trim();
@@ -226,7 +230,7 @@ function collectText(value: unknown, depth = 0, output: string[] = []): string[]
 
 function inferOptionsFromText(
   text: string,
-  detectors: Array<{ label: string; patterns: RegExp[] }>
+  detectors: Array<{ label: string; patterns: RegExp[] }>,
 ): string[] {
   if (!text.trim()) return [];
   return detectors
@@ -253,7 +257,7 @@ function normalizeCertification(value: unknown): string {
 
 function extractCertifications(
   licenseResult?: RiaLicenseVerificationResult | null,
-  scrapeResult?: CrdScrapeJobResult | null
+  scrapeResult?: CrdScrapeJobResult | null,
 ): string[] {
   const report = scrapeResult?.report;
   const values: unknown[] = [
@@ -266,7 +270,7 @@ function extractCertifications(
 
 function extractMinimumEngagement(text: string): string {
   const match = text.match(
-    /(?:minimum|min(?:imum)?\s+(?:account|engagement|investment)?)[^$]{0,40}\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i
+    /(?:minimum|min(?:imum)?\s+(?:account|engagement|investment)?)[^$]{0,40}\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
   );
   return match?.[1]?.trim() || "";
 }
@@ -278,16 +282,24 @@ function parseDateScore(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function scoreFirmHistoryRow(row: Record<string, unknown>, preferredFirm: string): number {
-  const firmName = cleanString(row.firmName as Textish) || cleanString(row.firm as Textish);
-  const end = cleanString(row.registrationEndDate as Textish) || cleanString(row.endDate as Textish);
+function scoreFirmHistoryRow(
+  row: Record<string, unknown>,
+  preferredFirm: string,
+): number {
+  const firmName =
+    cleanString(row.firmName as Textish) || cleanString(row.firm as Textish);
+  const end =
+    cleanString(row.registrationEndDate as Textish) ||
+    cleanString(row.endDate as Textish);
   const begin =
-    cleanString(row.registrationBeginDate as Textish) || cleanString(row.beginDate as Textish);
+    cleanString(row.registrationBeginDate as Textish) ||
+    cleanString(row.beginDate as Textish);
   const scope = `${cleanString(row.firmIapdScope as Textish)} ${cleanString(
-    row.firmBrokerCheckScope as Textish
+    row.firmBrokerCheckScope as Textish,
   )}`;
   let score = 0;
-  if (preferredFirm && firmName.toLowerCase() === preferredFirm.toLowerCase()) score += 1_000;
+  if (preferredFirm && firmName.toLowerCase() === preferredFirm.toLowerCase())
+    score += 1_000;
   if (!end || /present|current/i.test(end)) score += 500;
   if (/\bACTIVE\b/i.test(scope)) score += 100;
   score += Math.min(parseDateScore(end || begin) / 100_000_000_000, 90);
@@ -296,21 +308,26 @@ function scoreFirmHistoryRow(row: Record<string, unknown>, preferredFirm: string
 
 function extractBestFirmHistory(
   scrapeResult: CrdScrapeJobResult | null | undefined,
-  preferredFirm: string
+  preferredFirm: string,
 ): Record<string, unknown> | null {
   const rows = scrapeResult?.report?.firmHistory;
   if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows
-    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
-    .sort(
-      (a, b) =>
-        scoreFirmHistoryRow(b, preferredFirm) -
-        scoreFirmHistoryRow(a, preferredFirm)
-    )[0] || null;
+  return (
+    rows
+      .filter(
+        (row): row is Record<string, unknown> =>
+          Boolean(row) && typeof row === "object",
+      )
+      .sort(
+        (a, b) =>
+          scoreFirmHistoryRow(b, preferredFirm) -
+          scoreFirmHistoryRow(a, preferredFirm),
+      )[0] || null
+  );
 }
 
 function extractOfficialLocation(
-  scrapeResult: CrdScrapeJobResult | null | undefined
+  scrapeResult: CrdScrapeJobResult | null | undefined,
 ): LocationPrefill {
   const official = scrapeResult?.report?.officialLocation;
   if (!official || typeof official !== "object" || Array.isArray(official)) {
@@ -335,7 +352,7 @@ function extractOfficialLocation(
 }
 
 function extractLicenseLocation(
-  result: RiaLicenseVerificationResult
+  result: RiaLicenseVerificationResult,
 ): LocationPrefill {
   const official =
     result.official_location &&
@@ -347,7 +364,8 @@ function extractLicenseLocation(
     cleanString(result.city) ||
     cleanString(official.city as Textish) ||
     cleanString(official.businessCity as Textish);
-  const state = cleanString(result.state) || cleanString(official.state as Textish);
+  const state =
+    cleanString(result.state) || cleanString(official.state as Textish);
   return {
     city,
     areaLocality:
@@ -386,23 +404,26 @@ function buildBio(params: {
   const segments: string[] = [];
   const normalizedStatus = params.regulatorStatus.toLowerCase();
   const role =
-    !normalizedStatus || /^(active|inactive|current|previous)/i.test(normalizedStatus)
+    !normalizedStatus ||
+    /^(active|inactive|current|previous)/i.test(normalizedStatus)
       ? normalizedStatus || "a financial professional"
       : `${/^[aeiou]/i.test(normalizedStatus) ? "an" : "a"} ${normalizedStatus}`;
   segments.push(
     `${params.advisorName} is listed as ${role}${
       params.firmName ? ` with ${params.firmName}` : ""
-    }.`
+    }.`,
   );
   if (params.crdNumber) {
     segments.push(`Public regulatory records list CRD ${params.crdNumber}.`);
   }
   if (params.certifications.length > 0) {
     segments.push(
-      `Qualifications include ${params.certifications.slice(0, 4).join(", ")}.`
+      `Qualifications include ${params.certifications.slice(0, 4).join(", ")}.`,
     );
   }
-  const location = [params.city, params.areaLocality].filter(Boolean).join(", ");
+  const location = [params.city, params.areaLocality]
+    .filter(Boolean)
+    .join(", ");
   if (location) {
     segments.push(`Primary location: ${location}.`);
   }
@@ -412,16 +433,18 @@ function buildBio(params: {
 export function buildRiaLicensePrefillPatch(
   draft: RiaOnboardingDraft,
   result: RiaLicenseVerificationResult,
-  submittedLicense: string
+  submittedLicense: string,
 ): Partial<RiaOnboardingDraft> {
   const advisorName = cleanString(result.advisor_name) || draft.advisorName;
   const firmName = cleanString(result.firm_name) || draft.firmName;
-  const regulatorStatus = cleanString(result.regulator_status) || draft.regulatorStatus;
-  const crdNumber = cleanString(result.crd_number) || submittedLicense || draft.crdNumber;
+  const regulatorStatus =
+    cleanString(result.regulator_status) || draft.regulatorStatus;
+  const crdNumber =
+    cleanString(result.crd_number) || submittedLicense || draft.crdNumber;
   const locationPatch = buildLocationPatch(
     draft,
     extractLicenseLocation(result),
-    crdNumber
+    crdNumber,
   );
   const prefillCity = locationPatch.city ?? draft.city;
   const prefillAreaLocality = locationPatch.areaLocality ?? draft.areaLocality;
@@ -462,7 +485,7 @@ export function buildRiaLicensePrefillPatch(
         cleanString(result.bio) ||
         cleanString(result.strategy_summary) ||
         cleanString(result.broker_intelligence_summary),
-    })
+    }),
   );
 
   return {
@@ -487,14 +510,16 @@ export function buildRiaLicensePrefillPatch(
     advisoryFirmName: firmName || draft.advisoryFirmName,
     headline:
       draft.headline ||
-      (advisorName && firmName ? `${advisorName} at ${firmName}` : advisorName || firmName),
+      (advisorName && firmName
+        ? `${advisorName} at ${firmName}`
+        : advisorName || firmName),
     strategySummary: pickExistingOrNext(draft.strategySummary, bio),
   };
 }
 
 export function buildRiaScrapePrefillPatch(
   draft: RiaOnboardingDraft,
-  result: CrdScrapeJobResult
+  result: CrdScrapeJobResult,
 ): Partial<RiaOnboardingDraft> {
   const report = result.report;
   if (!report) return {};
@@ -511,16 +536,14 @@ export function buildRiaScrapePrefillPatch(
   const crdNumber = draft.crdNumber || cleanString(result.crdNumber);
   const locationPatch = buildLocationPatch(draft, scrapedLocation, crdNumber);
   const hasLocationPatchField = (
-    key: "city" | "areaLocality" | "pinZip" | "fullStreetAddress"
+    key: "city" | "areaLocality" | "pinZip" | "fullStreetAddress",
   ) => Object.prototype.hasOwnProperty.call(locationPatch, key);
-  const city =
-    hasLocationPatchField("city")
-      ? locationPatch.city || ""
-      : scrapedLocation.city || draft.city;
-  const areaLocality =
-    hasLocationPatchField("areaLocality")
-      ? locationPatch.areaLocality || ""
-      : scrapedLocation.areaLocality || draft.areaLocality;
+  const city = hasLocationPatchField("city")
+    ? locationPatch.city || ""
+    : scrapedLocation.city || draft.city;
+  const areaLocality = hasLocationPatchField("areaLocality")
+    ? locationPatch.areaLocality || ""
+    : scrapedLocation.areaLocality || draft.areaLocality;
   const firmName =
     draft.firmName ||
     cleanString(bestFirm?.firmName as Textish) ||
@@ -544,12 +567,13 @@ export function buildRiaScrapePrefillPatch(
       advisorName: draft.advisorName || cleanString(report.fullName),
       firmName,
       crdNumber,
-      regulatorStatus: draft.regulatorStatus || cleanString(report.registrationStatus),
+      regulatorStatus:
+        draft.regulatorStatus || cleanString(report.registrationStatus),
       city,
       areaLocality,
       certifications,
       summary: "",
-    })
+    }),
   );
 
   return {
@@ -564,8 +588,52 @@ export function buildRiaScrapePrefillPatch(
     bio,
     strategySummary: pickExistingOrNext(draft.strategySummary, bio),
     individualLegalName:
-      draft.individualLegalName || draft.advisorName || cleanString(report.fullName),
+      draft.individualLegalName ||
+      draft.advisorName ||
+      cleanString(report.fullName),
     individualCrd: draft.individualCrd || crdNumber,
     advisoryFirmName: draft.advisoryFirmName || firmName,
   };
+}
+
+export function buildRiaOnboardingBioSuggestion(
+  draft: RiaOnboardingDraft,
+): string {
+  const advisorName =
+    cleanString(draft.advisorName) ||
+    cleanString(draft.individualLegalName) ||
+    cleanString(draft.displayName);
+  const firmName =
+    cleanString(draft.firmName) || cleanString(draft.advisoryFirmName);
+  const crdNumber =
+    cleanString(draft.crdNumber) || cleanString(draft.individualCrd);
+  const base = buildBio({
+    advisorName,
+    firmName,
+    crdNumber,
+    regulatorStatus: cleanString(draft.regulatorStatus),
+    city: cleanString(draft.city),
+    areaLocality: cleanString(draft.areaLocality),
+    certifications: draft.certifications,
+    summary: "",
+  });
+
+  const services = uniqueStrings(draft.servicesOffered);
+  const fees = uniqueStrings(draft.feeStructure);
+  const additions: string[] = [];
+  if (services.length > 0) {
+    additions.push(
+      `The practice focuses on ${services.slice(0, 4).join(", ")}.`,
+    );
+  }
+  if (fees.length > 0) {
+    additions.push(`Fee structure: ${fees.slice(0, 3).join(", ")}.`);
+  }
+  if (draft.minEngagementAmount.trim()) {
+    additions.push(
+      `Typical minimum engagement starts at $${draft.minEngagementAmount.trim()}.`,
+    );
+  }
+
+  return [base, ...additions].filter(Boolean).join(" ").slice(0, 5_000);
 }

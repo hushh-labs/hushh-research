@@ -95,18 +95,20 @@ These fields are presentation metadata only. Authorization still evaluates the c
 
 Consent-manager surface rules:
 
-1. `/consents` is the single shared consent-manager route for investor and RIA.
-2. The active persona is the default actor for both the top-shell consent inbox and `/consents`.
-3. The canonical page flow is `summary + one paginated list surface + detail panel`.
-4. `GET /api/consent/center` is not on the main `/consents` critical path.
-5. `/consents` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
-6. The top-shell shield is the consent inbox:
+1. `/consents` is the One user access manager for incoming user-owned consent state.
+2. `actor` is compatibility routing metadata, not One page identity. Missing actor, `actor=one`, and legacy `actor=investor` resolve to the same One consent lane.
+3. RIA advisor workflows must opt in explicitly with `actor=ria&view=outgoing`; `/ria/requests` remains the compatibility launcher for that path.
+4. The canonical page flow is `summary + one paginated list surface + detail panel`.
+5. Normal `/consents` tabs use `GET /api/consent/center/summary` and `GET /api/consent/center/list`. `GET /api/consent/center` is reserved for compatibility and the relationships surface until that surface is paginated.
+6. `/consents` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
+7. The top-shell shield is the consent inbox:
    - badge source: `summary.counts.pending`
-   - preview rows: first `5` items from the cached `center/list?surface=pending&page=1&limit=20` payload for the active persona
-7. Internal consent-review links must stay on SPA-native app routing; full document redirects are reserved for true external URLs only.
-8. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
-9. Investor consent reads expand the authenticated Firebase UID to the account-owned identifier set before filtering `consent_audit`: Firebase UID, verified Firebase-auth email/phone, and verified non-revoked email aliases including Apple relay emails.
-10. Pending approve/deny/cancel and active revoke actions resolve through the same owned identifier set, then write terminal audit rows against the matched request or token subject id.
+   - preview rows: first `5` items from the cached actorless `center/list?surface=pending&page=1&limit=20` payload for the One lane
+8. Internal consent-review links must stay on SPA-native app routing; full document redirects are reserved for true external URLs only.
+9. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
+10. Investor consent reads expand the authenticated Firebase UID to the account-owned identifier set before filtering `consent_audit`: Firebase UID, verified Firebase-auth email/phone, and verified non-revoked email aliases including Apple relay emails.
+11. Pending approve/deny/cancel and active revoke actions resolve through the same owned identifier set, then write terminal audit rows against the matched request or token subject id.
+12. History rows are identifier-grouped for the One user lane: requester/system/advisor identity plus subject user id appears once, with scope/request chains exposed as nested activity trails ordered by event time.
 
 ### Marketplace
 

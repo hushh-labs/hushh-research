@@ -12,6 +12,13 @@ describe("Separator", () => {
     ).toBeTruthy();
   });
 
+  it("renders as decorative by default", () => {
+    const { container } = render(<Separator />);
+    const el = container.querySelector('[data-slot="separator"]');
+
+    expect(el?.getAttribute("role")).toBe("none");
+  });
+
   it("defaults to horizontal orientation", () => {
     const { container } = render(<Separator />);
     const el = container.querySelector('[data-slot="separator"]');
@@ -25,4 +32,12 @@ describe("Separator", () => {
 
     expect(el?.getAttribute("data-orientation")).toBe("vertical");
   });
+
+  it("renders with role='separator' when decorative={false}", () => {
+    const { container } = render(<Separator decorative={false} />);
+    const el = container.querySelector('[data-slot="separator"]');
+
+    expect(el?.getAttribute("role")).toBe("separator");
+  });
+
 });

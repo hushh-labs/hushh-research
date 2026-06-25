@@ -27,9 +27,9 @@
 
   var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
     investor: {
-      Market: "/kai",
-      Portfolio: "/kai/portfolio",
-      Analysis: "/kai/analysis",
+      Market: "/one/kai",
+      Portfolio: "/one/kai/portfolio",
+      Analysis: "/one/kai/analysis",
       Connect: "/marketplace",
       Profile: "/profile",
     },
@@ -194,6 +194,7 @@
     for (var i = 0; i < routeIds.length; i += 1) {
       var routeId = String(routeIds[i] || "");
       if (routeId.indexOf("/ria") === 0) return "ria";
+      if (routeId.indexOf("/one/kai") === 0) return "investor";
       if (routeId.indexOf("/kai") === 0) return "investor";
     }
     return "";
@@ -542,14 +543,37 @@
   }
 
   function routeForPersona(persona) {
-    return persona === "ria" ? "/ria" : "/kai";
+    return persona === "ria" ? "/ria" : "/one/kai";
   }
 
   function routeMatchesPersona(persona) {
     var currentPath = window.location.pathname || "";
     return (
       (persona === "ria" && currentPath.indexOf("/ria") === 0) ||
+      (persona === "investor" && currentPath.indexOf("/one/kai") === 0) ||
       (persona === "investor" && currentPath.indexOf("/kai") === 0)
+    );
+  }
+
+  function personaHomeLabel(persona) {
+    return persona === "ria" ? "Home" : "Market";
+  }
+
+  function visibleNavLabel(label) {
+    return Boolean(findVisibleButton(new RegExp("^" + escapeRegExp(label) + "$", "i")));
+  }
+
+  function personaShellReady(persona, expectedTour) {
+    var bridge = nativeTestBridge();
+    var personaReady =
+      bridge.activePersona === persona ||
+      bridge.primaryNavPersona === persona ||
+      bridge.personaSwitchStatus === "ok:" + persona;
+    return (
+      routeMatchesPersona(persona) &&
+      personaReady &&
+      (Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]')) ||
+        visibleNavLabel(personaHomeLabel(persona)))
     );
   }
 
@@ -635,6 +659,7 @@
     var route = window.location.pathname || "";
     var targetRouteMatches =
       (persona === "ria" && route.indexOf("/ria") === 0) ||
+      (persona === "investor" && route.indexOf("/one/kai") === 0) ||
       (persona === "investor" && route.indexOf("/kai") === 0);
     var routePersonaButton =
       persona === "ria"
@@ -726,10 +751,7 @@
     var expectedTour = persona === "ria" ? "nav-ria-home" : "nav-market";
     var bridge = nativeTestBridge();
     var route = routeForPersona(persona);
-    if (
-      routeMatchesPersona(persona) &&
-      firstVisible('[data-tour-id="' + expectedTour + '"]')
-    ) {
+    if (personaShellReady(persona, expectedTour)) {
       await waitForNoPersonaMismatchPrompt(1000);
       return;
     }
@@ -745,10 +767,7 @@
       await waitForBeacon([route], undefined, 30000);
 
       var ready = await waitForCondition(function () {
-        return (
-          routeMatchesPersona(persona) &&
-          Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]'))
-        );
+        return personaShellReady(persona, expectedTour);
       }, 15000);
       if (ready) {
         await waitForNoPersonaMismatchPrompt(1000);
@@ -786,7 +805,7 @@
       return;
     }
 
-    if (routeMatchesPersona(persona) && firstVisible('[data-tour-id="' + expectedTour + '"]')) {
+    if (personaShellReady(persona, expectedTour)) {
       await waitForNoPersonaMismatchPrompt(1000);
       return;
     }
@@ -1066,7 +1085,9 @@
         bootstrap === "vault_unlocked" ||
         bootstrap === "ready" ||
         (auth === "authenticated" &&
-          (route.indexOf("/ria") === 0 || route.indexOf("/kai") === 0) &&
+          (route.indexOf("/ria") === 0 ||
+            route.indexOf("/one/kai") === 0 ||
+            route.indexOf("/kai") === 0) &&
           (dataState === "loaded" || dataState === "empty-valid" || dataState === "unavailable-valid"));
       var bridgeReady =
         typeof bridge.navigateToRoute === "function" &&

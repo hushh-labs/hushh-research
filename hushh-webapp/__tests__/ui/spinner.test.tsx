@@ -17,4 +17,10 @@ describe("Spinner", () => {
       "Loading",
     );
   });
+
+  it("preserves status semantics with a custom accessible label", () => {
+    render(<Spinner aria-label="Saving" />);
+
+    expect(screen.getByRole("status", { name: "Saving" })).toBeTruthy();
+  });
 });

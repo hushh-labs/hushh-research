@@ -27,8 +27,8 @@
       ],
       "reachability": {
         "routes": [
-          "/kai",
-          "/kai/analysis",
+          "/one/kai",
+          "/one/kai/analysis",
           "/profile"
         ],
         "screens": [

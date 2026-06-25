@@ -549,13 +549,15 @@ function removeTickerFromHistoryMap(
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 space-y-6">
-      <div className="p-4 rounded-full bg-primary/5 border border-primary/10">
-        <Icon icon={BarChart3} size={32} className="text-primary/60" aria-hidden="true" />
+      <div className="flex max-w-xl flex-col items-start justify-center space-y-4 px-1 py-8">
+      <div className="rounded-full border border-primary/10 bg-primary/5 p-3">
+        <Icon icon={BarChart3} size={24} className="text-primary/70" aria-hidden="true" />
       </div>
-      <div className="text-center space-y-2 max-w-sm">
-        <h3 className="text-lg font-semibold">No analyses yet</h3>
-        <p className="text-sm text-muted-foreground leading-relaxed">
+      <div className="space-y-2 text-left">
+          <h3 className="text-[20px] font-medium leading-tight tracking-normal text-foreground">
+            No analyses yet
+          </h3>
+        <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
           Search for a stock ticker below and let Agent Kai&apos;s multi-agent
           debate engine give you a data-driven recommendation.
         </p>

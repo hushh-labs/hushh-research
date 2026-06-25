@@ -17,7 +17,14 @@ export type LiveToolDescriptor = {
   compatibility_status?: string;
 };
 
+export type LiveApiRootDescriptor = {
+  version?: string;
+  dynamic_scopes?: boolean;
+  recommended_mcp_flow?: string[];
+};
+
 export type LiveDocsResponse = {
+  apiRoot?: LiveApiRootDescriptor;
   scopes?: LiveScopeDescriptor[];
   tools?: LiveToolDescriptor[];
   notes?: string[];
@@ -152,11 +159,13 @@ async function requestPortal<T>(path: string, options: PortalRequestOptions = {}
 }
 
 export async function getLiveDeveloperDocs(): Promise<LiveDocsResponse> {
-  const [scopeResult, toolResult] = await Promise.allSettled([
+  const [rootResult, scopeResult, toolResult] = await Promise.allSettled([
+    requestPortal<LiveApiRootDescriptor>("/api/developer/v1"),
     requestPortal<{ scopes: LiveScopeDescriptor[]; notes?: string[] }>("/api/developer/v1/list-scopes"),
     requestPortal<{ tools: LiveToolDescriptor[]; notes?: string[] }>("/api/developer/v1/tool-catalog"),
   ]);
 
+  const apiRoot = rootResult.status === "fulfilled" ? rootResult.value : undefined;
   const scopes =
     scopeResult.status === "fulfilled" ? scopeResult.value.scopes : undefined;
   const scopeNotes =
@@ -166,11 +175,12 @@ export async function getLiveDeveloperDocs(): Promise<LiveDocsResponse> {
   const toolNotes =
     toolResult.status === "fulfilled" ? toolResult.value.notes || [] : [];
 
-  if (!scopes && !tools) {
+  if (!apiRoot && !scopes && !tools) {
     throw new Error("Live developer contract is unavailable right now.");
   }
 
   return {
+    apiRoot,
     scopes,
     tools,
     notes: [...scopeNotes, ...toolNotes],

@@ -9,6 +9,7 @@ type ApiRetryStateProps = {
   description?: string;
   variant?: "full" | "compact";
   onRetry: () => void;
+  showRetryAction?: boolean;
 };
 
 export function ApiRetryState({
@@ -16,10 +17,16 @@ export function ApiRetryState({
   description = "The request took too long or failed. Try again to refresh this section.",
   variant = "full",
   onRetry,
+  showRetryAction = true,
 }: ApiRetryStateProps) {
   if (variant === "compact") {
     return (
-      <div role="status" aria-live="polite" aria-atomic="true" className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 px-3 py-2"
+      >
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
           <div className="min-w-0">
@@ -27,16 +34,29 @@ export function ApiRetryState({
             <p className="text-xs text-muted-foreground">{description}</p>
           </div>
         </div>
-        <Button type="button" variant="none" effect="fade" size="sm" onClick={onRetry}>
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          Retry
-        </Button>
+        {showRetryAction ? (
+          <Button
+            type="button"
+            variant="none"
+            effect="fade"
+            size="sm"
+            onClick={onRetry}
+          >
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div role="status" aria-live="polite" aria-atomic="true" className="rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 p-4">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 p-4"
+    >
       <div className="flex items-start gap-3">
         <div className="rounded-full bg-amber-500/15 p-2">
           <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-300" />
@@ -50,10 +70,18 @@ export function ApiRetryState({
             </p>
           </div>
 
-          <Button type="button" variant="none" effect="fade" size="sm" onClick={onRetry}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Retry
-          </Button>
+          {showRetryAction ? (
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              onClick={onRetry}
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

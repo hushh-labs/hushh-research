@@ -106,6 +106,7 @@ from api.middlewares.rate_limit import limiter  # noqa: E402
 from api.routes import (  # noqa: E402
     account,
     agents,
+    connected_systems,
     consent,
     db_proxy,
     debug_firebase,
@@ -262,6 +263,9 @@ app.include_router(health.router)
 
 # Agent chat routes (/api/agents/...)
 app.include_router(agents.router)
+
+# Profile Connected Systems routes (/api/connected-systems/...)
+app.include_router(connected_systems.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)

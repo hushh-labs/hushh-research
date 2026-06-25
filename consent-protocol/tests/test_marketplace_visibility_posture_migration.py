@@ -19,13 +19,11 @@ def test_marketplace_visibility_posture_migration_is_registered() -> None:
     assert manifest["ordered_migrations"].index(migration_name) > manifest[
         "ordered_migrations"
     ].index("065_one_location_retention_indexes.sql")
-    assert schema_contract["expected_migration_version"] == 66
+    assert schema_contract["expected_migration_version"] == 67
 
 
 def test_marketplace_visibility_posture_migration_adds_safe_visibility_columns() -> None:
-    sql = (MIGRATIONS_DIR / "066_marketplace_visibility_posture.sql").read_text(
-        encoding="utf-8"
-    )
+    sql = (MIGRATIONS_DIR / "066_marketplace_visibility_posture.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS exposure_enabled BOOLEAN NOT NULL DEFAULT TRUE" in sql
     assert "ADD COLUMN IF NOT EXISTS visibility_posture TEXT NOT NULL" in sql

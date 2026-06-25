@@ -189,6 +189,7 @@ export function useNativeTestConfig(): NativeTestConfig {
 
   useEffect(() => {
     let attempts = 0;
+    let timer: number | null = null;
     const sync = () => {
       const nextConfig = getNativeTestConfig();
       setConfig(nextConfig);
@@ -204,17 +205,29 @@ export function useNativeTestConfig(): NativeTestConfig {
     };
 
     if (sync()) {
-      return;
+      return () => undefined;
     }
 
-    const timer = window.setInterval(() => {
+    const handleConfigUpdate = () => {
+      sync();
+    };
+
+    timer = window.setInterval(() => {
       if (sync()) {
-        window.clearInterval(timer);
+        if (timer) {
+          window.clearInterval(timer);
+          timer = null;
+        }
       }
     }, 250);
 
+    window.addEventListener("hushh:native-test-config-updated", handleConfigUpdate);
+
     return () => {
-      window.clearInterval(timer);
+      if (timer) {
+        window.clearInterval(timer);
+      }
+      window.removeEventListener("hushh:native-test-config-updated", handleConfigUpdate);
     };
   }, []);
 

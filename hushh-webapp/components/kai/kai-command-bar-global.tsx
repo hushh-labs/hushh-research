@@ -241,6 +241,9 @@ export function KaiCommandBarGlobal() {
   const reviewScreenActive = Boolean(
     busyOperations["portfolio_review_active"] || busyOperations["portfolio_save"]
   );
+  const portfolioImportSurfaceActive = Boolean(
+    busyOperations["portfolio_import_surface"]
+  );
   const reviewDirty = Boolean(
     busyOperations["portfolio_review_active"] && busyOperations["portfolio_review_dirty"]
   );
@@ -727,7 +730,7 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
-  if (!mounted || loading || !user || reviewScreenActive) {
+  if (!mounted || loading || !user || reviewScreenActive || portfolioImportSurfaceActive) {
     return null;
   }
 

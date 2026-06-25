@@ -108,18 +108,23 @@ function buildMcpHostExamples(developerToken = "<developer-token>"): McpHostExam
 export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "start",
-    label: "Start Here",
-    summary: "Intro, environment URLs, and the quickest path into the contract.",
+    label: "Quick Start",
+    summary: "Remote MCP setup, the UAT server, and the one copy-ready happy path.",
+  },
+  {
+    id: "mcp",
+    label: "Remote MCP",
+    summary: "Streamable MCP setup for remote-capable hosts.",
+  },
+  {
+    id: "access",
+    label: "Developer Access",
+    summary: "Sign in, enable access, rotate tokens, and update your app identity.",
   },
   {
     id: "overview",
-    label: "Overview",
-    summary: "Trust model, environment URLs, and the one scalable developer story.",
-  },
-  {
-    id: "modes",
-    label: "Choose Mode",
-    summary: "Pick remote MCP, the REST API, or the npm bridge based on your host.",
+    label: "Trust Model",
+    summary: "Auth identifies your app; user consent grants each scope.",
   },
   {
     id: "dynamic-scopes",
@@ -132,19 +137,14 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
     summary: "Discover, request, approve in Kai, then read approved scoped data.",
   },
   {
-    id: "mcp",
-    label: "MCP",
-    summary: "Host-agnostic MCP setup for remote and stdio-capable clients.",
+    id: "modes",
+    label: "Advanced",
+    summary: "REST API and npm bridge options for non-default host needs.",
   },
   {
     id: "api",
     label: "REST API",
-    summary: "Versioned HTTP endpoints for discovery, consent, and status checks.",
-  },
-  {
-    id: "access",
-    label: "Developer Access",
-    summary: "Sign in, enable access, rotate tokens, and update your app identity.",
+    summary: "Advanced direct HTTP endpoints for discovery, consent, and status checks.",
   },
   {
     id: "faq",
@@ -412,7 +412,7 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
   return [
     {
       id: "remote-mcp",
-      title: "Remote MCP",
+      title: "Remote/Streamable MCP",
       summary:
         `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the exact /mcp/?token=... URL shape.`,
     },
@@ -426,7 +426,7 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
       id: "npm",
       title: "npm Bridge",
       summary:
-        `Use ${MCP_PUBLIC_DOCS.packageName} when the host still expects a local stdio MCP process instead of HTTP MCP.`,
+        `Use ${MCP_PUBLIC_DOCS.packageName} only when the host still expects a local stdio MCP process instead of streamable HTTP MCP.`,
     },
   ];
 }
@@ -479,7 +479,7 @@ export function buildMcpSnippets(_runtime: DeveloperRuntime, developerToken = "<
     codexStdio: byId.get("codex-stdio")?.code || "",
     claudeDesktop: byId.get("claude-desktop")?.code || "",
     primaryExamples: examples.filter(
-      (example) => example.id === "generic-remote" || example.id === "npm-bridge"
+      (example) => example.id === "generic-remote"
     ),
     hostExamples: examples.filter(
       (example) => example.id !== "generic-remote" && example.id !== "npm-bridge"
@@ -488,9 +488,13 @@ export function buildMcpSnippets(_runtime: DeveloperRuntime, developerToken = "<
 }
 
 export function buildWorkspaceSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+  const tokenizedRemoteUrl = runtime.remoteMcpUrlTemplate.replace(
+    "<developer-token>",
+    developerToken
+  );
   return {
     envVar: `HUSHH_DEVELOPER_TOKEN=${developerToken}`,
-    remoteUrl: `${runtime.mcpUrl}?token=${developerToken}`,
+    remoteUrl: tokenizedRemoteUrl,
     restQuery: `?token=${developerToken}`,
   };
 }

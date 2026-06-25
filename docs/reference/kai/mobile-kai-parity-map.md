@@ -13,12 +13,12 @@ Founder-language note: this map documents the mobile side of `Separation of Duti
 
 | Route | Web | iOS (Capacitor) | Android (Capacitor) | Verification |
 | --- | --- | --- | --- | --- |
-| `/kai/import` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/kai` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/kai/plaid/oauth/return` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/kai/portfolio` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/kai/analysis` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
-| `/kai/optimize` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai/import` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai/plaid/oauth/return` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai/portfolio` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai/analysis` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
+| `/one/kai/optimize` | Yes | Yes | Yes | `./bin/hushh native ios --mode uat` + runtime audit |
 
 ## Feature-Level Parity
 

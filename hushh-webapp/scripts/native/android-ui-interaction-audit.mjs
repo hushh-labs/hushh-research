@@ -313,18 +313,18 @@ function resolveInitialLaunchTarget() {
   const firstRoute = String(firstFlow?.route || "");
   const route =
     firstEnsurePersona === "investor"
-      ? "/kai"
+      ? "/one/kai"
       : firstEnsurePersona === "ria"
         ? "/ria"
-        : firstRoute.startsWith("/kai")
-          ? "/kai"
+        : firstRoute.startsWith("/one/kai") || firstRoute.startsWith("/kai")
+          ? "/one/kai"
           : firstRoute.startsWith("/ria")
             ? "/ria"
             : "/ria";
 
   return {
     route,
-    marker: route === "/kai" ? "native-route-kai-home" : "native-route-ria-home",
+    marker: route === "/one/kai" ? "native-route-kai-home" : "native-route-ria-home",
   };
 }
 

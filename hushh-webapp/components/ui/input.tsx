@@ -7,7 +7,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
     <input
       type={type}
       data-slot="input"
-      autoComplete={type === "search" ? "off" : props.autoComplete}
+
       autoCapitalize={
         type === "email" || type === "search" ? "none" : props.autoCapitalize
       }

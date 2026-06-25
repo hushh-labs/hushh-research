@@ -1,7 +1,7 @@
 "use client";
 
 export const kaiAppEyebrowClassName =
-  "type-micro";
+  "!text-[10.5px] !font-medium !leading-[1.2] uppercase !tracking-[0.14em]";
 
 export const kaiAppHeroTitleClassName =
   "text-[38px] font-medium leading-[1.05] tracking-normal sm:text-[40px]";
@@ -25,7 +25,7 @@ export const kaiAppCardTitleClassName =
   "!text-[16.5px] !font-medium !leading-[1.22] !tracking-normal";
 
 export const kaiAppCardBodyClassName =
-  "type-subhead";
+  "!text-[14px] !font-normal !leading-[1.42] !tracking-normal";
 
 export const kaiAppHelperClassName =
-  "type-footnote";
+  "!text-[12.5px] !font-normal !leading-[1.45] !tracking-normal";

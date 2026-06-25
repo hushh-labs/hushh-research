@@ -1,25 +1,21 @@
 # Frontend Pattern Catalog
 
-
 ## Visual Context
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
 ## Pattern: Stock Primitive First
+
 Use when you need baseline UI controls.
 
 ```tsx
 import { Button } from "@/components/ui/button";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 ```
 
 ## Pattern: Morphy CTA Extension
+
 Use when an action needs upgraded CTA behavior (ripple, premium treatment).
 
 ```tsx
@@ -27,26 +23,27 @@ import { Button } from "@/lib/morphy-ux/button";
 
 <Button variant="blue-gradient" effect="fill" showRipple>
   Continue
-</Button>
+</Button>;
 ```
 
 ## Pattern: Morphy Surface Primitive
+
 Use when defining or extending the shared card system itself.
 
 ```tsx
 import { SurfaceCard, SurfaceInset } from "@/lib/morphy-ux/surfaces";
 
-<SurfaceCard>
-  ...
-</SurfaceCard>
+<SurfaceCard>...</SurfaceCard>;
 ```
 
 Rules:
+
 1. Primitive surface tokens and shell classes live in `lib/morphy-ux/*`.
 2. The analysis-datatable surface treatment is the baseline for shared card chrome.
 3. Do not recreate a parallel shared card primitive in `components/app-ui/*` or feature folders.
 
 ## Pattern: App Semantic Surface
+
 Use when a route needs a shared semantic wrapper built on Morphy primitives.
 
 ```tsx
@@ -54,10 +51,12 @@ import { SurfaceCard, SurfaceInset } from "@/components/app-ui/surfaces";
 ```
 
 Rules:
+
 1. `components/app-ui/surfaces.tsx` is the semantic bridge, not a second primitive system.
 2. Feature folders consume these surfaces; they do not fork them.
 
 ## Pattern: Shared Segmented Tabs
+
 Use the shared segmented control for app-facing rounded tab groups.
 
 ```tsx
@@ -65,11 +64,13 @@ import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 ```
 
 Rules:
+
 1. `@/components/ui/tabs` remains the low-level Radix/shadcn semantic primitive.
 2. `@/lib/morphy-ux/ui/segmented-tabs` is the canonical app-facing segmented visual system.
 3. Route files should not fork their own segmented shell styling.
 
 ## Pattern: App Shell Action Surface
+
 Use the shared shell surface for top-bar actions so ripple, contrast, badges, and focus treatment stay consistent.
 
 ```tsx
@@ -77,22 +78,67 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 ```
 
 Rules:
+
 1. Back, bell, shield, and persona pill interactions all use the same shell surface contract.
 2. Dropdown triggers should accept a wrapper or render-trigger path, not just a class string, when ripple ownership is required.
 
+## Pattern: Shared Search and Filters
+
+Use the shared command/search surface for global route action discovery and agent search.
+
+```tsx
+import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
+import { CommandPickerField } from "@/components/app-ui/command-fields";
+```
+
+Rules:
+
+1. Signed-in dashboards and workspaces should rely on `KaiCommandBarGlobal` for global search.
+2. Use route-local search only for visible local collections, and keep it inside the surface it filters.
+3. Do not add a second floating search bar when the shared command surface is already visible.
+4. Preserve query params only when they are part of the route contract or a shareable/recoverable workspace state.
+5. Search overlays must respect the top shell and bottom command chrome instead of using route-local viewport math.
+
+## Pattern: Dynamic Bottom Navigation
+
+Use the shared bottom-nav resolver for signed-in app routes.
+
+```ts
+import {
+  resolveBottomNavActiveKey,
+  resolveBottomNavAction,
+  resolveBottomNavContextKey,
+} from "@/lib/navigation/app-bottom-nav";
+```
+
+Rules:
+
+1. Keep the segmented bottom bar scoped to the active route family. Do not add universal `One`, `Search`, or `Profile` tabs to every route.
+2. Keep bottom-nav items at the same size as the five-action bar. Routes with fewer actions should end the pill at the last real action instead of rendering empty slots, stretching shorter bars, or adding disabled placeholders.
+3. `/one` and `/profile` may show the compact root switch `One / Connect / Profile`; One sub-app routes may add one meaningful current-context action.
+4. Keep `Search` in the shared command dock, separate from both segmented route navigation and agent chat, and align the detached Search bubble to the same bottom row as the route pill.
+5. Let the active route family decide the contextual slots instead of showing finance-only tabs everywhere; `/one` uses dashboard tiles for mode entry, and `/one/kai/*` owns Market/Portfolio/Connect/Analysis.
+6. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
+7. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
+8. Keep bottom-nav motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
+
 ## Pattern: Nested Route Back Navigation
+
 Use the shared top-bar back affordance for signed-in subroutes that drill below a parent workspace.
 
 Rules:
+
 1. Nested routes should navigate back through the top shell, not through feature-local inline buttons.
 2. Preserve the parent workspace context in the back target, including route params or query state when that context is part of the flow.
 3. Only use inline back controls when the surface is outside the normal shell, such as a modal, sheet, or fullscreen flow.
 4. Query-state workspaces such as `/profile?panel=...` still count as nested navigation and must resolve their back affordance through the shared top bar.
 
 ## Pattern: Standard Route Header Leading
+
 Use `PageHeader icon={...}` for normal signed-in route headers.
 
 Rules:
+
 1. The `icon` slot is the default route-header leading treatment.
 2. Do not recreate custom route-header icon wells with `leading`.
 3. Reserve `leading` for semantic non-icon content such as badges, avatars, or endpoint method pills.
@@ -100,17 +146,21 @@ Rules:
 5. When a primary route header has both actions and descriptive copy, prefer the standard 3-row mobile layout instead of forcing actions inline.
 
 ## Pattern: Primary Read Sections
+
 Use one primary summary card for the main read in analysis/workspace sections.
 
 Rules:
+
 1. Do not add adjacent mini-summary cards that restate the same status, count, or framing.
 2. Secondary cards should only exist when they introduce new evidence, alternate reads, or drill-down actions.
 3. Counts such as focus-block totals or secondary-read totals should usually sit as small badges inside the main card, not as separate cards.
 
 ## Pattern: Inspectable Evidence
+
 Use when a surface exposes counts, grouped objects, leaders/laggards, tracked names, or any other summary that implies underlying data.
 
 Rules:
+
 1. If the UI says `44 names`, the detail state should expose the 44 names cleanly.
 2. Prefer the component density that preserves meaning:
    - badges for short symbol or keyword sets
@@ -121,18 +171,22 @@ Rules:
 5. Do not open a modal or detail card unless it adds new inspectable evidence beyond the source card.
 
 ## Pattern: Responsive Composition Review
+
 Use when a section has multiple cards, supporting modules, or a board-like layout.
 
 Rules:
+
 1. Rebalance composition for tablet and desktop instead of stretching the mobile stack.
 2. One oversized summary slab plus several small fragments is usually a hierarchy failure.
 3. Check symmetry, scan path, and evidence density before adding more cards or more copy.
 4. Remove repeated headers, repeated helper text, and repeated framing chrome before polishing visuals.
 
 ## Pattern: Persona Copy
+
 Use plain-language labels on persona-facing surfaces. Internal architecture terms stay in developer-only routes and docs.
 
 Rules:
+
 1. Do not surface abbreviations such as `PKM` in consumer-facing profile, privacy, or settings copy.
 2. Prefer descriptive labels such as `Personal Data` when the surface is user-facing.
 3. Developer-only routes such as `PKM Agent Lab` may keep internal product terms when the audience is explicitly technical.
@@ -140,6 +194,7 @@ Rules:
 5. Put diagnostics in logs, task metadata, or developer-only panels. The default copy should tell the user what is happening and what they can do next.
 
 ## Pattern: Signed-In Route Dogfooding
+
 Use the route-contract Playwright sweep for signed-in route families.
 
 ```bash
@@ -148,6 +203,7 @@ npm run verify:routes
 ```
 
 Rules:
+
 1. The route contract in `lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth.
 2. Do not reach for Playwright when unit, integration, service, or Next runtime diagnostics can prove the behavior more cheaply.
 3. Use the sweep when the proof requires a real browser:
@@ -157,6 +213,7 @@ Rules:
 6. Route-specific one-off scripts are for debugging; they do not replace the contract-driven sweep.
 
 ## Pattern: Stock Chart Primitives
+
 Use stock chart infrastructure for all chart surfaces.
 
 ```tsx
@@ -170,11 +227,13 @@ import {
 ```
 
 Rules:
+
 1. Keep tooltip formatting inside `ChartTooltipContent` formatter/labelFormatter.
 2. Keep chart files focused on data mapping and composition.
 3. Avoid chart primitive forks outside `components/ui/chart.tsx`.
 
 ## Pattern: Moved App UI Components
+
 Custom app components now live in `components/app-ui/*`.
 
 ```tsx
@@ -183,11 +242,13 @@ import { TopAppBar } from "@/components/app-ui/top-app-bar";
 ```
 
 Do not use:
+
 1. `@/components/ui/hushh-loader`
 2. `@/components/ui/top-app-bar`
 3. `@/components/ui/data-table`
 
 ## Pattern: Toast Usage
+
 Use the shadcn Sonner stack for transient app notifications. Prefer the Morphy
 toast helper where the route already uses Morphy helpers; direct `sonner` usage
 is acceptable in routes already standardized on shadcn Sonner.
@@ -202,6 +263,7 @@ Do not create inline route banners for row-level saves, deletes, refreshes, or
 short-lived failures. Inline errors are for stable page-blocking states only.
 
 ## Pattern: Destructive Confirmation
+
 Use shadcn `AlertDialog` before destructive mutations such as delete, remove,
 disconnect, revoke, or archive actions. Keep loading state in the dialog action
 or initiating row, and report success/failure through Sonner.
@@ -220,6 +282,7 @@ import {
 ```
 
 ## Pattern: Gmail-Safe Email Draft HTML
+
 Email Helper and other approval-gated replies must be generated through the
 strict-ZK draft renderer, not route-local HTML.
 
@@ -230,6 +293,7 @@ const draft = service.buildDraft({ workflow, exportPayloads, instructions });
 ```
 
 Rules:
+
 1. Build plaintext and sanitized HTML from the same render model.
 2. Keep approved plaintext as the fallback and hash anchor.
 3. Use inline styles, table-safe markup, no scripts, no external CSS, and no app-only class names.
@@ -239,6 +303,7 @@ Rules:
 7. Keep developer metadata out of both plaintext and HTML: no hashes, ids, manifests, provenance, parser metadata, route names, or raw entity paths.
 
 ## Pattern: Icon Usage
+
 Use Lucide through the icon wrapper for consistent sizing behavior.
 
 ```tsx
@@ -249,13 +314,18 @@ import { Icon } from "@/lib/morphy-ux/ui";
 ```
 
 ## Pattern: Actionable Surface Rows
+
 Use `SettingsRow` for clickable list rows across the app, not only on Profile.
 
 ```tsx
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 
 <SettingsRow
-  leading={<span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl">AAPL</span>}
+  leading={
+    <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl">
+      AAPL
+    </span>
+  }
   title="Apple"
   description="AAPL • Technology • BUY"
   trailing="$214.75"
@@ -265,6 +335,7 @@ import { SettingsRow } from "@/components/app-ui/settings-ui";
 ```
 
 Rules:
+
 1. The whole row owns hover, press, and ripple.
 2. Inner text blocks must not create a second hover state.
 3. Use `asChild` for link rows so anchors inherit the same interaction contract.

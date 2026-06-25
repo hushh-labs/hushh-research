@@ -51,6 +51,20 @@ import {
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
 
+function verifiedBackendPhoneNumber(
+  identity:
+    | {
+        phone_number?: string | null;
+        phone_verified?: boolean;
+      }
+    | null
+    | undefined
+): string | null {
+  if (identity?.phone_verified !== true) return null;
+  const phone = String(identity.phone_number ?? "").trim();
+  return phone || null;
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -116,6 +130,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUserId(nextUser?.uid ?? null);
     setPhoneNumber(nextUser?.phoneNumber ?? null);
   }, []);
+
+  useEffect(() => {
+    if (!user || phoneNumber) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const hydrateBackendPhone = async () => {
+      const identity = await AccountIdentityService.refreshCurrentUserIdentity(user);
+      if (cancelled) return;
+      const backendPhone = verifiedBackendPhoneNumber(identity);
+      if (backendPhone) {
+        setPhoneNumber(backendPhone);
+      }
+    };
+
+    void hydrateBackendPhone();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [phoneNumber, user]);
 
   const refreshUser = useCallback(async (): Promise<User | null> => {
     if (Capacitor.isNativePlatform()) {

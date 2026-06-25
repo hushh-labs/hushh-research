@@ -77,6 +77,8 @@ In the planned v1, the iPhone and the Mac do **not** sync over LAN. The Mac woul
 
 **Plaintext never traverses cloud.** Per-device SE keys never leave their device; only ciphertext + the pair envelope move. Multi-device sync remains the responsibility of the existing PKM ciphertext relay, not the disabled `/api/sync/*` surface.
 
+Desktop pairing implementation PRs should keep this route scoped to device registration, pair manifest sync, and revocation propagation; LAN sync and plaintext cloud relay remain out of scope. All synced data remains fully encrypted on-device.
+
 ## Distribution
 
 - **v1 — Developer ID + Notarization.** Full entitlements: `SMAppService` (LaunchAgent), AppleEvents (AppleScript Notes bridge), MailKit, EventKit, full filesystem read/write, network client. Distributed direct via signed `.dmg`.

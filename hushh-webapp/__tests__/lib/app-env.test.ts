@@ -14,6 +14,13 @@ describe("resolveAppEnvironment", () => {
 
     expect(resolveAppEnvironment()).toBe("development");
   });
+  it("prefers NEXT_PUBLIC_APP_ENV over fallback environments", () => {
+  process.env.NEXT_PUBLIC_APP_ENV = "development";
+  process.env.NEXT_PUBLIC_OBSERVABILITY_ENV = "uat";
+  process.env.NEXT_PUBLIC_ENVIRONMENT_MODE = "production";
+
+  expect(resolveAppEnvironment()).toBe("development");
+  });
 
   it("maps dev to development", () => {
     process.env.NEXT_PUBLIC_APP_ENV = "dev";

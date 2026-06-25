@@ -307,7 +307,7 @@ def _extract_json(text: str) -> Dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        logger.warning(f"[Kai LLM] JSON parse failed on text: {text[:100]}...")
+        logger.warning("[Kai LLM] JSON parse failed on text: %s...", text[:100])
         return {}
 
 
@@ -331,13 +331,13 @@ async def analyze_stock_with_gemini(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Gemini Operon] Permission denied: {reason}")
+        logger.error("[Gemini Operon] Permission denied: %s", reason)
         raise PermissionError(f"Gemini analysis denied: {reason}")
 
     if not _require_gemini_ready():
         return _gemini_unavailable_payload("Gemini unavailable")
 
-    logger.info(f"[Gemini Operon] Starting deep analyst session for {ticker}")
+    logger.info("[Gemini Operon] Starting deep analyst session for %s", ticker)
 
     # 2. Build Rich Context (Trends + Fundamentals)
     latest_10k = sec_data.get("latest_10k", {})
@@ -486,7 +486,7 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
         analysis.setdefault("bull_case", "Growth potential through market expansion.")
         analysis.setdefault("bear_case", "Risks include competitive pressure and macro headwinds.")
 
-        logger.info(f"[Gemini Operon] Deep Fundamental Report success for {ticker}")
+        logger.info("[Gemini Operon] Deep Fundamental Report success for %s", ticker)
         return analysis
 
     except asyncio.TimeoutError:
@@ -495,7 +495,7 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
         )
         return {"error": "Gemini timeout", "fallback": True}
     except Exception as e:
-        logger.error(f"[Gemini Operon] Error calling Gemini: {e}")
+        logger.error("[Gemini Operon] Error calling Gemini: %s", e)
         return {"error": str(e), "fallback": True}
 
 
@@ -516,13 +516,13 @@ async def analyze_sentiment_with_gemini(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Gemini Sentiment] Permission denied: {reason}")
+        logger.error("[Gemini Sentiment] Permission denied: %s", reason)
         raise PermissionError(f"Sentiment analysis denied: {reason}")
 
     if not _require_gemini_ready():
         return _gemini_unavailable_payload("Gemini unavailable")
 
-    logger.info(f"[Gemini Sentiment] Analyzing sentiment for {ticker}")
+    logger.info("[Gemini Sentiment] Analyzing sentiment for %s", ticker)
 
     # 2. Build Context from news articles
     news_context = (
@@ -590,14 +590,14 @@ Analyze the provided news articles and assess market sentiment for this stock.
             text = text[3:-3].strip()
 
         analysis = json.loads(text)
-        logger.info(f"[Gemini Sentiment] Analysis complete for {ticker}")
+        logger.info("[Gemini Sentiment] Analysis complete for %s", ticker)
         return analysis
 
     except asyncio.TimeoutError:
-        logger.warning(f"[Gemini Sentiment] Timed out for {ticker}")
+        logger.warning("[Gemini Sentiment] Timed out for %s", ticker)
         return {"error": "Gemini timeout", "fallback": True}
     except Exception as e:
-        logger.error(f"[Gemini Sentiment] Error: {e}")
+        logger.error("[Gemini Sentiment] Error: %s", e)
         return {"error": str(e), "fallback": True}
 
 
@@ -618,13 +618,13 @@ async def analyze_valuation_with_gemini(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Gemini Valuation] Permission denied: {reason}")
+        logger.error("[Gemini Valuation] Permission denied: %s", reason)
         raise PermissionError(f"Valuation analysis denied: {reason}")
 
     if not _require_gemini_ready():
         return _gemini_unavailable_payload("Gemini unavailable")
 
-    logger.info(f"[Gemini Valuation] Analyzing valuation for {ticker}")
+    logger.info("[Gemini Valuation] Analyzing valuation for %s", ticker)
 
     # 2. Build Context
     peer_context = (
@@ -698,14 +698,14 @@ Perform a comprehensive valuation analysis with focus on relative and intrinsic 
             text = text[3:-3].strip()
 
         analysis = json.loads(text)
-        logger.info(f"[Gemini Valuation] Analysis complete for {ticker}")
+        logger.info("[Gemini Valuation] Analysis complete for %s", ticker)
         return analysis
 
     except asyncio.TimeoutError:
-        logger.warning(f"[Gemini Valuation] Timed out for {ticker}")
+        logger.warning("[Gemini Valuation] Timed out for %s", ticker)
         return {"error": "Gemini timeout", "fallback": True}
     except Exception as e:
-        logger.error(f"[Gemini Valuation] Error: {e}")
+        logger.error("[Gemini Valuation] Error: %s", e)
         return {"error": str(e), "fallback": True}
 
 
@@ -815,7 +815,7 @@ async def stream_gemini_response(
         }
         return
 
-    logger.info(f"[Gemini Streaming] Starting stream for {agent_name}")
+    logger.info("[Gemini Streaming] Starting stream for %s", agent_name)
 
     # Use ASYNC streaming to prevent blocking the event loop.
     if types is None:

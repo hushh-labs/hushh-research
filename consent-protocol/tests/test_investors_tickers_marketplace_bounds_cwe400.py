@@ -80,16 +80,12 @@ class TestInvestorProfileBounds:
     def test_biography_max_length_10000(self):
         """Test that biography enforces max_length=10000."""
         with pytest.raises(ValidationError):
-            InvestorProfile(
-                id=1, name="Valid", biography="a" * 10001
-            )
+            InvestorProfile(id=1, name="Valid", biography="a" * 10001)
 
     def test_photo_url_max_length_1024(self):
         """Test that photo_url enforces max_length=1024."""
         with pytest.raises(ValidationError):
-            InvestorProfile(
-                id=1, name="Valid", photo_url="https://" + "a" * 1024
-            )
+            InvestorProfile(id=1, name="Valid", photo_url="https://" + "a" * 1024)
 
     def test_education_list_bounded_50(self):
         """Test that education list enforces max_length=50."""
@@ -164,9 +160,7 @@ class TestInvestorCreateRequestBounds:
     def test_biography_max_length_10000(self):
         """Test that biography enforces max_length=10000."""
         with pytest.raises(ValidationError):
-            InvestorCreateRequest(
-                name="Valid", biography="a" * 10001
-            )
+            InvestorCreateRequest(name="Valid", biography="a" * 10001)
 
     def test_education_list_bounded_50(self):
         """Test that education list enforces max_length=50."""
@@ -239,29 +233,21 @@ class TestMarketplaceContactLookupBounds:
     def test_hash_exactly_64_chars(self):
         """Test that hash enforces exact length of 64."""
         with pytest.raises(ValidationError):
-            MarketplaceContactLookup(
-                hash="a" * 65, last4="1234"
-            )
+            MarketplaceContactLookup(hash="a" * 65, last4="1234")
 
     def test_hash_pattern_hex_validation(self):
         """Test that hash enforces hexadecimal pattern."""
         with pytest.raises(ValidationError):
-            MarketplaceContactLookup(
-                hash="z" * 64, last4="1234"
-            )
+            MarketplaceContactLookup(hash="z" * 64, last4="1234")
 
     def test_last4_length_validation(self):
         """Test that last4 enforces length between 2 and 4."""
         with pytest.raises(ValidationError):
-            MarketplaceContactLookup(
-                hash="a" * 64, last4="12345"
-            )
+            MarketplaceContactLookup(hash="a" * 64, last4="12345")
 
     def test_valid_contact_lookup(self):
         """Test that valid contact lookup passes."""
-        lookup = MarketplaceContactLookup(
-            hash="a" * 64, last4="1234"
-        )
+        lookup = MarketplaceContactLookup(hash="a" * 64, last4="1234")
         assert len(lookup.hash) == 64
 
 
@@ -271,10 +257,7 @@ class TestMarketplaceContactMatchRequestBounds:
     def test_phone_lookups_list_bounded_1000(self):
         """Test that phone_lookups list enforces max_length=1000."""
         with pytest.raises(ValidationError):
-            lookups = [
-                MarketplaceContactLookup(hash="a" * 64, last4="1234")
-                for _ in range(1001)
-            ]
+            lookups = [MarketplaceContactLookup(hash="a" * 64, last4="1234") for _ in range(1001)]
             MarketplaceContactMatchRequest(phone_lookups=lookups)
 
     def test_limit_maximum_100(self):
@@ -293,9 +276,7 @@ class TestMarketplaceContactMatchRequestBounds:
             MarketplaceContactLookup(hash="a" * 64, last4="1234"),
             MarketplaceContactLookup(hash="b" * 64, last4="5678"),
         ]
-        req = MarketplaceContactMatchRequest(
-            phone_lookups=lookups, limit=50
-        )
+        req = MarketplaceContactMatchRequest(phone_lookups=lookups, limit=50)
         assert len(req.phone_lookups) == 2
         assert req.limit == 50
 
@@ -311,16 +292,12 @@ class TestMarketplaceInvestorActionRequestBounds:
     def test_source_type_max_length_32(self):
         """Test that source_type enforces max_length=32."""
         with pytest.raises(ValidationError):
-            MarketplaceInvestorActionRequest(
-                action="view", source_type="a" * 33
-            )
+            MarketplaceInvestorActionRequest(action="view", source_type="a" * 33)
 
     def test_target_user_id_max_length_256(self):
         """Test that target_user_id enforces max_length=256."""
         with pytest.raises(ValidationError):
-            MarketplaceInvestorActionRequest(
-                action="connect", target_user_id="a" * 257
-            )
+            MarketplaceInvestorActionRequest(action="connect", target_user_id="a" * 257)
 
     def test_valid_action_request(self):
         """Test that valid action request passes."""

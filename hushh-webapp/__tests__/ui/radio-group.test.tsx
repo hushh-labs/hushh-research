@@ -37,4 +37,21 @@ describe("RadioGroup", () => {
       container.querySelector('[data-slot="radio-group-indicator"]'),
     ).toBeTruthy();
   });
+
+  it("marks only one option as aria-checked true", () => {
+    const { container } = render(
+      <RadioGroup defaultValue="b">
+        <RadioGroupItem value="a" />
+        <RadioGroupItem value="b" />
+        <RadioGroupItem value="c" />
+      </RadioGroup>,
+    );
+
+    const checkedOptions = Array.from(
+      container.querySelectorAll('[role="radio"][aria-checked="true"]'),
+    );
+
+    expect(checkedOptions).toHaveLength(1);
+    expect(checkedOptions[0].getAttribute("value")).toBe("b");
+  });
 });

@@ -151,7 +151,7 @@ export function resolveGrowthJourneyForPath(pathname: string): GrowthJourney | n
 export function resolveGrowthEntrySurface(pathname: string): GrowthEntrySurface {
   if (!pathname) return "unknown";
   if (pathname === ROUTES.LOGIN) return "login";
-  if (pathname === ROUTES.KAI_ONBOARDING || pathname.startsWith(`${ROUTES.KAI_ONBOARDING}/`)) {
+  if (pathname === ROUTES.ONE_ONBOARDING || pathname.startsWith(`${ROUTES.ONE_ONBOARDING}/`)) {
     return "kai_onboarding";
   }
   if (pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)) {
