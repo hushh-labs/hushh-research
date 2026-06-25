@@ -21,4 +21,19 @@ describe("Table", () => {
 
     expect(tableContainer?.getAttribute("tabindex")).toBe("0");
   });
+  it("renders the inner table element with the table data-slot contract", () => {
+    const { container } = render(
+      <Table>
+        <tbody>
+          <tr>
+            <td>Holding</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const tableElement = container.querySelector("table");
+
+    expect(tableElement?.getAttribute("data-slot")).toBe("table");
+  });
 });
