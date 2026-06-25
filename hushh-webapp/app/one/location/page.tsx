@@ -242,6 +242,30 @@ function expiresLabel(grant: OneLocationGrant): string {
   return `Expires ${formatDateTime(grant.expiresAt)}`;
 }
 
+// Human, at-a-glance countdown to when a share auto-stops (e.g. "Stops in
+// 14 min"). This is a key confidence cue: the user can always see that sharing
+// is time-boxed and will end on its own. Falls back to the absolute time when
+// the window is long, and degrades gracefully if the timestamp is missing.
+function expiresCountdownLabel(value?: string | null): string | null {
+  if (!value) return null;
+  const expiresAt = new Date(value).getTime();
+  if (!Number.isFinite(expiresAt)) return null;
+  const diffMs = expiresAt - Date.now();
+  if (diffMs <= 0) return "Stopping now";
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 60) {
+    return `Stops in ${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const remMinutes = minutes % 60;
+    return remMinutes
+      ? `Stops in ${hours}h ${remMinutes}m`
+      : `Stops in ${hours}h`;
+  }
+  return `Stops ${formatDateTime(value)}`;
+}
+
 function looksLikeInternalIdentifier(value: string): boolean {
   const label = value.trim();
   if (!label) return false;
@@ -4313,6 +4337,14 @@ function OneLocationAgentPageContent() {
                               .
                             </p>
                           </div>
+                          <p className="flex items-center gap-1.5 text-[12px] font-medium text-[#17446f]/80 dark:text-[#cfe7ff]/80">
+                            <ShieldCheck
+                              className="h-3.5 w-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            Encrypted end-to-end, auto-stops when the timer ends,
+                            and you can stop early anytime.
+                          </p>
                           <ActionButton
                             busy={busy}
                             busyKey="share"
@@ -4807,6 +4839,16 @@ function OneLocationAgentPageContent() {
                                 <Badge variant={statusVariant(grant.status)}>
                                   {grant.status}
                                 </Badge>
+                                {grant.status === "active" &&
+                                expiresCountdownLabel(grant.expiresAt) ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-[#34c759]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2dbd5a] dark:bg-[#34c759]/15">
+                                    <Clock3
+                                      className="h-3 w-3"
+                                      aria-hidden="true"
+                                    />
+                                    {expiresCountdownLabel(grant.expiresAt)}
+                                  </span>
+                                ) : null}
                                 <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
                                   {expiresLabel(grant)}
                                 </span>
