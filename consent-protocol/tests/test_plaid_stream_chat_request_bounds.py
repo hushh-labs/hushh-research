@@ -55,11 +55,11 @@ class TestPlaidLinkTokenRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidLinkTokenRequest(user_id="u" * 129)
+            PlaidLinkTokenRequest(user_id="u" * 257)
 
     def test_item_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidLinkTokenRequest(user_id="u1", item_id="i" * 129)
+            PlaidLinkTokenRequest(user_id="u1", item_id="i" * 513)
 
     def test_redirect_uri_too_long_raises(self):
         with pytest.raises(ValidationError):
@@ -81,7 +81,7 @@ class TestPlaidPublicTokenExchangeRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidPublicTokenExchangeRequest(user_id="u" * 129, public_token="tok")  # noqa: S106
+            PlaidPublicTokenExchangeRequest(user_id="u" * 257, public_token="tok")  # noqa: S106
 
     def test_public_token_empty_raises(self):
         with pytest.raises(ValidationError):
@@ -89,14 +89,14 @@ class TestPlaidPublicTokenExchangeRequest:
 
     def test_public_token_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidPublicTokenExchangeRequest(user_id="u1", public_token="t" * 513)  # noqa: S106
+            PlaidPublicTokenExchangeRequest(user_id="u1", public_token="t" * 1025)  # noqa: S106
 
     def test_resume_session_id_too_long_raises(self):
         with pytest.raises(ValidationError):
             PlaidPublicTokenExchangeRequest(
                 user_id="u1",
                 public_token="t",  # noqa: S106
-                resume_session_id="r" * 129,
+                resume_session_id="r" * 257,
             )
 
     def test_terms_version_too_long_raises(self):
@@ -104,7 +104,7 @@ class TestPlaidPublicTokenExchangeRequest:
             PlaidPublicTokenExchangeRequest(
                 user_id="u1",
                 public_token="t",  # noqa: S106
-                terms_version="v" * 51,
+                terms_version="v" * 65,
             )
 
     def test_alpaca_account_id_too_long_raises(self):
@@ -112,7 +112,7 @@ class TestPlaidPublicTokenExchangeRequest:
             PlaidPublicTokenExchangeRequest(
                 user_id="u1",
                 public_token="t",  # noqa: S106
-                alpaca_account_id="a" * 129,
+                alpaca_account_id="a" * 257,
             )
 
 
@@ -128,7 +128,7 @@ class TestPlaidOAuthResumeRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidOAuthResumeRequest(user_id="u" * 129, resume_session_id="s")
+            PlaidOAuthResumeRequest(user_id="u" * 257, resume_session_id="s")
 
     def test_resume_session_id_empty_raises(self):
         with pytest.raises(ValidationError):
@@ -136,7 +136,7 @@ class TestPlaidOAuthResumeRequest:
 
     def test_resume_session_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidOAuthResumeRequest(user_id="u1", resume_session_id="s" * 129)
+            PlaidOAuthResumeRequest(user_id="u1", resume_session_id="s" * 257)
 
 
 # ---------------------------------------------------------------------------
@@ -151,17 +151,17 @@ class TestPlaidRefreshRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidRefreshRequest(user_id="u" * 129)
+            PlaidRefreshRequest(user_id="u" * 257)
 
     def test_item_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidRefreshRequest(user_id="u1", item_id="i" * 129)
+            PlaidRefreshRequest(user_id="u1", item_id="i" * 513)
 
 
 class TestPlaidRefreshCancelRequest:
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidRefreshCancelRequest(user_id="u" * 129)
+            PlaidRefreshCancelRequest(user_id="u" * 257)
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +176,15 @@ class TestPlaidFundingTransactionsSyncRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundingTransactionsSyncRequest(user_id="u" * 129, item_id="i")
+            PlaidFundingTransactionsSyncRequest(user_id="u" * 257, item_id="i")
 
     def test_item_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundingTransactionsSyncRequest(user_id="u1", item_id="i" * 129)
+            PlaidFundingTransactionsSyncRequest(user_id="u1", item_id="i" * 513)
 
     def test_cursor_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundingTransactionsSyncRequest(user_id="u1", item_id="i1", cursor="c" * 513)
+            PlaidFundingTransactionsSyncRequest(user_id="u1", item_id="i1", cursor="c" * 2049)
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ class TestPlaidTransferCreateRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidTransferCreateRequest(**self._valid(user_id="u" * 129))
+            PlaidTransferCreateRequest(**self._valid(user_id="u" * 257))
 
     def test_user_legal_name_too_long_raises(self):
         with pytest.raises(ValidationError):
@@ -217,15 +217,15 @@ class TestPlaidTransferCreateRequest:
 
     def test_network_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidTransferCreateRequest(**self._valid(network="n" * 51))
+            PlaidTransferCreateRequest(**self._valid(network="n" * 65))
 
     def test_description_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidTransferCreateRequest(**self._valid(description="d" * 257))
+            PlaidTransferCreateRequest(**self._valid(description="d" * 513))
 
     def test_idempotency_key_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidTransferCreateRequest(**self._valid(idempotency_key="k" * 129))
+            PlaidTransferCreateRequest(**self._valid(idempotency_key="k" * 257))
 
     def test_redirect_uri_too_long_raises(self):
         with pytest.raises(ValidationError):
@@ -244,7 +244,7 @@ class TestPlaidFundingEscalationRequest:
 
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundingEscalationRequest(user_id="u" * 129, notes="n")
+            PlaidFundingEscalationRequest(user_id="u" * 257, notes="n")
 
     def test_notes_empty_raises(self):
         with pytest.raises(ValidationError):
@@ -252,15 +252,15 @@ class TestPlaidFundingEscalationRequest:
 
     def test_notes_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundingEscalationRequest(user_id="u1", notes="n" * 4001)
+            PlaidFundingEscalationRequest(user_id="u1", notes="n" * 2049)
 
     def test_notes_at_max_passes(self):
-        r = PlaidFundingEscalationRequest(user_id="u1", notes="n" * 4000)
-        assert len(r.notes) == 4000
+        r = PlaidFundingEscalationRequest(user_id="u1", notes="n" * 2048)
+        assert len(r.notes) == 2048
 
     def test_transfer_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundingEscalationRequest(user_id="u1", notes="n", transfer_id="t" * 129)
+            PlaidFundingEscalationRequest(user_id="u1", notes="n", transfer_id="t" * 257)
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@ class TestPlaidFundingEscalationRequest:
 class TestAlpacaConnectStartRequest:
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            AlpacaConnectStartRequest(user_id="u" * 129)
+            AlpacaConnectStartRequest(user_id="u" * 257)
 
     def test_redirect_uri_too_long_raises(self):
         with pytest.raises(ValidationError):
@@ -289,7 +289,7 @@ class TestAlpacaConnectCompleteRequest:
 
     def test_code_too_long_raises(self):
         with pytest.raises(ValidationError):
-            AlpacaConnectCompleteRequest(user_id="u1", state="s", code="c" * 513)
+            AlpacaConnectCompleteRequest(user_id="u1", state="s", code="c" * 2049)
 
 
 # ---------------------------------------------------------------------------
@@ -323,17 +323,17 @@ class TestPlaidFundedTradeCreateRequest:
 
     def test_brokerage_account_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundedTradeCreateRequest(**self._valid(brokerage_account_id="b" * 129))
+            PlaidFundedTradeCreateRequest(**self._valid(brokerage_account_id="b" * 513))
 
     def test_trade_idempotency_key_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundedTradeCreateRequest(**self._valid(trade_idempotency_key="k" * 129))
+            PlaidFundedTradeCreateRequest(**self._valid(trade_idempotency_key="k" * 257))
 
 
 class TestPlaidFundedTradeRefreshRequest:
     def test_user_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            PlaidFundedTradeRefreshRequest(user_id="u" * 129)
+            PlaidFundedTradeRefreshRequest(user_id="u" * 257)
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +391,7 @@ class TestStartAnalyzeRunRequest:
 
     def test_debate_session_id_too_long_raises(self):
         with pytest.raises(ValidationError):
-            StartAnalyzeRunRequest(user_id="u1", debate_session_id="s" * 129, ticker="AAPL")
+            StartAnalyzeRunRequest(user_id="u1", debate_session_id="s" * 257, ticker="AAPL")
 
     def test_ticker_too_long_raises(self):
         with pytest.raises(ValidationError):

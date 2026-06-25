@@ -126,7 +126,7 @@ class TestPlaidRouteOversizedPayload:
     def test_link_token_oversized_user_id_rejected(self, plaid_client):
         resp = plaid_client.post(
             "/plaid/link-token",
-            json={"user_id": "u" * 129},
+            json={"user_id": "u" * 257},
         )
         assert resp.status_code == 422
 
@@ -140,14 +140,14 @@ class TestPlaidRouteOversizedPayload:
     def test_exchange_token_oversized_user_id_rejected(self, plaid_client):
         resp = plaid_client.post(
             "/plaid/exchange-public-token",
-            json={"user_id": "u" * 129, "public_token": "tok"},
+            json={"user_id": "u" * 257, "public_token": "tok"},
         )
         assert resp.status_code == 422
 
     def test_exchange_token_oversized_public_token_rejected(self, plaid_client):
         resp = plaid_client.post(
             "/plaid/exchange-public-token",
-            json={"user_id": "u1", "public_token": "t" * 513},
+            json={"user_id": "u1", "public_token": "t" * 1025},
         )
         assert resp.status_code == 422
 
