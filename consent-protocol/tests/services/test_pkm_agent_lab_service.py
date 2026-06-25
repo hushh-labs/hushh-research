@@ -1961,6 +1961,60 @@ async def test_identity_read_only_query_stays_do_not_save(monkeypatch):
     assert "identity_domain_requires_confirmation" not in result["validation_hints"]
 
 
+@pytest.mark.asyncio
+async def test_explicit_identity_update_intent_forces_confirm_first(monkeypatch):
+    """Deterministic confirm for explicit field updates (GAP 1 fix).
+
+    Reproduces the live UAT failure: the frontend update flow re-classifies a
+    machine-synthesized sentence ('Update identity - address: change from "" to
+    "..."') with the LLM. For the address phrasing the classifier resolves it to
+    no_op/do_not_save, so the identity force-confirm guard (which only fires on
+    can_save) never triggers, zero confirm cards survive, and no review panel
+    renders. When the caller supplies an explicit `update_intent` (domain +
+    field_path + proposed_value), routing and the confirm decision must be
+    derived deterministically from those structured slots, NOT re-derived by the
+    LLM from synthetic text: an explicit identity update is always confirm_first.
+    """
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    # Simulate the failing live path: synthetic update sentence -> LLM reads it as
+    # a no-op / do_not_save (the exact failure mode the investigation identified).
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                'Update identity - address: change from "" to "221B Baker Street, London"',
+                mutation_intent="no_op",
+                merge_mode="no_op",
+                structure_write_mode="do_not_save",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message='Update identity - address: change from "" to "221B Baker Street, London"',
+        current_domains=["identity", "financial"],
+        simulated_state=IDENTITY_SIMULATED_STATE,
+        update_intent={
+            "domain": "identity",
+            "field_path": "address",
+            "current_value": "",
+            "proposed_value": "221B Baker Street, London",
+        },
+    )
+
+    assert result["structure_decision"]["target_domain"] == "identity"
+    assert result["write_mode"] == "confirm_first"
+    assert "identity_domain_requires_confirmation" in result["validation_hints"]
+    assert "explicit_update_confirmation" in result["validation_hints"]
+
+
 # ---------------------------------------------------------------------------
 # Identity PII sensitivity classification (Wave 2 / D-09)
 # ---------------------------------------------------------------------------

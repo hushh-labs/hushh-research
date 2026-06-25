@@ -677,6 +677,7 @@ class PKMAgentLabService:
         model_override: str | None,
         strict_small_model: bool,
         domain_registry_override: list[dict[str, Any]] | None,
+        update_intent: dict[str, Any] | None = None,
     ) -> str:
         material = json.dumps(
             {
@@ -688,6 +689,7 @@ class PKMAgentLabService:
                 "model_override": model_override or "",
                 "strict_small_model": strict_small_model,
                 "domain_registry_override": domain_registry_override or [],
+                "update_intent": update_intent or {},
             },
             sort_keys=True,
             default=str,
@@ -3178,6 +3180,7 @@ class PKMAgentLabService:
         parsed_structure: dict[str, Any] | None,
         fallback_target_domain: str,
         simulated_state: dict[str, Any] | None,
+        update_intent: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raw_structure = parsed_structure or {}
         raw_decision = raw_structure.get("structure_decision")
@@ -3447,6 +3450,23 @@ class PKMAgentLabService:
 
         if mutation_intent == "no_op" and write_mode == "can_save":
             write_mode = "do_not_save"
+
+        # Explicit field updates carry their target deterministically (GAP 1 fix).
+        # The agent's update_pkm tool already resolved the domain + field, so the
+        # confirm decision must NOT be re-derived by the LLM from a synthesized
+        # "change X to Y" sentence (that re-parse is why identity address updates
+        # silently dropped to do_not_save and never surfaced the review panel).
+        # An explicit update is never do_not_save / silent can_save — force
+        # confirm_first and honor the caller-supplied target domain.
+        if update_intent:
+            intent_domain = cls._normalize_segment(str(update_intent.get("domain") or ""))
+            if intent_domain:
+                target_domain = intent_domain
+                decision["target_domain"] = intent_domain
+            write_mode = "confirm_first"
+            validation_hints.append("explicit_update_confirmation")
+            if target_domain == "identity":
+                validation_hints.append("identity_domain_requires_confirmation")
 
         # Identity writes are structurally incapable of auto-save (D-07). Mirror
         # the financial force-confirm guard: escalate ONLY when the resolved
@@ -4117,6 +4137,7 @@ class PKMAgentLabService:
         model_override: str | None = None,
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
+        update_intent: dict[str, Any] | None = None,
         deadline: float | None = None,
     ) -> dict[str, Any]:
         normalized_domains = [
@@ -4294,6 +4315,7 @@ class PKMAgentLabService:
                 parsed_structure=structure_raw,
                 fallback_target_domain=fallback_target_domain,
                 simulated_state=simulated_state,
+                update_intent=update_intent,
             )
             agent_manifest = self.structure_manifest
         manifest = self._build_manifest_from_payload(
@@ -4348,6 +4370,32 @@ class PKMAgentLabService:
             "manifest_draft": manifest,
         }
 
+    @staticmethod
+    def _normalize_update_intent(
+        update_intent: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Sanitize an explicit field-update intent supplied by the caller.
+
+        Returns a normalized dict ({domain, field_path, current_value,
+        proposed_value}) only when BOTH a domain and a field_path are present;
+        otherwise None (the request falls back to free-form message handling).
+        This is what makes the agent's update_pkm path deterministic: the
+        confirm decision is driven by these structured slots, not by an LLM
+        re-parse of a synthesized sentence (GAP 1 fix).
+        """
+        if not isinstance(update_intent, dict):
+            return None
+        domain = str(update_intent.get("domain") or "").strip()
+        field_path = str(update_intent.get("field_path") or "").strip()
+        if not domain or not field_path:
+            return None
+        return {
+            "domain": domain,
+            "field_path": field_path,
+            "current_value": str(update_intent.get("current_value") or ""),
+            "proposed_value": str(update_intent.get("proposed_value") or ""),
+        }
+
     async def generate_structure_preview(
         self,
         *,
@@ -4359,11 +4407,13 @@ class PKMAgentLabService:
         model_override: str | None = None,
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
+        update_intent: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
+        normalized_update_intent = self._normalize_update_intent(update_intent)
         preview_cache_key = self._preview_cache_key(
             user_id=user_id,
             message=message,
@@ -4373,6 +4423,7 @@ class PKMAgentLabService:
             model_override=model_override,
             strict_small_model=strict_small_model,
             domain_registry_override=domain_registry_override,
+            update_intent=normalized_update_intent,
         )
         cached_preview = self._get_cached_structure_preview(preview_cache_key)
         if cached_preview is not None:
@@ -4430,6 +4481,7 @@ class PKMAgentLabService:
                     model_override=model_override,
                     strict_small_model=strict_small_model,
                     domain_registry_override=domain_registry_override,
+                    update_intent=normalized_update_intent,
                     deadline=preview_deadline,
                 )
                 preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)

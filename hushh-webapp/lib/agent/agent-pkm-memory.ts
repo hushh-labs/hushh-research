@@ -166,11 +166,19 @@ export function getIgnoredPkmCards(cards: readonly AgentPkmPreviewCard[]): Agent
   return cards.filter((card) => card.write_mode === "do_not_save");
 }
 
+export interface AgentPkmUpdateIntent {
+  domain: string;
+  field_path: string;
+  current_value: string;
+  proposed_value: string;
+}
+
 export async function previewAgentPkmMemory(params: {
   userId: string;
   message: string;
   currentDomains: string[];
   vaultOwnerToken: string;
+  updateIntent?: AgentPkmUpdateIntent | null;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
   const response = await ApiService.apiFetch("/api/pkm/agent-lab/structure", {
     method: "POST",
@@ -182,6 +190,10 @@ export async function previewAgentPkmMemory(params: {
       user_id: params.userId,
       message: params.message,
       current_domains: params.currentDomains,
+      // Carry the structured update slots so the backend derives routing +
+      // confirm_first deterministically instead of re-classifying the
+      // synthesized message with the LLM (GAP 1 fix).
+      ...(params.updateIntent ? { update_intent: params.updateIntent } : {}),
     }),
   });
 
@@ -382,6 +394,14 @@ export async function previewAgentPkmUpdate(params: {
     message,
     currentDomains: params.currentDomains,
     vaultOwnerToken: params.vaultOwnerToken,
+    // Structured slots make the confirm decision deterministic (GAP 1 fix):
+    // the backend uses these instead of re-classifying `message` with the LLM.
+    updateIntent: {
+      domain: params.domain,
+      field_path: params.fieldPath,
+      current_value: params.currentValue,
+      proposed_value: params.proposedValue,
+    },
   });
 }
 

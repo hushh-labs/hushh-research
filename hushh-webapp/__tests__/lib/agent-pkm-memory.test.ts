@@ -111,6 +111,23 @@ describe("previewAgentPkmUpdate", () => {
     expect(Array.isArray(result.cards)).toBe(true);
     expect(result.agent_id).toBe("pkm-agent");
   });
+
+  it("sends a structured update_intent so the confirm decision is deterministic (GAP 1)", async () => {
+    await previewAgentPkmUpdate(baseParams);
+
+    const [, init] = vi.mocked(ApiService.apiFetch).mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+
+    // The structured slots must travel to the backend (not only the synthetic
+    // sentence) so routing + confirm_first are derived deterministically rather
+    // than re-classified by the LLM from machine-built text.
+    expect(body.update_intent).toEqual({
+      domain: "professional",
+      field_path: "profile.name",
+      current_value: "Alice",
+      proposed_value: "Alice Smith",
+    });
+  });
 });
 
 // ─── Task 2: saveAgentPkmUpdate ─────────────────────────────────────────────
