@@ -406,7 +406,13 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              "[&_[aria-checked=true]]:text-primary [&_[data-segment-indicator]]:bg-primary/10 [&_[data-segment-indicator]]:shadow-sm",
+              // Lean flat track matching the search button + top app bar
+              // (ShellActionSurface): soft translucent surface, no shadow/blur.
+              "bg-black/[0.05] shadow-none backdrop-blur-none dark:bg-white/[0.07]",
+              // Active segment: flat translucent highlight, no inherited
+              // shadow/blur from the shared primitive (keeps it lean + matched).
+              "[&_[aria-checked=true]]:text-primary",
+              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
         </div>
