@@ -237,8 +237,10 @@ class TestBulkCreateBounds:
         payload = [{"name": f"Investor {i}"} for i in range(3)]
         with patch.object(
             investors_module.InvestorDBService,
-            "upsert_investor",
-            new=AsyncMock(return_value={"id": 1}),
+            "bulk_upsert_investors",
+            new=AsyncMock(
+                return_value=[{"id": i, "name": f"Investor {i}"} for i in range(3)]
+            ),
         ):
             r = client.post("/api/investors/bulk", json=payload)
         assert r.status_code == 201
@@ -249,8 +251,12 @@ class TestBulkCreateBounds:
         payload = [{"name": f"Investor {i}"} for i in range(_BULK_INVESTOR_MAX)]
         with patch.object(
             investors_module.InvestorDBService,
-            "upsert_investor",
-            new=AsyncMock(return_value={"id": 1}),
+            "bulk_upsert_investors",
+            new=AsyncMock(
+                return_value=[
+                    {"id": i, "name": f"Investor {i}"} for i in range(_BULK_INVESTOR_MAX)
+                ]
+            ),
         ):
             r = client.post("/api/investors/bulk", json=payload)
         assert r.status_code == 201
