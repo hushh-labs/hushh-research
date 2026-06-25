@@ -1695,3 +1695,48 @@ def test_sanitize_candidate_payload_applies_key_sanitization():
     assert "account_$50000" not in result
     assert "phone_9876543210" not in result
     assert result.get("preferences") == {"food": "Chinese"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 02-01 Task 2: identity classifier routing (hint set + intent defaults)
+# ---------------------------------------------------------------------------
+
+
+def test_keyword_ranked_domains_address_ranks_identity_first():
+    ranked = PKMAgentLabService._keyword_ranked_domains(
+        message="update my address",
+        current_domains=[],
+    )
+    assert ranked, "expected at least one ranked domain"
+    assert ranked[0] == "identity"
+
+
+def test_keyword_ranked_domains_name_includes_identity():
+    ranked = PKMAgentLabService._keyword_ranked_domains(
+        message="my name is now Jane Doe",
+        current_domains=[],
+    )
+    assert "identity" in ranked
+
+
+def test_keyword_ranked_domains_email_includes_identity():
+    ranked = PKMAgentLabService._keyword_ranked_domains(
+        message="change my email to jane@example.com",
+        current_domains=[],
+    )
+    assert "identity" in ranked
+
+
+def test_intent_domain_defaults_profile_fact_identity_first():
+    from hushh_mcp.services.pkm_agent_lab_service import _INTENT_DOMAIN_DEFAULTS
+
+    assert _INTENT_DOMAIN_DEFAULTS["profile_fact"][0] == "identity"
+
+
+def test_identity_hints_contain_no_ssn_tokens():
+    from hushh_mcp.services.pkm_agent_lab_service import _IDENTITY_HINTS
+
+    blob = " ".join(_IDENTITY_HINTS).lower()
+    assert "ssn" not in blob
+    assert "social_security" not in blob
+    assert "social security" not in blob
