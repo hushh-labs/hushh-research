@@ -34,4 +34,14 @@ describe("Input", () => {
 
     expect(el?.getAttribute("autocapitalize")).not.toBe("none");
   });
+
+  it("sets autoCapitalize='none', autoCorrect='off', spellCheck='false' for type='email'", () => {
+    const { container } = render(<Input type="email" />);
+
+    const el = container.querySelector('[data-slot="input"]');
+
+    expect(el?.getAttribute("autocapitalize")).toBe("none");
+    expect(el?.getAttribute("autocorrect")).toBe("off");
+    expect(el?.getAttribute("spellcheck")).toBe("false");
+  });
 });
