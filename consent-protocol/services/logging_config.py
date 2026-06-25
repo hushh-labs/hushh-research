@@ -15,6 +15,7 @@ Usage:
     })
 """
 
+import hashlib
 import json
 import logging
 import logging.config
@@ -32,6 +33,31 @@ except ImportError:
 
 # Context variable for request correlation
 _request_context: Dict[str, Any] = {}
+
+SENSITIVE_KEYS = {
+    "email", "user_id", "vault_key", "token", "password", "secret",
+    "credentials", "auth", "key", "authorization", "x-correlation-id"
+}
+
+def hash_identity(user_id: Optional[str]) -> Optional[str]:
+    if not user_id:
+        return None
+    return hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+
+def sanitize_value(key: Any, value: Any) -> Any:
+    if not isinstance(key, str):
+        return value
+    key_lower = key.lower()
+    if any(s in key_lower for s in SENSITIVE_KEYS):
+        if key_lower == "user_id" and isinstance(value, str):
+            return hash_identity(value)
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {k: sanitize_value(k, v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_value("", item) for item in value]
+    return value
+
 
 
 class StructuredLogRecord(logging.LogRecord):
@@ -69,9 +95,9 @@ class JSONFormatter(logging.Formatter):
         if getattr(structured_record, "correlation_id", None):
             log_data["correlation_id"] = structured_record.correlation_id
 
-        # Add user context
+        # Add user context (hashed for Zero-Knowledge compliance)
         if getattr(structured_record, "user_id", None):
-            log_data["user_id"] = structured_record.user_id
+            log_data["user_id"] = hash_identity(structured_record.user_id)
 
         if getattr(structured_record, "vault_id", None):
             log_data["vault_id"] = structured_record.vault_id
@@ -84,7 +110,7 @@ class JSONFormatter(logging.Formatter):
                 "traceback": traceback.format_exception(*record.exc_info),
             }
 
-        # Add any extra attributes from the log call
+        # Add any extra attributes from the log call (with active PII sanitization)
         _skip = {
             "name", "msg", "args", "created", "filename", "funcName",
             "levelname", "levelno", "lineno", "module", "msecs", "message",
@@ -94,7 +120,7 @@ class JSONFormatter(logging.Formatter):
         }
         for key, value in record.__dict__.items():
             if key not in _skip and not key.startswith("_"):
-                log_data[key] = value
+                log_data[key] = sanitize_value(key, value)
 
         return json.dumps(log_data, default=str)
 
@@ -103,6 +129,7 @@ def configure_logging(
     level: str = "INFO",
     use_cloud_logging: bool = False,
     project_id: Optional[str] = None,
+    stream: str = "ext://sys.stdout",
 ) -> None:
     """
     Configure structured logging for the application
@@ -111,6 +138,7 @@ def configure_logging(
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         use_cloud_logging: Enable Google Cloud Logging integration
         project_id: GCP project ID (required if use_cloud_logging=True)
+        stream: Stream identifier (e.g. ext://sys.stdout or ext://sys.stderr)
     """
 
     # Update LogRecord factory to use our custom class
@@ -130,7 +158,7 @@ def configure_logging(
                 "class": "logging.StreamHandler",
                 "level": level,
                 "formatter": "json",
-                "stream": "ext://sys.stdout",
+                "stream": stream,
             },
         },
         "root": {
@@ -231,6 +259,26 @@ class RequestContextMiddleware:
         # Set correlation ID in context
         _request_context["correlation_id"] = correlation_id
 
+        # DB-backed caller-credential validation
+        raw_auth = headers.get(b"authorization")
+        if raw_auth:
+            try:
+                auth_str = raw_auth.decode("utf-8")
+                if auth_str.startswith("Bearer "):
+                    token = auth_str.removeprefix("Bearer ").strip()
+                    if token.startswith("HCT:"):
+                        from hushh_mcp.consent.token import validate_token_with_db
+                        valid, reason, token_obj = await validate_token_with_db(token)
+                        if valid and token_obj:
+                            _request_context["user_id"] = token_obj.user_id
+                            _request_context["scope"] = (
+                                token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
+                            )
+            except Exception as e:
+                logging.getLogger("RequestContextMiddleware").warning(
+                    "Token validation failed in logging middleware: %s", e
+                )
+
         async def send_with_correlation_id(message: Any) -> None:
             if message["type"] == "http.response.start":
                 resp_headers = list(message.get("headers", []))
@@ -242,3 +290,5 @@ class RequestContextMiddleware:
             await self.app(scope, receive, send_with_correlation_id)
         finally:
             _request_context.pop("correlation_id", None)
+            _request_context.pop("user_id", None)
+            _request_context.pop("scope", None)

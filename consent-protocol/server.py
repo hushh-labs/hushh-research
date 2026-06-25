@@ -177,6 +177,9 @@ app = FastAPI(
     root_path=root_path,
 )
 
+from services.logging_config import RequestContextMiddleware
+app.add_middleware(RequestContextMiddleware)
+
 app.middleware("http")(observability_middleware)
 
 # Rate limiting

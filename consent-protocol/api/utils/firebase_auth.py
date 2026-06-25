@@ -285,7 +285,7 @@ def verify_firebase_bearer(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    configured, _ = ensure_firebase_auth_admin()
+    configured, project_id = ensure_firebase_auth_admin()
     if not configured:
         # Backend misconfiguration (common in local dev)
         raise HTTPException(status_code=500, detail="Firebase Admin not configured")
