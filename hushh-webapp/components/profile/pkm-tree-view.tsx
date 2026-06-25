@@ -95,7 +95,10 @@ function JsonNode({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="rounded-xl border bg-background/70">
-        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left">
+        <CollapsibleTrigger
+          aria-label={`Toggle ${label} details`}
+          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+        >
           <div className="min-w-0">
             <p className="font-medium text-foreground">{label}</p>
             <p className="text-xs text-muted-foreground">
@@ -158,7 +161,10 @@ function ManifestNode({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="rounded-xl border bg-background/70">
-        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left">
+        <CollapsibleTrigger
+          aria-label={`Toggle ${node.key} details`}
+          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+        >
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">{node.key}</span>

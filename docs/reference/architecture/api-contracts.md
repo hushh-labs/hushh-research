@@ -656,3 +656,5 @@ See [Architecture: Tri-Flow](./architecture.md#tri-flow-architecture) for the fu
 - [Architecture](./architecture.md) -- System overview and tri-flow
 - [Personal Knowledge Model](../../../consent-protocol/docs/reference/personal-knowledge-model.md) -- Data storage endpoints
 - [Consent Protocol](../../../consent-protocol/docs/reference/consent-protocol.md) -- Token lifecycle
+
+

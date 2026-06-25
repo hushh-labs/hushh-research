@@ -16,18 +16,22 @@ export function SegmentedTabs({
   options,
   mobileColumns,
   className,
+  ariaLabel,
 }: {
   value: string;
   onValueChange: (value: string) => void;
   options: SegmentedTabOption[];
   mobileColumns?: number;
   className?: string;
+  ariaLabel?: string;
 }) {
   const resolvedDesktopColumns = Math.max(options.length, 1);
   const resolvedMobileColumns = Math.max(mobileColumns ?? resolvedDesktopColumns, 1);
 
   return (
     <div
+      role="radiogroup"
+      aria-label={ariaLabel}
       className={cn(
         "relative grid w-full rounded-full p-1 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--app-card-shadow-standard)]",
@@ -47,23 +51,23 @@ export function SegmentedTabs({
           <button
             key={option.value}
             type="button"
-            aria-pressed={isActive}
+            role="radio"
+            aria-checked={isActive}
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
               if (!isActive) onValueChange(option.value);
             }}
             className={cn(
-              "relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
+              "relative isolate min-h-9 overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
               isActive
                 ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[0_0_0_1px_var(--app-segmented-active-border),var(--shadow-xs)]"
                 : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
             )}
           >
-            {/* Ripple sits BEHIND the label (z-0) and never intercepts taps. */}
-            <MaterialRipple variant="none" effect="fade" className="z-0" />
-            <span className="relative z-10 block min-w-0 truncate text-center text-xs font-medium tracking-tight sm:text-sm">
+            <span className="relative z-0 block truncate text-xs font-medium tracking-tight sm:text-sm">
               {option.label}
             </span>
+            <MaterialRipple variant="none" effect="fade" className="z-10" />
           </button>
         );
       })}

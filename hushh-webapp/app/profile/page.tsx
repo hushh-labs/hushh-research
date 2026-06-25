@@ -3991,11 +3991,11 @@ function ProfilePageContent() {
             onDeletePreviewEntity={(entity) =>
               void handleDeletePkmPreviewEntity(entity)
             }
-            onTogglePermission={(permission, nextPosture) =>
+            onTogglePermission={(permission, nextValue) =>
               void handleToggleDomainPermission(
                 selectedDomain.key,
                 permission,
-                nextPosture,
+                nextValue ? "consent_required" : "private",
               )
             }
           />

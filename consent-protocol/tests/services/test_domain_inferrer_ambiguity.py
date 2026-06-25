@@ -17,12 +17,14 @@ import importlib.util
 import sys
 import types
 from enum import Enum
+from pathlib import Path
 
 # ─────────────────────────────────────────────
 # Step 1: Add consent-protocol to path
 # ─────────────────────────────────────────────
 
-CONSENT_PATH = "D:/Learn Ai/Hush_clone/hushh-research/consent-protocol"
+TESTS_DIR = Path(__file__).resolve().parent
+CONSENT_PATH = str(TESTS_DIR.parents[1])
 if CONSENT_PATH not in sys.path:
     sys.path.insert(0, CONSENT_PATH)
 
@@ -45,6 +47,23 @@ def mock_mod(name, **attrs):
     sys.modules[name] = m
     return m
 
+
+# Save original modules to avoid contaminating the global test environment
+MOCKED_MODULE_NAMES = [
+    "hushh_mcp.constants",
+    "hushh_mcp.types",
+    "hushh_mcp.consent.token",
+    "hushh_mcp.consent.scope_helpers",
+    "hushh_mcp.consent.scope_generator",
+    "hushh_mcp.consent.scope_bundles",
+    "hushh_mcp.services.consent_db",
+    "hushh_mcp.services",
+    "hushh_mcp.config",
+    "hushh_mcp.runtime_settings",
+    "hushh_mcp.db.connection",
+    "hushh_mcp.db",
+]
+_original_modules = {name: sys.modules.get(name) for name in MOCKED_MODULE_NAMES}
 
 mock_mod("hushh_mcp.constants", ConsentScope=ConsentScope, GEMINI_MODEL="mock")
 mock_mod("hushh_mcp.types", UserID=str)
@@ -75,10 +94,17 @@ def load_module(file_path, module_name):
 
 
 _mod = load_module(
-    "D:/Learn Ai/Hush_clone/hushh-research/consent-protocol/hushh_mcp/services/domain_inferrer.py",
+    str(TESTS_DIR.parents[1] / "hushh_mcp" / "services" / "domain_inferrer.py"),
     "hushh_mcp.services.domain_inferrer",
 )
 DomainInferrer = _mod.DomainInferrer
+
+# Restore the original modules to clean up global sys.modules
+for name, original in _original_modules.items():
+    if original is None:
+        sys.modules.pop(name, None)
+    else:
+        sys.modules[name] = original
 
 
 # ─────────────────────────────────────────────

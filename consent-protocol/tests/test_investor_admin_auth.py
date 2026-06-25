@@ -24,7 +24,7 @@ _FIREBASE_UID = "test-uid-investor-admin"
 @pytest.fixture()
 def authed_client():
     """Client with mocked Firebase auth."""
-    from api.main import app
+    from server import app
 
     app.dependency_overrides[require_firebase_auth] = lambda: _FIREBASE_UID
     yield TestClient(app, raise_server_exceptions=False)
@@ -34,7 +34,7 @@ def authed_client():
 @pytest.fixture()
 def unauthed_client():
     """Client with NO auth overrides — simulates a request without Firebase token."""
-    from api.main import app
+    from server import app
 
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()

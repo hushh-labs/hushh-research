@@ -114,13 +114,13 @@ describe("SettingsSegmentedTabs", () => {
       />
     );
 
-    const active = screen.getByRole("button", { name: "My list" });
-    const inactive = screen.getByRole("button", { name: "Kai list" });
+    const active = screen.getByRole("radio", { name: "My list" });
+    const inactive = screen.getByRole("radio", { name: "Kai list" });
 
     expect(active.getAttribute("data-state")).toBe("active");
-    expect(active.getAttribute("aria-pressed")).toBe("true");
+    expect(active.getAttribute("aria-checked")).toBe("true");
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(active);
     expect(handleValueChange).not.toHaveBeenCalled();
@@ -140,10 +140,10 @@ describe("SettingsSegmentedTabs", () => {
       />
     );
 
-    const inactive = screen.getByRole("button", { name: "My list" });
+    const inactive = screen.getByRole("radio", { name: "My list" });
 
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-checked")).toBe("false");
   });
 });
 

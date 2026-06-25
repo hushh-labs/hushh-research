@@ -31,6 +31,7 @@ import {
 import { Button } from "@/lib/morphy-ux/morphy";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { isConsumerVisiblePkmDomain } from "@/lib/profile/pkm-profile-presentation";
+import { KYC_WORKFLOW_PKM_DOMAIN } from "@/lib/services/kyc-pkm-write-service";
 
 type DomainInspectorState = {
   manifest: DomainManifest | null;
@@ -62,6 +63,10 @@ export function PkmExplorerPanel() {
     error: null,
     loading: false,
   });
+  const visibleDomains = useMemo(
+    () => (metadata?.domains || []).filter(isConsumerVisiblePkmDomain),
+    [metadata]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -183,14 +188,9 @@ export function PkmExplorerPanel() {
   }, [isVaultUnlocked, selectedDomain, user, vaultKey, vaultOwnerToken]);
 
   const selectedSummary = useMemo<DomainSummary | null>(() => {
-    if (!metadata || !selectedDomain) return null;
-    return metadata.domains.find((domain) => domain.key === selectedDomain) || null;
-  }, [metadata, selectedDomain]);
-
-  const visibleDomains = useMemo(
-    () => (metadata?.domains || []).filter(isConsumerVisiblePkmDomain),
-    [metadata?.domains]
-  );
+    if (!selectedDomain) return null;
+    return visibleDomains.find((domain) => domain.key === selectedDomain) || null;
+  }, [visibleDomains, selectedDomain]);
 
   const selectedScopeEntries = useMemo(
     () => domainState.manifest?.scope_registry || [],
@@ -248,11 +248,16 @@ export function PkmExplorerPanel() {
             className="w-full sm:w-auto"
           >
             {bootstrapLoading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <span aria-live="polite" className="flex items-center">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Refreshing...
+              </span>
             ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh saved PKM
+              </>
             )}
-            Refresh saved PKM
           </Button>
         </div>
 
@@ -279,7 +284,10 @@ export function PkmExplorerPanel() {
           </div>
         ) : null}
         {bootstrapError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+          <div
+            aria-live="assertive"
+            className="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700"
+          >
             {bootstrapError}
           </div>
         ) : null}
@@ -299,15 +307,16 @@ export function PkmExplorerPanel() {
             icon={FolderTree}
             accent="sky"
           />
-          {metadata?.domains.length ? (
-            <div className="space-y-3">
+          {visibleDomains.length ? (
+            <div role="tablist" aria-label="PKM Domains" className="space-y-3">
               {visibleDomains.map((domain) => {
                 const isActive = selectedDomain === domain.key;
                 return (
                   <button
                     key={domain.key}
                     type="button"
-                    aria-pressed={isActive}
+                    role="tab"
+                    aria-selected={isActive}
                     className={`w-full rounded-[var(--radius-md)] border-0 px-4 py-3 text-left transition ${
                       isActive
                         ? "bg-primary/8 text-foreground dark:bg-primary/12"
@@ -322,6 +331,14 @@ export function PkmExplorerPanel() {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <Badge variant="secondary">{domain.attributeCount}</Badge>
+                        {domain.key === KYC_WORKFLOW_PKM_DOMAIN ? (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-300 text-[10px] text-emerald-600"
+                          >
+                            KYC workflow
+                          </Badge>
+                        ) : null}
                       </div>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">

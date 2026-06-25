@@ -335,7 +335,6 @@ export function RuntimeSecretSettingsCard({
     <SettingsGroup
       title="Runtime keys"
       description="Store model provider keys in your encrypted PKM vault."
-      testId="runtime-secret-settings"
     >
       <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -1,11 +1,17 @@
 "use client";
 
+/**
+ * Reusable DataTable Component with Filtering and Pagination
+ * Built on TanStack Table + shadcn/ui table component
+ */
+
 import * as React from "react";
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  SortingState,
+} from "@tanstack/react-table";
 import {
-  type ColumnDef,
-  type ColumnFiltersState,
-  type SortingState,
-  type Row,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
@@ -54,12 +60,15 @@ function buildPaginationItems(currentPage: number, pageCount: number): Array<num
   if (pageCount <= 7) {
     return Array.from({ length: pageCount }, (_, index) => index + 1);
   }
+
   if (currentPage <= 4) {
     return [1, 2, 3, 4, 5, "ellipsis", pageCount];
   }
+
   if (currentPage >= pageCount - 3) {
     return [1, "ellipsis", pageCount - 4, pageCount - 3, pageCount - 2, pageCount - 1, pageCount];
   }
+
   return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", pageCount];
 }
 
@@ -81,6 +90,8 @@ interface DataTableProps<TData, TValue> {
   tableClassName?: string;
   density?: "default" | "compact";
   stickyHeader?: boolean;
+  title?: string;
+  eyebrow?: string;
 }
 
 export function DataTable<TData, TValue>({
@@ -101,19 +112,14 @@ export function DataTable<TData, TValue>({
   tableClassName,
   density = "default",
   stickyHeader = false,
+  title,
+  eyebrow,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [searchTerm, setSearchTerm] = React.useState("");
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    []
+  );
   const [globalFilter, setGlobalFilter] = React.useState("");
-
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      setGlobalFilter(searchTerm);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
-
   const normalizedSearchKeys = React.useMemo(
     () =>
       Array.from(
@@ -130,9 +136,8 @@ export function DataTable<TData, TValue>({
       ),
     [globalSearchKeys, searchKey]
   );
-
   const globalSearchFilterFn = React.useCallback(
-    (row: Row<TData>, _columnId: string, filterValue: unknown) => {
+    (row: { original: TData }, _columnId: string, filterValue: unknown) => {
       if (typeof filterValue !== "string") return true;
       const query = filterValue.trim().toLowerCase();
       if (!query) return true;
@@ -146,7 +151,6 @@ export function DataTable<TData, TValue>({
     },
     [normalizedSearchKeys]
   );
-
   const normalizedPageSizeOptions = React.useMemo(
     () =>
       Array.from(new Set([initialPageSize, ...pageSizeOptions]))
@@ -165,9 +169,22 @@ export function DataTable<TData, TValue>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
-    ...(normalizedSearchKeys.length > 0
-      ? { globalFilterFn: globalSearchFilterFn }
-      : {}),
+    globalFilterFn: (row, columnId, filterValue) => {
+      if (typeof filterValue === "string" && !filterValue.trim()) {
+        return true;
+      }
+      if (normalizedSearchKeys.length > 0) {
+        return globalSearchFilterFn(row, columnId, filterValue);
+      }
+      const query = typeof filterValue === "string" ? filterValue.trim().toLowerCase() : "";
+      if (!query) return true;
+      const original = row.original as Record<string, unknown>;
+      return Object.keys(original).some((key) => {
+        const value = original[key];
+        if (value === null || value === undefined) return false;
+        return String(value).toLowerCase().includes(query);
+      });
+    },
     state: {
       sorting,
       columnFilters,
@@ -192,7 +209,6 @@ export function DataTable<TData, TValue>({
   const pageCount = table.getPageCount();
   const currentPage = pageCount === 0 ? 0 : pageIndex + 1;
   const hasMultiplePages = pageCount > 1;
-
   const paginationItems = React.useMemo(
     () => buildPaginationItems(currentPage, pageCount),
     [currentPage, pageCount]
@@ -200,32 +216,36 @@ export function DataTable<TData, TValue>({
 
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
-
   return (
     <div className="space-y-[var(--data-table-controls-gap)]">
+      {/* Search and Filter Controls */}
       {(enableSearch || (filterKey && filterOptions)) && (
         <div className="flex flex-col gap-3 sm:flex-row">
-          {enableSearch && (
+          {/* Global Search */}
+          {enableSearch ? (
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="search"
                 spellCheck={false}
                 autoComplete="off"
+                autoCapitalize="none"
                 autoCorrect="off"
-                autoCapitalize="off"
                 placeholder={searchPlaceholder}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={globalFilter ?? ""}
+                onChange={(e) => setGlobalFilter(e.target.value)}
                 className="pl-9 cursor-text"
                 aria-label="Search table"
               />
             </div>
-          )}
+          ) : null}
 
+          {/* Column Filter Dropdown */}
           {filterKey && filterOptions && (
             <Select
-              value={(table.getColumn(filterKey)?.getFilterValue() as string) ?? "all"}
+              value={
+                (table.getColumn(filterKey)?.getFilterValue() as string) ?? "all"
+              }
               onValueChange={(value) =>
                 table
                   .getColumn(filterKey)
@@ -254,11 +274,21 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
+      {/* Table */}
       <div
         className={cn(surfaceDataTableShellClassName, resolvedTableShellClassName)}
         data-slot="surface-data-table-shell"
       >
-        <Table className={tableClassName}>
+        <Table
+          className={tableClassName}
+          aria-label={
+            typeof title === "string"
+              ? title
+              : typeof eyebrow === "string"
+                ? eyebrow
+                : undefined
+          }
+        >
           <TableHeader
             className={
               stickyHeader
@@ -271,6 +301,15 @@ export function DataTable<TData, TValue>({
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
+                    aria-sort={
+                      header.column.getIsSorted() === "asc"
+                        ? "ascending"
+                        : header.column.getIsSorted() === "desc"
+                          ? "descending"
+                          : header.column.getCanSort()
+                            ? "none"
+                            : undefined
+                    }
                     className={cn(
                       compact
                         ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
@@ -280,34 +319,24 @@ export function DataTable<TData, TValue>({
                     onClick={header.column.getToggleSortingHandler()}
                     tabIndex={header.column.getCanSort() ? 0 : undefined}
                     role={header.column.getCanSort() ? "button" : undefined}
-                    aria-sort={
-                      header.column.getCanSort()
-                        ? header.column.getIsSorted() === "asc"
-                          ? "ascending"
-                          : header.column.getIsSorted() === "desc"
-                            ? "descending"
-                            : "none"
-                        : undefined
-                    }
                     onKeyDown={(e) => {
                       if (
                         header.column.getCanSort() &&
                         (e.key === "Enter" || e.key === " ")
                       ) {
                         e.preventDefault();
-
                         header.column.toggleSorting(
                           header.column.getIsSorted() === "asc"
                         );
                       }
                     }}
-                    >
+                  >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )}
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
                     {{
                       asc: " ↑",
                       desc: " ↓",
@@ -365,9 +394,9 @@ export function DataTable<TData, TValue>({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 px-[var(--data-table-cell-px)] text-center text-muted-foreground"
+                  className="h-24 px-[var(--data-table-cell-px)] text-center"
                 >
-                  No results found.
+                  No results.
                 </TableCell>
               </TableRow>
             )}
@@ -375,13 +404,9 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
 
-      {hasMultiplePages && (
+      {hasMultiplePages ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div
-            aria-live="polite"
-            aria-atomic="true"
-            className="text-xs text-muted-foreground sm:text-sm"
-          >
+          <div className="text-xs text-muted-foreground sm:text-sm">
             Showing {rangeStart}-{rangeEnd} of {filteredCount}
           </div>
 
@@ -392,8 +417,8 @@ export function DataTable<TData, TValue>({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
                     aria-label="Rows per page"
+                    className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
                   >
                     {table.getState().pagination.pageSize}
                   </Button>
@@ -416,12 +441,11 @@ export function DataTable<TData, TValue>({
             </div>
 
             <Pagination className="justify-end">
-              <PaginationContent className="flex-wrap gap-y-1">
+              <PaginationContent>
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
                     aria-disabled={!table.getCanPreviousPage()}
-                    tabIndex={!table.getCanPreviousPage() ? -1 : undefined}
                     className={cn(
                       !table.getCanPreviousPage() && "pointer-events-none opacity-50"
                     )}
@@ -435,19 +459,11 @@ export function DataTable<TData, TValue>({
                 </PaginationItem>
                 {paginationItems.map((item, index) =>
                   item === "ellipsis" ? (
-                    <PaginationItem
-                      key={`ellipsis-${index}`}
-                      className="hidden sm:flex"
-                    >
+                    <PaginationItem key={`ellipsis-${index}`}>
                       <PaginationEllipsis />
                     </PaginationItem>
                   ) : (
-                    <PaginationItem
-                      key={item}
-                      className={
-                        item === currentPage ? undefined : "hidden sm:flex"
-                      }
-                    >
+                    <PaginationItem key={item}>
                       <PaginationLink
                         href="#"
                         isActive={item === currentPage}
@@ -465,7 +481,6 @@ export function DataTable<TData, TValue>({
                   <PaginationNext
                     href="#"
                     aria-disabled={!table.getCanNextPage()}
-                    tabIndex={!table.getCanNextPage() ? -1 : undefined}
                     className={cn(!table.getCanNextPage() && "pointer-events-none opacity-50")}
                     onClick={(event) => {
                       event.preventDefault();
@@ -479,7 +494,7 @@ export function DataTable<TData, TValue>({
             </Pagination>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
