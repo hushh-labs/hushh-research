@@ -31,4 +31,19 @@ describe("Breadcrumb", () => {
     expect(list.children[1]).toBe(separator);
     expect(list.children[2]?.textContent).toBe("Settings");
   });
+
+  it('renders Breadcrumb root with aria-label="breadcrumb"', () => {
+    render(
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>Home</BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>,
+    );
+
+    const navigation = screen.getByRole("navigation");
+
+    expect(navigation.getAttribute("aria-label")).toBe("breadcrumb");
+  });
+
 });
