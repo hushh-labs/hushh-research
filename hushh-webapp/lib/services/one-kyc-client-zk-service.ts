@@ -1586,3 +1586,80 @@ export function htmlFromPlaintext(text: string): string {
     })
     .join("");
 }
+
+/**
+ * The fixed signature the renderer appends to every approved-disclosure draft.
+ * Kept byte-identical to `buildApprovedDisclosurePlainText` (renderer) so that
+ * `splitDraftTemplate` can strip it deterministically.
+ */
+const DRAFT_SIGNATURE = "Best,\nhussh One";
+
+/**
+ * Recompute the EXACT opening line the renderer produced for `renderModel`.
+ * Must stay byte-identical to `buildApprovedDisclosurePlainText` (renderer).
+ */
+function computeDraftOpening(renderModel: KycDraftRenderModel): string {
+  return renderModel.style.formal
+    ? `I am replying on behalf of ${renderModel.accountHolder} with the approved information below.`
+    : `I am replying on behalf of ${renderModel.accountHolder}.`;
+}
+
+/**
+ * Deterministically split a draft `body` into its fixed template framing
+ * ({ opening, content, signature }) using `renderModel`.
+ *
+ * The renderer composes every draft body as:
+ *   `${opening}\n\n${content...}\n${signature}`  (and the compact single-entry
+ *   branch uses the same `${opening}` prefix + `${signature}` suffix).
+ *
+ * This recomputes the opening from `style.formal + accountHolder` and uses the
+ * constant signature, then strips the known prefix/suffix; the trimmed remainder
+ * is `content` — the ONLY part an LLM redraft may rewrite. The opening and
+ * signature are returned verbatim so the caller can reassemble a byte-identical
+ * template around the rewritten content.
+ *
+ * Defensive: if the body does not start with the expected opening or end with the
+ * expected signature, returns `matched: false` with the WHOLE body as `content`
+ * (opening/signature empty), so the caller falls back to sending the full body.
+ */
+export function splitDraftTemplate(params: {
+  body: string;
+  renderModel: KycDraftRenderModel;
+}): { opening: string; content: string; signature: string; matched: boolean } {
+  const body = params.body;
+  const opening = computeDraftOpening(params.renderModel);
+  const signature = DRAFT_SIGNATURE;
+
+  const openingPrefix = `${opening}\n\n`;
+  const signatureSuffix = signature;
+
+  const startsWithOpening = body.startsWith(openingPrefix);
+  const endsWithSignature = body.endsWith(signatureSuffix);
+
+  if (!startsWithOpening || !endsWithSignature) {
+    // Defensive fallback: framing did not match — send the whole body.
+    return { opening: "", content: body, signature: "", matched: false };
+  }
+
+  const middle = body.slice(openingPrefix.length, body.length - signatureSuffix.length);
+  // The renderer separates content from the signature with a trailing "\n" (or
+  // "\n\n" in the compact branch); strip surrounding newline whitespace so the
+  // content is the clean rewritable core. Reassembly re-adds the framing.
+  const content = middle.replace(/^\n+/, "").replace(/\n+$/, "");
+
+  return { opening, content, signature, matched: true };
+}
+
+/**
+ * Reassemble a draft body from its fixed framing and a (possibly rewritten)
+ * content core, byte-identical to the renderer's `${opening}\n\n...\n\n${signature}`
+ * shape. Used after an LLM rewrite of the content portion so the opening line and
+ * signature remain unchanged.
+ */
+export function reassembleDraftTemplate(params: {
+  opening: string;
+  content: string;
+  signature: string;
+}): string {
+  return `${params.opening}\n\n${params.content}\n\n${params.signature}`;
+}

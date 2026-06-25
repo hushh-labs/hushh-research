@@ -25,10 +25,39 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
 import {
   htmlFromPlaintext,
   isKeywordOnlyInstruction,
+  reassembleDraftTemplate,
   redactDraftForLlm,
   resubstituteDraft,
+  splitDraftTemplate,
   validateTokenIntegrity,
 } from "@/lib/services/one-kyc-client-zk-service";
+import type { KycDraftRenderModel } from "@/lib/services/one-kyc-client-zk-service";
+import { APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID } from "@/lib/services/one-kyc-approved-disclosure-renderer";
+
+// Minimal render-model fixture: splitDraftTemplate only reads style.formal and
+// accountHolder to recompute the deterministic opening line.
+function makeRenderModel(params: {
+  accountHolder: string;
+  formal?: boolean;
+}): KycDraftRenderModel {
+  return {
+    contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+    contractVersion: "1.0.0",
+    accountHolder: params.accountHolder,
+    style: {
+      compact: false,
+      formal: Boolean(params.formal),
+      bulletList: false,
+      structured: false,
+      table: false,
+      fullDetail: false,
+      human: false,
+      cleanHeaders: false,
+    },
+    sections: [],
+    missingFields: [],
+  };
+}
 
 describe("redactDraftForLlm", () => {
   it("replaces every approved value with an opaque token and leaves no real value", () => {
@@ -258,5 +287,136 @@ describe("htmlFromPlaintext", () => {
     const paragraphCount = (html.match(/<p /g) || []).length;
     expect(paragraphCount).toBe(1);
     expect(html).toContain("Line1<br/>Line2");
+  });
+});
+
+describe("splitDraftTemplate", () => {
+  const OPENING = "I am replying on behalf of Jane Doe.";
+  const FORMAL_OPENING =
+    "I am replying on behalf of Jane Doe with the approved information below.";
+  const SIGNATURE = "Best,\nhussh One";
+
+  it("splits a non-formal draft into opening, content, signature", () => {
+    const body = `${OPENING}\n\nHere is the requested information.\n${SIGNATURE}`;
+    const result = splitDraftTemplate({
+      body,
+      renderModel: makeRenderModel({ accountHolder: "Jane Doe" }),
+    });
+    expect(result.matched).toBe(true);
+    expect(result.opening).toBe(OPENING);
+    expect(result.signature).toBe(SIGNATURE);
+    expect(result.content).toBe("Here is the requested information.");
+  });
+
+  it("splits a formal draft using the formal opening line", () => {
+    const body = `${FORMAL_OPENING}\n\nSection A\n\nSection B\n${SIGNATURE}`;
+    const result = splitDraftTemplate({
+      body,
+      renderModel: makeRenderModel({ accountHolder: "Jane Doe", formal: true }),
+    });
+    expect(result.matched).toBe(true);
+    expect(result.opening).toBe(FORMAL_OPENING);
+    expect(result.content).toBe("Section A\n\nSection B");
+    expect(result.signature).toBe(SIGNATURE);
+  });
+
+  it("handles the compact branch (opening + content + double-newline + signature)", () => {
+    const body = `${OPENING}\n\nThe account holder's full name is Jane Doe.\n\n${SIGNATURE}`;
+    const result = splitDraftTemplate({
+      body,
+      renderModel: makeRenderModel({ accountHolder: "Jane Doe" }),
+    });
+    expect(result.matched).toBe(true);
+    expect(result.content).toBe("The account holder's full name is Jane Doe.");
+  });
+
+  it("defensive fallback: returns whole body when opening does not match", () => {
+    const body = `Some other opening\n\nContent\n${SIGNATURE}`;
+    const result = splitDraftTemplate({
+      body,
+      renderModel: makeRenderModel({ accountHolder: "Jane Doe" }),
+    });
+    expect(result.matched).toBe(false);
+    expect(result.opening).toBe("");
+    expect(result.signature).toBe("");
+    expect(result.content).toBe(body);
+  });
+
+  it("defensive fallback: returns whole body when signature does not match", () => {
+    const body = `${OPENING}\n\nContent\nRegards, someone else`;
+    const result = splitDraftTemplate({
+      body,
+      renderModel: makeRenderModel({ accountHolder: "Jane Doe" }),
+    });
+    expect(result.matched).toBe(false);
+    expect(result.content).toBe(body);
+  });
+});
+
+describe("template preservation on LLM redraft", () => {
+  const SIGNATURE = "Best,\nhussh One";
+
+  it("reassembles a byte-identical opening + signature, rewriting only content", () => {
+    const renderModel = makeRenderModel({ accountHolder: "Jane Doe" });
+    const opening = "I am replying on behalf of Jane Doe.";
+    const originalBody = `${opening}\n\nThe original middle content.\n${SIGNATURE}`;
+
+    // 1. Split off the framing.
+    const split = splitDraftTemplate({ body: originalBody, renderModel });
+    expect(split.matched).toBe(true);
+
+    // 2. Simulate the LLM rewriting ONLY the content portion.
+    const rewrittenContent = "A warmer, friendlier rewrite of the middle.";
+
+    // 3. Reassemble around the preserved framing.
+    const finalBody = reassembleDraftTemplate({
+      opening: split.opening,
+      content: rewrittenContent,
+      signature: split.signature,
+    });
+
+    // Opening preserved byte-identically.
+    expect(finalBody.startsWith(`${opening}\n\n`)).toBe(true);
+    // Signature preserved byte-identically.
+    expect(finalBody.endsWith(SIGNATURE)).toBe(true);
+    // Only the middle changed.
+    expect(finalBody).toContain(rewrittenContent);
+    expect(finalBody).not.toContain("The original middle content.");
+    expect(finalBody).toBe(
+      `${opening}\n\n${rewrittenContent}\n\n${SIGNATURE}`,
+    );
+  });
+
+  it("tokenizes ONLY the content; opening/signature never reach the LLM", () => {
+    const renderModel = makeRenderModel({ accountHolder: "Jane Doe" });
+    const opening = "I am replying on behalf of Jane Doe.";
+    const body = `${opening}\n\nThe holder Jane Doe was born 1990-01-01.\n${SIGNATURE}`;
+    const approvedValues = { full_name: "Jane Doe", dob: "1990-01-01" };
+
+    const split = splitDraftTemplate({ body, renderModel });
+    const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+      body: split.content,
+      approvedValues,
+    });
+
+    // Content sent to the LLM is the tokenized middle only — no opening/signature.
+    expect(tokenizedTemplate).not.toContain("I am replying on behalf of");
+    expect(tokenizedTemplate).not.toContain("hussh One");
+    expect(tokenizedTemplate).not.toContain("Jane Doe");
+    expect(tokenizedTemplate).not.toContain("1990-01-01");
+
+    // Integrity + re-substitution + reassembly round-trips to a framed body.
+    expect(validateTokenIntegrity(tokenizedTemplate, tokenizedTemplate, tokenMap)).toBe(
+      true,
+    );
+    const resubstitutedContent = resubstituteDraft(tokenizedTemplate, tokenMap);
+    const finalBody = reassembleDraftTemplate({
+      opening: split.opening,
+      content: resubstitutedContent,
+      signature: split.signature,
+    });
+    expect(finalBody.startsWith(`${opening}\n\n`)).toBe(true);
+    expect(finalBody.endsWith(SIGNATURE)).toBe(true);
+    expect(finalBody).toContain("Jane Doe");
   });
 });
