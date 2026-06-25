@@ -96,9 +96,11 @@ import {
   htmlFromPlaintext,
   isKeywordOnlyInstruction,
   OneKycClientZkService,
+  reassembleDraftTemplate,
   redactDraftForLlm,
   resubstituteDraft,
   sha256Hex,
+  splitDraftTemplate,
   validateTokenIntegrity,
   type KycDraftBuildResult,
   type KycLlmRewriteCallable,
@@ -322,9 +324,6 @@ function OneKycWorkspace() {
   );
   const [error, setError] = useState<string | null>(null);
   const [redraftInstructions, setRedraftInstructions] = useState("");
-  // D-E: the user must acknowledge the LLM disclosure before the first LLM redraft.
-  const [llmDisclosureAcknowledged, setLlmDisclosureAcknowledged] =
-    useState(false);
   // D-F: routing override. null = auto-detect; true = force LLM; false = force regex.
   const [useAiRedraft, setUseAiRedraft] = useState<boolean | null>(null);
   const [localDrafts, setLocalDrafts] = useState<
@@ -1005,17 +1004,21 @@ function OneKycWorkspace() {
                 : isKeywordOnlyInstruction(redraftInstructions.trim());
           if (!isKeyword) {
             // --- LLM path ---
-            // D-E disclosure gate: do not proceed to the LLM until the user has
-            // acknowledged the disclosure. The banner is rendered in the Redraft
-            // SettingsGroup and the Redraft button is disabled until acknowledged;
-            // this is a defensive early-return in case the path is reached otherwise.
-            if (!llmDisclosureAcknowledged) {
-              setError(null);
-              return;
-            }
-            // 1. Redact: every PII value -> opaque token; map stays in the browser (D-B).
-            const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+            // 0. Template preservation: split off the fixed framing (opening line +
+            //    "Best,\nhussh One" signature) recomputed deterministically from the
+            //    render model. Only the middle `content` is sent to / rewritten by the
+            //    LLM; opening + signature are reassembled byte-identically afterwards.
+            //    Defensive: if the framing does not match, splitDraftTemplate returns
+            //    the whole body as content (matched=false) and we send it all as today.
+            const templateSplit = splitDraftTemplate({
               body: localDraft.body,
+              renderModel: localDraft.renderModel,
+            });
+
+            // 1. Redact: every PII value -> opaque token; map stays in the browser (D-B).
+            //    Tokenize ONLY the content portion.
+            const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+              body: templateSplit.content,
               approvedValues: localDraft.approvedValues,
             });
 
@@ -1033,8 +1036,8 @@ function OneKycWorkspace() {
               redraftInstructions.trim(),
             );
 
-            // 3. Token integrity gate (D-H guardrail 2). On failure, fall back to the
-            //    prior draft — never set a mangled draft as localDraft.
+            // 3. Token integrity gate (D-H guardrail 2), run on the content portion.
+            //    On failure, fall back to the prior draft — never set a mangled draft.
             const integrityOk = validateTokenIntegrity(
               tokenizedTemplate,
               rewrittenTemplate,
@@ -1048,8 +1051,17 @@ function OneKycWorkspace() {
               return;
             }
 
-            // 4. Re-substitute real values locally (values never left the browser, D-B).
-            const resubstitutedBody = resubstituteDraft(rewrittenTemplate, tokenMap);
+            // 4. Re-substitute real values locally (values never left the browser, D-B),
+            //    then reassemble the full body around the preserved framing so the
+            //    opening line and signature are byte-identical to before.
+            const resubstitutedContent = resubstituteDraft(rewrittenTemplate, tokenMap);
+            const resubstitutedBody = templateSplit.matched
+              ? reassembleDraftTemplate({
+                  opening: templateSplit.opening,
+                  content: resubstitutedContent,
+                  signature: templateSplit.signature,
+                })
+              : resubstitutedContent;
 
             // 5. Field re-validation (D-H guardrail 3): re-run buildDraft and confirm the
             //    consented field set is unchanged (no field added, dropped, or renamed).
@@ -1092,8 +1104,7 @@ function OneKycWorkspace() {
               [workflow.workflow_id]: llmDraft,
             }));
             setRedraftInstructions("");
-            // Each new redraft session starts fresh (D-E re-acknowledgement, D-F reset).
-            setLlmDisclosureAcknowledged(false);
+            // Reset the routing override so each new redraft session starts fresh (D-F).
             setUseAiRedraft(null);
             return;
           }
@@ -1144,8 +1155,7 @@ function OneKycWorkspace() {
             clearLocalWorkflowState(workflow.workflow_id);
           }
           setRedraftInstructions("");
-          // Each new redraft session starts fresh (D-E re-acknowledgement, D-F reset).
-          setLlmDisclosureAcknowledged(false);
+          // Reset the routing override so each new redraft session starts fresh (D-F).
           setUseAiRedraft(null);
           return;
         }
@@ -1289,7 +1299,6 @@ function OneKycWorkspace() {
       localExportPayloads,
       localDrafts,
       redraftInstructions,
-      llmDisclosureAcknowledged,
       useAiRedraft,
       refreshWorkflowState,
       updateWorkflow,
@@ -2076,8 +2085,9 @@ function OneKycWorkspace() {
                   {(() => {
                     // Will this instruction take the LLM path? Mirror the runAction
                     // routing: useAiRedraft override wins; otherwise auto-detect via
-                    // isKeywordOnlyInstruction. A pending (not-yet-acknowledged) LLM
-                    // instruction must show the disclosure and disable the button.
+                    // isKeywordOnlyInstruction. When the LLM path will be used we show a
+                    // small NON-BLOCKING informational disclosure (no acknowledgement
+                    // gate — the user does not have to click before every AI redraft).
                     const willUseLlm =
                       useAiRedraft === false
                         ? false
@@ -2086,8 +2096,6 @@ function OneKycWorkspace() {
                           : !isKeywordOnlyInstruction(
                               redraftInstructions.trim(),
                             );
-                    const llmDisclosurePending =
-                      willUseLlm && !llmDisclosureAcknowledged;
                     return (
                       <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                         <label className="flex flex-col gap-1 text-sm">
@@ -2118,23 +2126,13 @@ function OneKycWorkspace() {
                             <option value="regex">Use keywords only</option>
                           </select>
                         </label>
-                        {llmDisclosurePending ? (
+                        {willUseLlm ? (
                           <div
-                            role="alert"
-                            className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+                            role="note"
+                            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
                           >
                             {/* prettier-ignore */}
-                            <p>AI will rewrite your draft. Only redacted placeholders are sent — never your actual details.</p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setLlmDisclosureAcknowledged(true)
-                              }
-                              data-voice-control-id="one-kyc-redraft-disclosure-ack"
-                            >
-                              I understand
-                            </Button>
+                            <p>AI rewrite — only redacted placeholders are sent, never your actual details.</p>
                           </div>
                         ) : null}
                         <Textarea
@@ -2153,8 +2151,7 @@ function OneKycWorkspace() {
                           disabled={
                             Boolean(busy) ||
                             !redraftInstructions.trim() ||
-                            !selectedDraft ||
-                            llmDisclosurePending
+                            !selectedDraft
                           }
                           data-voice-control-id="one-kyc-redraft"
                           data-voice-action-id="kyc.draft.request_redraft"
