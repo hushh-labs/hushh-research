@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
@@ -26,6 +26,32 @@ export default function OneHomePage() {
       );
     }
   }, [loading, router, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setOneSetupResolved(null);
+      return;
+    }
+
+    let cancelled = false;
+    PreVaultUserStateService.bootstrapState(user.uid)
+      .then((state) => {
+        if (!cancelled) {
+          setOneSetupResolved(
+            PreVaultUserStateService.isOnboardingResolved(state),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOneSetupResolved(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   if (loading || !user) {
     return (

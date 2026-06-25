@@ -14,6 +14,13 @@ describe("resolveAppEnvironment", () => {
 
     expect(resolveAppEnvironment()).toBe("development");
   });
+  it("prefers NEXT_PUBLIC_APP_ENV over fallback environments", () => {
+  process.env.NEXT_PUBLIC_APP_ENV = "development";
+  process.env.NEXT_PUBLIC_OBSERVABILITY_ENV = "uat";
+  process.env.NEXT_PUBLIC_ENVIRONMENT_MODE = "production";
+
+  expect(resolveAppEnvironment()).toBe("development");
+  });
 
   it("maps dev to development", () => {
     process.env.NEXT_PUBLIC_APP_ENV = "dev";
@@ -61,5 +68,14 @@ describe("resolveAppEnvironment", () => {
     process.env.NODE_ENV = "development";
 
     expect(resolveAppEnvironment()).toBe("development");
+  });
+
+  it("falls back when NEXT_PUBLIC_APP_ENV is an unknown environment string", async () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "sandbox-preview";
+    process.env.NEXT_PUBLIC_OBSERVABILITY_ENV = "uat";
+
+    const { resolveAppEnvironment: resolveFreshAppEnvironment } = await import("@/lib/app-env");
+
+    expect(resolveFreshAppEnvironment()).toBe("uat");
   });
 });

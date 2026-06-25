@@ -17,7 +17,7 @@ function Avatar({
       data-slot="avatar"
       data-size={size}
       className={cn(
-        "group/avatar relative flex size-8 shrink-0 overflow-hidden rounded-full select-none data-[size=lg]:size-10 data-[size=sm]:size-6",
+        "group/avatar relative flex aspect-square size-8 overflow-hidden rounded-full select-none data-[size=lg]:size-10 data-[size=sm]:size-6",
         className
       )}
       {...props}
@@ -27,6 +27,7 @@ function Avatar({
 
 function AvatarImage({
   className,
+  alt = "",
   ...props
 }: React.ComponentProps<typeof AvatarPrimitive.Image>) {
   return (

@@ -1471,6 +1471,13 @@ function publicInviteUrlPreview(value: string): string {
   return url.length > maxLength ? `${url.slice(0, maxLength)}...` : url;
 }
 
+function publicInviteUrlPreview(value: string): string {
+  const url = value.trim();
+  if (!url) return "";
+  const maxLength = 52;
+  return url.length > maxLength ? `${url.slice(0, maxLength)}...` : url;
+}
+
 function statusVariant(
   status: string,
 ): "default" | "secondary" | "outline" | "destructive" {
@@ -3211,6 +3218,12 @@ export function OneLocationAgentPageContent({
   const myRequestsSectionRef = useRef<HTMLElement | null>(null);
   const publicResponsesSectionRef = useRef<HTMLElement | null>(null);
   const activitySectionRef = useRef<HTMLElement | null>(null);
+  const readinessTourRef = useRef<HTMLElement | null>(null);
+  const promisesTourRef = useRef<HTMLElement | null>(null);
+  const oneNetworkTourRef = useRef<HTMLElement | null>(null);
+  const contactSignalTourRef = useRef<HTMLDivElement | null>(null);
+  const shareRequestTourRef = useRef<HTMLDivElement | null>(null);
+  const accessHistoryTourRef = useRef<HTMLDivElement | null>(null);
   const focusClearRef = useRef<number | null>(null);
   const contactSyncInFlightRef = useRef(false);
   const livePublishInFlightRef = useRef(false);
@@ -4870,6 +4883,156 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
+  const refreshLocationPermission = useCallback(async () => {
+    const nextPermission = await OneLocationService.getPermissionState().catch(
+      () => ({
+        state: "unavailable" as const,
+        precise: false,
+        background: "unavailable" as const,
+        locationServicesEnabled: null,
+      }),
+    );
+    setPermission(nextPermission);
+    return nextPermission;
+  }, []);
+
+  const handleOpenLocationSettings = useCallback(async () => {
+    setBusy("locationSettings");
+    try {
+      const result = await OneLocationService.openLocationSettings();
+      toast.info(
+        result.opened
+          ? "Turn on Location, then return to One Location and refresh."
+          : "Open your phone or browser location settings, then return and refresh.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not open location settings.",
+      );
+    } finally {
+      setBusy(null);
+      window.setTimeout(() => void refreshLocationPermission(), 1200);
+    }
+  }, [refreshLocationPermission]);
+
+  const ensureForegroundLocationReady = useCallback(
+    async (options?: {
+      capturePoint?: boolean;
+      autoOpenSettings?: boolean;
+      requestNativePrompt?: boolean;
+    }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
+      const shouldCapturePoint = Boolean(options?.capturePoint);
+      const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const shouldRequestNativePrompt = options?.requestNativePrompt === true;
+      const currentPermission = await refreshLocationPermission();
+
+      if (isLocationServicesDisabled(currentPermission)) {
+        toast.error("Turn on phone Location before sharing.");
+        if (shouldOpenSettings) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+
+      if (
+        currentPermission.state === "restricted" ||
+        (currentPermission.state === "denied" && !shouldRequestNativePrompt)
+      ) {
+        toast.error("Allow location permission before sharing.");
+        if (shouldOpenSettings) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+
+      if (currentPermission.state === "unavailable") {
+        toast.error("Location is unavailable. Check your phone Location settings.");
+        if (shouldOpenSettings) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+
+      if (currentPermission.state === "granted" && !shouldCapturePoint) {
+        return { ready: true };
+      }
+
+      try {
+        const point = await OneLocationService.captureCurrentPosition();
+        const nextPermission = await OneLocationService.getPermissionState().catch(
+          () => null,
+        );
+        setPermission(
+          nextPermission ?? {
+            state: "granted",
+            precise: null,
+            background: "foreground-only",
+            locationServicesEnabled: true,
+          },
+        );
+        return shouldCapturePoint ? { ready: true, point } : { ready: true };
+      } catch (error) {
+        const nextPermission = await OneLocationService.getPermissionState().catch(
+          () => null,
+        );
+        if (nextPermission) {
+          setPermission(nextPermission);
+        }
+        const message = locationServicesErrorMessage(error);
+        toast.error(message);
+        if (
+          shouldOpenSettings &&
+          (isLocationServicesDisabled(nextPermission) ||
+            message.toLowerCase().includes("turn on location"))
+        ) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+    },
+    [refreshLocationPermission],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (focusClearRef.current && typeof window !== "undefined") {
+        window.clearTimeout(focusClearRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (auth.loading) {
+      setLocationOnboardingGate("checking");
+      return;
+    }
+    if (!auth.userId || loadError) {
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+    if (!vaultOwnerToken) {
+      setLocationOnboardingGate("checking");
+      return;
+    }
+
+    if (locationOnboardingGate === "hidden") {
+      return;
+    }
+
+    if (locationOnboardingGate !== "show") {
+      setLocationOnboardingStep("intro");
+    }
+    setLocationOnboardingGate("show");
+  }, [
+    auth.loading,
+    auth.userId,
+    loadError,
+    locationOnboardingGate,
+    vaultOwnerToken,
+  ]);
+
   useEffect(() => {
     return () => {
       if (focusClearRef.current && typeof window !== "undefined") {
@@ -5033,6 +5196,84 @@ export function OneLocationAgentPageContent({
       );
     };
   }, [auth.userId, setDecryptedPoints]);
+
+  useEffect(() => {
+    if (!auth.userId || !state) return;
+
+    for (const request of pendingOwnerRequests) {
+      showWorkflowToast({
+        notificationType: "location_access_request",
+        id: request.id,
+        requestId: request.id,
+        requesterLabel: requestLabel(request),
+        section: "approvals",
+      });
+    }
+
+    for (const request of requestedByMe) {
+      const ownerLabel = requestOwnerLabel(request, recipients);
+      if (request.status === "approved") {
+        showWorkflowToast({
+          notificationType: "location_access_approved",
+          id: request.approvedGrantId || request.id,
+          requestId: request.id,
+          grantId: request.approvedGrantId,
+          ownerLabel,
+          section: "shared",
+          openGrant: Boolean(request.approvedGrantId),
+        });
+      }
+      if (request.status === "denied") {
+        showWorkflowToast({
+          notificationType: "location_access_denied",
+          id: request.id,
+          requestId: request.id,
+          ownerLabel,
+          section: "my_requests",
+        });
+      }
+    }
+
+    for (const grant of state.receivedGrants ?? []) {
+      if (grant.status === "revoked") {
+        showWorkflowToast({
+          notificationType: "location_share_revoked",
+          id: grant.id,
+          grantId: grant.id,
+          ownerLabel: receivedGrantOwnerLabel(grant),
+          section: "shared",
+        });
+      }
+      if (grant.status === "expired") {
+        showWorkflowToast({
+          notificationType: "location_share_expired",
+          id: grant.id,
+          grantId: grant.id,
+          ownerLabel: receivedGrantOwnerLabel(grant),
+          section: "shared",
+        });
+      }
+    }
+
+    for (const submission of publicSubmissions) {
+      if (submission.ownerUserId !== auth.userId) continue;
+      showWorkflowToast({
+        notificationType: "location_public_invite_submitted",
+        id: submission.id,
+        submissionId: submission.id,
+        visitorLabel: publicSubmissionLabel(submission),
+        section: "public_responses",
+      });
+    }
+  }, [
+    auth.userId,
+    pendingOwnerRequests,
+    publicSubmissions,
+    recipients,
+    requestedByMe,
+    showWorkflowToast,
+    state,
+  ]);
 
   const recipientForGrant = useCallback(
     (grant: OneLocationGrant) =>
@@ -6713,6 +6954,7 @@ export function OneLocationAgentPageContent({
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
+    refreshLocationPermission,
     vaultOwnerToken,
   ]);
 
@@ -14760,6 +15002,126 @@ export function OneLocationAgentPageContent({
     );
   }
 
+  const dismissLocationOnboarding = useCallback(() => {
+    setLocationOnboardingGate("hidden");
+    setLocationOnboardingBusy(false);
+  }, []);
+
+  const handleContinueLocationOnboardingIntro = useCallback(() => {
+    setLocationOnboardingStep("permission");
+  }, []);
+
+  const handleSkipLocationOnboarding = useCallback(() => {
+    dismissLocationOnboarding();
+  }, [dismissLocationOnboarding]);
+
+  const openLocationSettingsForOnboarding = useCallback(async () => {
+    await OneLocationService.openLocationSettings().catch(() => null);
+    toast.info("Turn on phone Location, then return to continue.");
+    window.setTimeout(() => void refreshLocationPermission(), 1200);
+  }, [refreshLocationPermission]);
+
+  const openAppSettingsForOnboarding = useCallback(async () => {
+    await OneLocationService.openAppSettings().catch(() => null);
+    toast.info("Allow Location for One in Settings, then return.");
+    window.setTimeout(() => void refreshLocationPermission(), 1200);
+  }, [refreshLocationPermission]);
+
+  const handleLocationOnboardingPermission = useCallback(async () => {
+    if (locationOnboardingBusy) return;
+    setLocationOnboardingBusy(true);
+    try {
+      if (isLocationServicesDisabled(permission)) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
+      if (
+        permission?.state === "denied" ||
+        permission?.state === "restricted"
+      ) {
+        await openAppSettingsForOnboarding();
+        return;
+      }
+
+      if (permission?.state === "granted") {
+        const refreshedPermission = await refreshLocationPermission();
+        if (!isLocationServicesDisabled(refreshedPermission)) {
+          dismissLocationOnboarding();
+        } else {
+          await openLocationSettingsForOnboarding();
+        }
+        return;
+      }
+
+      const requestedPermission =
+        await OneLocationService.requestLocationPermission();
+      setPermission(requestedPermission);
+
+      if (
+        requestedPermission.locationServicesEnabled === false ||
+        (requestedPermission.state === "unavailable" &&
+          requestedPermission.precise !== false)
+      ) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
+      if (requestedPermission.state !== "granted") {
+        await openAppSettingsForOnboarding();
+        return;
+      }
+
+      if (isLocationServicesDisabled(requestedPermission)) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
+      dismissLocationOnboarding();
+    } finally {
+      setLocationOnboardingBusy(false);
+    }
+  }, [
+    dismissLocationOnboarding,
+    locationOnboardingBusy,
+    openAppSettingsForOnboarding,
+    openLocationSettingsForOnboarding,
+    permission,
+    refreshLocationPermission,
+  ]);
+
+  const nativeTestConfig: OneLocationNativeTestConfig = {
+    routeId: "/one/location",
+    marker: "native-route-one-location",
+    authState: auth.loading
+      ? "pending"
+      : auth.isAuthenticated
+        ? "authenticated"
+        : "anonymous",
+    dataState,
+    errorCode: loadError ? "one_location_unavailable" : null,
+    errorMessage: loadError,
+  };
+
+  const showLocationOnboarding =
+    locationOnboardingGate === "show" &&
+    !loadError &&
+    Boolean(auth.userId && vaultOwnerToken);
+
+  if (showLocationOnboarding) {
+    return (
+      <OneLocationOnboardingFlow
+        step={locationOnboardingStep}
+        busy={locationOnboardingBusy}
+        permission={permission}
+        nativeTest={nativeTestConfig}
+        onContinueIntro={handleContinueLocationOnboardingIntro}
+        onRequestPermission={handleLocationOnboardingPermission}
+        onSkip={handleSkipLocationOnboarding}
+      />
+    );
+  }
+
   return (
     <AppPageShell width="standard" nativeTest={nativeTestConfig}>
       <CapabilityExploreCard capabilityId="location" />
@@ -14982,7 +15344,14 @@ export function OneLocationAgentPageContent({
                 </div>
               </section>
 
-              <section className="min-w-0 max-w-full space-y-4 px-1">
+              <section
+                ref={oneNetworkTourRef}
+                tabIndex={-1}
+                className={cn(
+                  "min-w-0 max-w-full space-y-4 px-1 outline-none",
+                  tourSectionClassName("one_network"),
+                )}
+              >
                 <SegmentedModeControl
                   value={activeMode}
                   onChange={setActiveMode}
@@ -14991,7 +15360,10 @@ export function OneLocationAgentPageContent({
                 <div className="flex min-w-0 max-w-full flex-col gap-3">
                   {sectionLabel("One Network")}
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
+                    <Search
+                      className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]"
+                      aria-hidden="true"
+                    />
                     <input
                       value={recipientSearch}
                       onChange={(event) =>
@@ -15006,6 +15378,7 @@ export function OneLocationAgentPageContent({
                   <div className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]">
                     <div className="grid gap-2 sm:grid-cols-2">
                       <ActionButton
+                        type="button"
                         busy={busy}
                         busyKey="contactSync"
                         onClick={() => void handleSyncContactSignal()}
@@ -15022,6 +15395,7 @@ export function OneLocationAgentPageContent({
                         Sync Contacts
                       </ActionButton>
                       <ActionButton
+                        type="button"
                         busy={busy}
                         busyKey="contactInvite"
                         onClick={() => void handleShareContactInvite()}
@@ -16117,7 +16491,7 @@ export function OneLocationAgentPageContent({
                         className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 sm:flex-row sm:items-center"
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
-                          <Clock3 className="h-[18px] w-[18px]" />
+                          <Clock3 aria-hidden="true" className="h-[18px] w-[18px]" />
                         </span>
                         <div className="min-w-0 flex-1">
                           <h3 className="break-words text-[16px] font-medium text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
@@ -16140,6 +16514,14 @@ export function OneLocationAgentPageContent({
           </div>
         )}
       </AppPageContentRegion>
+
+      {showOnboarding && (
+        <OneLocationOnboardingOverlay
+          onDismiss={dismissOnboarding}
+          onStepChange={setActiveTourStep}
+          targets={onboardingTourTargets}
+        />
+      )}
     </AppPageShell>
   );
 }

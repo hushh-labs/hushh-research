@@ -417,7 +417,7 @@ export function KaiAnalysisPageContent() {
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
-      router.push(
+      router.replace(
         buildKaiAnalysisPreviewRoute({
           ticker: normalizedTicker,
           pickSource: previewPickSource,
@@ -535,7 +535,7 @@ export function KaiAnalysisPageContent() {
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
-      router.push(
+      router.replace(
         buildKaiAnalysisPreviewRoute({
           ticker: normalizedTicker,
           pickSource: previewPickSource,

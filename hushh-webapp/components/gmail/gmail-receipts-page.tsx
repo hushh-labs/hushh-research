@@ -198,6 +198,50 @@ interface ReceiptMemorySourceWatermark {
   highlights_window_days: number;
 }
 
+const receiptColumns: ColumnDef<ReceiptListItem>[] = [
+  {
+    id: "merchant",
+    header: "Merchant",
+    cell: ({ row }) => (
+      <div className="min-w-0 space-y-1">
+        <p className="truncate font-medium text-foreground">
+          {row.original.merchant_name || row.original.from_name || "Unknown merchant"}
+        </p>
+        <p className="truncate text-xs text-muted-foreground">
+          {row.original.subject || "No subject"}
+        </p>
+      </div>
+    ),
+  },
+  {
+    accessorKey: "amount",
+    header: "Amount",
+    cell: ({ row }) => (
+      <Badge variant="secondary">
+        {formatAmount(row.original.currency, row.original.amount)}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: "order_id",
+    header: "Order",
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {row.original.order_id || "—"}
+      </span>
+    ),
+  },
+  {
+    id: "receipt_date",
+    header: "Receipt date",
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {formatDate(row.original.receipt_date || row.original.gmail_internal_date)}
+      </span>
+    ),
+  },
+];
+
 function toComparableIso(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);

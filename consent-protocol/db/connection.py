@@ -527,7 +527,9 @@ async def get_pool() -> asyncpg.Pool:
                 ) from exc
             raise
         logger.info(
-            f"PostgreSQL pool created: min={_pool.get_min_size()}, max={_pool.get_max_size()}"
+            "PostgreSQL pool created: min=%s, max=%s",
+            _pool.get_min_size(),
+            _pool.get_max_size(),
         )
     return _pool
 
