@@ -21,4 +21,24 @@ describe("Table", () => {
 
     expect(tableContainer?.getAttribute("tabindex")).toBe("0");
   });
+  it("renders the table container with an accessible region role and label", () => {
+    const { container } = render(
+      <Table>
+        <tbody>
+          <tr>
+            <td>Holding</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const tableContainer = container.querySelector(
+      '[data-slot="table-container"]',
+    );
+
+    expect(tableContainer?.getAttribute("role")).toBe("region");
+    expect(tableContainer?.getAttribute("aria-label")).toBe(
+      "Scrollable table",
+    );
+  });
 });
