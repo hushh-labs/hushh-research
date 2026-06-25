@@ -26,10 +26,11 @@ import re
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.investor_db import InvestorDBService
 
 logger = logging.getLogger(__name__)
@@ -246,7 +247,9 @@ async def create_investor(
 
 
 @router.post("/bulk", status_code=201)
+@limiter.limit("3/minute")
 async def bulk_create_investors(
+    request: Request,
     investors: List[InvestorCreateRequest] = Body(...),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
