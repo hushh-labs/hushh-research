@@ -188,3 +188,39 @@ def test_pkm_scope_validator_warmup_warns_and_continues(
         asyncio.run(server.startup_pkm_scope_validator_warmup())
 
     assert "startup.pkm_scope_validator_warmup_failed" in caplog.text
+
+
+def test_consent_token_verifier_prewarm_runs_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        "hushh_mcp.consent.token.prewarm_consent_token_verifier",
+        lambda: calls.append("prewarmed"),
+    )
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(server.startup_consent_token_verifier_prewarm())
+
+    assert calls == ["prewarmed"]
+    assert "startup.consent_token_verifier_prewarmed" in caplog.text
+
+
+def test_consent_token_verifier_prewarm_warns_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    def _failing_prewarm():
+        raise RuntimeError("token verifier bootstrap failed")
+
+    monkeypatch.setattr(
+        "hushh_mcp.consent.token.prewarm_consent_token_verifier",
+        _failing_prewarm,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(server.startup_consent_token_verifier_prewarm())
+
+    assert "startup.consent_token_verifier_prewarm_failed" in caplog.text

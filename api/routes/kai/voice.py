@@ -360,12 +360,12 @@ class AppRuntimeState(BaseModel):
 
 
 class VoicePlanRequest(BaseModel):
-    user_id: str
-    transcript: str
+    user_id: str = Field(..., max_length=128)
+    transcript: str = Field(..., min_length=1, max_length=10_000)
     context: dict[str, Any] = Field(default_factory=dict)
     app_state: Optional[AppRuntimeState] = None
-    turn_id: Optional[str] = None
-    transcript_final: Optional[str] = None
+    turn_id: Optional[str] = Field(default=None, max_length=128)
+    transcript_final: Optional[str] = Field(default=None, max_length=10_000)
     context_structured: dict[str, Any] = Field(default_factory=dict)
     memory_short: list[dict[str, Any]] = Field(default_factory=list)
     memory_retrieved: list[dict[str, Any]] = Field(default_factory=list)
@@ -376,23 +376,23 @@ class VoiceMemoryHints(BaseModel):
 
 
 class VoiceResponsePayload(BaseModel):
-    kind: str
-    message: str
+    kind: str = Field(..., max_length=64)
+    message: str = Field(..., max_length=4096)
     speak: bool = True
     execution_allowed: bool = False
-    reason: Optional[str] = None
-    task: Optional[str] = None
-    ticker: Optional[str] = None
-    run_id: Optional[str] = None
-    candidate: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=256)
+    task: Optional[str] = Field(default=None, max_length=128)
+    ticker: Optional[str] = Field(default=None, max_length=10)
+    run_id: Optional[str] = Field(default=None, max_length=256)
+    candidate: Optional[str] = Field(default=None, max_length=256)
     tool_call: Optional[dict[str, Any]] = None
 
 
 class VoiceClarificationPayload(BaseModel):
-    reason: str
-    question: str
+    reason: str = Field(..., max_length=256)
+    question: str = Field(..., max_length=512)
     options: list[str] = Field(default_factory=list)
-    candidate: Optional[str] = None
+    candidate: Optional[str] = Field(default=None, max_length=256)
 
 
 class VoicePlanResponse(BaseModel):
@@ -423,80 +423,80 @@ class VoicePlanResponse(BaseModel):
 
 
 class VoiceComposeRequest(BaseModel):
-    user_id: str
-    transcript: str
+    user_id: str = Field(..., max_length=128)
+    transcript: str = Field(..., min_length=1, max_length=10_000)
     response: VoiceResponsePayload
     app_state: Optional[AppRuntimeState] = None
     context: dict[str, Any] = Field(default_factory=dict)
     context_structured: dict[str, Any] = Field(default_factory=dict)
-    turn_id: Optional[str] = None
-    response_id: Optional[str] = None
-    mode: Optional[str] = None
-    action_id: Optional[str] = None
+    turn_id: Optional[str] = Field(default=None, max_length=128)
+    response_id: Optional[str] = Field(default=None, max_length=128)
+    mode: Optional[str] = Field(default=None, max_length=50)
+    action_id: Optional[str] = Field(default=None, max_length=128)
     slots: dict[str, Any] = Field(default_factory=dict)
     guards: list[str] = Field(default_factory=list)
-    reply_strategy: Optional[str] = None
+    reply_strategy: Optional[str] = Field(default=None, max_length=50)
     clarification: Optional[VoiceClarificationPayload] = None
-    action_completion: Optional[str] = None
+    action_completion: Optional[str] = Field(default=None, max_length=500)
     action_result: Optional[dict[str, Any]] = None
     memory_short: list[dict[str, Any]] = Field(default_factory=list)
     memory_retrieved: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class VoiceComposeResponse(BaseModel):
-    text: str
-    segment_type: str
-    elapsed_ms: int
-    openai_http_ms: int
-    model: str
-    turn_id: Optional[str] = None
-    response_id: Optional[str] = None
+    text: str = Field(..., max_length=4096)
+    segment_type: str = Field(..., max_length=64)
+    elapsed_ms: int = Field(..., ge=0)
+    openai_http_ms: int = Field(..., ge=0)
+    model: str = Field(..., max_length=128)
+    turn_id: Optional[str] = Field(default=None, max_length=128)
+    response_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class VoiceTTSRequest(BaseModel):
-    user_id: str
-    text: str
-    voice: Optional[str] = "alloy"
+    user_id: str = Field(..., max_length=128)
+    text: str = Field(..., min_length=1, max_length=4096)
+    voice: Optional[str] = Field(default="alloy", max_length=32)
 
 
 class VoiceCapabilityRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., max_length=128)
 
 
 class VoiceCapabilityResponse(BaseModel):
-    user_id: str
+    user_id: str = Field(..., max_length=256)
     enabled: bool
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=256)
     voice_enabled: bool
     execution_allowed: bool
     tool_execution_disabled: bool
-    rollout_reason: str
-    bucket: Optional[int] = None
-    canary_percent: Optional[int] = None
+    rollout_reason: str = Field(..., max_length=128)
+    bucket: Optional[int] = Field(default=None, ge=0)
+    canary_percent: Optional[int] = Field(default=None, ge=0, le=100)
     realtime_enabled: bool = False
     tts_enabled: bool = False
-    tts_timeout_ms: int
-    tts_model: str
-    tts_voice: str
-    tts_format: str
+    tts_timeout_ms: int = Field(..., ge=0)
+    tts_model: str = Field(..., max_length=128)
+    tts_voice: str = Field(..., max_length=64)
+    tts_format: str = Field(..., max_length=32)
 
 
 class VoiceRealtimeSessionRequest(BaseModel):
-    user_id: str
-    voice: Optional[str] = None
+    user_id: str = Field(..., max_length=128)
+    voice: Optional[str] = Field(default=None, max_length=32)
 
 
 class VoiceRealtimeSessionResponse(BaseModel):
-    session_id: Optional[str] = None
-    client_secret: str
-    client_secret_expires_at: Optional[int] = None
-    model: str
-    voice: str
-    transcription_model: str = "gpt-4o-mini-transcribe"
-    transcription_language: str = "en"
-    transcription_prompt: str = ""
+    session_id: Optional[str] = Field(default=None, max_length=256)
+    client_secret: str = Field(..., max_length=512)
+    client_secret_expires_at: Optional[int] = Field(default=None, ge=0)
+    model: str = Field(..., max_length=128)
+    voice: str = Field(..., max_length=64)
+    transcription_model: str = Field(default="gpt-4o-mini-transcribe", max_length=128)
+    transcription_language: str = Field(default="en", max_length=16)
+    transcription_prompt: str = Field(default="", max_length=2048)
     server_vad_enabled: bool = True
-    silence_duration_ms: int = 800
+    silence_duration_ms: int = Field(default=800, ge=0)
     auto_response_enabled: bool = False
     barge_in_enabled: bool = True
 

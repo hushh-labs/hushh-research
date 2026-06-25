@@ -74,6 +74,13 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Optional | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
 | `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Optional Agent text chat model override. Defaults to stable `gemini-2.5-pro`. |
+| `AGENT_GEMINI_VOICE_ENABLED` | `api/routes/kai/agent_voice.py` | No | Agent chained voice kill switch. Defaults enabled; set a disabled flag value to turn off Gemini STT/TTS adapters. |
+| `AGENT_GEMINI_STT_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT model override. Defaults to `gemini-2.5-flash`. |
+| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT Gemini timeout. Defaults to `30`. |
+| `AGENT_GEMINI_TTS_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS model override. Defaults to `gemini-2.5-flash-preview-tts`. |
+| `AGENT_GEMINI_TTS_VOICE` | `hushh_mcp/services/agent_voice_service.py` | No | Optional backend default Agent TTS voice. Defaults to `Sulafat`. |
+| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS Gemini timeout per attempt. Defaults to `45`. |
+| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS retry cap. Defaults to `2`; bounded from `1` to `4`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | No | Set `True` for Vertex AI in production. |
 | `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |
@@ -304,6 +311,13 @@ Local runtime bootstrap:
 | `DB_NAME` | No | Cloud Run env var |
 | `ENVIRONMENT` | No | Cloud Run env var |
 | `AGENT_GEMINI_MODEL` | No | Cloud Run env var |
+| `AGENT_GEMINI_VOICE_ENABLED` | No | Cloud Run env var |
+| `AGENT_GEMINI_STT_MODEL` | No | Cloud Run env var |
+| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | No | Cloud Run env var |
+| `AGENT_GEMINI_TTS_MODEL` | No | Cloud Run env var |
+| `AGENT_GEMINI_TTS_VOICE` | No | Cloud Run env var |
+| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | No | Cloud Run env var |
+| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | No | Cloud Run env var |
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | Cloud Run env var |
 
 ---

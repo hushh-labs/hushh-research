@@ -1,8 +1,15 @@
+"""Kai location sharing routes with bounded path parameters (CWE-400) and sanitized DB errors (CWE-209).
+
+Canonical error-handling attach point: _handle_error routes all DatabaseExecutionError
+through database_error_detail which sanitizes SQL errors before returning to clients.
+Path parameters (contact_id, share_id, request_id) are bounded to 128 chars max.
+"""
+
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
@@ -15,6 +22,10 @@ from hushh_mcp.services.kai_location_service import (
 )
 
 router = APIRouter(tags=["Kai Location"])
+
+_ContactId = Annotated[str, Path(min_length=1, max_length=128)]
+_ShareId = Annotated[str, Path(min_length=1, max_length=128)]
+_RequestId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 class _CamelModel(BaseModel):
@@ -128,7 +139,7 @@ async def create_location_contact(
 
 @router.patch("/location/contacts/{contact_id}")
 async def update_location_contact(
-    contact_id: str,
+    contact_id: _ContactId,
     payload: LocationContactUpdateRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -147,7 +158,7 @@ async def update_location_contact(
 
 @router.delete("/location/contacts/{contact_id}")
 async def revoke_location_contact(
-    contact_id: str,
+    contact_id: _ContactId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
@@ -180,7 +191,7 @@ async def create_location_share(
 
 @router.delete("/location/shares/{share_id}")
 async def revoke_location_share(
-    share_id: str,
+    share_id: _ShareId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
@@ -206,7 +217,7 @@ async def stop_active_location_shares(
 
 @router.post("/location/access-requests/{request_id}/approve")
 async def approve_location_access_request(
-    request_id: str,
+    request_id: _RequestId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
@@ -220,7 +231,7 @@ async def approve_location_access_request(
 
 @router.post("/location/access-requests/{request_id}/deny")
 async def deny_location_access_request(
-    request_id: str,
+    request_id: _RequestId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:

@@ -179,6 +179,68 @@ def _run_with_connection_retry(
     raise last_error
 
 
+def _build_offline_sqlite_engine() -> Engine:
+    """Create a SQLite-backed SQLAlchemy engine for air-gapped offline mode.
+
+    Activated by DB_OFFLINE=1. The database file path comes from OFFLINE_DB_PATH
+    (default: consent-protocol/tmp/hushh-offline.db). The schema in
+    db/offline_schema.sql is auto-applied on first use so a fresh checkout works
+    without a manual bootstrap step. WAL + foreign keys are enabled per
+    connection via a connect event.
+    """
+    from sqlalchemy import event
+
+    default_path = os.path.join(os.path.dirname(__file__), "..", "tmp", "hushh-offline.db")
+    db_path = os.path.abspath(os.getenv("OFFLINE_DB_PATH", default_path))
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        poolclass=NullPool,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _record):  # pragma: no cover - driver hook
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
+    _apply_offline_schema(engine)
+    logger.info("Offline SQLite engine initialized at %s", db_path)
+    return engine
+
+
+def _apply_offline_schema(engine: Engine) -> None:
+    """Apply db/offline_schema.sql if the consent_audit table is missing."""
+    schema_file = os.path.join(os.path.dirname(__file__), "offline_schema.sql")
+    if not os.path.exists(schema_file):
+        logger.warning("Offline schema file not found at %s; skipping auto-init", schema_file)
+        return
+    try:
+        with engine.connect() as conn:
+            exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='consent_audit'")
+            ).fetchone()
+            if exists:
+                return
+        with open(schema_file, "r", encoding="utf-8") as fh:
+            sql = fh.read()
+        raw = engine.raw_connection()
+        try:
+            raw.executescript(sql)  # type: ignore[attr-defined]
+            raw.commit()
+        finally:
+            raw.close()
+        logger.info("Applied offline SQLite schema from %s", schema_file)
+    except Exception as exc:  # pragma: no cover - best-effort init
+        logger.error("Failed to apply offline schema: %s", exc)
+        raise
+
+
 def get_db_engine() -> Engine:
     """
     Get SQLAlchemy engine using session pooler credentials.
@@ -193,6 +255,16 @@ def get_db_engine() -> Engine:
         EnvironmentError: If DB credentials are not set
     """
     global _engine
+
+    # ── Offline mode: build a local SQLite engine (air-gapped dev) ──
+    # The consent connector + PKM flows route through this db_client, so a
+    # SQLite-backed SQLAlchemy engine gives real query parity (SELECT/INSERT/
+    # UPDATE/UPSERT with ON CONFLICT ... RETURNING are all supported by the
+    # bundled SQLite >= 3.35). JSON columns are stored as TEXT; _adapt_db_params
+    # already json.dumps dict values for non-postgres dialects.
+    if _engine is None and _env_truthy("DB_OFFLINE", False):
+        _engine = _build_offline_sqlite_engine()
+        return _engine
 
     if _engine is None:
         db_user = os.getenv("DB_USER")

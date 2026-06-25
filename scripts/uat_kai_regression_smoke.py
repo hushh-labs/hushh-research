@@ -89,6 +89,15 @@ def _first_config(config: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _non_empty_env_overlay(*keys: str) -> dict[str, str]:
+    overlay: dict[str, str] = {}
+    for key in keys:
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            overlay[key] = value
+    return overlay
+
+
 def _require_first(config: dict[str, Any], canonical_key: str, *deprecated_keys: str) -> str:
     value = _first_config(config, canonical_key, *deprecated_keys)
     if not value:
@@ -218,16 +227,14 @@ class UatKaiSmoke:
     ):
         protocol_cfg = dotenv_values(protocol_env)
         web_cfg = dotenv_values(web_env)
-        overlay_cfg = {
-            REVIEWER_UID_KEY: str(os.getenv(REVIEWER_UID_KEY) or "").strip(),
-            REVIEWER_VAULT_PASSPHRASE_KEY: str(
-                os.getenv(REVIEWER_VAULT_PASSPHRASE_KEY) or ""
-            ).strip(),
-            UAT_SMOKE_USER_ID_KEY: str(os.getenv(UAT_SMOKE_USER_ID_KEY) or "").strip(),
-            UAT_SMOKE_PASSPHRASE_KEY: str(os.getenv(UAT_SMOKE_PASSPHRASE_KEY) or "").strip(),
-            KAI_TEST_USER_ID_KEY: str(os.getenv(KAI_TEST_USER_ID_KEY) or "").strip(),
-            KAI_TEST_PASSPHRASE_KEY: str(os.getenv(KAI_TEST_PASSPHRASE_KEY) or "").strip(),
-        }
+        overlay_cfg = _non_empty_env_overlay(
+            REVIEWER_UID_KEY,
+            REVIEWER_VAULT_PASSPHRASE_KEY,
+            UAT_SMOKE_USER_ID_KEY,
+            UAT_SMOKE_PASSPHRASE_KEY,
+            KAI_TEST_USER_ID_KEY,
+            KAI_TEST_PASSPHRASE_KEY,
+        )
         self.config = {**protocol_cfg, **web_cfg, **overlay_cfg}
         self.backend_url = backend_url.rstrip("/")
         self.timeout = timeout

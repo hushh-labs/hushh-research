@@ -15,6 +15,33 @@ def _build_app() -> FastAPI:
     return app
 
 
+def test_approve_consent_rejects_oversized_ids_before_service(monkeypatch):
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("approval validation should run before service dispatch")
+
+    monkeypatch.setattr(consent, "ConsentDBService", _UnexpectedConsentDBService)
+
+    client = TestClient(_build_app())
+    oversized_user = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "u" * 129,
+            "requestId": "req_123",
+        },
+    )
+    oversized_request = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "r" * 129,
+        },
+    )
+
+    assert oversized_user.status_code == 422
+    assert oversized_request.status_code == 422
+
+
 def test_approve_consent_supersedes_narrower_tokens(monkeypatch):
     events: list[dict] = []
     deleted_exports: list[str] = []

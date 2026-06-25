@@ -44,13 +44,13 @@ class AnalyzeResponse(BaseModel):
     Client MUST encrypt this before storing.
     """
 
-    decision_id: str
-    ticker: str
+    decision_id: str = Field(..., max_length=256)
+    ticker: str = Field(..., max_length=10)
     decision: Literal["buy", "hold", "reduce"]
-    confidence: float
-    headline: str
-    processing_mode: str
-    created_at: str
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    headline: str = Field(..., max_length=256)
+    processing_mode: str = Field(..., max_length=64)
+    created_at: str = Field(..., max_length=64)
     # Full data for client to encrypt
     raw_card: Dict
 

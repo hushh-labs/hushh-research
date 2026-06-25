@@ -1,3 +1,10 @@
+"""Kai location sharing service with error sanitization (CWE-209).
+
+Canonical error-handling attach point: database_error_detail() sanitizes
+DatabaseExecutionError by logging raw SQL errors server-side but returning
+static messages to HTTP clients via api.routes.kai.location._handle_error().
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -1403,8 +1410,15 @@ def location_error_detail(exc: KaiLocationError) -> dict[str, str]:
 
 
 def database_error_detail(exc: DatabaseExecutionError) -> dict[str, str]:
+    if exc.details:
+        logger.warning(
+            "[Location DB] database error code=%s details=%s hint=%s",
+            exc.code,
+            exc.details,
+            exc.hint or "",
+        )
     return {
         "code": exc.code,
-        "message": exc.details,
-        "hint": exc.hint or "",
+        "message": "Location database operation failed.",
+        "hint": "",
     }

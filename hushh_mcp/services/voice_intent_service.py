@@ -1,3 +1,15 @@
+"""Voice intent and realtime session service with OpenAI integration.
+
+Canonical error-handling attach points:
+- _require_api_key(): raises VoiceServiceError for missing API key
+- create_realtime_session(): raises VoiceServiceError(502) for OpenAI errors
+- plan_intent(): raises VoiceServiceError(502) for OpenAI errors
+- plan_voice_intent_action(): raises VoiceServiceError(502) for OpenAI errors
+- plan_voice_response(): raises VoiceServiceError(502) for OpenAI errors
+- open_tts_stream(): raises VoiceServiceError(502) for OpenAI errors
+All error messages are sanitized before reaching HTTP clients via api.routes.kai.voice.
+"""
+
 import json
 import logging
 import os
@@ -2014,7 +2026,7 @@ class VoiceIntentService:
 
     def _require_api_key(self) -> None:
         if not self.api_key:
-            raise VoiceServiceError(503, "OPENAI_API_KEY is not configured")
+            raise VoiceServiceError(503, "Voice service is not configured")
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -2100,8 +2112,10 @@ class VoiceIntentService:
 
         result = response.json() if response.content else {}
         if response.status_code >= 400:
-            detail = _extract_openai_error(result) or "Realtime client secret creation failed"
-            raise VoiceServiceError(502, detail)
+            openai_error = _extract_openai_error(result)
+            if openai_error:
+                logger.warning("[Voice] realtime session error: %s", openai_error)
+            raise VoiceServiceError(502, "Realtime client secret creation failed")
 
         client_secret = ""
         client_secret_expires_at: Any = None
@@ -2264,8 +2278,10 @@ class VoiceIntentService:
             allow_model_fallback=not self.disable_voice_fallbacks,
         )
         if response.status_code >= 400:
-            detail = _extract_openai_error(result) or "Intent planning request failed"
-            raise VoiceServiceError(502, detail)
+            openai_error = _extract_openai_error(result)
+            if openai_error:
+                logger.warning("[Voice] plan_intent error: %s", openai_error)
+            raise VoiceServiceError(502, "Intent planning request failed")
 
         tool_call = _extract_first_tool_call(result)
         validated = _validate_tool_call(tool_call)
@@ -2562,8 +2578,10 @@ class VoiceIntentService:
             allow_model_fallback=not self.disable_voice_fallbacks,
         )
         if response.status_code >= 400:
-            detail = _extract_openai_error(result) or "Intent planning request failed"
-            raise VoiceServiceError(502, detail)
+            openai_error = _extract_openai_error(result)
+            if openai_error:
+                logger.warning("[Voice] plan_voice_intent_action error: %s", openai_error)
+            raise VoiceServiceError(502, "Intent planning request failed")
         raw_tool_call = _extract_first_tool_call(result)
         validated = _validate_tool_call(raw_tool_call)
         return validated, openai_http_ms, model_used
@@ -3370,8 +3388,10 @@ class VoiceIntentService:
             allow_model_fallback=not self.disable_voice_fallbacks,
         )
         if response.status_code >= 400:
-            detail = _extract_openai_error(result) or "Voice response composition failed"
-            raise VoiceServiceError(502, detail)
+            openai_error = _extract_openai_error(result)
+            if openai_error:
+                logger.warning("[Voice] plan_voice_response error: %s", openai_error)
+            raise VoiceServiceError(502, "Voice response composition failed")
 
         parsed = _extract_first_json_message(result) or {}
         fallback_mode = str(plan_payload.get("mode") or "").strip()
@@ -3500,7 +3520,7 @@ class VoiceIntentService:
                     "status_code": response.status_code,
                     "elapsed_ms": attempt_elapsed_ms,
                     "result": "failed",
-                    "error": extracted_error or "",
+                    "error": "",
                 }
             )
             if trace_hook:
@@ -3517,11 +3537,12 @@ class VoiceIntentService:
                         else error_payload,
                     },
                 )
-            detail = extracted_error or "TTS request failed"
+            if extracted_error:
+                logger.warning("[Voice TTS] upstream error: %s", extracted_error)
             await response.aclose()
             await response_cm.__aexit__(None, None, None)
             await client.aclose()
-            raise VoiceServiceError(502, detail)
+            raise VoiceServiceError(502, "TTS request failed")
 
         tts_attempts.append(
             {

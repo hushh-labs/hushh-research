@@ -101,6 +101,48 @@ async def resolve_email_to_uid(
     )
 
 
+def _normalize_offer(raw: object) -> tuple[Optional[dict], Optional[str]]:
+    """Validate + normalize an optional priced-consent offer (reverse-auction bid).
+
+    Returns (offer_dict_or_None, error_or_None). The offer rides inside
+    request_consent: it is a data-access bid the user side clears against a
+    reserve price. Settlement is AP2's job at the money boundary — this never
+    moves money.
+    """
+    if raw is None:
+        return None, None
+    if not isinstance(raw, dict):
+        return None, "offer must be an object with at least a bid_amount."
+
+    bid_raw = raw.get("bid_amount")
+    if bid_raw is None or isinstance(bid_raw, bool):
+        return None, "offer.bid_amount is required and must be a positive number."
+    try:
+        bid_amount = float(bid_raw)
+    except (TypeError, ValueError):
+        return None, "offer.bid_amount is required and must be a positive number."
+    if not (bid_amount > 0):
+        return None, "offer.bid_amount must be greater than 0."
+    if bid_amount > 1_000_000:
+        return None, "offer.bid_amount exceeds the maximum allowed (1,000,000)."
+
+    currency = str(raw.get("currency") or "USD").strip().upper()
+    if len(currency) != 3 or not currency.isalpha():
+        return None, "offer.currency must be a 3-letter ISO-4217 code."
+
+    offer: dict[str, object] = {
+        "bid_amount": round(bid_amount, 2),
+        "currency": currency,
+    }
+    summary = str(raw.get("offer_summary") or "").strip()
+    if summary:
+        offer["offer_summary"] = summary[:500]
+    settlement_ref = str(raw.get("settlement_ref") or "").strip()
+    if settlement_ref:
+        offer["settlement_ref"] = settlement_ref[:128]
+    return offer, None
+
+
 async def handle_request_consent(args: dict) -> list[TextContent]:
     """
     Request consent from a user.
@@ -108,6 +150,10 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     In production, this endpoint returns:
     - granted: if already granted
     - pending: user must approve in Hussh app/dashboard
+
+    Optionally carries a priced-consent ``offer`` (the consent reverse-auction
+    bid): a Demand Agent pays the user for scoped access; the user side clears
+    the bid against a reserve price; AP2 settles on approval.
     """
     user_id = args.get("user_id")
     country_iso2 = args.get("country_iso2")
@@ -115,18 +161,27 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     scope_str = args.get("scope")
     scope_bundle_key = args.get("scope_bundle")
 
-    # If a scope bundle is provided, expand it and use the first scope
-    # (bundled consent creates one request per scope in the bundle)
+    # If a scope bundle is provided, only single-scope bundles are safe in this
+    # public MCP path. Multi-scope bundles need one explicit request per scope.
     if scope_bundle_key and not scope_str:
         from hushh_mcp.consent.scope_bundles import expand_bundle
 
         try:
             expanded = expand_bundle(scope_bundle_key)
-            scope_str = expanded[0] if len(expanded) == 1 else expanded[0]
-            # For multi-scope bundles, we request the domain wildcard
             if len(expanded) > 1:
-                # Find common domain prefix or use first scope
-                scope_str = expanded[0]
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "status": "error",
+                                "error": "scope_bundle expands to multiple scopes; request each discovered scope explicitly.",
+                                "expanded_scopes": expanded,
+                            }
+                        ),
+                    )
+                ]
+            scope_str = expanded[0]
         except ValueError:
             return [
                 TextContent(
@@ -153,6 +208,18 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     connector_public_key = str(args.get("connector_public_key") or "").strip()
     connector_key_id = str(args.get("connector_key_id") or "").strip()
     connector_wrapping_alg = str(args.get("connector_wrapping_alg") or "").strip()
+
+    # Optional priced-consent offer (the consent reverse-auction bid). Normalized
+    # here and forwarded to the API; the API records it on the consent event and
+    # the user side clears it against a reserve price. AP2 settles on approval.
+    offer_payload, offer_error = _normalize_offer(args.get("offer"))
+    if offer_error:
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({"status": "error", "error": offer_error}),
+            )
+        ]
 
     try:
         resolved_expiry_hours = int(expiry_hours) if expiry_hours is not None else 24
@@ -287,6 +354,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                     "connector_public_key": connector_public_key,
                     "connector_key_id": connector_key_id,
                     "connector_wrapping_alg": connector_wrapping_alg,
+                    **({"offer": offer_payload} if offer_payload else {}),
                 },
                 timeout=10.0,
             )
@@ -362,6 +430,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                                 "requester_image_url": data.get("requester_image_url"),
                                 "reason": data.get("reason"),
                                 "message": data.get("message", "Consent already granted."),
+                                "offer": data.get("offer"),
                             }
                         ),
                     )
@@ -427,6 +496,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                             "is_scope_upgrade": data.get("is_scope_upgrade"),
                             "existing_granted_scopes": data.get("existing_granted_scopes"),
                             "additional_access_summary": data.get("additional_access_summary"),
+                            "offer": data.get("offer"),
                             "next_step": "Call check_consent_status later, or wait for user confirmation.",
                         }
                     ),

@@ -220,7 +220,7 @@ async def require_vault_owner_token(
 
     if not valid or not token_obj:
         logger.warning("Token validation failed: %s", reason)
-        raise _auth_error(f"Invalid token: {reason}")
+        raise _auth_error("Token validation failed.")
 
     return _token_data_dict(token, token_obj)
 
@@ -238,7 +238,6 @@ def require_consent_scope(required_scope: str | ConsentScope):
             None, description="Bearer token for scoped consent authentication"
         ),
     ) -> dict:
-
         token = _extract_token(authorization, allow_raw=False)
         valid, reason, token_obj = await _validate_token_with_scope_cache(
             token, required_scope, request
@@ -246,7 +245,7 @@ def require_consent_scope(required_scope: str | ConsentScope):
 
         if not valid or not token_obj:
             logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
-            raise _auth_error(f"Invalid token: {reason}")
+            raise _auth_error("Token validation failed.")
 
         return _token_data_dict(token, token_obj)
 

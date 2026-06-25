@@ -227,6 +227,35 @@ class _NoOpRIAIAMService:
 # ============================================================================
 
 
+def test_vault_userid_query_params_reject_oversized_values_before_service(monkeypatch):
+    """Vault-gated userId query params are bounded before service dispatch."""
+
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("userId validation should run before service dispatch")
+
+    monkeypatch.setattr(consent, "ConsentDBService", _UnexpectedConsentDBService)
+
+    app = _build_app()
+    client = TestClient(app)
+    long_user_id = "u" * 129
+
+    responses = [
+        client.get("/api/consent/pending", params={"userId": long_user_id}),
+        client.get(
+            "/api/consent/pending/lookup",
+            params={"userId": long_user_id, "request_id": "req_123"},
+        ),
+        client.post(
+            "/api/consent/pending/deny",
+            params={"userId": long_user_id, "requestId": "req_123"},
+        ),
+        client.get("/api/consent/export-refresh/jobs", params={"userId": long_user_id}),
+    ]
+
+    assert [response.status_code for response in responses] == [422, 422, 422, 422]
+
+
 def test_full_handshake_lifecycle(monkeypatch):
     """
     Simulate the canonical handshake: request -> approve -> revoke.
@@ -317,12 +346,18 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
     """Product surfaces resolve canonical consent rows by cross-linked ids."""
     fake_db = _FakeConsentDBService()
     monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(
+        consent,
+        "_owned_consent_identifiers",
+        AsyncMock(return_value=["investor_1", "alias@example.com"]),
+    )
 
     issued_at = int(time.time() * 1000)
     fake_db._add_pending(
         "req_email_scope",
         {
             "request_id": "req_email_scope",
+            "user_id": "alias@example.com",
             "agent_id": "developer:one-email",
             "requester_label": "One",
             "scope": "attr.travel.preferences.seat.*",

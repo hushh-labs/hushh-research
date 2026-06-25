@@ -1,14 +1,9 @@
-"""Contract tests for PKM domain registry and Kai financial intent registry.
-
-Validates the structural and behavioral integrity of CANONICAL_DOMAIN_REGISTRY,
-FINANCIAL_SUBINTENT_REGISTRY, and LEGACY_DOMAIN_ALIASES so that adding or
-editing a domain entry cannot silently break alias resolution, scope matching,
-or the IAM/PKM surface that consumes this data.
-"""
+"""Contract and invariant tests for PKM domain registry and Kai financial intent registry."""
 
 from __future__ import annotations
 
 import re
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -25,6 +20,7 @@ from hushh_mcp.services.domain_contracts import (
     DomainContractEntry,
     DomainSubintentEntry,
     build_domain_intent,
+    build_financial_summary_defaults,
     canonical_domain_metadata_map,
     canonical_subpath_for_domain,
     canonical_top_level_domain,
@@ -91,7 +87,7 @@ class TestDomainRegistryStructure:
 
     def test_frozen_dataclass(self) -> None:
         entry = CANONICAL_DOMAIN_REGISTRY[0]
-        with pytest.raises(AttributeError):
+        with pytest.raises(FrozenInstanceError):
             entry.domain_key = "hacked"  # type: ignore[misc]
 
 
@@ -320,6 +316,15 @@ class TestDomainRegistryPayload:
             if not row["is_legacy_alias"]:
                 assert row["canonical_target"] is None
 
+    def test_payload_includes_all_financial_subintents(self) -> None:
+        payload = domain_registry_payload()
+        subintent_keys = {
+            row["domain_key"]
+            for row in payload
+            if row.get("parent_domain") is not None and not row["is_legacy_alias"]
+        }
+        assert set(CANONICAL_SUBINTENT_KEYS).issubset(subintent_keys)
+
 
 # ---------------------------------------------------------------------------
 # Cross-domain isolation: subintents never leak to another parent
@@ -378,3 +383,22 @@ class TestBuildDomainIntent:
     def test_build_normalizes_primary(self) -> None:
         intent = build_domain_intent(primary="Financial", source="user", updated_at="2026-04-21")
         assert intent["primary"] == "financial"
+
+
+class TestBuildFinancialSummaryDefaults:
+    def test_returns_required_keys(self) -> None:
+        result = build_financial_summary_defaults()
+        assert "domain_contract_version" in result
+        assert "intent_map" in result
+
+    def test_domain_contract_version_matches_constant(self) -> None:
+        result = build_financial_summary_defaults()
+        assert result["domain_contract_version"] == FINANCIAL_DOMAIN_CONTRACT_VERSION
+
+    def test_intent_map_matches_financial_intent_map(self) -> None:
+        result = build_financial_summary_defaults()
+        assert result["intent_map"] == list(FINANCIAL_INTENT_MAP)
+
+    def test_intent_map_is_a_list_not_tuple(self) -> None:
+        result = build_financial_summary_defaults()
+        assert isinstance(result["intent_map"], list)

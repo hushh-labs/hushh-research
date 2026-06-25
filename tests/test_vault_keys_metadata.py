@@ -25,6 +25,17 @@ class _FakeSQLConnection:
         sql = " ".join(str(statement).strip().split()).lower()
         db = self._supabase.db
 
+        if "select vault_status, vault_key_hash from vault_keys" in sql:
+            rows = [
+                {
+                    "vault_status": row.get("vault_status"),
+                    "vault_key_hash": row.get("vault_key_hash"),
+                }
+                for row in db["vault_keys"]
+                if row.get("user_id") == params["user_id"]
+            ]
+            return _FakeSQLResult(rows=rows, rowcount=len(rows))
+
         if "select vault_key_hash, primary_method, primary_wrapper_id from vault_keys" in sql:
             rows = [
                 {
@@ -434,6 +445,69 @@ async def test_setup_vault_state_persists_passphrase_required_wrapper_set():
         }
     ]
     assert len(fake.db["vault_key_wrappers"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
+    fake = _FakeSupabase()
+    fake.db["vault_keys"].append(
+        {
+            "user_id": "user-1",
+            "vault_status": "active",
+            "vault_key_hash": "existing-hash",
+            "primary_method": "passphrase",
+            "primary_wrapper_id": "default",
+            "recovery_encrypted_vault_key": "existing-recovery-enc",
+            "recovery_salt": "existing-recovery-salt",
+            "recovery_iv": "existing-recovery-iv",
+        }
+    )
+    fake.db["vault_key_wrappers"].append(
+        {
+            "user_id": "user-1",
+            "method": "passphrase",
+            "wrapper_id": "default",
+            "encrypted_vault_key": "existing-enc-pass",
+            "salt": "existing-salt-pass",
+            "iv": "existing-iv-pass",
+        }
+    )
+
+    service = VaultKeysService()
+    service._supabase = fake
+
+    with pytest.raises(ValueError, match="Active vault already exists"):
+        await service.setup_vault_state(
+            user_id="user-1",
+            vault_key_hash="new-hash",
+            primary_method="passphrase",
+            recovery_encrypted_vault_key="new-recovery-enc",
+            recovery_salt="new-recovery-salt",
+            recovery_iv="new-recovery-iv",
+            primary_wrapper_id="default",
+            wrappers=[
+                {
+                    "method": "passphrase",
+                    "wrapperId": "default",
+                    "encryptedVaultKey": "new-enc-pass",
+                    "salt": "new-salt-pass",
+                    "iv": "new-iv-pass",
+                }
+            ],
+        )
+
+    assert fake.db["vault_keys"][0]["vault_key_hash"] == "existing-hash"
+    assert fake.db["vault_keys"][0]["recovery_encrypted_vault_key"] == "existing-recovery-enc"
+    assert fake.db["vault_key_wrappers"] == [
+        {
+            "user_id": "user-1",
+            "method": "passphrase",
+            "wrapper_id": "default",
+            "encrypted_vault_key": "existing-enc-pass",
+            "salt": "existing-salt-pass",
+            "iv": "existing-iv-pass",
+        }
+    ]
 
 
 def test_ensure_actor_profile_repairs_existing_vault_user():

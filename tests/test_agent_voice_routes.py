@@ -41,6 +41,31 @@ class _FakeAgentVoiceService:
         )
 
 
+@dataclass
+class _ErroringAgentVoiceService:
+    """Service that raises RuntimeError with an internal message."""
+
+    stt_error: str = "Internal SDK error: PERMISSION_DENIED at /api/v1/endpoint"
+    tts_runtime_error: str = "Internal TTS error: connection refused"
+
+    async def transcribe_audio(self, *, audio_bytes: bytes, mime_type: str):
+        raise RuntimeError(self.stt_error)
+
+    async def synthesize_speech(self, *, text: str, voice: str | None = None):
+        raise RuntimeError(self.tts_runtime_error)
+
+
+@dataclass
+class _ValueErrorAgentVoiceService:
+    value_error_msg: str = "Internal validation detail"
+
+    async def transcribe_audio(self, *, audio_bytes: bytes, mime_type: str):
+        raise ValueError(self.value_error_msg)
+
+    async def synthesize_speech(self, *, text: str, voice: str | None = None):
+        raise ValueError(self.value_error_msg)
+
+
 def _client(user_id: str = "user-1") -> TestClient:
     app = FastAPI()
     app.include_router(agent_voice.router)
@@ -100,6 +125,27 @@ def test_agent_voice_stt_rejects_non_audio_upload(monkeypatch) -> None:
     assert response.status_code == 415
 
 
+def test_agent_voice_stt_rejects_oversized_audio(monkeypatch) -> None:
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/stt",
+        data={"user_id": "user-1"},
+        files={
+            "audio": (
+                "utterance.webm",
+                b"x" * (agent_voice.MAX_AGENT_VOICE_AUDIO_BYTES + 1),
+                "audio/webm",
+            )
+        },
+    )
+
+    assert response.status_code == 413
+    assert service.last_audio_bytes is None
+
+
 def test_agent_voice_tts_returns_transient_audio(monkeypatch) -> None:
     service = _FakeAgentVoiceService()
     monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
@@ -117,6 +163,34 @@ def test_agent_voice_tts_returns_transient_audio(monkeypatch) -> None:
     assert response.headers["x-agent-tts-source"] == "backend_gemini_audio"
     assert service.last_tts_text == "Starting Nvidia analysis."
     assert service.last_tts_voice == "Kore"
+
+
+def test_agent_voice_tts_normalizes_voice_case(monkeypatch) -> None:
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Starting Nvidia analysis.", "voice": "kore"},
+    )
+
+    assert response.status_code == 200
+    assert service.last_tts_voice == "Kore"
+
+
+def test_agent_voice_tts_rejects_unsupported_voice(monkeypatch) -> None:
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Hello.", "voice": "not-a-voice"},
+    )
+
+    assert response.status_code == 422
+    assert service.last_tts_text is None
 
 
 def test_agent_voice_tts_rejects_empty_text(monkeypatch) -> None:
@@ -150,3 +224,109 @@ def test_agent_voice_routes_respect_kill_switch(monkeypatch) -> None:
 
     assert stt_response.status_code == 503
     assert tts_response.status_code == 503
+
+
+def test_stt_runtime_error_is_opaque(monkeypatch) -> None:
+    """RuntimeError from the STT service must not expose its message to the caller."""
+    internal_msg = "PERMISSION_DENIED: Request had insufficient authentication scopes."
+    service = _ErroringAgentVoiceService(stt_error=internal_msg)
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/stt",
+        data={"user_id": "user-1"},
+        files={"audio": ("utterance.webm", b"fake-audio", "audio/webm")},
+    )
+
+    assert response.status_code == 503
+    assert internal_msg not in response.text
+
+
+def test_tts_runtime_error_is_opaque(monkeypatch) -> None:
+    """RuntimeError from the TTS service must not expose its message to the caller."""
+    internal_msg = "connection refused to internal endpoint /v1/tts"
+    service = _ErroringAgentVoiceService(tts_runtime_error=internal_msg)
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Hello Kai."},
+    )
+
+    assert response.status_code == 503
+    assert internal_msg not in response.text
+
+
+def test_tts_value_error_is_opaque(monkeypatch) -> None:
+    """ValueError from the TTS service must not expose its message to the caller."""
+    internal_msg = "internal validation: max_tokens exceeded for model context"
+    service = _ValueErrorAgentVoiceService(value_error_msg=internal_msg)
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Hello Kai."},
+    )
+
+    assert response.status_code == 422
+    assert internal_msg not in response.text
+
+
+def test_stt_rejects_oversized_user_id(monkeypatch) -> None:
+    """user_id longer than 128 chars must be rejected before any processing."""
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client(user_id="x" * 129)
+
+    response = client.post(
+        "/agent/voice/stt",
+        data={"user_id": "x" * 129},
+        files={"audio": ("utterance.webm", b"fake-audio", "audio/webm")},
+    )
+
+    assert response.status_code == 422
+
+
+def test_tts_rejects_oversized_user_id(monkeypatch) -> None:
+    """user_id longer than 128 chars in TTS body must be rejected."""
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client(user_id="x" * 129)
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "x" * 129, "text": "Hello."},
+    )
+
+    assert response.status_code == 422
+
+
+def test_tts_rejects_oversized_text(monkeypatch) -> None:
+    """text longer than 4096 chars in TTS body must be rejected."""
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "A" * 4097},
+    )
+
+    assert response.status_code == 422
+
+
+def test_tts_rejects_oversized_voice(monkeypatch) -> None:
+    """voice longer than 64 chars in TTS body must be rejected."""
+    service = _FakeAgentVoiceService()
+    monkeypatch.setattr(agent_voice, "get_agent_voice_service", lambda: service)
+    client = _client()
+
+    response = client.post(
+        "/agent/voice/tts",
+        json={"user_id": "user-1", "text": "Hello.", "voice": "V" * 65},
+    )
+
+    assert response.status_code == 422

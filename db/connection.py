@@ -22,6 +22,7 @@ Connection Method:
     - DB_NAME: Database name (default postgres)
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -37,6 +38,23 @@ load_dotenv()
 hydrate_runtime_environment()
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Offline mode helpers — imported from db.offline_db
+# ---------------------------------------------------------------------------
+def _is_offline_mode() -> bool:
+    """Return True when running in air-gapped offline mode."""
+    return str(os.getenv("DB_OFFLINE", "0")).strip().lower() in ("1", "true", "yes", "on")
+
+
+async def _get_offline_pool():
+    """Lazy-import and return the offline SQLite-backed pool (awaited)."""
+    from db.offline_db import get_offline_pool as _goop
+
+    return await _goop()
+
+
 _DB_CONNECTION_ERROR_PATTERNS = (
     "connection refused",
     "server closed the connection unexpectedly",
@@ -49,8 +67,19 @@ _DB_CONNECTION_ERROR_PATTERNS = (
     "ssl syscall error: eof detected",
 )
 
-# Database connection pool (singleton)
+# Database connection pool (singleton) and its init lock.
+# The lock ensures only one coroutine runs the create_pool() call even when
+# multiple requests arrive before the pool is ready.
 _pool: Optional[asyncpg.Pool] = None
+_pool_lock: asyncio.Lock | None = None
+
+
+def _get_pool_lock() -> asyncio.Lock:
+    """Return the per-event-loop pool init lock, creating it on first call."""
+    global _pool_lock
+    if _pool_lock is None:
+        _pool_lock = asyncio.Lock()
+    return _pool_lock
 
 
 class DatabaseUnavailableError(RuntimeError):
@@ -166,6 +195,10 @@ def _get_database_url() -> str:
 async def get_pool() -> asyncpg.Pool:
     """Get or create the connection pool.
 
+    Thread-safe via an asyncio.Lock: concurrent coroutines that arrive before
+    the pool is ready all wait on the lock, then the first one creates the
+    pool and the rest return the already-created instance.
+
     Returns:
         asyncpg.Pool: The database connection pool
 
@@ -174,7 +207,22 @@ async def get_pool() -> asyncpg.Pool:
     """
     global _pool
 
-    if _pool is None:
+    # ── Offline mode: return SQLite-backed pool instead of PostgreSQL ──
+    if _is_offline_mode():
+        if _pool is not None:
+            return _pool
+        _pool = await _get_offline_pool()
+        return _pool
+
+    if _pool is not None:
+        return _pool
+
+    async with _get_pool_lock():
+        # Re-check inside the lock: another coroutine may have created the
+        # pool while we were waiting.
+        if _pool is not None:
+            return _pool
+
         database_url = _get_database_url()
         ssl_config = get_database_ssl()
         connect_timeout_seconds = _get_connect_timeout_seconds()

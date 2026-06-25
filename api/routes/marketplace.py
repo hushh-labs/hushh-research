@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -19,9 +19,9 @@ router = APIRouter(prefix="/api/marketplace", tags=["Marketplace"])
 class MarketplaceInvestorActionRequest(BaseModel):
     action: str = Field(..., max_length=32)
     source_type: str | None = Field(default=None, max_length=32)
-    public_profile_id: str | int | None = None
+    public_profile_id: str | int | None = Field(None)
     target_user_id: str | None = Field(default=None, max_length=256)
-    metadata: dict | None = None
+    metadata: dict | None = Field(None)
 
 
 class MarketplaceContactLookup(BaseModel):
@@ -175,7 +175,7 @@ async def match_marketplace_contacts(
 
 
 @router.get("/ria/{ria_id}")
-async def get_marketplace_ria(ria_id: str):
+async def get_marketplace_ria(ria_id: str = Path(..., min_length=1, max_length=128)):
     service = RIAIAMService()
     try:
         profile = await service.get_marketplace_ria_profile(ria_id)

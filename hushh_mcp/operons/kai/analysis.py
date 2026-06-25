@@ -73,7 +73,7 @@ def analyze_fundamentals(
     if token.user_id != user_id:
         raise PermissionError(f"Token user mismatch: expected {user_id}, got {token.user_id}")
 
-    logger.info(f"[Fundamental Operon] Analyzing {ticker} for user {user_id}")
+    logger.info("[Fundamental Operon] Analyzing %s (user=[redacted])", ticker)
 
     # Step 2: Calculate financial metrics
     metrics = calculate_financial_ratios(sec_filings)
@@ -140,7 +140,7 @@ def analyze_sentiment(
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info(f"[Sentiment Operon] Analyzing {ticker} for user {user_id}")
+    logger.info("[Sentiment Operon] Analyzing %s (user=[redacted])", ticker)
 
     # Calculate aggregate sentiment
     sentiment_score = calculate_sentiment_score(news_articles)
@@ -211,7 +211,7 @@ def analyze_valuation(
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info(f"[Valuation Operon] Analyzing {ticker} for user {user_id}")
+    logger.info("[Valuation Operon] Analyzing %s (user=[redacted])", ticker)
 
     # Calculate valuation metrics
     from .calculators import calculate_valuation_metrics

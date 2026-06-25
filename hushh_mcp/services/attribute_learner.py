@@ -138,10 +138,10 @@ class AttributeLearner:
             return attributes
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse attribute extraction response: {e}")
+            logger.warning("attribute_learner.extract.json_decode_error: %s", e)
             return []
         except Exception as e:
-            logger.error(f"Error extracting attributes: {e}")
+            logger.error("attribute_learner.extract.error: %s", e)
             return []
 
     async def extract_and_store(
@@ -202,10 +202,13 @@ class AttributeLearner:
                             }
                         )
                         logger.info(
-                            f"Recorded learned attribute inference: {domain}.{key} for user {user_id}"
+                            "attribute_learner.stored domain=%s key=%s user_id=%s",
+                            domain,
+                            key,
+                            user_id,
                         )
             except Exception as e:
-                logger.error(f"Error storing inferred attribute event for {domain}: {e}")
+                logger.error("attribute_learner.store.error domain=%s: %s", domain, e)
 
         return stored
 

@@ -1,6 +1,13 @@
 # tests/test_token.py
 
-from hushh_mcp.consent.token import is_token_revoked, issue_token, revoke_token, validate_token
+import hushh_mcp.consent.token as token_module
+from hushh_mcp.consent.token import (
+    is_token_revoked,
+    issue_token,
+    prewarm_consent_token_verifier,
+    revoke_token,
+    validate_token,
+)
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.types import HushhConsentToken
 
@@ -134,3 +141,26 @@ def test_invalid_base64_token_is_rejected():
     assert valid is False
     assert "Malformed token" in reason
     assert token is None
+
+
+def test_prewarm_consent_token_verifier_sets_warm_flag(monkeypatch):
+    monkeypatch.setattr(token_module, "_verifier_prewarmed", False)
+
+    prewarm_consent_token_verifier()
+
+    assert token_module._verifier_prewarmed is True
+
+
+def test_prewarm_consent_token_verifier_is_idempotent(monkeypatch):
+    calls: list[str] = []
+
+    def _unexpected_issue_token(*_args, **_kwargs):
+        calls.append("issue")
+        raise AssertionError("prewarm should not reissue after it is already warm")
+
+    monkeypatch.setattr(token_module, "_verifier_prewarmed", True)
+    monkeypatch.setattr(token_module, "issue_token", _unexpected_issue_token)
+
+    prewarm_consent_token_verifier()
+
+    assert calls == []

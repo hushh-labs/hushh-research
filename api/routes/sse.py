@@ -12,9 +12,9 @@ import asyncio
 import json
 import logging
 import os
-from typing import AsyncGenerator, Optional
+from typing import Annotated, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Request
 from sse_starlette.sse import EventSourceResponse
 
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -26,6 +26,10 @@ from hushh_mcp.services.consent_request_links import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/consent", tags=["SSE"])
+
+# Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
+_RequestId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -62,7 +66,13 @@ def _ensure_consent_sse_enabled() -> None:
 def _authorize_sse_user(user_id: str, authorization: Optional[str]) -> None:
     firebase_uid = verify_firebase_bearer(authorization)
     if firebase_uid != user_id:
-        raise HTTPException(status_code=403, detail="User ID mismatch")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "USER_ID_MISMATCH",
+                "message": "Authenticated user does not match the requested user_id.",
+            },
+        )
 
 
 def _payload_map(value: object | None) -> dict[str, object]:
@@ -220,7 +230,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
 
 @router.get("/events/{user_id}")
 async def consent_events(
-    user_id: str,
+    user_id: _UserId,
     request: Request,
     authorization: Optional[str] = Header(None, description="Bearer Firebase ID token"),
 ):
@@ -246,7 +256,7 @@ async def consent_events(
 
 
 @router.get("/events/{user_id}/poll/{request_id}")
-async def poll_specific_request(user_id: str, request_id: str, request: Request):
+async def poll_specific_request(user_id: _UserId, request_id: _RequestId, request: Request):
     """Deprecated consent poll endpoint (disabled)."""
     _ = user_id
     _ = request_id

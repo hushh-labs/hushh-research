@@ -10,16 +10,20 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
-from hushh_mcp.services.agent_voice_service import get_agent_voice_service
+from hushh_mcp.services.agent_voice_service import (
+    AGENT_TTS_ALLOWED_VOICES,
+    get_agent_voice_service,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Agent Voice"])
 
 MAX_AGENT_VOICE_AUDIO_BYTES = 8 * 1024 * 1024
+AGENT_VOICE_AUDIO_READ_CHUNK_BYTES = 1024 * 1024
 _DISABLED_FLAG_VALUES = {"0", "false", "off", "disabled", "no"}
 
 
@@ -30,9 +34,9 @@ class AgentVoiceTranscriptionResponse(BaseModel):
 
 
 class AgentVoiceTTSRequest(BaseModel):
-    user_id: str
-    text: str
-    voice: str | None = None
+    user_id: str = Field(..., max_length=128)
+    text: str = Field(..., min_length=1, max_length=4096)
+    voice: str | None = Field(default=None, max_length=64)
 
 
 def _assert_user(token_data: dict, user_id: str) -> None:
@@ -57,9 +61,39 @@ def _ensure_agent_gemini_voice_enabled() -> None:
     )
 
 
+def _normalize_agent_tts_voice(voice: str | None) -> str | None:
+    raw = str(voice or "").strip()
+    if not raw:
+        return None
+    for allowed_voice in AGENT_TTS_ALLOWED_VOICES:
+        if raw.lower() == allowed_voice.lower():
+            return allowed_voice
+    raise HTTPException(
+        status_code=422,
+        detail="Unsupported Agent voice.",
+    )
+
+
+async def _read_agent_voice_audio(audio: UploadFile) -> bytes:
+    chunks: list[bytes] = []
+    total_bytes = 0
+    while True:
+        chunk = await audio.read(AGENT_VOICE_AUDIO_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > MAX_AGENT_VOICE_AUDIO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Agent voice audio is too large.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/agent/voice/stt", response_model=AgentVoiceTranscriptionResponse)
 async def transcribe_agent_voice(
-    user_id: str = Form(...),
+    user_id: str = Form(..., max_length=128),
     audio: UploadFile = File(...),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -73,12 +107,7 @@ async def transcribe_agent_voice(
             detail="Agent voice STT requires an audio upload.",
         )
 
-    audio_bytes = await audio.read()
-    if len(audio_bytes) > MAX_AGENT_VOICE_AUDIO_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Agent voice audio is too large.",
-        )
+    audio_bytes = await _read_agent_voice_audio(audio)
 
     try:
         transcription = await get_agent_voice_service().transcribe_audio(
@@ -86,9 +115,10 @@ async def transcribe_agent_voice(
             mime_type=mime_type,
         )
     except RuntimeError as error:
+        logger.warning("agent_voice.stt_unavailable user_id=%s: %s", user_id, error)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
+            detail="Agent voice transcription is temporarily unavailable.",
         ) from error
     except Exception as error:
         logger.exception("agent_voice.stt_failed user_id=%s: %s", user_id, error)
@@ -119,20 +149,24 @@ async def synthesize_agent_voice(
             detail="Text is required for Agent voice TTS.",
         )
 
+    selected_voice = _normalize_agent_tts_voice(body.voice)
+
     try:
         synthesis = await get_agent_voice_service().synthesize_speech(
             text=clean_text,
-            voice=body.voice,
+            voice=selected_voice,
         )
     except ValueError as error:
+        logger.warning("agent_voice.tts_invalid user_id=%s: %s", body.user_id, error)
         raise HTTPException(
             status_code=422,
-            detail=str(error),
+            detail="Agent voice TTS input is invalid.",
         ) from error
     except RuntimeError as error:
+        logger.warning("agent_voice.tts_unavailable user_id=%s: %s", body.user_id, error)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
+            detail="Agent voice TTS is temporarily unavailable.",
         ) from error
     except Exception as error:
         logger.exception("agent_voice.tts_failed user_id=%s: %s", body.user_id, error)

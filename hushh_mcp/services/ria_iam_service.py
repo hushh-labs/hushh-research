@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -70,7 +71,78 @@ _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
 _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
-_PERSONA_STATE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
+
+
+class _PersonaStateCache:
+    """Thread-safe, TTL-aware, size-bounded cache for persona state payloads.
+
+    The cache is keyed by normalised ``user_id``.  Each entry stores the
+    time the payload was written together with the payload dict itself.
+    Stale entries (age > TTL) are evicted lazily on every read and
+    proactively during writes when the cap is reached.
+
+    Memory footprint (default cap = 10 000):
+      10 000 entries x ~600 B per entry ~ 6 MB worst-case.
+    """
+
+    MAX_ENTRIES: int = 10_000
+
+    def __init__(self, max_entries: int = MAX_ENTRIES) -> None:
+        if max_entries < 1:
+            raise ValueError(f"max_entries must be >= 1, got {max_entries}")
+        self._max = max_entries
+        self._data: dict[str, tuple[datetime, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str, ttl: timedelta) -> dict[str, Any] | None:
+        """Return a copy of the cached payload for *key*, or ``None`` if absent/stale."""
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            cached_at, payload = entry
+            if datetime.now(timezone.utc) - cached_at > ttl:
+                del self._data[key]
+                return None
+            return dict(payload)
+
+    def set(self, key: str, payload: dict[str, Any]) -> None:
+        """Write *payload* under *key*, evicting stale and oldest entries as needed."""
+        with self._lock:
+            # Fast path: update in place if already present (no size change).
+            if key in self._data:
+                self._data[key] = (datetime.now(timezone.utc), dict(payload))
+                return
+            # Make room if at capacity.
+            if len(self._data) >= self._max:
+                # Step 1: remove entries that are already past the TTL.
+                now = datetime.now(timezone.utc)
+                stale = [
+                    k for k, (ts, _) in self._data.items() if now - ts > _PERSONA_STATE_CACHE_TTL
+                ]
+                for k in stale:
+                    del self._data[k]
+            # Step 2: if still at capacity, evict the oldest-inserted entry.
+            while len(self._data) >= self._max:
+                oldest = next(iter(self._data))
+                del self._data[oldest]
+            self._data[key] = (datetime.now(timezone.utc), dict(payload))
+
+    def invalidate(self, key: str) -> None:
+        """Remove *key* from the cache (no-op if absent)."""
+        with self._lock:
+            self._data.pop(key, None)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._data)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+_PERSONA_STATE_CACHE = _PersonaStateCache()
 _MARKETPLACE_INVESTOR_ACTION_STATUS: dict[str, str] = {
     "view_more": "viewed",
     "pass": "passed",
@@ -772,30 +844,20 @@ class RIAIAMService:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
-        cached = _PERSONA_STATE_CACHE.get(normalized_user_id)
-        if not cached:
-            return None
-        cached_at, payload = cached
-        if datetime.now(timezone.utc) - cached_at > _PERSONA_STATE_CACHE_TTL:
-            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
-            return None
-        return dict(payload)
+        return _PERSONA_STATE_CACHE.get(normalized_user_id, _PERSONA_STATE_CACHE_TTL)
 
     @staticmethod
     def _write_cached_persona_state(user_id: str, payload: dict[str, Any]) -> None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return
-        _PERSONA_STATE_CACHE[normalized_user_id] = (
-            datetime.now(timezone.utc),
-            dict(payload),
-        )
+        _PERSONA_STATE_CACHE.set(normalized_user_id, payload)
 
     @staticmethod
     def _invalidate_cached_persona_state(user_id: str) -> None:
         normalized_user_id = str(user_id or "").strip()
         if normalized_user_id:
-            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
+            _PERSONA_STATE_CACHE.invalidate(normalized_user_id)
 
     @staticmethod
     def _env_truthy(name: str, fallback: str = "false") -> bool:
