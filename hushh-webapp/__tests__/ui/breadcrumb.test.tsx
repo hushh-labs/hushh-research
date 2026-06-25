@@ -31,4 +31,21 @@ describe("Breadcrumb", () => {
     expect(list.children[1]).toBe(separator);
     expect(list.children[2]?.textContent).toBe("Settings");
   });
+
+  it('renders BreadcrumbPage with aria-current="page"', () => {
+    render(
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbPage>Settings</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>,
+    );
+
+    expect(
+      screen.getByText("Settings").getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
 });
