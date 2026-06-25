@@ -77,15 +77,19 @@ export async function GET(request: NextRequest) {
       );
 
       if (!response.ok) {
-        const error = await response.text();
+        const errorPayload = await response
+          .json()
+          .catch(async () => ({
+            error: (await response.text().catch(() => "")) || "Failed to fetch pending consents",
+          }));
         console.error(
           `[API] request_id=${requestId} pending_consents backend_error status=${response.status}`,
-          error
+          errorPayload
         );
         if (response.status < 500) {
           return {
             status: response.status,
-            payload: { error: error || "Failed to fetch pending consents" },
+            payload: errorPayload,
           };
         }
         throw new Error(`pending_backend_error:${response.status}`);
