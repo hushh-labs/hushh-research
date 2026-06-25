@@ -1959,3 +1959,49 @@ async def test_identity_read_only_query_stays_do_not_save(monkeypatch):
 
     assert result["write_mode"] == "do_not_save"
     assert "identity_domain_requires_confirmation" not in result["validation_hints"]
+
+
+# ---------------------------------------------------------------------------
+# Identity PII sensitivity classification (Wave 2 / D-09)
+# ---------------------------------------------------------------------------
+
+
+class TestInferSensitivityIdentityPII:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "identity.passport_number",
+            "identity.national_id",
+            "identity.ssn",
+            "identity.social_security",
+        ],
+    )
+    def test_restricted_identity_tokens(self, path: str):
+        assert PKMAgentLabService._infer_sensitivity(path) == "restricted"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "identity.full_name",
+            "identity.first_name",
+            "identity.last_name",
+            "identity.address.line1",
+            "identity.date_of_birth",
+            "identity.dob",
+            "identity.phone_number",
+            "identity.nationality",
+        ],
+    )
+    def test_confidential_identity_tokens(self, path: str):
+        assert PKMAgentLabService._infer_sensitivity(path) == "confidential"
+
+    def test_existing_restricted_tokens_preserved(self):
+        assert PKMAgentLabService._infer_sensitivity("financial.tax_id") == "restricted"
+        assert PKMAgentLabService._infer_sensitivity("financial.account_number") == "restricted"
+
+    def test_existing_confidential_tokens_preserved(self):
+        assert PKMAgentLabService._infer_sensitivity("financial.portfolio") == "confidential"
+        assert PKMAgentLabService._infer_sensitivity("health.allergy") == "confidential"
+
+    def test_non_pii_path_unclassified(self):
+        assert PKMAgentLabService._infer_sensitivity("food.favorite_cuisine") is None
