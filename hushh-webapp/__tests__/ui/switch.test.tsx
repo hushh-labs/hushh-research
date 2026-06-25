@@ -11,4 +11,18 @@ describe("Switch", () => {
       "checked",
     );
   });
+
+  it("reflects controlled checked state with aria-checked", () => {
+    const { rerender } = render(<Switch checked={false} />);
+
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+
+    rerender(<Switch checked />);
+
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
 });
