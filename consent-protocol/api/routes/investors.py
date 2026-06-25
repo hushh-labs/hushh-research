@@ -129,7 +129,7 @@ async def search_investors(
     service = InvestorDBService()
     results = await service.search_investors(name=name, limit=limit)
 
-    logger.info(f"Search '{name}' returned {len(results)} results")
+    logger.info("investor.search.results name=%s count=%s", name, len(results))
     return results
 
 
@@ -150,7 +150,7 @@ async def get_investor(investor_id: int):
         if not profile:
             raise HTTPException(status_code=404, detail="Investor not found")
 
-        logger.info(f"Retrieved investor {investor_id}: {profile['name']}")
+        logger.info("investor.fetch.success investor_id=%s name=%s", investor_id, profile["name"])
         return profile
 
     except HTTPException:
@@ -236,7 +236,7 @@ async def create_investor(
         # Use service method
         result = await service.upsert_investor(data, upsert_key="cik" if investor.cik else None)
 
-        logger.info(f"Created/updated investor profile: {investor.name} (id={result.get('id')})")
+        logger.info("investor.create.success name=%s id=%s", investor.name, result.get("id"))
         return {"id": result.get("id"), "name": investor.name, "status": "created"}
 
     except Exception:
@@ -270,7 +270,7 @@ async def bulk_create_investors(
         result = await create_investor(investor, firebase_uid=firebase_uid)
         results.append(result)
 
-    logger.info(f"Bulk created {len(results)} investor profiles")
+    logger.info("investor.bulk_create.success count=%s", len(results))
 
     return {"created": len(results), "profiles": results}
 
