@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import JSONResponse
 
@@ -12,14 +14,23 @@ from hushh_mcp.services.ria_iam_service import (
     RIAIAMService,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/invites", tags=["RIA Invites"])
 
 
-def _iam_schema_not_ready_response() -> JSONResponse:
+def _iam_schema_not_ready_response(exc: Exception | None = None) -> JSONResponse:
+    """Return a static 503 response.
+
+    Internal admin commands and exception detail are suppressed to avoid
+    leaking server-side implementation details to API clients (CWE-209).
+    """
+    if exc is not None:
+        logger.warning("IAM schema not ready: %s", exc)
     return JSONResponse(
         status_code=503,
         content={
-            "error": "RIA verification service is temporarily unavailable",
+            "error": "Service temporarily unavailable. Please try again later.",
             "code": "IAM_SCHEMA_NOT_READY",
         },
     )
@@ -44,8 +55,8 @@ async def get_invite(invite_token: str = Path(..., max_length=512)):
     service = RIAIAMService()
     try:
         return _public_invite_payload(await service.get_ria_invite(invite_token))
-    except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -58,7 +69,7 @@ async def accept_invite(
     service = RIAIAMService()
     try:
         return await service.accept_ria_invite(invite_token, firebase_uid)
-    except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -12,6 +14,8 @@ from hushh_mcp.services.ria_iam_service import (
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/iam", tags=["IAM"])
 
@@ -24,11 +28,18 @@ class MarketplaceOptInRequest(BaseModel):
     enabled: bool
 
 
-def _iam_schema_not_ready_response() -> JSONResponse:
+def _iam_schema_not_ready_response(exc: Exception | None = None) -> JSONResponse:
+    """Return a static 503 response.
+
+    Internal admin commands and exception detail are suppressed to avoid
+    leaking server-side implementation details to API clients (CWE-209).
+    """
+    if exc is not None:
+        logger.warning("IAM schema not ready: %s", exc)
     return JSONResponse(
         status_code=503,
         content={
-            "error": "RIA verification service is temporarily unavailable",
+            "error": "Service temporarily unavailable. Please try again later.",
             "code": "IAM_SCHEMA_NOT_READY",
         },
     )
@@ -58,8 +69,8 @@ async def switch_persona(
     service = RIAIAMService()
     try:
         return await service.switch_persona(firebase_uid, payload.persona)
-    except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -72,5 +83,5 @@ async def update_marketplace_opt_in(
     service = RIAIAMService()
     try:
         return await service.set_marketplace_opt_in(firebase_uid, payload.enabled)
-    except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(exc)

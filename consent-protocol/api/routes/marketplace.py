@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -12,6 +14,8 @@ from hushh_mcp.services.ria_iam_service import (
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/marketplace", tags=["Marketplace"])
 
@@ -34,13 +38,15 @@ class MarketplaceContactMatchRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=100)
 
 
-def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
+def _iam_schema_not_ready_response(exc: Exception | None = None) -> JSONResponse:
+    """Return a static 503 response without leaking internal detail (CWE-209)."""
+    if exc is not None:
+        logger.warning("IAM schema not ready: %s", exc)
     return JSONResponse(
         status_code=503,
         content={
-            "error": message or "IAM schema is not ready",
+            "error": "Service temporarily unavailable. Please try again later.",
             "code": "IAM_SCHEMA_NOT_READY",
-            "hint": "Run `python db/migrate.py --iam` and `python db/verify/verify_iam_schema.py`.",
         },
     )
 
@@ -62,7 +68,7 @@ async def list_marketplace_rias(
         )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
 
 
 @router.get("/investors")
@@ -84,7 +90,7 @@ async def list_marketplace_investors(
         )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
 
 
 @router.get("/investors/deck")
@@ -107,7 +113,7 @@ async def list_marketplace_investor_deck(
             location=location,
         )
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -129,7 +135,7 @@ async def list_marketplace_investor_actions(
         )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -150,7 +156,7 @@ async def record_marketplace_investor_action(
             metadata=payload.metadata,
         )
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -169,7 +175,7 @@ async def match_marketplace_contacts(
         )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -183,4 +189,4 @@ async def get_marketplace_ria(ria_id: str = Path(..., min_length=1, max_length=1
             raise HTTPException(status_code=404, detail="RIA profile not found")
         return profile
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        return _iam_schema_not_ready_response(exc)
