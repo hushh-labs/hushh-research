@@ -35,4 +35,16 @@ describe("Switch", () => {
         ?.getAttribute("data-slot"),
     ).toBe("switch-thumb");
   });
+  
+  it("renders with data-size='default' by default and data-size='sm' when size='sm'", () => {
+    const { rerender } = render(<Switch />);
+
+    expect(screen.getByRole("switch").getAttribute("data-size")).toBe(
+      "default",
+    );
+
+    rerender(<Switch size="sm" />);
+
+    expect(screen.getByRole("switch").getAttribute("data-size")).toBe("sm");
+  });
 });
