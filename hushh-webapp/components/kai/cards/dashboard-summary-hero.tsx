@@ -74,56 +74,46 @@ export function DashboardSummaryHero({
         <div className="space-y-2 text-center">
           <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Risk: {normalizeRiskLabel(riskLabel)}
-            </Badge>
-            <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Holdings: {holdingsCount}
-            </Badge>
-            {brokerageName && (
-              <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {brokerageName}
+            {[
+              `Risk: ${normalizeRiskLabel(riskLabel)}`,
+              `${holdingsCount} Holdings`,
+              brokerageName,
+            ].filter(Boolean).map((label, index) => (
+              <Badge
+                key={String(label ?? index)}
+                variant="outline"
+                className="rounded-full bg-muted/50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground"
+              >
+                {label}
               </Badge>
-            )}
+            ))}
           </div>
-          <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">{formatCurrency(totalValue)}</h2>
+
+          <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">
+            {formatCurrency(totalValue)}
+          </h2>
+
           <div className="flex items-center justify-center gap-2 text-sm">
-            <span className={positive ? "inline-flex items-center font-medium text-emerald-600 dark:text-emerald-400" : "inline-flex items-center font-medium text-rose-500 dark:text-rose-400"}>
-              <Icon icon={positive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
-              {formatChange(netChange)} ({changePct >= 0 ? "+" : ""}
-              {changePct.toFixed(2)}%)
+            <span
+              className={cn(
+                "inline-flex items-center font-medium",
+                isPositive
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-rose-500 dark:text-rose-400",
+              )}
+            >
+              <Icon
+                icon={isPositive ? ArrowUpRight : ArrowDownRight}
+                size="sm"
+                className="mr-1"
+              />
+              {formatChange(netChange)} ({(changePct ?? 0) >= 0 ? "+" : ""}
+              {changePct?.toFixed(2) ?? "0.00"}%)
             </span>
             <span className="text-muted-foreground">•</span>
             <span className="font-medium text-muted-foreground">{periodLabel}</span>
           </div>
         </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {[
-                `Risk: ${normalizeRiskLabel(riskLabel)}`,
-                `${holdingsCount} Holdings`,
-                brokerageName
-              ].filter(Boolean).map((label, i) => (
-                <Badge key={i} variant="outline" className="rounded-full bg-muted/50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  {label}
-                </Badge>
-              ))}
-            </div>
-
-            <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">
-              {formatCurrency(totalValue)}
-            </h2>
-
-            <div className="flex items-center justify-center gap-2 text-sm">
-              <span className={cn("inline-flex items-center font-medium", isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400")}>
-                <Icon icon={isPositive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
-                {formatChange(netChange)} ({(changePct ?? 0) >= 0 ? "+" : ""}{changePct?.toFixed(2) ?? "0.00"}%)
-              </span>
-              <span className="text-muted-foreground">•</span>
-              <span className="font-medium text-muted-foreground">{periodLabel}</span>
-            </div>
-          </div>
-        )}
 
         {!isLoading && (
           <div className="rounded-xl border border-border/60 bg-muted/40 p-3 text-center transition-all hover:bg-muted/60">

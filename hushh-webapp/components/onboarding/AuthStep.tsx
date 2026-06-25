@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { getRedirectResult } from "firebase/auth";
+import { getRedirectResult, type User } from "firebase/auth";
 import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
@@ -77,6 +77,13 @@ export function AuthStep({
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING &&
     redirectPath === ROUTES.ONE_ONBOARDING;
+  const isLocationPhoneVerificationReturn = useMemo(
+    () =>
+      redirectPath === ROUTES.ONE_LOCATION ||
+      redirectPath.startsWith(`${ROUTES.ONE_LOCATION}?`) ||
+      redirectPath.startsWith(`${ROUTES.ONE_LOCATION}/`),
+    [redirectPath],
+  );
   const growthJourney = useMemo(() => resolveGrowthJourneyForPath(redirectPath), [redirectPath]);
   const growthEntrySurface = useMemo(
     () => resolveGrowthEntrySurface(redirectPath),

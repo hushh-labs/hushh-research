@@ -65,17 +65,17 @@ export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem })
         <div className="space-y-1">
           <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Renaissance signal</p>
           <div className="flex items-center gap-2">
-            <VerdictIcon signal={signal} className={tone.icon} />
-            <p className={cn("text-base font-medium leading-tight tracking-normal", tone.label)}>
-              {label}
+            <config.icon className={cn("h-5 w-5", config.iconColor)} />
+            <p className={cn("text-base font-medium leading-tight tracking-normal", config.textColor)}>
+              {config.label}
             </p>
           </div>
         </div>
         <Badge
           variant="outline"
-          className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide", tone.badge)}
+          className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide", config.badge)}
         >
-          {signal}
+          {signalType}
         </Badge>
       </div>
 

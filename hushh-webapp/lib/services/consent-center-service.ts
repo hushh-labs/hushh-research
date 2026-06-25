@@ -355,13 +355,15 @@ function normalizeConsentEntry(entry: unknown, index = 0): ConsentCenterEntry {
   // Only when active is absent (undefined) does execution fall through to the
   // original normalization logic — preserving backward compatibility.
   if (typeof entry.active === "boolean") {
+    const currentStatus =
+      typeof consentEntry.status === "string" ? consentEntry.status : "";
     if (entry.active) {
-      const status = ["approved", "active", "granted"].includes(entry.status)
-        ? entry.status
+      const status = ["approved", "active", "granted"].includes(currentStatus)
+        ? currentStatus
         : entry.kind === "active_grant"
           ? "active"
           : "approved";
-      return { ...entry, status };
+      return { ...consentEntry, status };
     }
     // Explicit local revocation — return entry as-is, no promotion.
     return consentEntry;
@@ -377,11 +379,11 @@ function normalizeConsentEntry(entry: unknown, index = 0): ConsentCenterEntry {
   });
   if (
     normalized.isGranted &&
-    !["approved", "active", "granted"].includes(entry.status)
+    !["approved", "active", "granted"].includes(consentEntry.status)
   ) {
     return {
-      ...entry,
-      status: entry.kind === "active_grant" ? "active" : "approved",
+      ...consentEntry,
+      status: consentEntry.kind === "active_grant" ? "active" : "approved",
     };
   }
   return consentEntry;

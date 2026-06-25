@@ -137,7 +137,7 @@ export function ProfileBasedPicksList({
 
       {!loading && data.picks.length > 0 && (
         <div className="space-y-2">
-          {picks.map((pick) => {
+          {data.picks.map((pick) => {
             const change = typeof pick.change_percent === "number" ? pick.change_percent : null;
             return (
               <SurfaceInset
@@ -172,27 +172,19 @@ export function ProfileBasedPicksList({
                     </p>
                   </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold leading-tight">{pick.company_name}</p>
-                  <p className="truncate text-xs font-medium text-muted-foreground">
-                    {(pick.tier || "Tier N/A").toUpperCase()} {pick.sector ? `• ${pick.sector}` : ""}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {formatPrice(pick.price)}
-                    {typeof pick.change_percent === "number" && (
-                      <span className={cn("ml-1 font-semibold", pick.change_percent >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                        {pick.change_percent >= 0 ? "+" : ""}{pick.change_percent.toFixed(2)}%
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </div>
 
-              <Button variant="none" effect="fade" size="icon-sm" onClick={() => handleAdd(pick.symbol)}>
-                <Icon icon={Plus} size="sm" />
-              </Button>
-            </SurfaceInset>
-          ))}
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="icon-sm"
+                  aria-label={`Add ${pick.symbol}`}
+                  onClick={() => handleAdd(pick.symbol)}
+                >
+                  <Icon icon={Plus} size="sm" />
+                </Button>
+              </SurfaceInset>
+            );
+          })}
         </div>
       )}
     </div>

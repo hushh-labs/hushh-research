@@ -16,8 +16,9 @@ const DEFAULT_HOME_ROUTE = ROUTES.ONE_HOME;
 const NO_VAULT_DEFAULT_ROUTE = ROUTES.ONE_HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
-  if (!path || !path.trim()) return DEFAULT_HOME_ROUTE;
-  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+  const normalizedPath = path?.trim();
+  if (!normalizedPath) return DEFAULT_HOME_ROUTE;
+  if (normalizedPath === ROUTES.PHONE_MANDATE) {
     return DEFAULT_HOME_ROUTE;
   }
 
@@ -32,6 +33,10 @@ function normalizeRedirectPath(path: string | null | undefined): string {
   }
 
   return normalizedPath;
+}
+
+function isPriorityReturnRoute(path: string): boolean {
+  return isOneLocationInviteRedirect(path);
 }
 
 function hasCompletePreVaultAnswers(

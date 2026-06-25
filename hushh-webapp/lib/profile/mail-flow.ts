@@ -40,6 +40,7 @@ export interface GmailStatusSummary {
 }
 
 const GMAIL_OAUTH_RETURN_STATUS_KEY = "profile_gmail_oauth_return_status";
+const GMAIL_OAUTH_RETURN_TARGET_KEY = "profile_gmail_oauth_return_target";
 const GMAIL_GENERIC_SYNC_ERROR =
   "Something went wrong while syncing your emails. Please try again in a moment.";
 const GMAIL_GENERIC_CONNECTION_ERROR =
@@ -550,6 +551,38 @@ export function resolveGmailConnectionPresentation(options: {
 export function buildProfileGmailReturnPath(): string {
   const params = new URLSearchParams({ panel: "gmail" });
   return `${ROUTES.PROFILE}?${params.toString()}`;
+}
+
+function normalizeGmailOAuthReturnTarget(
+  value: string | null | undefined,
+): string | null {
+  const target = String(value || "").trim();
+  if (!target || !target.startsWith("/") || target.startsWith("//"))
+    return null;
+  try {
+    const parsed = new URL(target, "https://hushh.local");
+    if (parsed.origin !== "https://hushh.local") return null;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+export function stashGmailOAuthReturnTarget(routeHref: string): void {
+  const normalized = normalizeGmailOAuthReturnTarget(routeHref);
+  if (!normalized) return;
+  try {
+    setSessionItem(GMAIL_OAUTH_RETURN_TARGET_KEY, normalized);
+  } catch (error) {
+    console.warn("[mail-flow] Failed to persist Gmail return target:", error);
+  }
+}
+
+export function consumeGmailOAuthReturnTarget(): string | null {
+  const raw = getSessionItem(GMAIL_OAUTH_RETURN_TARGET_KEY);
+  if (!raw) return null;
+  removeSessionItem(GMAIL_OAUTH_RETURN_TARGET_KEY);
+  return normalizeGmailOAuthReturnTarget(raw);
 }
 
 export function stashProfileGmailReturnStatus(

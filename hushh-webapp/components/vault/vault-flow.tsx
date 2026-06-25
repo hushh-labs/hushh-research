@@ -272,7 +272,7 @@ export function VaultFlow({
         }
         setStep("unlock");
       } catch (err) {
-        console.error("Vault status check failed:", err);
+        console.warn("Vault status check failed:", err);
         const errorCode =
           typeof (err as { code?: unknown } | null | undefined)?.code === "string"
             ? (err as { code: string }).code

@@ -21,6 +21,7 @@ import {
   Search as SearchIcon,
   ShieldCheck,
   Users,
+  WalletCards,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";

@@ -384,7 +384,15 @@ function statusErrorMessage(error: unknown, fallback: string): string {
   return sanitizeGmailUserMessage(error, { fallback });
 }
 
-function taskIdForRun(runId: string, kind: GmailConnectorTaskKind): string {
+function taskIdForRun(
+  runId: string,
+  kind: GmailConnectorTaskKind,
+  userId?: string | null,
+): string {
+  const normalizedUserId = String(userId || "").trim();
+  if (kind === "gmail_backfill" && normalizedUserId) {
+    return `gmail_${kind}_${normalizedUserId}`;
+  }
   return `gmail_${kind}_${runId}`;
 }
 
@@ -405,7 +413,7 @@ function seedTaskFromRun(
   if (!normalizedRunId) return null;
 
   const kind = options?.taskKind || deriveConnectorTaskKind(run);
-  const taskId = taskIdForRun(normalizedRunId, kind);
+  const taskId = taskIdForRun(normalizedRunId, kind, userId);
   const routeHref = syncTaskRouteHref(options?.routeHref);
   const description = deriveTaskDescription(kind, run);
   const metadata = {
@@ -429,8 +437,9 @@ function seedTaskFromRun(
       routeHref,
       metadata,
       visibility: kind === "gmail_backfill" ? "passive" : "primary",
-      groupLabel: "Gmail",
-      autoClearAfterMs: kind === "gmail_backfill" ? 15_000 : 10_000,
+      groupLabel: "Gmail receipts",
+      visibleAfterMs: kind === "gmail_backfill" ? 3_000 : 750,
+      autoClearAfterMs: kind === "gmail_backfill" ? 5_000 : 10_000,
     });
   } else {
     AppBackgroundTaskService.updateTask(taskId, {
@@ -439,7 +448,7 @@ function seedTaskFromRun(
       routeHref,
       metadata,
       visibility: kind === "gmail_backfill" ? "passive" : "primary",
-      groupLabel: "Gmail",
+      groupLabel: "Gmail receipts",
     });
   }
 
@@ -839,11 +848,16 @@ export function primeConnectorStatus(params: {
       ? taskIdForRun(
           latestRun.run_id,
           nextTaskKind || deriveConnectorTaskKind(latestRun),
+          normalizedUserId,
         )
       : null;
   if (latestRun && isTerminalRunStatus(latestRun.status)) {
     finishTaskFromRun(
-      taskIdForRun(latestRun.run_id, deriveConnectorTaskKind(latestRun)),
+      taskIdForRun(
+        latestRun.run_id,
+        deriveConnectorTaskKind(latestRun),
+        normalizedUserId,
+      ),
       latestRun,
     );
   }

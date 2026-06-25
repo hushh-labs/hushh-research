@@ -509,7 +509,12 @@
       "route": "/getting-started",
       "page_file": "app/getting-started/page.tsx",
       "physical_page_exists": true,
-      "route_contract": null,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": null,
       "shell": {
         "app_page_shell": false,

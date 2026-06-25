@@ -158,7 +158,7 @@ export function ConsentInboxDropdown({
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
-  const pendingCount = summaryData?.counts.pending ?? 0;
+  const pendingCount = summaryData?.counts?.pending ?? 0;
 
   const pendingListResource = useStaleResource({
     cacheKey: pendingListCacheKey,

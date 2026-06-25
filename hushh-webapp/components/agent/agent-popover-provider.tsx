@@ -21,7 +21,6 @@ import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { useVault } from "@/lib/vault/vault-context";
 import {
   AGENT_POPOVER_DEFAULT_SIZE_MODE,
   AGENT_POPOVER_PRESET_SIZES,
@@ -118,6 +117,16 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   );
   const [customSize, setCustomSize] =
     useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
+  const { isAuthenticated } = useAuth();
+  const pathname = usePathname();
+  const chromeState = getKaiChromeState(pathname);
+  const isLegacyAgentRoute = pathname === ROUTES.AGENT;
+  const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
+  const available =
+    isAuthenticated &&
+    !isLegacyAgentRoute &&
+    !isPhoneMandateRoute &&
+    !chromeState.hideCommandBar;
 
   useEffect(() => {
     setSizeModeState(readStoredSizeMode());
@@ -186,6 +195,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
       setSizeMode,
     }),
     [
+      available,
       expanded,
       hasOpened,
       minimizeAgent,
