@@ -3425,6 +3425,15 @@ class PKMAgentLabService:
         if mutation_intent == "no_op" and write_mode == "can_save":
             write_mode = "do_not_save"
 
+        # Identity writes are structurally incapable of auto-save (D-07). Mirror
+        # the financial force-confirm guard: escalate ONLY when the resolved
+        # write_mode is "can_save", leaving read-only/no_op/ephemeral identity
+        # flows (already do_not_save upstream) untouched. This is a write_mode
+        # force, not a domain reroute — identity stays identity.
+        if target_domain == "identity" and write_mode == "can_save":
+            write_mode = "confirm_first"
+            validation_hints.append("identity_domain_requires_confirmation")
+
         parsed_validation_hints = raw_structure.get("validation_hints")
         if isinstance(parsed_validation_hints, list):
             for hint in parsed_validation_hints:
