@@ -32,4 +32,12 @@ describe("Separator", () => {
 
     expect(el?.getAttribute("data-orientation")).toBe("vertical");
   });
+
+  it("renders with role='separator' when decorative={false}", () => {
+    const { container } = render(<Separator decorative={false} />);
+    const el = container.querySelector('[data-slot="separator"]');
+
+    expect(el?.getAttribute("role")).toBe("separator");
+  });
+
 });
