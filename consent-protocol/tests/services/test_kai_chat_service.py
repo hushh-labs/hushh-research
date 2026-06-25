@@ -47,7 +47,7 @@ async def test_schedule_attribute_learning_does_not_block_response_path():
     service._attribute_learner = learner
 
     service._schedule_attribute_learning(
-        user_id="user-123",
+        user_id="u123",
         user_message="remember that I prefer index funds",
         assistant_response="Got it.",
     )
@@ -66,14 +66,14 @@ async def test_schedule_attribute_learning_logs_background_failure(caplog):
 
     with caplog.at_level(logging.ERROR, logger="hushh_mcp.services.kai_chat_service"):
         service._schedule_attribute_learning(
-            user_id="user-123",
+            user_id="u123",
             user_message="remember this",
             assistant_response="Saved.",
         )
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
-    assert "kai_chat.attribute_learning_failed user_id=user-123" in caplog.text
+    assert "kai_chat.attribute_learning_failed user_id=u123" in caplog.text
     assert "attribute extraction failed" in caplog.text
 
 

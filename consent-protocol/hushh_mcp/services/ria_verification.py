@@ -452,6 +452,8 @@ class RIAIntelligenceStage1LookupAdapter:
         status_code: int,
         payload: dict[str, Any] | None,
     ) -> NameVerificationResult | None:
+        if status_code in {401, 403, 429}:
+            return None
         reason = ""
         if isinstance(payload, dict):
             profile_reason = cls._not_found_reason(payload)

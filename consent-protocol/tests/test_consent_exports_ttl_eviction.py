@@ -193,7 +193,7 @@ def _find_evict_calls(tree: ast.AST) -> list[int]:
 
 def test_eviction_helper_exists_in_source():
     """The eviction helper function must be defined in consent.py."""
-    source = CONSENT_PY.read_text()
+    source = CONSENT_PY.read_text(encoding="utf-8")
     assert "def _evict_stale_consent_exports" in source, (
         "api/routes/consent.py does not define _evict_stale_consent_exports"
     )
@@ -206,7 +206,7 @@ def test_eviction_called_at_least_three_write_sites():
       2. DB-fallback cache population (export endpoint)
       3. refresh-upload (export-refresh/complete)
     """
-    source = CONSENT_PY.read_text()
+    source = CONSENT_PY.read_text(encoding="utf-8")
     tree = ast.parse(source)
     calls = _find_evict_calls(tree)
 

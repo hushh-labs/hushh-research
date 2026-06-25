@@ -15,7 +15,7 @@ import pathlib
 
 
 def _f_string_logger_lines(module) -> list[int]:
-    src = pathlib.Path(module.__file__).read_text()
+    src = pathlib.Path(module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
     bad: list[int] = []
     for node in ast.walk(tree):

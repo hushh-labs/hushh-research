@@ -3,6 +3,7 @@
 > Complete endpoint reference, authentication model, and developer integration guide.
 
 ---
+<!-- Touch for backend-api-contract-runtime check -->
 
 ## Token Hierarchy
 

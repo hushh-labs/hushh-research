@@ -63,7 +63,7 @@ def test_no_f_string_loggers_in_module() -> None:
     import ast
     import pathlib
 
-    src = pathlib.Path(portfolio_mod.__file__).read_text()
+    src = pathlib.Path(portfolio_mod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     f_string_loggers: list[int] = []

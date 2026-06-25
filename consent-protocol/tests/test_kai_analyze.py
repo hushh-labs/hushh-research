@@ -47,7 +47,7 @@ class TestAnalyzeRequiresVaultOwnerToken:
         )
 
         assert response.status_code == 401
-        assert "Invalid token" in response.json()["detail"]
+        assert "Token validation failed." in response.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_analyze_mismatched_user_id_returns_403(self, client, vault_owner_token_for_user):
@@ -69,11 +69,42 @@ class TestAnalyzeRequiresVaultOwnerToken:
         """Test that valid VAULT_OWNER token allows analysis."""
         token = vault_owner_token_for_user("test_user")
 
-        response = client.post(
-            "/analyze",
-            json={"user_id": "test_user", "ticker": "AAPL", "risk_profile": "balanced"},
-            headers={"Authorization": f"Bearer {token}"},
+        from datetime import datetime
+        from unittest.mock import AsyncMock, patch
+
+        from hushh_mcp.agents.kai.decision_generator import DecisionCard
+
+        mock_card = DecisionCard(
+            decision_id="dec-123",
+            ticker="AAPL",
+            user_id="test_user",
+            timestamp=datetime.utcnow(),
+            decision="buy",
+            confidence=0.9,
+            headline="Buy AAPL",
+            fundamental_insight={},
+            sentiment_insight={},
+            valuation_insight={},
+            debate_digest="digest",
+            debate_rounds=[],
+            consensus_reached=True,
+            dissenting_opinions=[],
+            all_sources=[],
+            key_metrics={},
+            quant_metrics={},
+            risk_persona_alignment="aligned",
+            legal_disclaimer="disclaimer",
+            reliability_badge="high",
+            processing_mode="hybrid",
+            risk_profile="balanced",
         )
+
+        with patch("hushh_mcp.agents.kai.orchestrator.KaiOrchestrator.analyze", new=AsyncMock(return_value=mock_card)):
+            response = client.post(
+                "/analyze",
+                json={"user_id": "test_user", "ticker": "AAPL", "risk_profile": "balanced"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
 
         # Should either succeed or fail with a server error (agent not configured)
         # but NOT with 401/403 (token should be accepted)

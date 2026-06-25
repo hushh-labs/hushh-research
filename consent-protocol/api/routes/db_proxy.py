@@ -729,7 +729,7 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         logger.warning("db_proxy.validate_vault_owner_token.invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail="Invalid or expired consent token.",
+            detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

@@ -57,7 +57,7 @@ def test_no_f_string_loggers_in_service() -> None:
 
     import hushh_mcp.services.kai_chat_service as svc_mod
 
-    src = pathlib.Path(svc_mod.__file__).read_text()
+    src = pathlib.Path(svc_mod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     f_string_loggers: list[int] = []

@@ -25,33 +25,33 @@ router = APIRouter(tags=["Kai Gmail"])
 
 
 class GmailConnectStartRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
     redirect_uri: str | None = Field(default=None, max_length=2048)
     login_hint: str | None = Field(default=None, max_length=512)
     include_granted_scopes: bool = False
 
 
 class GmailConnectCompleteRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
     code: str = Field(min_length=1, max_length=512)
     state: str = Field(min_length=1, max_length=512)
     redirect_uri: str | None = Field(default=None, max_length=2048)
 
 
 class GmailDisconnectRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
 
 
 class GmailSyncRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
 
 
 class GmailReconcileRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
 
 
 class GmailReceiptMemoryPreviewRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
     force_refresh: bool = False
 
 

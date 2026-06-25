@@ -120,10 +120,12 @@ class TestInvestorRouteInfoDisclosure:
     def _make_client(self):
         from fastapi import FastAPI
 
+        from api.middleware import require_firebase_auth
         from api.routes.investors import router
 
         app = FastAPI()
         app.include_router(router)
+        app.dependency_overrides[require_firebase_auth] = lambda: "test-uid"
         return TestClient(app, raise_server_exceptions=False)
 
     def test_get_investor_500_does_not_leak_exception(self):

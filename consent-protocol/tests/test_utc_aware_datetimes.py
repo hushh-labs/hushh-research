@@ -45,31 +45,36 @@ class TestUtcAwareDatetimes:
 
         from fastapi.testclient import TestClient
 
+        from api.middleware import require_firebase_auth
         from server import app
 
-        client = TestClient(app)
+        app.dependency_overrides[require_firebase_auth] = lambda: "test-user"
+        try:
+            client = TestClient(app)
 
-        mock_sb = MagicMock()
-        mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
-        mock_sb.table.return_value.insert.return_value.execute.return_value.data = [
-            {"id": "inv-001", "hushh_id": "test-user"}
-        ]
+            mock_sb = MagicMock()
+            mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
+            mock_sb.table.return_value.insert.return_value.execute.return_value.data = [
+                {"id": "inv-001", "hushh_id": "test-user"}
+            ]
 
-        with patch("api.routes.investors.get_db", return_value=mock_sb):
-            client.post(
-                "/api/investors/",
-                json={
-                    "name": "Test Investor",
-                    "hushh_id": "test-user",
-                    "email": "test@example.com",
-                },
-            )
+            with patch("hushh_mcp.services.investor_db.get_db", return_value=mock_sb):
+                client.post(
+                    "/api/investors/",
+                    json={
+                        "name": "Test Investor",
+                        "hushh_id": "test-user",
+                        "email": "test@example.com",
+                    },
+                )
+        finally:
+            app.dependency_overrides.pop(require_firebase_auth, None)
 
         # Capture what was inserted
         call_args = mock_sb.table.return_value.insert.call_args
         if call_args:
             inserted = call_args[0][0]
-            now_iso = inserted.get("created_at") or inserted.get("now_iso")
+            now_iso = inserted.get("created_at") or inserted.get("now_iso") or inserted.get("updated_at")
             if now_iso:
                 # Must parse as UTC-aware datetime
                 dt = datetime.fromisoformat(now_iso)

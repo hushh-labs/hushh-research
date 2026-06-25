@@ -51,7 +51,7 @@ async def test_validate_vault_owner_token_invalid_token_returns_401(monkeypatch)
 
     assert exc.value.status_code == 401
     assert exc.value.headers == {"WWW-Authenticate": "Bearer"}
-    assert "revoked" in exc.value.detail
+    assert exc.value.detail == "Invalid or expired consent token"
 
 
 @pytest.mark.asyncio

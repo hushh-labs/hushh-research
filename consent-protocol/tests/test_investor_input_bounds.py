@@ -24,8 +24,11 @@ from api.routes.investors import _BULK_INVESTOR_MAX, router
 def _build_client() -> TestClient:
     from fastapi import FastAPI
 
+    from api.middleware import require_firebase_auth
+
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "test-uid"
     return TestClient(app, raise_server_exceptions=False)
 
 

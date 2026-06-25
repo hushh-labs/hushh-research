@@ -59,8 +59,7 @@ def client():
 
     app.dependency_overrides[require_vault_owner_token] = lambda: _FAKE_TOKEN_DATA
     try:
-        with TestClient(app, raise_server_exceptions=False) as c:
-            yield c
+        yield TestClient(app, raise_server_exceptions=False)
     finally:
         app.dependency_overrides.pop(require_vault_owner_token, None)
 

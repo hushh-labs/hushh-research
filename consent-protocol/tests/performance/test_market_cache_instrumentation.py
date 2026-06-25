@@ -86,28 +86,39 @@ class TestMarketCacheInstrumentation:
     async def test_lock_recheck_hit_logs_locked_result(self, caplog):
         """Second caller under the lock emits the locked-hit decision."""
         call_count = 0
+        fetcher_started = asyncio.Event()
+        resume_fetcher = asyncio.Event()
 
         async def slow_fetcher():
             nonlocal call_count
             call_count += 1
-            await asyncio.sleep(0.01)
+            fetcher_started.set()
+            await resume_fetcher.wait()
             return {"price": 300}
 
         with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
-            first, second = await asyncio.gather(
+            task1 = asyncio.create_task(
                 self.cache.get_or_refresh(
                     "quotes:GOOG",
                     fresh_ttl_seconds=60,
                     stale_ttl_seconds=300,
                     fetcher=slow_fetcher,
-                ),
-                self.cache.get_or_refresh(
-                    "quotes:GOOG",
-                    fresh_ttl_seconds=60,
-                    stale_ttl_seconds=300,
-                    fetcher=slow_fetcher,
-                ),
+                )
             )
+            await fetcher_started.wait()
+
+            task2 = asyncio.create_task(
+                self.cache.get_or_refresh(
+                    "quotes:GOOG",
+                    fresh_ttl_seconds=60,
+                    stale_ttl_seconds=300,
+                    fetcher=slow_fetcher,
+                )
+            )
+            await asyncio.sleep(0.001)  # allow task2 to yield and queue behind the lock
+            resume_fetcher.set()
+
+            first, second = await asyncio.gather(task1, task2)
 
         assert call_count == 1
         assert first.stale is False

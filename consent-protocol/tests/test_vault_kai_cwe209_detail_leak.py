@@ -206,7 +206,7 @@ class TestKaiAnalyzeLosersDoesNotLeakDetail:
                 "/api/kai/chat/analyze-loser",
                 json={"user_id": "user-abc", "symbol": "AAPL"},
             )
-        assert r.json().get("detail") == "Analysis failed"
+        assert r.json().get("detail") == "Analysis is temporarily unavailable."
 
     def test_db_error_string_does_not_appear_in_response(self) -> None:
         """DB/stack trace strings must not leak through the analyze-loser error path."""

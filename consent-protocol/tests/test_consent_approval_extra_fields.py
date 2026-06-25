@@ -192,7 +192,7 @@ def test_consent_approval_payload_uses_extra_forbid():
     AST guard: ConsentApprovalPayload.model_config must set extra='forbid'.
     Catches regressions where extra mode is accidentally loosened.
     """
-    source = CONSENT_PY.read_text()
+    source = CONSENT_PY.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     found_forbid = False

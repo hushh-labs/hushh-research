@@ -28,14 +28,14 @@ def client() -> TestClient:
 
 def test_validate_token_endpoint_reachable(client: TestClient) -> None:
     """POST /api/validate-token must reach the handler (not 404/405)."""
-    resp = client.post("/validate-token", json={"token": "invalid-token"})
+    resp = client.post("/api/validate-token", json={"token": "invalid-token"})
     # Handler returns a JSON dict (no HTTPException), so 200 even for invalid tokens.
     assert resp.status_code == 200
     assert "valid" in resp.json()
 
 
 def test_validate_token_returns_false_for_bad_token(client: TestClient) -> None:
-    resp = client.post("/validate-token", json={"token": "bad"})
+    resp = client.post("/api/validate-token", json={"token": "bad"})
     assert resp.status_code == 200
     data = resp.json()
     assert data.get("valid") is False
@@ -46,7 +46,7 @@ def test_no_f_string_loggers_in_module() -> None:
     import ast
     import pathlib
 
-    src = pathlib.Path(agents_mod.__file__).read_text()
+    src = pathlib.Path(agents_mod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     f_string_loggers: list[int] = []

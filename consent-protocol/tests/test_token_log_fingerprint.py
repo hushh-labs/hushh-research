@@ -61,7 +61,9 @@ class TestTokenLogFingerprint:
                         encrypted_data="enc",
                         iv="iv",
                         tag="tag",
+                        export_key=None,
                         wrapped_key_bundle=None,
+                        scope="attr.financial.*",
                         expires_at_ms=9999999999999,
                     )
                 )

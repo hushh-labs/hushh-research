@@ -15,7 +15,7 @@ def test_no_f_string_loggers_in_domain_registry_service() -> None:
     """No f-string logger calls (G004) must remain in domain_registry_service.py."""
     import hushh_mcp.services.domain_registry_service as module
 
-    src = pathlib.Path(module.__file__).read_text()
+    src = pathlib.Path(module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
     bad_lines: list[int] = []
     for node in ast.walk(tree):

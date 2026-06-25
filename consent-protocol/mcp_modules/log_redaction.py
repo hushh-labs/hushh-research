@@ -76,10 +76,22 @@ def _is_sensitive_key(key: Any) -> bool:
     )
 
 
+_SAFE_WORDS_AND_PATTERNS = {
+    "locked_hit",
+    "stale_hit",
+    "locked_miss",
+    "refresh_failure",
+}
+
+
 def _is_sensitive_string(value: str) -> bool:
     stripped = value.strip()
     if stripped.startswith(_TOKEN_PREFIXES):
         return True
+    if stripped in _SAFE_WORDS_AND_PATTERNS:
+        return False
+    if stripped.startswith(("gpt-", "claude-", "gemini-", "llama-")):
+        return False
     return bool(
         _EMAIL_RE.match(stripped) or _PHONE_RE.match(stripped) or _UID_LIKE_RE.match(stripped)
     )

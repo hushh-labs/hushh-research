@@ -829,6 +829,7 @@ def _run(cmd: list[str], timeout: int | None = None) -> str:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=False,
                 timeout=timeout,
             )
@@ -1467,6 +1468,7 @@ def _git_show_origin_main(path: str) -> str | None:
         ["git", "show", f"origin/main:{path}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPO_ROOT,
     )
@@ -1481,6 +1483,7 @@ def _git_grep_origin_main(pattern: str) -> tuple[str, ...]:
         ["git", "grep", "-n", pattern, "origin/main", "--", "hushh-webapp"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPO_ROOT,
     )
@@ -4183,6 +4186,7 @@ def _path_exists_on_origin_main(path: str) -> bool:
         ["git", "cat-file", "-e", f"origin/main:{path}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPO_ROOT,
     )

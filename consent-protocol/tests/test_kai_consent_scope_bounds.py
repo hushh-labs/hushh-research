@@ -129,9 +129,9 @@ def client():
 
 
 def test_http_oversized_scope_item_returns_422(client):
-    """POST /consent/grant with a 129-char scope must return 422."""
+    """POST /api/kai/consent/grant with a 129-char scope must return 422."""
     resp = client.post(
-        "/consent/grant",
+        "/api/kai/consent/grant",
         json={"user_id": "user_abc", "scopes": ["a" * 129]},
         headers={"Authorization": "Bearer stub"},
     )
@@ -139,9 +139,9 @@ def test_http_oversized_scope_item_returns_422(client):
 
 
 def test_http_empty_scope_item_returns_422(client):
-    """POST /consent/grant with an empty scope string must return 422."""
+    """POST /api/kai/consent/grant with an empty scope string must return 422."""
     resp = client.post(
-        "/consent/grant",
+        "/api/kai/consent/grant",
         json={"user_id": "user_abc", "scopes": [""]},
         headers={"Authorization": "Bearer stub"},
     )
@@ -151,7 +151,7 @@ def test_http_empty_scope_item_returns_422(client):
 def test_http_valid_payload_not_rejected_by_validation(client):
     """A well-formed payload must not be rejected with 422 by our new checks."""
     resp = client.post(
-        "/consent/grant",
+        "/api/kai/consent/grant",
         json={"user_id": "user_abc", "scopes": ["attr.financial.*"]},
         headers={"Authorization": "Bearer stub"},
     )
@@ -168,7 +168,7 @@ def test_error_detail_does_not_echo_scope_string(client):
     # but fails ConsentScope(scope_str).
     fake_scope = "DEFINITELY_NOT_A_REAL_SCOPE_VALUE"
     resp = client.post(
-        "/consent/grant",
+        "/api/kai/consent/grant",
         json={"user_id": "user_abc", "scopes": [fake_scope]},
         headers={"Authorization": "Bearer stub"},
     )

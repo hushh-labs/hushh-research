@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemsError,
+    DatabaseExecutionError,
     get_connected_systems_service,
 )
 

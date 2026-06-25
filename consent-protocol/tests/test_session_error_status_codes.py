@@ -185,9 +185,9 @@ def test_consent_history_page_at_max_accepted(client: TestClient):
     with patch(
         "hushh_mcp.services.consent_db.ConsentDBService.get_audit_log",
         new_callable=AsyncMock,
-        return_value={"items": [], "page": 10000, "limit": 50, "total": 0},
+        return_value={"items": [], "page": 1000, "limit": 50, "total": 0},
     ):
-        resp = client.get("/api/consent/history?userId=user-abc&page=10000")
+        resp = client.get("/api/consent/history?userId=user-abc&page=1000")
     assert resp.status_code in (200, 403)
 
 

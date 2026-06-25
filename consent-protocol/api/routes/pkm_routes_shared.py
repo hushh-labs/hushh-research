@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
-_Domain = Annotated[str, Path(min_length=1, max_length=200)]
+_Domain = Annotated[str, Path(min_length=1, max_length=128)]
 _RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
 

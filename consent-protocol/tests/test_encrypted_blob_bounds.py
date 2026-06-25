@@ -36,11 +36,11 @@ _VALID_BLOB = {
 
 @pytest.fixture()
 def client():
-    from api.main import app
+    from server import app
 
     app.dependency_overrides[require_vault_owner_token] = lambda: _TOKEN
     yield TestClient(app, raise_server_exceptions=False)
-    app.dependency_overrides.clear()
+    app.dependency_overrides.pop(require_vault_owner_token, None)
 
 
 def _store_domain_payload(blob_override: dict) -> dict:
@@ -50,6 +50,7 @@ def _store_domain_payload(blob_override: dict) -> dict:
         "domain": "financial",
         "encrypted_payload": blob["ciphertext"],
         "encrypted_blob": blob,
+        "summary": {},
     }
 
 
@@ -86,13 +87,9 @@ def test_valid_ciphertext_not_rejected(client: TestClient) -> None:
     with patch("api.routes.pkm_routes_shared.get_pkm_service", return_value=mock_service):
         resp = client.post(
             "/api/pkm/store-domain",
-            json={
-                "user_id": _UID,
-                "domain": "financial",
-                "encrypted_payload": _VALID_BLOB["ciphertext"],
-            },
+            json=_store_domain_payload({}),
         )
-    assert resp.status_code != 422, f"Valid payload rejected: {resp.status_code}"
+    assert resp.status_code != 422, f"Valid payload rejected: {resp.status_code} - {resp.text}"
 
 
 # ---------------------------------------------------------------------------

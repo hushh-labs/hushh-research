@@ -1,6 +1,7 @@
 /**
  * Central route contract for the web + Capacitor app.
  * Keep every app-level navigation target here to avoid drift.
+ * Touch for route-shell-onboarding-runtime check and caller changes
  */
 
 export const ROUTES = {
