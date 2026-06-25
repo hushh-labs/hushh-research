@@ -180,27 +180,11 @@ async def get_investor_by_cik(
 # ============================================================================
 
 
-@router.post("/", status_code=201)
-async def create_investor(
-    investor: InvestorCreateRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
-):
-    """
-    Create or update an investor profile.
-
-    Admin endpoint for data ingestion from SEC EDGAR, etc.
-    Requires Firebase authentication.
-    """
-
-    # Use service layer
-    service = InvestorDBService()
-
-    # Normalize name for search
+def _build_investor_data(investor: InvestorCreateRequest) -> dict:
+    """Build the cleaned (None-stripped) DB record for an investor profile."""
     name_normalized = re.sub(r"\s+", "", investor.name.lower())
-
     now_iso = datetime.now().isoformat()
 
-    # Prepare data
     data = {
         "name": investor.name,
         "name_normalized": name_normalized,
@@ -230,7 +214,24 @@ async def create_investor(
     }
 
     # Remove None values
-    data = {k: v for k, v in data.items() if v is not None}
+    return {k: v for k, v in data.items() if v is not None}
+
+
+@router.post("/", status_code=201)
+async def create_investor(
+    investor: InvestorCreateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """
+    Create or update an investor profile.
+
+    Admin endpoint for data ingestion from SEC EDGAR, etc.
+    Requires Firebase authentication.
+    """
+
+    # Use service layer
+    service = InvestorDBService()
+    data = _build_investor_data(investor)
 
     try:
         # Use service method
@@ -257,6 +258,10 @@ async def bulk_create_investors(
     database connection pool.
     Requires Firebase authentication (trust boundary: no unauthenticated
     bulk ingestion into the investor profiles table).
+
+    Upserts the whole batch via InvestorDBService.bulk_upsert_investors,
+    which issues one round-trip per distinct record shape instead of one
+    round-trip per investor.
     """
     if len(investors) > _BULK_INVESTOR_MAX:
         raise HTTPException(
@@ -265,10 +270,18 @@ async def bulk_create_investors(
             f"got {len(investors)}.",
         )
 
-    results = []
-    for investor in investors:
-        result = await create_investor(investor, firebase_uid=firebase_uid)
-        results.append(result)
+    service = InvestorDBService()
+    records = [_build_investor_data(investor) for investor in investors]
+
+    try:
+        upserted = await service.bulk_upsert_investors(records)
+    except Exception:
+        logger.error("investor.bulk_create.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+    results = [
+        {"id": row.get("id"), "name": row.get("name"), "status": "created"} for row in upserted
+    ]
 
     logger.info("investor.bulk_create.success count=%s", len(results))
 
