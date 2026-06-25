@@ -3,25 +3,22 @@
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { RiaService } from "@/lib/services/ria-service";
-import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildPhoneMandateRoute,
+  buildProfileVaultRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
+import type { PreVaultOnboardingAnswers } from "@/lib/services/pre-vault-onboarding-service";
 
-const PRE_VAULT_ROUTE = ROUTES.KAI_ONBOARDING;
-const NO_VAULT_DEFAULT_ROUTE = ROUTES.KAI_HOME;
-const PRIORITY_RETURN_ROUTES = new Set<string>([ROUTES.ONE_LOCATION]);
-
-function isPriorityReturnRoute(path: string): boolean {
-  const normalizedPath = String(path ?? "").trim();
-  const [pathname = ""] = normalizedPath.split(/[?#]/, 1);
-
-  return PRIORITY_RETURN_ROUTES.has(pathname);
-}
+const PRE_VAULT_ROUTE = ROUTES.ONE_ONBOARDING;
+const DEFAULT_HOME_ROUTE = ROUTES.ONE_HOME;
+const NO_VAULT_DEFAULT_ROUTE = ROUTES.ONE_HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
-  const normalizedPath = String(path ?? "").trim();
-  if (!normalizedPath) return ROUTES.KAI_HOME;
-  if (normalizedPath === ROUTES.PHONE_MANDATE) {
-    return ROUTES.KAI_HOME;
+  if (!path || !path.trim()) return DEFAULT_HOME_ROUTE;
+  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+    return DEFAULT_HOME_ROUTE;
   }
 
   if (normalizedPath.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
@@ -35,6 +32,36 @@ function normalizeRedirectPath(path: string | null | undefined): string {
   }
 
   return normalizedPath;
+}
+
+function hasCompletePreVaultAnswers(
+  answers: PreVaultOnboardingAnswers | null | undefined,
+): boolean {
+  return Boolean(
+    answers?.investment_horizon &&
+      answers?.drawdown_response &&
+      answers?.volatility_preference,
+  );
+}
+
+function isOneLocationInviteRedirect(path: string): boolean {
+  return (
+    path === ROUTES.ONE_LOCATION ||
+    path.startsWith(`${ROUTES.ONE_LOCATION}?`) ||
+    path.startsWith(`${ROUTES.ONE_LOCATION}/invite/`)
+  );
+}
+
+function inviteRedirectTargetFor(path: string): string | null {
+  if (isOneLocationInviteRedirect(path)) return path;
+  try {
+    const url = new URL(path, "https://one.local");
+    if (url.pathname !== ROUTES.PROFILE) return null;
+    const returnTo = url.searchParams.get("return_to");
+    return returnTo && isOneLocationInviteRedirect(returnTo) ? returnTo : null;
+  } catch {
+    return null;
+  }
 }
 
 export class PostAuthRouteService {
@@ -51,8 +78,13 @@ export class PostAuthRouteService {
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
     const canOverrideWithPersona =
       !params.redirectPath ||
+      fallbackRoute === ROUTES.HOME ||
+      fallbackRoute === ROUTES.ONE_HOME ||
       fallbackRoute === ROUTES.KAI_HOME ||
-      fallbackRoute === ROUTES.KAI_ONBOARDING;
+      fallbackRoute === ROUTES.LEGACY_KAI_HOME ||
+      fallbackRoute === ROUTES.ONE_ONBOARDING ||
+      fallbackRoute === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
+      fallbackRoute === ROUTES.LEGACY_KAI_ONBOARDING;
 
     if (params.idToken && canOverrideWithPersona) {
       try {
@@ -69,14 +101,32 @@ export class PostAuthRouteService {
 
     if (remoteState.hasVault) {
       const onboardingResolved = PreVaultUserStateService.isOnboardingResolved(remoteState);
+      const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
       if (
         remoteState.preOnboardingCompleted === false &&
         !onboardingResolved
       ) {
         return PRE_VAULT_ROUTE;
       }
-      if (fallbackRoute === ROUTES.KAI_ONBOARDING && onboardingResolved) {
-        return ROUTES.KAI_HOME;
+      if (
+        (fallbackRoute === ROUTES.ONE_ONBOARDING ||
+          fallbackRoute === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
+          fallbackRoute === ROUTES.LEGACY_KAI_ONBOARDING) &&
+        onboardingResolved
+      ) {
+        return DEFAULT_HOME_ROUTE;
+      }
+      if (
+        inviteRedirectTarget &&
+        shouldRequirePhoneMandate({
+          phoneNumber: params.phoneNumber,
+          phoneVerified: params.phoneVerified,
+          hasVault: true,
+          hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+          pathname: fallbackRoute,
+        })
+      ) {
+        return buildPhoneMandateRoute(fallbackRoute);
       }
       return fallbackRoute;
     }
@@ -88,7 +138,12 @@ export class PostAuthRouteService {
         remoteState.preOnboardingCompleted === null &&
         remoteState.preOnboardingSkipped === null &&
         remoteState.preOnboardingCompletedAt === null;
-      if (remoteUnset && pending?.completed) {
+      const pendingResolved =
+        pending?.completed === true &&
+        Boolean(pending.completed_at) &&
+        (pending.skipped === true || hasCompletePreVaultAnswers(pending.answers));
+
+      if (remoteUnset && pendingResolved) {
         const completedAtMs =
           pending.completed_at && !Number.isNaN(Date.parse(pending.completed_at))
             ? Date.parse(pending.completed_at)
@@ -109,9 +164,12 @@ export class PostAuthRouteService {
       }
     }
 
-    const resolvedNoVaultRoute = onboardingResolved
-      ? NO_VAULT_DEFAULT_ROUTE
-      : PRE_VAULT_ROUTE;
+    const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
+    const resolvedNoVaultRoute = inviteRedirectTarget
+      ? buildProfileVaultRoute(inviteRedirectTarget)
+      : onboardingResolved
+        ? NO_VAULT_DEFAULT_ROUTE
+        : PRE_VAULT_ROUTE;
 
     if (
       !shouldPreservePriorityReturn &&
@@ -119,16 +177,10 @@ export class PostAuthRouteService {
         phoneNumber: params.phoneNumber,
         phoneVerified: params.phoneVerified,
         hasVault: false,
-        hostname: params.hostname,
+        hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
       })
     ) {
-      return buildPhoneMandateRoute(
-        resolvedNoVaultRoute
-      );
-    }
-
-    if (shouldPreservePriorityReturn) {
-      return fallbackRoute;
+      return buildPhoneMandateRoute(inviteRedirectTarget ?? resolvedNoVaultRoute);
     }
 
     return resolvedNoVaultRoute;

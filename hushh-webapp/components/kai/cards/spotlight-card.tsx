@@ -78,15 +78,36 @@ export function SpotlightCard({
       >
         <MorphyCardContent className={cn("relative z-[1] p-5", compact ? "space-y-2" : "space-y-4")}>
           <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <SymbolAvatar symbol={symbol} name={companyName} size={compact ? "sm" : "md"} />
-              <div>
-                <h3 className="font-semibold leading-tight tracking-tight">{title}</h3>
-                <p className="text-xs text-muted-foreground">{price}</p>
+            <div className="flex min-w-0 items-start gap-3">
+              <SymbolAvatar symbol={props.symbol} name={props.companyName} size="md" />
+              <div className="min-w-0 space-y-1">
+                <h3 className="text-[15.5px] font-medium leading-tight tracking-normal sm:text-base">{props.title}</h3>
+                <p className="text-sm text-muted-foreground">{props.price}</p>
               </div>
             </div>
-            <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase", decisionStyle)}>
-              {decision}
+            <div className="flex items-center gap-1.5">
+              {props.confidenceLabel ? (
+                <span className="inline-flex items-center rounded-full bg-background/75 px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground transition-colors duration-200 group-hover:bg-background/85">
+                  {props.confidenceLabel}
+                </span>
+              ) : null}
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide",
+                  decisionTone
+                )}
+              >
+                {props.decision}
+              </span>
+            </div>
+          </div>
+
+          <p className="text-sm font-normal leading-relaxed text-foreground/80">{props.summary}</p>
+
+          <div className="flex items-center gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground transition-colors duration-200 group-hover:border-border/60">
+            <Icon icon={LineChart} size="sm" />
+            <span className="line-clamp-1 transition-colors duration-200 group-hover:text-foreground/85">
+              {props.context}
             </span>
           </div>
 

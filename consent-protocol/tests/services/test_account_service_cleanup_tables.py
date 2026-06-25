@@ -81,6 +81,11 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM kai_gmail_connections",
         "DELETE FROM consent_export_refresh_jobs",
         "DELETE FROM consent_exports",
+        "DELETE FROM connected_system_audit_events",
+        "DELETE FROM connected_system_record_bindings",
+        "DELETE FROM connected_system_intents",
+        "DELETE FROM pkm_default_available_projections",
+        "DELETE FROM pkm_upgrade_steps",
         "DELETE FROM pkm_upgrade_runs",
         "DELETE FROM world_model_index_v2",
         "DELETE FROM pkm_migration_state",
@@ -98,6 +103,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_referrals",
         "DELETE FROM one_location_public_invite_submissions",
         "DELETE FROM one_location_public_invites",
+        "DELETE FROM one_location_circle_invites",
+        "DELETE FROM one_location_network_connections",
         "DELETE FROM one_location_access_requests",
         "DELETE FROM one_location_envelopes",
         "DELETE FROM one_location_share_grants",
@@ -120,6 +127,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     )
     assert executed_sql.index("DELETE FROM consent_export_refresh_jobs") < executed_sql.index(
         "DELETE FROM consent_exports"
+    )
+    assert executed_sql.index("DELETE FROM pkm_upgrade_steps") < executed_sql.index(
+        "DELETE FROM pkm_upgrade_runs"
+    )
+    assert executed_sql.index("DELETE FROM connected_system_record_bindings") < executed_sql.index(
+        "DELETE FROM connected_system_intents"
     )
     assert executed_sql.index("DELETE FROM relationship_share_events") < executed_sql.index(
         "DELETE FROM relationship_share_grants"

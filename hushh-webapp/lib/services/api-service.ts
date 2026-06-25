@@ -60,6 +60,62 @@ const getEnvBackendUrl = (): string => {
   return resolveRuntimeBackendUrl();
 };
 
+function decodeJwtPayloadSegment(segment: string): Record<string, unknown> | null {
+  const normalized = String(segment || "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const base64 = normalized
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+
+  try {
+    if (typeof atob === "function") {
+      return JSON.parse(atob(base64)) as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function decodeFirebaseTokenSubject(token: string): string | null {
+  const raw = String(token || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  const payloadSegment = parts[1];
+  if (!payloadSegment) {
+    return null;
+  }
+  const payload = decodeJwtPayloadSegment(payloadSegment);
+  if (typeof payload?.user_id === "string" && payload.user_id.trim()) {
+    return payload.user_id.trim();
+  }
+  if (typeof payload?.sub === "string" && payload.sub.trim()) {
+    return payload.sub.trim();
+  }
+  return null;
+}
+
+function isTokenForCurrentAuthUser(token: string): boolean {
+  const currentUser = AuthService.getCurrentUser();
+  if (!currentUser?.uid) {
+    return false;
+  }
+  const tokenUid = decodeFirebaseTokenSubject(token);
+  if (!tokenUid) {
+    return false;
+  }
+  return tokenUid === currentUser.uid;
+}
+
 const LOCAL_NATIVE_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2"]);
 
 function hostFromUrl(raw: string | null | undefined): string | null {
@@ -278,6 +334,20 @@ function toStatusBucketFromStatus(
   return "network_error";
 }
 
+/**
+ * Resolve the client's IANA timezone (e.g. "America/New_York") so the backend
+ * can pick a region-appropriate market exchange. Returns null when unavailable
+ * (e.g. SSR or older runtimes), in which case the backend defaults to US.
+ */
+function resolveClientTimezone(): string | null {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof tz === "string" && tz.trim() ? tz.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export class MarketInsightsEmptyError extends Error {
   readonly status = 404;
 
@@ -416,7 +486,9 @@ async function apiFetch(
       const freshToken = await AuthService.getIdToken(true);
       const currentBearer = getAuthorizationBearer();
       if (!freshToken || freshToken === currentBearer) {
-        dispatchAuthSessionInvalidated("Firebase session is no longer valid");
+        if (!currentBearer || !isTokenForCurrentAuthUser(currentBearer)) {
+          dispatchAuthSessionInvalidated("Firebase session is no longer valid");
+        }
         return null;
       }
 
@@ -3424,6 +3496,10 @@ export class ApiService {
     }
     if (typeof data.pickSource === "string" && data.pickSource.trim()) {
       query.set("pick_source", data.pickSource.trim());
+    }
+    const clientTimezone = resolveClientTimezone();
+    if (clientTimezone) {
+      query.set("tz", clientTimezone);
     }
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const path = `/api/kai/market/insights/${data.userId}${suffix}`;

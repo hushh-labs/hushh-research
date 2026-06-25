@@ -268,7 +268,12 @@ export function SectionHeader({
   return (
     <div
       id={id}
-      className={cn("space-y-[var(--section-header-stack-gap)]", className)}
+      className={cn(
+        // Design-system default: a little extra vertical breathing room around
+        // every section heading (Workflows, Memory, Access, etc.).
+        "space-y-[var(--section-header-stack-gap)] py-1 sm:py-1.5",
+        className,
+      )}
       data-testid={testId}
     >
       <div className="flex items-stretch gap-3">
@@ -297,7 +302,8 @@ export function SectionHeader({
               <div
                 role="heading"
                 aria-level={2}
-                className="text-[15px] font-medium leading-tight tracking-normal text-foreground sm:text-[16px]"
+                data-slot="section-header-title"
+                className="text-[13px] font-medium leading-tight tracking-normal text-foreground sm:text-[14px]"
               >
                 {title}
               </div>

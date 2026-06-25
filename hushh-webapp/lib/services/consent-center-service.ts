@@ -5,11 +5,13 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
 
 export const CONSENT_CENTER_PAGE_SIZE = 20;
 
 export type ConsentCenterActor = "investor" | "ria";
+type ConsentCenterCacheActor = ConsentCenterActor | "one";
 export type ConsentCenterMode = "consents" | "connections";
 export type ConsentCenterView =
   | "incoming"
@@ -43,6 +45,50 @@ export interface ConsentCenterEntry {
   counterpart_image_url?: string | null;
   counterpart_website_url?: string | null;
   request_id?: string | null;
+  chain_key?: string | null;
+  chain_request_count?: number | null;
+  chain_request_ids?: string[] | null;
+  latest_request_id?: string | null;
+  normalized_scope?: string | null;
+  consent_chain?: Array<{
+    id?: string | null;
+    request_id?: string | null;
+    status?: string | null;
+    action?: string | null;
+    issued_at?: number | string | null;
+    expires_at?: number | string | null;
+    scope?: string | null;
+    scope_description?: string | null;
+  }> | null;
+  identifier_key?: string | null;
+  identifier_label?: string | null;
+  trail_count?: number | null;
+  event_count?: number | null;
+  identifier_request_ids?: string[] | null;
+  consent_trails?: Array<{
+    id?: string | null;
+    trail_key?: string | null;
+    scope?: string | null;
+    scope_description?: string | null;
+    normalized_scope?: string | null;
+    status?: string | null;
+    action?: string | null;
+    issued_at?: number | string | null;
+    expires_at?: number | string | null;
+    latest_request_id?: string | null;
+    request_ids?: string[] | null;
+    event_count?: number | null;
+    events?: Array<{
+      id?: string | null;
+      request_id?: string | null;
+      status?: string | null;
+      action?: string | null;
+      issued_at?: number | string | null;
+      expires_at?: number | string | null;
+      scope?: string | null;
+      scope_description?: string | null;
+    }> | null;
+  }> | null;
   invite_id?: string | null;
   relationship_status?: string | null;
   relationship_state?: string | null;
@@ -59,6 +105,12 @@ export interface ConsentCenterEntry {
     user_id?: string | null;
   } | null;
   metadata?: Record<string, unknown> | null;
+}
+
+function consentCenterCacheActor(
+  actor?: ConsentCenterActor,
+): ConsentCenterCacheActor {
+  return actor === "ria" || actor === "investor" ? actor : "one";
 }
 
 export interface PendingConsentLookupItem {
@@ -302,14 +354,14 @@ function normalizeConsentEntry(entry: unknown, index = 0): ConsentCenterEntry {
   //
   // Only when active is absent (undefined) does execution fall through to the
   // original normalization logic — preserving backward compatibility.
-  if (typeof consentEntry.active === "boolean") {
-    if (consentEntry.active) {
-      const status = ["approved", "active", "granted"].includes(consentEntry.status)
-        ? consentEntry.status
-        : consentEntry.kind === "active_grant"
-        ? "active"
-        : "approved";
-      return { ...consentEntry, status };
+  if (typeof entry.active === "boolean") {
+    if (entry.active) {
+      const status = ["approved", "active", "granted"].includes(entry.status)
+        ? entry.status
+        : entry.kind === "active_grant"
+          ? "active"
+          : "approved";
+      return { ...entry, status };
     }
     // Explicit local revocation — return entry as-is, no promotion.
     return consentEntry;
@@ -325,20 +377,20 @@ function normalizeConsentEntry(entry: unknown, index = 0): ConsentCenterEntry {
   });
   if (
     normalized.isGranted &&
-    !["approved", "active", "granted"].includes(consentEntry.status)
+    !["approved", "active", "granted"].includes(entry.status)
   ) {
     return {
-      ...consentEntry,
-      status: consentEntry.kind === "active_grant" ? "active" : "approved",
+      ...entry,
+      status: entry.kind === "active_grant" ? "active" : "approved",
     };
   }
   return consentEntry;
 }
 
-function normalizeConsentEntries(entries: ConsentCenterEntry[] | undefined): ConsentCenterEntry[] {
-  return Array.isArray(entries)
-    ? entries.map((entry, index) => normalizeConsentEntry(entry, index))
-    : [];
+function normalizeConsentEntries(
+  entries: ConsentCenterEntry[] | undefined,
+): ConsentCenterEntry[] {
+  return Array.isArray(entries) ? entries.map(normalizeConsentEntry) : [];
 }
 
 export class ConsentCenterService {
@@ -389,12 +441,18 @@ export class ConsentCenterService {
       active: [],
       previous: [],
     };
-    payload.incoming_requests = normalizeConsentEntries(payload.incoming_requests);
-    payload.outgoing_requests = normalizeConsentEntries(payload.outgoing_requests);
+    payload.incoming_requests = normalizeConsentEntries(
+      payload.incoming_requests,
+    );
+    payload.outgoing_requests = normalizeConsentEntries(
+      payload.outgoing_requests,
+    );
     payload.active_grants = normalizeConsentEntries(payload.active_grants);
     payload.history = normalizeConsentEntries(payload.history);
     payload.invites = normalizeConsentEntries(payload.invites);
-    payload.developer_requests = normalizeConsentEntries(payload.developer_requests);
+    payload.developer_requests = normalizeConsentEntries(
+      payload.developer_requests,
+    );
     payload.self_activity_summary = payload.self_activity_summary || null;
 
     cache.set(cacheKey, payload, CACHE_TTL.SHORT);
@@ -480,37 +538,91 @@ export class ConsentCenterService {
     mode?: ConsentCenterMode;
     force?: boolean;
   }): Promise<ConsentCenterPageSummary> {
-    const actor = options.actor || "investor";
+    const actor = options.actor;
+    const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
     const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(
       options.userId,
-      `${actor}:${mode}`,
+      `${cacheActor}:${mode}`,
     );
+    const deviceResourceKey = `consent_center_summary:${cacheActor}:${mode}`;
     const cache = CacheService.getInstance();
+
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageSummary>(cacheKey);
       if (cached) return cached;
     }
-    const query = new URLSearchParams({ actor, mode });
-    const response = await ApiService.apiFetch(
-      `/api/consent/center/summary?${query.toString()}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${options.idToken}`,
+
+    const fetchFresh = async (): Promise<ConsentCenterPageSummary> => {
+      const query = new URLSearchParams({ mode });
+      if (actor) query.set("actor", actor);
+      const response = await ApiService.apiFetch(
+        `/api/consent/center/summary?${query.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${options.idToken}`,
+          },
         },
-      },
-    );
-    const payload = (await response
-      .json()
-      .catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
-    if (!response.ok) {
-      throw new Error(
-        payload.detail || payload.error || `Request failed: ${response.status}`,
       );
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
+      if (!response.ok) {
+        throw new Error(
+          payload.detail || payload.error || `Request failed: ${response.status}`,
+        );
+      }
+      cache.set(cacheKey, payload, CACHE_TTL.SHORT);
+      void DeviceResourceCacheService.write({
+        userId: options.userId,
+        resourceKey: deviceResourceKey,
+        value: payload,
+        ttlMs: CACHE_TTL.SESSION,
+      }).catch(() => undefined);
+      return payload;
+    };
+
+    // Stale-while-revalidate: on an in-memory miss, fall back to the persisted
+    // IndexedDB device cache so a page reload after unlock returns the last
+    // known summary instantly instead of blocking on a cold backend call.
+    // The fresh fetch then runs in the background to update both tiers.
+    if (!options.force) {
+      const stored = await DeviceResourceCacheService.read<ConsentCenterPageSummary>({
+        userId: options.userId,
+        resourceKey: deviceResourceKey,
+      });
+      if (stored) {
+        cache.set(cacheKey, stored, CACHE_TTL.SHORT);
+        void this.refreshSummaryInBackground(cacheKey, fetchFresh);
+        return stored;
+      }
     }
-    cache.set(cacheKey, payload, CACHE_TTL.SHORT);
-    return payload;
+
+    return fetchFresh();
+  }
+
+  private static readonly summaryRefreshInflight = new Map<
+    string,
+    Promise<void>
+  >();
+
+  private static refreshSummaryInBackground(
+    cacheKey: string,
+    fetchFresh: () => Promise<ConsentCenterPageSummary>,
+  ): Promise<void> {
+    const existing = this.summaryRefreshInflight.get(cacheKey);
+    if (existing) return existing;
+    const run = fetchFresh()
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.summaryRefreshInflight.get(cacheKey) === run) {
+          this.summaryRefreshInflight.delete(cacheKey);
+        }
+      });
+    this.summaryRefreshInflight.set(cacheKey, run);
+    return run;
   }
 
   static async listEntries(options: {
@@ -525,7 +637,8 @@ export class ConsentCenterService {
     top?: number;
     force?: boolean;
   }): Promise<ConsentCenterPageListResponse> {
-    const actor = options.actor || "investor";
+    const actor = options.actor;
+    const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
     const q = options.q || "";
     const previewTop =
@@ -537,13 +650,13 @@ export class ConsentCenterService {
     const cacheKey = previewTop
       ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
           options.userId,
-          `${actor}:${mode}`,
+          `${cacheActor}:${mode}`,
           options.surface,
           previewTop,
         )
       : CACHE_KEYS.CONSENT_CENTER_LIST(
           options.userId,
-          `${actor}:${mode}`,
+          `${cacheActor}:${mode}`,
           options.surface,
           q,
           page,
@@ -555,10 +668,10 @@ export class ConsentCenterService {
       if (cached) return cached;
     }
     const query = new URLSearchParams({
-      actor,
       mode,
       surface: options.surface,
     });
+    if (actor) query.set("actor", actor);
     if (previewTop) {
       query.set("top", String(previewTop));
     } else {

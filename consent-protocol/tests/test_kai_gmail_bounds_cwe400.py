@@ -36,22 +36,16 @@ class TestGmailConnectStartRequest:
 
 class TestGmailConnectCompleteRequest:
     def test_valid(self):
-        req = GmailConnectCompleteRequest(
-            user_id="user-123", code="code123", state="state123"
-        )
+        req = GmailConnectCompleteRequest(user_id="user-123", code="code123", state="state123")
         assert req.code == "code123"
 
     def test_code_bounds(self):
         with pytest.raises(ValidationError):
-            GmailConnectCompleteRequest(
-                user_id="user-123", code="A" * 513, state="state123"
-            )
+            GmailConnectCompleteRequest(user_id="user-123", code="A" * 513, state="state123")
 
     def test_state_bounds(self):
         with pytest.raises(ValidationError):
-            GmailConnectCompleteRequest(
-                user_id="user-123", code="code123", state="A" * 513
-            )
+            GmailConnectCompleteRequest(user_id="user-123", code="code123", state="A" * 513)
 
 
 class TestGmailDisconnectRequest:

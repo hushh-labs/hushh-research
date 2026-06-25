@@ -9,12 +9,10 @@ import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
-import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
-import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 
-type HomeStep = "intro" | "preview";
+type HomeStep = "intro";
 
 function HomeContent() {
   const router = useRouter();
@@ -23,6 +21,9 @@ function HomeContent() {
   const loginUrl = redirectPath
     ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
     : ROUTES.LOGIN;
+  const gettingStartedUrl = redirectPath
+    ? `${ROUTES.GETTING_STARTED}?redirect=${encodeURIComponent(redirectPath)}`
+    : ROUTES.GETTING_STARTED;
 
   const { user, loading } = useAuth();
   const [step, setStep] = useState<HomeStep | null>(null);
@@ -51,24 +52,8 @@ function HomeContent() {
     if (loading) return;
 
     if (user) {
-      void (async () => {
-        try {
-          const idToken = await user.getIdToken().catch(() => undefined);
-          const nextPath = await PostAuthRouteService.resolveAfterLogin({
-            userId: user.uid,
-            redirectPath: ROUTES.KAI_HOME,
-            idToken,
-            hostname: typeof window === "undefined" ? null : window.location.hostname,
-          });
-          if (!cancelled) {
-            router.push(nextPath);
-          }
-        } catch {
-          if (!cancelled) {
-            router.push(ROUTES.KAI_HOME);
-          }
-        }
-      })();
+      setStep(null);
+      router.replace(ROUTES.ONE_HOME);
       return;
     }
 
@@ -86,16 +71,26 @@ function HomeContent() {
 
       const hasSeen = await OnboardingLocalService.hasSeenMarketing();
       if (cancelled) return;
-      setStep(hasSeen ? "preview" : "intro");
+      // Returning visitors who already saw the intro skip straight to the
+      // getting-started carousel route; first-timers see the intro.
+      if (hasSeen) {
+        router.replace(gettingStartedUrl);
+        return;
+      }
+      setStep("intro");
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [loading, user, router, forceOnboardingInDev]);
+  }, [loading, user, router, forceOnboardingInDev, gettingStartedUrl]);
 
-  if (loading || step === null) {
+  if (loading || (!user && step === null)) {
     return <HushhLoader label="Loading..." variant="fullscreen" />;
+  }
+
+  if (user) {
+    return <HushhLoader label="Opening One..." variant="fullscreen" />;
   }
 
   if (step === "intro") {
@@ -108,26 +103,13 @@ function HomeContent() {
           dataState="loaded"
         />
         <IntroStep
-          onNext={() => setStep("preview")}
+          onNext={() => router.push(gettingStartedUrl)}
           onLogin={() => router.push(loginUrl)}
         />
       </>
     );
   }
 
-  if (step === "preview") {
-    return (
-      <>
-        <NativeTestBeacon
-          routeId="/"
-          marker="native-route-home"
-          authState={user ? "authenticated" : "anonymous"}
-          dataState="loaded"
-        />
-        <PreviewCarouselStep onContinue={() => router.push(loginUrl)} />
-      </>
-    );
-  }
   return null;
 }
 

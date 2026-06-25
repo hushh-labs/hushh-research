@@ -55,27 +55,28 @@
     },
     {
       "action_id": "route.profile_gmail_panel",
-      "label": "Open Gmail Connector Panel",
-      "meaning": "Navigates to hidden Gmail detail panel in Profile > Account.",
+      "label": "Open Gmail",
+      "meaning": "Navigates to the canonical Gmail receipts workspace.",
       "aliases": [
         "open gmail settings",
-        "open gmail panel"
+        "open gmail panel",
+        "open gmail"
       ],
       "search_keywords": [
         "gmail",
-        "gmail panel"
+        "gmail panel",
+        "receipts"
       ],
       "reachability": {
         "routes": [
-          "/profile?panel=gmail"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_gmail_panel"
+          "gmail"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "profile route must be active",
-          "query param panel=gmail"
+          "Gmail route must be reachable"
         ]
       },
       "guard_ids": [],
@@ -84,9 +85,53 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/profile?panel=gmail"
+        "target": "/one/gmail"
       },
       "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/gmail/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_connected_systems",
+      "label": "Open Connected Systems Panel",
+      "meaning": "Navigates to the Connected Systems route.",
+      "aliases": [
+        "open connected systems",
+        "open salesforce crm",
+        "open external crms"
+      ],
+      "search_keywords": [
+        "connected systems",
+        "salesforce",
+        "crm",
+        "mulesoft"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/connected-systems"
+        ],
+        "screens": [
+          "connected_systems"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Connected Systems route must be reachable"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/connected-systems"
+      },
+      "control_ids": [
+        "connected_systems"
+      ],
       "state_exposure": [],
       "docs_references": [
         "app/profile/page.tsx"
@@ -174,26 +219,28 @@
     },
     {
       "action_id": "route.profile_pkm_agent_lab",
-      "label": "Open PKM Agent Lab",
-      "meaning": "Navigates to the PKM Agent Lab privacy workspace.",
+      "label": "Open PKM",
+      "meaning": "Navigates to the canonical Saved Intelligence PKM workspace.",
       "aliases": [
-        "open pkm lab",
-        "open memory lab"
+        "open pkm",
+        "open memory",
+        "open saved intelligence"
       ],
       "search_keywords": [
         "pkm",
-        "memory lab"
+        "memory",
+        "saved intelligence"
       ],
       "reachability": {
         "routes": [
-          "/profile/pkm-agent-lab"
+          "/one/pkm"
         ],
         "screens": [
-          "profile_pkm_agent_lab"
+          "pkm"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "localhost developer access to PKM Agent Lab must be enabled"
+          "vault must be available for encrypted PKM details"
         ]
       },
       "guard_ids": [],
@@ -202,12 +249,12 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/profile/pkm-agent-lab"
+        "target": "/one/pkm"
       },
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/pkm-agent-lab/page-client.tsx"
+        "app/pkm/page.tsx"
       ],
       "speaker_persona": "one"
     },

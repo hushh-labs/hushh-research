@@ -44,6 +44,7 @@ Current capability boundary:
 - When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say Agent cannot save to PKM.
 - Normal finance and app questions should be answered as streaming text. Use concise GitHub-flavored Markdown with headings, lists, links, code, or tables when structure makes the answer easier to scan.
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
+- For Connected Systems / Salesforce CRM, read/create/update requests are frontend tool proposals. Create and update execution requires explicit user approval in Profile > Connected Systems. Delete is blocked in v1.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
@@ -56,6 +57,7 @@ Call exactly one function only when the user clearly asks Agent to do one of the
 - start stock analysis for a ticker or public company
 - open a Hussh/Kai app surface
 - save, remember, or add durable personal context to the user's PKM
+- read a Salesforce CRM record or propose a Salesforce CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
@@ -71,6 +73,7 @@ _APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
     "analysis_history": ("route.analysis_history", "Open Analysis History"),
     "optimize": ("route.kai_optimize", "Open Optimize Surface"),
     "market_home": ("route.kai_home", "Open Market Home"),
+    "connected_systems": ("route.profile_connected_systems", "Open Connected Systems"),
 }
 
 MessageRole = Literal["user", "assistant", "system", "tool"]
@@ -175,6 +178,42 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         ),
         "route.kai_home",
         "Open Market Home",
+    ),
+    (
+        re.compile(
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:connected systems?|external crms?|salesforce crm|mulesoft)\b",
+            re.IGNORECASE,
+        ),
+        "route.profile_connected_systems",
+        "Open Connected Systems",
+    ),
+]
+
+_CRM_READ_PATTERNS = [
+    re.compile(
+        r"\b(?:read|fetch|find|lookup|look up|search)\b.*\b(?:crm|salesforce|contact)\b",
+        re.IGNORECASE,
+    ),
+]
+
+_CRM_CREATE_PATTERNS = [
+    re.compile(
+        r"\b(?:create|add|new)\b.*\b(?:crm|salesforce|contact)\b",
+        re.IGNORECASE,
+    ),
+]
+
+_CRM_UPDATE_PATTERNS = [
+    re.compile(
+        r"\b(?:update|change|patch|modify)\b.*\b(?:crm|salesforce|contact|record)\b",
+        re.IGNORECASE,
+    ),
+]
+
+_CRM_DELETE_PATTERNS = [
+    re.compile(
+        r"\b(?:delete|remove|destroy)\b.*\b(?:crm|salesforce|contact|record)\b",
+        re.IGNORECASE,
     ),
 ]
 
@@ -648,6 +687,54 @@ def _agent_action_tool() -> genai_types.Tool:
                         "reason": _schema_string(
                             "Short safe reason explaining why Agent cannot perform the action."
                         )
+                    }
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="read_crm_record",
+                description=(
+                    "Open the Connected Systems Salesforce CRM read workflow. Use when the "
+                    "user asks to read, fetch, search, or look up a CRM Contact record."
+                ),
+                parameters=_schema_object(
+                    {
+                        "email": _schema_string("Contact email if the user supplied it."),
+                        "phone": _schema_string("Contact phone if the user supplied it."),
+                    }
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="propose_crm_create",
+                description=(
+                    "Open the Connected Systems Salesforce CRM create proposal workflow. "
+                    "Execution will still require explicit user approval."
+                ),
+                parameters=_schema_object(
+                    {
+                        "email": _schema_string("Contact email if the user supplied it."),
+                        "phone": _schema_string("Contact phone if the user supplied it."),
+                        "first_name": _schema_string("Contact first name if supplied."),
+                        "last_name": _schema_string("Contact last name if supplied."),
+                        "additional_fields_json": _schema_string(
+                            "Optional JSON object string for supported Salesforce fields."
+                        ),
+                    }
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="propose_crm_update",
+                description=(
+                    "Open the Connected Systems Salesforce CRM update proposal workflow. "
+                    "Execution will still require explicit user approval."
+                ),
+                parameters=_schema_object(
+                    {
+                        "record_id": _schema_string(
+                            "Salesforce record Id if the user supplied it."
+                        ),
+                        "additional_fields_json": _schema_string(
+                            "Optional JSON object string for supported Salesforce fields to update."
+                        ),
                     }
                 ),
             ),
@@ -1200,6 +1287,10 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
     ) -> AgentChatActionPlan | None:
+        crm_action = self._plan_crm_action(user_message)
+        if crm_action is not None:
+            return crm_action
+
         deterministic_block = self._plan_blocked_action(user_message)
         if deterministic_block is not None:
             return deterministic_block
@@ -1259,6 +1350,10 @@ class AgentChatService:
         if not message:
             return None
 
+        crm_action = self._plan_crm_action(message)
+        if crm_action is not None:
+            return crm_action
+
         blocked_action = self._plan_blocked_action(message)
         if blocked_action is not None:
             return blocked_action
@@ -1300,6 +1395,57 @@ class AgentChatService:
                     slots={},
                     message=f"{label} in the app.",
                 )
+        return None
+
+    def _plan_crm_action(self, user_message: str) -> AgentChatActionPlan | None:
+        message = " ".join(str(user_message or "").split())
+        if not message:
+            return None
+
+        if any(pattern.search(message) for pattern in _CRM_DELETE_PATTERNS):
+            return AgentChatActionPlan(
+                call_id=_tool_call_id(),
+                action_id="connected_system.crm.delete",
+                label="Blocked Salesforce CRM Delete",
+                execution="blocked",
+                slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
+                message=(
+                    "Salesforce CRM delete is blocked in Agent v1. Open Connected Systems "
+                    "and use a maintainer-only test path if this is intentional."
+                ),
+                reason="crm_delete_manual_only",
+            )
+
+        if any(pattern.search(message) for pattern in _CRM_UPDATE_PATTERNS):
+            return AgentChatActionPlan(
+                call_id=_tool_call_id(),
+                action_id="connected_system.crm.update.propose",
+                label="Propose Salesforce CRM Update",
+                execution="frontend",
+                slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
+                message="Opening Connected Systems so you can review and approve the CRM update.",
+            )
+
+        if any(pattern.search(message) for pattern in _CRM_CREATE_PATTERNS):
+            return AgentChatActionPlan(
+                call_id=_tool_call_id(),
+                action_id="connected_system.crm.create.propose",
+                label="Propose Salesforce CRM Create",
+                execution="frontend",
+                slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
+                message="Opening Connected Systems so you can review and approve the CRM create.",
+            )
+
+        if any(pattern.search(message) for pattern in _CRM_READ_PATTERNS):
+            return AgentChatActionPlan(
+                call_id=_tool_call_id(),
+                action_id="connected_system.crm.read",
+                label="Read Salesforce CRM Record",
+                execution="frontend",
+                slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
+                message="Opening Connected Systems for the Salesforce CRM read.",
+            )
+
         return None
 
     def _plan_blocked_action(self, user_message: str) -> AgentChatActionPlan | None:
@@ -1488,6 +1634,54 @@ class AgentChatService:
                     "revocation, or trading actions from Agent. Please do that manually."
                 ),
                 reason=reason[:160],
+            )
+
+        if name == "read_crm_record":
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="connected_system.crm.read",
+                label="Read Salesforce CRM Record",
+                execution="frontend",
+                slots={
+                    "systemId": "salesforce-fsc-customer0",
+                    "objectType": "Contact",
+                    "email": str(args.get("email") or "").strip(),
+                    "phone": str(args.get("phone") or "").strip(),
+                },
+                message="Opening Connected Systems for the Salesforce CRM read.",
+            )
+
+        if name == "propose_crm_create":
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="connected_system.crm.create.propose",
+                label="Propose Salesforce CRM Create",
+                execution="frontend",
+                slots={
+                    "systemId": "salesforce-fsc-customer0",
+                    "objectType": "Contact",
+                    "email": str(args.get("email") or "").strip(),
+                    "phone": str(args.get("phone") or "").strip(),
+                    "firstName": str(args.get("first_name") or "").strip(),
+                    "lastName": str(args.get("last_name") or "").strip(),
+                    "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
+                },
+                message="Opening Connected Systems so you can review and approve the CRM create.",
+            )
+
+        if name == "propose_crm_update":
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="connected_system.crm.update.propose",
+                label="Propose Salesforce CRM Update",
+                execution="frontend",
+                slots={
+                    "systemId": "salesforce-fsc-customer0",
+                    "objectType": "Contact",
+                    "id": str(args.get("record_id") or "").strip(),
+                    "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
+                },
+                message="Opening Connected Systems so you can review and approve the CRM update.",
             )
 
         if name == "add_to_pkm":

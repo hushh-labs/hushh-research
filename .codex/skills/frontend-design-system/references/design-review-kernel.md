@@ -55,3 +55,5 @@ than the compact skill kernel.
    and scope-review copy.
 4. Ordinary navigation action ids use `route.*`; reserve `nav.*` for real
    Nav-owned guardian behavior.
+5. One consent/vault onboarding copy frames user-held knowledge and information
+   as safewords; avoid generic `your data` phrasing.

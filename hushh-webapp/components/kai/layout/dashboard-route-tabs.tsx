@@ -81,7 +81,7 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
   const router = useRouter();
   const pathname = usePathname();
   const hideTabsForPath =
-    pathname.startsWith(ROUTES.KAI_ONBOARDING) || pathname.startsWith(ROUTES.KAI_IMPORT);
+    pathname.startsWith(ROUTES.ONE_ONBOARDING) || pathname.startsWith(ROUTES.KAI_IMPORT);
   const [mounted, setMounted] = useState(false);
   const tabsRootRef = useRef<HTMLDivElement | null>(null);
   const [dragOffsetTabs, setDragOffsetTabs] = useState(0);

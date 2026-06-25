@@ -26,6 +26,7 @@ import {
   type RiaOnboardingStepId,
 } from "@/lib/ria/ria-onboarding-flow";
 import {
+  buildRiaOnboardingBioSuggestion,
   buildRiaLicensePrefillPatch,
   buildRiaScrapePrefillPatch,
 } from "@/lib/ria/ria-onboarding-prefill";
@@ -41,6 +42,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
@@ -80,6 +82,25 @@ function isEnvironmentRiaVerificationBypassEnabled(): boolean {
 
 function isRiaVerificationBypassedDraft(draft: RiaOnboardingDraft): boolean {
   return draft.regulatorStatus === RIA_ENVIRONMENT_BYPASS_STATUS;
+}
+
+function resolveRiaSubmitErrorMessage(
+  error: unknown,
+  options: { localVerificationBypassEnabled: boolean },
+): string {
+  const message =
+    error instanceof Error ? error.message : "Failed to submit onboarding.";
+  if (/ria intelligence verification provider unavailable/i.test(message)) {
+    return options.localVerificationBypassEnabled
+      ? "Live RIA verification is unavailable. For UAT or fake-license testing, go back to the licence step and use Bypass for dev/UAT."
+      : "Live RIA verification is unavailable. Please try again later with a regulator-backed CRD or licence.";
+  }
+  if (/verification provider unavailable/i.test(message)) {
+    return options.localVerificationBypassEnabled
+      ? "Live verification is unavailable. For UAT testing, go back to the licence step and use Bypass for dev/UAT."
+      : "Live verification is unavailable. Please try again later.";
+  }
+  return message;
 }
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
@@ -158,7 +179,9 @@ export default function RiaOnboardingPage() {
   );
 
   useEffect(() => {
-    setLocalVerificationBypassEnabled(isEnvironmentRiaVerificationBypassEnabled());
+    setLocalVerificationBypassEnabled(
+      isEnvironmentRiaVerificationBypassEnabled(),
+    );
   }, []);
 
   const steps = useMemo(
@@ -688,16 +711,12 @@ export default function RiaOnboardingPage() {
         setIamUnavailable(true);
       }
       trackEvent("ria_onboarding_submitted", { result: "error" });
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : "Failed to submit onboarding.",
-      );
+      const submitErrorMessage = resolveRiaSubmitErrorMessage(submitError, {
+        localVerificationBypassEnabled,
+      });
+      setError(submitErrorMessage);
       toast.error("Could not submit verification", {
-        description:
-          submitError instanceof Error
-            ? submitError.message
-            : "Failed to submit onboarding.",
+        description: submitErrorMessage,
       });
     } finally {
       submitInFlightRef.current = false;
@@ -716,14 +735,43 @@ export default function RiaOnboardingPage() {
     }
   }
 
+  function handleDraftBio() {
+    const suggestion = buildRiaOnboardingBioSuggestion(draft);
+    if (!suggestion) {
+      toast.info("Verify your licence first", {
+        description:
+          "Kai needs regulator-backed details before drafting a bio.",
+      });
+      return;
+    }
+    updateDraft({
+      bio: suggestion,
+      strategySummary: draft.strategySummary.trim()
+        ? draft.strategySummary
+        : suggestion,
+    });
+    toast.success("Bio drafted", {
+      description: "Review the draft before submitting your profile.",
+    });
+  }
+
+  function handleAskKaiUpdateAnything() {
+    openKaiCommandBar();
+    toast.info("Kai command opened", {
+      description:
+        "Ask Kai what to update, or use Edit on any section for direct changes.",
+    });
+  }
+
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);
-  const nativeTestDataState = loading || !draftReady
-    ? "loading"
-    : iamUnavailable
-      ? "unavailable-valid"
-      : error
-        ? "error"
-        : "loaded";
+  const nativeTestDataState =
+    loading || !draftReady
+      ? "loading"
+      : iamUnavailable
+        ? "unavailable-valid"
+        : error
+          ? "error"
+          : "loaded";
 
   function renderStep() {
     if (loading) {
@@ -827,6 +875,7 @@ export default function RiaOnboardingPage() {
               updateDraft({ fullStreetAddress: value })
             }
             onPinZipChange={(value: string) => updateDraft({ pinZip: value })}
+            onDraftBio={handleDraftBio}
           />
         );
       case "review":
@@ -848,6 +897,7 @@ export default function RiaOnboardingPage() {
             fullStreetAddress={draft.fullStreetAddress}
             advisoryAccessReady={advisoryAccessReady}
             onEditSection={handleEditSection}
+            onAskKaiUpdateAnything={handleAskKaiUpdateAnything}
           />
         );
       default:

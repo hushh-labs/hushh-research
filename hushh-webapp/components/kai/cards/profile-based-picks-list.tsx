@@ -137,11 +137,40 @@ export function ProfileBasedPicksList({
 
       {!loading && data.picks.length > 0 && (
         <div className="space-y-2">
-          {data.picks.map((pick) => (
-            <SurfaceInset key={pick.symbol} className="flex items-center justify-between gap-3 p-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="grid h-9 w-9 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold">
-                  {pick.symbol}
+          {picks.map((pick) => {
+            const change = typeof pick.change_percent === "number" ? pick.change_percent : null;
+            return (
+              <SurfaceInset
+                key={pick.symbol}
+                className="flex items-center justify-between gap-3 p-3"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="grid h-9 w-9 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold">
+                    {pick.symbol}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium leading-tight">{pick.company_name}</p>
+                    <p className="truncate text-xs font-medium text-muted-foreground">
+                      {(pick.tier || "Tier N/A").toUpperCase()}
+                      {pick.sector ? ` • ${pick.sector}` : ""}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {formatPrice(pick.price)}
+                      {change !== null ? (
+                        <span
+                          className={cn(
+                            "ml-1 font-semibold",
+                            change >= 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400"
+                          )}
+                        >
+                          {change >= 0 ? "+" : ""}
+                          {change.toFixed(2)}%
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold leading-tight">{pick.company_name}</p>

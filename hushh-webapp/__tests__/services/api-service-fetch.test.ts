@@ -28,6 +28,7 @@ vi.mock("@/lib/capacitor/kai", () => ({
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
     getIdToken: vi.fn(),
+    getCurrentUser: vi.fn(),
   },
 }));
 
@@ -65,6 +66,14 @@ function jsonResponse(body: unknown, status = 200, headers?: Record<string, stri
     status,
     headers: { "content-type": "application/json", ...headers },
   });
+}
+
+function makeUnsignedToken(payload: Record<string, unknown>): string {
+  const payloadBase64 = btoa(JSON.stringify(payload))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return `header.${payloadBase64}.sig`;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,13 +167,13 @@ describe("ApiService.apiFetch", () => {
     expect(response.status).toBe(200);
   });
 
-  // 4 – Second 401 after retry dispatches auth-session-invalidated, no infinite loop
-  it("dispatches auth-session-invalidated when refresh yields same token and does not retry", async () => {
-    // When getIdToken returns the same token as the current bearer, the
-    // service recognises the session is stale and dispatches the event
-    // instead of retrying (which would loop forever).
-    const staleToken = "stale-firebase-token";
+  // 4 – Handle unchanged token safely and keep session when user is same
+  it("does not dispatch auth-session-invalidated when refresh yields same token for active account", async () => {
+    const staleToken = makeUnsignedToken({ user_id: "user-1" });
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(staleToken);
+    (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
+      uid: "user-1",
+    } as never);
 
     mockFetch.mockResolvedValue(jsonResponse({ error: "Unauthorized" }, 401));
 
@@ -175,16 +184,39 @@ describe("ApiService.apiFetch", () => {
       headers: { Authorization: `Bearer ${staleToken}` },
     });
 
-    // fetch was only called once – no retry because the token didn't change
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // The auth-session-invalidated event should have been dispatched
+    const invalidatedEvents = dispatchSpy.mock.calls.filter(
+      ([event]) => event instanceof CustomEvent && event.type === "auth-session-invalidated"
+    );
+    expect(invalidatedEvents.length).toBe(0);
+    expect(response.status).toBe(401);
+
+    dispatchSpy.mockRestore();
+  });
+
+  it("dispatches auth-session-invalidated when same bearer token belongs to a different account", async () => {
+    const staleToken = makeUnsignedToken({ user_id: "user-2" });
+    (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(staleToken);
+    (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
+      uid: "user-1",
+    } as never);
+
+    mockFetch.mockResolvedValue(jsonResponse({ error: "Unauthorized" }, 401));
+
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    const response = await ApiService.apiFetch("/api/protected", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${staleToken}` },
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
     const invalidatedEvents = dispatchSpy.mock.calls.filter(
       ([event]) => event instanceof CustomEvent && event.type === "auth-session-invalidated"
     );
     expect(invalidatedEvents.length).toBeGreaterThanOrEqual(1);
-
-    // The original 401 is returned since retry bailed out
     expect(response.status).toBe(401);
 
     dispatchSpy.mockRestore();

@@ -41,7 +41,9 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)] touch-none",
+        // The blur/scrim lives on the Radix overlay itself so it shares the
+        // open/close lifecycle and fades OUT on close instead of snapping.
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
         className
       )}
       {...props}

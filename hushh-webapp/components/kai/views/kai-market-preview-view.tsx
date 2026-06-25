@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
-  Bell,
   Blocks,
   Bot,
   ChartColumnIncreasing,
@@ -74,6 +73,7 @@ import {
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -148,8 +148,8 @@ const oneMarketRootClassName = cn(
   marketSurfaceVariablesClassName,
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
-  "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
-  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
+  "[--one-bg:var(--background)] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
+  "dark:[--one-bg:rgb(28,28,30)] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
   "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
@@ -611,7 +611,7 @@ function OneMarketStockCard({ row }: { row: OneMarketDisplayRow }) {
   return (
     <button
       type="button"
-      onClick={() => openOneMarketHref(`/kai/analysis?symbol=${encodeURIComponent(row.symbol)}`)}
+      onClick={() => openOneMarketHref(`${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(row.symbol)}`)}
       className="min-h-[124px] rounded-[18px] bg-[color:var(--one-card)] px-4 py-[15px] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-14px_rgba(0,0,0,0.16)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.22)] active:scale-[0.985]"
     >
       <BrandLogo symbol={row.symbol} className="h-8 w-8 rounded-[9px]" />
@@ -648,7 +648,7 @@ function OneMarketMoverRow({
   return (
     <button
       type="button"
-      onClick={() => openOneMarketHref(`/kai/analysis?symbol=${encodeURIComponent(row.symbol)}`)}
+      onClick={() => openOneMarketHref(`${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(row.symbol)}`)}
       className="flex w-full items-center gap-3 border-b border-[color:var(--one-line)] py-3.5 text-left last:border-b-0 active:bg-[color:var(--one-surface)]"
     >
       <BrandLogo symbol={row.symbol} className="h-9 w-9" />
@@ -692,7 +692,7 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
         {
           symbol: "KAI",
           title: "Defensives lead as indices slip. What it means for your portfolio",
-          url: "/kai/analysis",
+          url: ROUTES.KAI_ANALYSIS,
           published_at: new Date().toISOString(),
           source_name: "Kai Wrap",
           provider: "local",
@@ -1314,9 +1314,33 @@ function toThemeItems(payload: KaiHomeInsightsV2 | null): ThemeFocusItem[] {
     .slice(0, 3);
 }
 
+function formatStatusUpdatedLabel(asOf: unknown): string | null {
+  if (typeof asOf !== "string" || !asOf.trim()) return null;
+  const updated = new Date(asOf);
+  if (Number.isNaN(updated.getTime())) return null;
+  const diffMs = Date.now() - updated.getTime();
+  if (diffMs < 0) {
+    return "Updated just now";
+  }
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return "Updated just now";
+  if (diffMinutes === 1) return "Updated 1 min ago";
+  if (diffMinutes < 60) return `Updated ${diffMinutes} min ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours === 1) return "Updated 1 hr ago";
+  if (diffHours < 24) return `Updated ${diffHours} hrs ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "Updated 1 day ago";
+  return `Updated ${diffDays} days ago`;
+}
+
 function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   label: string;
   className: string;
+  isOpen: boolean;
+  degraded: boolean;
+  source: string | null;
+  updatedLabel: string | null;
 } | null {
   const row = findOverviewRow(payload, (candidate) =>
     String(candidate.label || "").toLowerCase().includes("market status")
@@ -1328,17 +1352,31 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   });
   if (!value) return null;
 
-  if (Boolean(row.degraded)) {
+  const degraded = Boolean(row.degraded);
+  const isOpen = value.toLowerCase().includes("open");
+  const source =
+    typeof row.source === "string" && row.source.trim() ? row.source.trim() : null;
+  const updatedLabel = formatStatusUpdatedLabel(row.as_of);
+
+  if (degraded) {
     return {
       label: value,
+      isOpen,
+      degraded,
+      source,
+      updatedLabel,
       className:
         "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
     };
   }
 
-  if (value.toLowerCase().includes("open")) {
+  if (isOpen) {
     return {
       label: value,
+      isOpen,
+      degraded,
+      source,
+      updatedLabel,
       className:
         "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     };
@@ -1346,6 +1384,10 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
 
   return {
     label: value,
+    isOpen,
+    degraded,
+    source,
+    updatedLabel,
     className: "border-border/70 bg-background/80 text-muted-foreground",
   };
 }
@@ -2042,13 +2084,13 @@ export function KaiMarketPreviewView() {
           {`
             html:has([data-one-market-preview="true"]),
             body {
-              background: #ffffff !important;
+              background: var(--background) !important;
             }
 
             body:has([data-one-market-preview="true"]) main,
             body:has([data-one-market-preview="true"]) [data-top-content-anchor="true"],
             body:has([data-one-market-preview="true"]) [class*="overflow-y-auto"][class*="touch-pan-y"] {
-              background: #ffffff !important;
+              background: var(--background) !important;
             }
 
             html.dark:has([data-one-market-preview="true"]),
@@ -2056,7 +2098,7 @@ export function KaiMarketPreviewView() {
             html.dark:has([data-one-market-preview="true"]) body main,
             html.dark:has([data-one-market-preview="true"]) body [data-top-content-anchor="true"],
             html.dark:has([data-one-market-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
-              background: #000000 !important;
+              background: rgb(28, 28, 30) !important;
             }
 
             nextjs-portal,
@@ -2074,9 +2116,28 @@ export function KaiMarketPreviewView() {
         <header className="mx-auto w-full max-w-[1080px] px-[var(--one-gutter)] pt-4">
           <div className="flex items-start justify-between">
             <div className="flex min-w-0 flex-col gap-1.5">
-              <span className={cn("inline-flex items-center gap-[7px] text-[color:var(--one-up)]", kaiPreviewEyebrowClassName)}>
-                <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--one-up)]" />
-                {marketStatus?.label?.toLowerCase().includes("open") ? "Markets open" : "Live market"}
+              <span
+                className={cn(
+                  "inline-flex items-center gap-[7px]",
+                  marketStatus?.degraded
+                    ? "text-[color:var(--one-fg3)]"
+                    : marketStatus?.isOpen
+                      ? "text-[color:var(--one-up)]"
+                      : "text-[color:var(--one-fg2)]",
+                  kaiPreviewEyebrowClassName
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    marketStatus?.degraded
+                      ? "bg-[color:var(--one-fg3)]"
+                      : marketStatus?.isOpen
+                        ? "bg-[color:var(--one-up)]"
+                        : "bg-[color:var(--one-fg2)]"
+                  )}
+                />
+                {marketStatus?.label ?? "Live market"}
               </span>
               <div className={kaiPreviewPageTitleClassName} role="heading" aria-level={1}>
                 Market
@@ -2084,17 +2145,13 @@ export function KaiMarketPreviewView() {
               <p className="max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 Track the market and your watchlist.
               </p>
-            </div>
-            <div className="mt-0.5 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setNotificationsOpen(true)}
-                className="relative grid h-9 w-9 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform active:scale-90"
-                aria-label="Notifications"
-              >
-                <span className="absolute right-2 top-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--one-down)] shadow-[0_0_0_2px_var(--one-surface)]" />
-                <Bell className="h-[17px] w-[17px]" />
-              </button>
+              {marketStatus?.updatedLabel || marketStatus?.source ? (
+                <p className="text-[12px] leading-[1.3] text-[color:var(--one-fg3)]">
+                  {[marketStatus?.updatedLabel, marketStatus?.source]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              ) : null}
             </div>
           </div>
           <form
@@ -2145,16 +2202,35 @@ export function KaiMarketPreviewView() {
           </div>
         ) : null}
 
-        {displayError ? (
+        {displayError && !hasPayload ? (
           <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
             <div className="space-y-3 rounded-[18px] bg-[color:var(--one-card)] p-4 text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
               <div className="flex items-center gap-2 text-[color:var(--one-down)]">
                 <AlertTriangle className="h-4 w-4" />
                 <p className="text-[14px] font-semibold">
-                  {hasPayload ? "Failed to refresh market home" : "Failed to load market home"}
+                  Failed to load market home
                 </p>
               </div>
               <p className="text-[12px] leading-relaxed text-[color:var(--one-fg2)]">{displayError}</p>
+              <Button
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={() => void loadInsights({ manual: true })}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {displayError && hasPayload ? (
+          <div className="mx-auto mt-5 w-full max-w-[1080px] px-[var(--one-gutter)]">
+            <div className="flex items-center justify-between gap-3 rounded-[18px] bg-[color:var(--one-card)] p-3 text-left text-[12px] text-[color:var(--one-fg2)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+              <span className="flex min-w-0 items-center gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[color:var(--one-down)]" />
+                <span className="truncate">Showing saved data. Couldn&apos;t refresh just now.</span>
+              </span>
               <Button
                 variant="none"
                 effect="fade"
@@ -2189,7 +2265,7 @@ export function KaiMarketPreviewView() {
             </section>
 
             <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader title="Top movers" icon={ChartColumnIncreasing} tone="orange" actionLabel="See all" actionHref="/kai/analysis?view=movers" />
+              <OneMarketSectionHeader title="Top movers" icon={ChartColumnIncreasing} tone="orange" actionLabel="See all" actionHref={`${ROUTES.KAI_ANALYSIS}?view=movers`} />
               <div className="mb-3.5 grid grid-cols-3 rounded-xl bg-[color:var(--one-surface)] p-[3px]">
                 {[
                   { id: "gain" as const, label: "Gainers" },
@@ -2218,7 +2294,7 @@ export function KaiMarketPreviewView() {
             </section>
 
             <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader title="Market news" icon={Newspaper} tone="teal" actionLabel="More" actionHref="/kai/analysis" />
+              <OneMarketSectionHeader title="Market news" icon={Newspaper} tone="teal" actionLabel="More" actionHref={ROUTES.KAI_ANALYSIS} />
               <OneMarketNewsCards rows={marketNewsRows} />
             </section>
 

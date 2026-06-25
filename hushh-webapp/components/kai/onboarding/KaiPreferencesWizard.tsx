@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
-import { Progress } from "@/components/ui/progress";
+import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
@@ -99,7 +99,6 @@ export function KaiPreferencesWizard(props: {
   const progressValue = useMemo(() => {
     return Math.round((step / total) * 100);
   }, [step, total]);
-  const currentStep = step + 1;
 
   const isLast = step === total - 1;
 
@@ -197,7 +196,7 @@ export function KaiPreferencesWizard(props: {
       <div
         className={cn(
           isPageLayout
-            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[33rem] flex-col justify-center"
+            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-col justify-center py-6"
             : "w-full max-w-sm mx-auto flex min-h-[calc(100dvh-var(--app-screen-footer-pad))] flex-col",
           !isPageLayout && "min-h-0"
         )}
@@ -205,7 +204,7 @@ export function KaiPreferencesWizard(props: {
         <div
           className={cn(
             isPageLayout
-              ? "rounded-[26px] border border-black/[0.06] bg-white/[0.82] p-5 shadow-[0_22px_64px_-52px_rgba(0,0,0,0.48)] backdrop-blur-2xl sm:p-6 dark:border-white/10 dark:bg-white/[0.07]"
+              ? "w-full"
               : "contents"
           )}
         >
@@ -233,26 +232,22 @@ export function KaiPreferencesWizard(props: {
               ) : (
                 <span />
               )}
-              <span className="rounded-full bg-black/[0.035] px-3 py-1 text-[12px] font-medium tabular-nums text-muted-foreground dark:bg-white/10">
+              <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
                 {progressValue}%
               </span>
             </div>
 
-            <div className="flex items-center justify-between text-[13px] text-muted-foreground">
-              <span className="font-medium tracking-normal">
-                Step {currentStep} of {total}
-              </span>
-            </div>
-            <Progress
-              value={progressValue}
-              className="h-1 rounded-full bg-black/[0.045] dark:bg-white/10"
+            <OnboardingStepper
+              steps={QUESTIONS.map((q) => ({ id: q.id, label: q.prompt }))}
+              currentIndex={step}
+              ariaLabel="Investment preferences setup"
             />
           </div>
 
           <div
             className={cn(
               isPageLayout
-                ? "mx-auto flex w-full max-w-[26rem] flex-col pt-6 sm:pt-7"
+                ? "mx-auto flex w-full flex-col pt-8 sm:pt-9"
                 : "flex flex-1 flex-col pt-5"
             )}
           >
@@ -272,7 +267,7 @@ export function KaiPreferencesWizard(props: {
                 className={cn(
                   "tracking-normal text-balance text-foreground",
                   isPageLayout
-                    ? "text-[28px] font-medium leading-[1.08] sm:text-[30px]"
+                    ? "text-[30px] font-medium leading-[1.06] sm:text-[34px]"
                     : kaiAppSectionTitleClassName
                 )}
               >
@@ -283,14 +278,14 @@ export function KaiPreferencesWizard(props: {
             <RadioGroup
               value={activeValue ?? ""}
               onValueChange={handleSelect}
-              className={cn(isPageLayout ? "mt-7 gap-2.5 sm:mt-8" : "gap-3")}
+              className={cn(isPageLayout ? "mt-8 gap-3 sm:mt-9" : "gap-3")}
             >
               {activeQuestion.options.map((opt) => (
                 <RadioCardItem key={opt.value} value={opt.value} label={opt.label} />
               ))}
             </RadioGroup>
 
-            <div className={cn("space-y-3", isPageLayout ? "pt-6" : "mt-auto pt-6")}>
+            <div className={cn("space-y-3", isPageLayout ? "pt-8" : "mt-auto pt-6")}>
               <Button
                 type="button"
                 variant="none"

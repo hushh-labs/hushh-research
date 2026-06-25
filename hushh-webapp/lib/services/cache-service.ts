@@ -173,6 +173,7 @@ class CacheService {
       CACHE_KEYS.PENDING_CONSENTS(userId),
       CACHE_KEYS.CONSENT_AUDIT_LOG(userId),
       CACHE_KEYS.CONSENT_CENTER(userId, "all"),
+      CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "one:consents"),
       CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"),
       CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"),
       CACHE_KEYS.PORTFOLIO_DATA(userId),

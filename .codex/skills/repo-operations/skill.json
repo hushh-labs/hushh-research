@@ -43,6 +43,7 @@
     "./bin/hushh docs verify",
     "./bin/hushh ci",
     "./scripts/ci/verify-main-branch-protection.sh",
+    "./scripts/ci/apply-governance.py",
     "./scripts/ci/verify-production-environment-governance.sh"
   ],
   "verification_bundles": [

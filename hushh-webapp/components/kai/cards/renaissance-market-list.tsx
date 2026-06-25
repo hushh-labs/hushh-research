@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Rows3, Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
@@ -41,7 +41,6 @@ import { cn } from "@/lib/utils";
 const ALL_FILTER = "all";
 const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
-const PICKS_SWIPE_THRESHOLD_PX = 44;
 
 function parsePageSize(value: string, options: readonly number[], fallback: number): number {
   const parsed = Number(value);
@@ -169,7 +168,6 @@ export function RiaPicksList({
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
   const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const [page, setPage] = useState(1);
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setPageSize((current) => {
@@ -282,31 +280,6 @@ export function RiaPicksList({
 
   const goToPage = (nextPage: number) => {
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
-  };
-
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
-  };
-
-  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.changedTouches[0];
-    const start = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (!touch || !start || totalPages <= 1) return;
-
-    const deltaX = touch.clientX - start.x;
-    const deltaY = touch.clientY - start.y;
-    if (Math.abs(deltaX) < PICKS_SWIPE_THRESHOLD_PX) return;
-    if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
-
-    if (deltaX < 0) {
-      goToPage(page + 1);
-      return;
-    }
-
-    goToPage(page - 1);
   };
 
   if (!rows.length) {
@@ -614,8 +587,6 @@ export function RiaPicksList({
           <div
             className={cn("touch-pan-y", isMobile && "space-y-2 px-3 py-3", !isMobile && "")}
             data-no-route-swipe
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
           >
             {currentPageRows.map((row) => {
               const changePct =
@@ -727,11 +698,6 @@ export function RiaPicksList({
               <p className="text-xs leading-5 text-muted-foreground">
                 Page {page} of {totalPages}
               </p>
-              {totalPages > 1 ? (
-                <p className="text-[11px] leading-5 text-muted-foreground">
-                  Swipe left or right anywhere in this list to move between pages.
-                </p>
-              ) : null}
             </div>
             <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
               <PaginationContent className="flex-nowrap justify-start sm:justify-end">

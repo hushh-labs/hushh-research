@@ -26,7 +26,7 @@ const ACTIVITY_RANGE_OPTIONS: {
 ];
 
 const activityPanelClassName =
-  "w-full min-w-0 max-w-full overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+  "w-full min-w-0 max-w-full overflow-hidden rounded-[24px] border border-black/[0.04] bg-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_14px_34px_rgba(15,23,42,0.06)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.24)]";
 
 function activityRangeLabel(range: OneLocationActivityRange): string {
   return (
@@ -50,7 +50,7 @@ function ActivitySectionLabel({ title }: { title: string }) {
     <div
       role="heading"
       aria-level={2}
-      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45"
+      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[#8e8e93] dark:text-white/45"
     >
       {title}
     </div>
@@ -67,11 +67,11 @@ function ActivityMetricTile({
   detail: string;
 }) {
   return (
-    <div className="min-w-0 rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] p-3 dark:border-white/[0.08] dark:bg-white/[0.07]">
+    <div className="min-w-0 rounded-[18px] border border-black/[0.04] bg-[#f7f7fa] p-3.5 dark:border-white/[0.08] dark:bg-white/[0.07]">
       <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
         {label}
       </p>
-      <p className="mt-1 text-[24px] font-bold leading-none text-[#1c1c1e] dark:text-white">
+      <p className="mt-1 text-[24px] font-semibold leading-none text-[#1c1c1e] dark:text-white">
         {value}
       </p>
       <p className="mt-1 break-words text-[11px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
@@ -91,7 +91,7 @@ function EmptyActivityState({
   description: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-black/[0.08] bg-[#f7f7fa] p-5 text-center dark:border-white/[0.12] dark:bg-white/[0.05]">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-[18px] border border-dashed border-black/[0.08] bg-[#f7f7fa] p-5 text-center dark:border-white/[0.12] dark:bg-white/[0.05]">
       <Icon className="h-5 w-5 text-[#8e8e93]" aria-hidden="true" />
       <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
         {title}
@@ -125,7 +125,7 @@ export function OneLocationActivityDashboard({
   return (
     <section className="min-w-0 max-w-full space-y-2 px-1">
       <ActivitySectionLabel title="Location activity" />
-      <div className={cn(activityPanelClassName, "space-y-4 p-3.5")}>
+      <div className={cn(activityPanelClassName, "space-y-4 p-4")}>
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
@@ -136,10 +136,10 @@ export function OneLocationActivityDashboard({
               )}
             </span>
             <div className="min-w-0">
-              <h3 className="text-[15px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
+              <h3 className="text-[16px] font-semibold tracking-normal text-[#1c1c1e] dark:text-white">
                 Activity history
               </h3>
-              <p className="mt-1 break-words text-[12px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+              <p className="mt-1 break-words text-[13px] leading-5 text-[#6e6e73] [overflow-wrap:anywhere] dark:text-white/60">
                 {error ||
                   `${activityRangeLabel(range)} of shares, requests, views, and link responses.`}
               </p>

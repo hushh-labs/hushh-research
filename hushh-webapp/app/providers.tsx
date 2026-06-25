@@ -12,7 +12,14 @@
  * CacheProvider enables data sharing across page navigations to reduce API calls.
  */
 
-import { CSSProperties, ReactNode, Suspense, useEffect, useMemo, useRef } from "react";
+import {
+  CSSProperties,
+  ReactNode,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/firebase";
 import { VaultContext, VaultProvider } from "@/lib/vault/vault-context";
@@ -25,12 +32,14 @@ import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metri
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { TopAppBar } from "@/components/app-ui/top-app-bar";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
+import { AgentBar } from "@/components/agent/agent-bar";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { usePathname, useRouter } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
+import { useRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -41,12 +50,15 @@ import {
   useKaiBottomChromeVisibility,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
+import { ROUTES } from "@/lib/navigation/routes";
+import { useAuth } from "@/hooks/use-auth";
 import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
+import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -56,23 +68,44 @@ interface ProvidersProps {
   children: ReactNode;
 }
 
-function readCustomVar(
-  style: CSSProperties,
-  key: string
-): string {
+function readCustomVar(style: CSSProperties, key: string): string {
   const value = (style as Record<string, string | number | undefined>)[key];
   return value === undefined || value === null ? "" : String(value).trim();
 }
 
-export function Providers({ children }: ProvidersProps) {
+// Shared bottom chrome glass vars. Mirrors the top app bar glass (same bg,
+// blur via the .bar-glass default, overscan, and fade strengths) so the bottom
+// mask fade matches the top exactly, just flipped to fade upward.
+const SHARED_BOTTOM_CHROME_GLASS_VARS = {
+  "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
+  "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+  "--app-bar-shadow": "none",
+  "--app-bar-mask-overscan": "14px",
+} as const;
+
+function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
-  const routeLayout = useMemo(() => resolveAppRouteLayout(pathname), [pathname]);
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const shellPathname = useMemo(
+    () =>
+      pathname === ROUTES.HOME && (authLoading || !isAuthenticated)
+        ? ROUTES.LOGIN
+        : pathname,
+    [authLoading, isAuthenticated, pathname],
+  );
+  const chromeState = useMemo(
+    () => getKaiChromeState(shellPathname),
+    [shellPathname],
+  );
+  const routeLayout = useMemo(
+    () => resolveAppRouteLayout(shellPathname),
+    [shellPathname],
+  );
   const routeLayoutMode = routeLayout.mode;
   const topShellRouteProfile = useMemo(
-    () => resolveTopShellRouteProfile(pathname),
-    [pathname]
+    () => resolveTopShellRouteProfile(shellPathname),
+    [shellPathname],
   );
   const topShellMetrics = topShellRouteProfile.metrics;
   const hideGlobalChrome = !topShellMetrics.shellVisible;
@@ -85,7 +118,11 @@ export function Providers({ children }: ProvidersProps) {
         routeLayoutMode,
         localOffset: routeLayout.pageTopLocalOffset,
       }),
-    [routeLayout.pageTopLocalOffset, routeLayoutMode, topShellMetrics.shellVisible]
+    [
+      routeLayout.pageTopLocalOffset,
+      routeLayoutMode,
+      topShellMetrics.shellVisible,
+    ],
   );
   const topShellRouteStyle = useMemo(
     () =>
@@ -105,7 +142,9 @@ export function Providers({ children }: ProvidersProps) {
         "--app-top-shell-visible": topShellMetrics.shellVisible ? "1" : "0",
         "--app-top-has-tabs": topShellMetrics.hasTabs ? "1" : "0",
         "--app-top-offset-mode":
-          topShellMetrics.contentOffsetMode === "fullscreen-flow" ? "fullscreen-flow" : "normal",
+          topShellMetrics.contentOffsetMode === "fullscreen-flow"
+            ? "fullscreen-flow"
+            : "normal",
         "--bottom-chrome-stack-height": chromeState.hideCommandBar
           ? "var(--app-bottom-inset)"
           : "calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))",
@@ -118,27 +157,43 @@ export function Providers({ children }: ProvidersProps) {
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
         "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
-      } as CSSProperties),
+      }) as CSSProperties,
     [
       chromeState.hideCommandBar,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
       topShellMetrics.shellVisible,
-    ]
+    ],
   );
-  const showSharedBottomChromeGlass = topShellMetrics.shellVisible && !isFullscreenTopFlow;
-  const { progress: hideBottomChromeGlassProgress } = useKaiBottomChromeVisibility(
-    showSharedBottomChromeGlass
-  );
+  const showSharedBottomChromeGlass =
+    topShellMetrics.shellVisible && !isFullscreenTopFlow;
+  const showVaultMethodPrompt =
+    isAuthenticated && topShellMetrics.shellVisible && !isFullscreenTopFlow;
+  const { progress: hideBottomChromeGlassProgress } =
+    useKaiBottomChromeVisibility(showSharedBottomChromeGlass);
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const isKaiRoute = useMemo(
+    () =>
+      pathname === ROUTES.KAI_HOME ||
+      pathname.startsWith(`${ROUTES.KAI_HOME}/`) ||
+      pathname === ROUTES.LEGACY_KAI_HOME ||
+      pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}/`),
+    [pathname],
+  );
   const pageAnimationKey = useMemo(
-    () => (pathname.startsWith("/kai") ? "/kai-stable-shell" : pathname),
-    [pathname]
+    () => (isKaiRoute ? `${ROUTES.KAI_HOME}-stable-shell` : pathname),
+    [isKaiRoute, pathname],
   );
   const shouldObservePageMutations = useMemo(
-    () => !(pathname.startsWith("/kai/analysis") || pathname.startsWith("/kai/dashboard/analysis")),
-    [pathname]
+    () =>
+      !(
+        pathname.startsWith(ROUTES.KAI_ANALYSIS) ||
+        pathname.startsWith(`${ROUTES.KAI_HOME}/dashboard/analysis`) ||
+        pathname.startsWith("/kai/analysis") ||
+        pathname.startsWith("/kai/dashboard/analysis")
+      ),
+    [pathname],
   );
 
   // One-time GSAP init (non-blocking).
@@ -162,6 +217,10 @@ export function Providers({ children }: ProvidersProps) {
     key: pageAnimationKey,
     observeMutations: shouldObservePageMutations,
   });
+  // App-wide route crossfade: fades the outgoing page out before navigating so
+  // route loads feel continuous instead of a hard cut (pairs with the GSAP
+  // enter animation above). See globals.css → "UNIFORM ROUTE TRANSITION".
+  useRouteTransition();
   useScrollReset(pathname, { enabled: true, behavior: "auto" });
 
   useEffect(() => {
@@ -186,12 +245,12 @@ export function Providers({ children }: ProvidersProps) {
 
     window.addEventListener(
       INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
-      handleInternalNavigation
+      handleInternalNavigation,
     );
     return () => {
       window.removeEventListener(
         INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
-        handleInternalNavigation
+        handleInternalNavigation,
       );
     };
   }, [router]);
@@ -237,8 +296,202 @@ export function Providers({ children }: ProvidersProps) {
       delete root.dataset.appShellRouteLayout;
       delete root.dataset.appTopShellProfile;
     };
-  }, [routeLayoutMode, signedInShellContentOffset.mode, signedInShellContentOffset.style, topShellRouteProfile.id, topShellRouteStyle]);
+  }, [
+    routeLayoutMode,
+    signedInShellContentOffset.mode,
+    signedInShellContentOffset.style,
+    topShellRouteProfile.id,
+    topShellRouteStyle,
+  ]);
 
+  return (
+    <CacheProvider>
+      <PersonaProvider>
+        <VaultProvider>
+          <AgentPopoverProvider>
+            <NativeTestRouter />
+            <NativeTestBootstrap />
+            <NativeTestRouteStatus />
+            <PersonaBootstrapRedirect />
+            <Suspense
+              fallback={
+                <>
+                  {/* Flex container for proper scroll behavior */}
+                  <div
+                    className="flex flex-col flex-1 min-h-0"
+                    style={topShellRouteStyle}
+                    data-top-shell-profile={topShellRouteProfile.id}
+                    data-app-shell-root="true"
+                    data-app-shell-offset-mode={signedInShellContentOffset.mode}
+                  >
+                    <Navbar />
+                    {!hideGlobalChrome ? (
+                      <Suspense fallback={null}>
+                        <TopAppBar />
+                      </Suspense>
+                    ) : null}
+                    <VaultContext.Consumer>
+                      {() =>
+                        showSharedBottomChromeGlass ? (
+                          <div
+                            aria-hidden
+                            className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
+                          >
+                            <div
+                              className="w-full bar-glass bar-glass-bottom"
+                              style={
+                                {
+                                  height: "var(--bottom-chrome-full-height)",
+                                  transform:
+                                    "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
+                                  "--bottom-chrome-progress": String(
+                                    hideBottomChromeGlassProgress,
+                                  ),
+                                  ...SHARED_BOTTOM_CHROME_GLASS_VARS,
+                                } as CSSProperties
+                              }
+                            />
+                          </div>
+                        ) : null
+                      }
+                    </VaultContext.Consumer>
+                    <AgentBar />
+                    <PostAuthOnboardingSyncBridge />
+                    <Suspense fallback={null}>
+                      <KaiCommandBarGlobal />
+                    </Suspense>
+                    <div
+                      data-app-scroll-root="true"
+                      data-app-scroll-mode={
+                        hideGlobalChrome
+                          ? "hidden-shell"
+                          : shouldLockFullscreenRoot
+                            ? "fullscreen-flow"
+                            : "standard"
+                      }
+                      className={
+                        hideGlobalChrome
+                          ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                          : shouldLockFullscreenRoot
+                            ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                            : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
+                      }
+                    >
+                      {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
+                        <div data-app-shell-top-spacer="true" aria-hidden />
+                      ) : null}
+                      <div
+                        ref={pageRef}
+                        data-app-shell-content="true"
+                        className={
+                          shouldLockFullscreenRoot
+                            ? "min-h-0 h-full"
+                            : "min-h-0"
+                        }
+                      >
+                        {children}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              }
+            >
+              <ConsentNotificationProvider>
+                <ConsentSheetProvider>
+                  {/* Flex container for proper scroll behavior */}
+                  <div
+                    className="flex flex-col flex-1 min-h-0"
+                    style={topShellRouteStyle}
+                    data-top-shell-profile={topShellRouteProfile.id}
+                    data-app-shell-root="true"
+                    data-app-shell-offset-mode={signedInShellContentOffset.mode}
+                  >
+                    <Navbar />
+                    {!hideGlobalChrome ? (
+                      <Suspense fallback={null}>
+                        <TopAppBar />
+                      </Suspense>
+                    ) : null}
+                    <VaultContext.Consumer>
+                      {() =>
+                        showSharedBottomChromeGlass ? (
+                          <div
+                            aria-hidden
+                            className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
+                          >
+                            <div
+                              className="w-full bar-glass bar-glass-bottom"
+                              style={
+                                {
+                                  height: "var(--bottom-chrome-full-height)",
+                                  transform:
+                                    "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
+                                  "--bottom-chrome-progress": String(
+                                    hideBottomChromeGlassProgress,
+                                  ),
+                                  ...SHARED_BOTTOM_CHROME_GLASS_VARS,
+                                } as CSSProperties
+                              }
+                            />
+                          </div>
+                        ) : null
+                      }
+                    </VaultContext.Consumer>
+                    <AgentBar />
+                    <PostAuthOnboardingSyncBridge />
+                    <Suspense fallback={null}>
+                      <KaiCommandBarGlobal />
+                    </Suspense>
+                    <Suspense fallback={null}>
+                      <VaultMethodPrompt enabled={showVaultMethodPrompt} />
+                    </Suspense>
+                    {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
+                    <div
+                      data-app-scroll-root="true"
+                      data-app-scroll-mode={
+                        hideGlobalChrome
+                          ? "hidden-shell"
+                          : shouldLockFullscreenRoot
+                            ? "fullscreen-flow"
+                            : "standard"
+                      }
+                      className={
+                        hideGlobalChrome
+                          ? // Landing/onboarding flows should still allow vertical scroll on small screens.
+                            "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                          : shouldLockFullscreenRoot
+                            ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
+                              "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                            : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
+                      }
+                    >
+                      {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
+                        <div data-app-shell-top-spacer="true" aria-hidden />
+                      ) : null}
+                      <div
+                        ref={pageRef}
+                        data-app-shell-content="true"
+                        className={
+                          shouldLockFullscreenRoot
+                            ? "min-h-0 h-full"
+                            : "min-h-0"
+                        }
+                      >
+                        {children}
+                      </div>
+                    </div>
+                  </div>
+                </ConsentSheetProvider>
+              </ConsentNotificationProvider>
+            </Suspense>
+          </AgentPopoverProvider>
+        </VaultProvider>
+      </PersonaProvider>
+    </CacheProvider>
+  );
+}
+
+export function Providers({ children }: ProvidersProps) {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <ObservabilityRouteObserver />
@@ -247,190 +500,7 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
-          <CacheProvider>
-            <PersonaProvider>
-              <VaultProvider>
-                <AgentPopoverProvider>
-                  <NativeTestRouter />
-                  <NativeTestBootstrap />
-                  <NativeTestRouteStatus />
-                  <PersonaBootstrapRedirect />
-                  <Suspense
-                    fallback={
-                      <>
-                        {/* Flex container for proper scroll behavior */}
-                        <div
-                          className="flex flex-col flex-1 min-h-0"
-                          style={topShellRouteStyle}
-                          data-top-shell-profile={topShellRouteProfile.id}
-                          data-app-shell-root="true"
-                          data-app-shell-offset-mode={signedInShellContentOffset.mode}
-                        >
-                          <Navbar />
-                          <Suspense fallback={null}>
-                            <TopAppBar />
-                          </Suspense>
-                          <VaultContext.Consumer>
-                            {() =>
-                              showSharedBottomChromeGlass ? (
-                                <div
-                                  aria-hidden
-                                  className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-                                >
-                                  <div
-                                    className="w-full bar-glass bar-glass-bottom"
-                                    style={
-                                      {
-                                        height: "var(--bottom-chrome-full-height)",
-                                        transform:
-                                          "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                        "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.16)",
-                                        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.22)",
-                                        "--app-bar-glass-blur": "0px",
-                                        "--app-bar-shadow": "none",
-                                        "--app-bar-mask-overscan": "6px",
-                                        "--app-bar-bottom-fade-strong":
-                                          "color-mix(in oklab, var(--background) 6%, transparent)",
-                                        "--app-bar-bottom-fade-medium":
-                                          "color-mix(in oklab, var(--background) 4%, transparent)",
-                                        "--app-bar-bottom-fade-soft":
-                                          "color-mix(in oklab, var(--background) 1.8%, transparent)",
-                                        "--app-bar-bottom-fade-trace": "transparent",
-                                      } as CSSProperties
-                                    }
-                                  />
-                                </div>
-                              ) : null
-                            }
-                          </VaultContext.Consumer>
-                          <PostAuthOnboardingSyncBridge />
-                          <Suspense fallback={null}>
-                            <KaiCommandBarGlobal />
-                          </Suspense>
-                          <div
-                            data-app-scroll-root="true"
-                            data-app-scroll-mode={
-                              hideGlobalChrome
-                                ? "hidden-shell"
-                                : shouldLockFullscreenRoot
-                                ? "fullscreen-flow"
-                                : "standard"
-                            }
-                            className={
-                              hideGlobalChrome
-                                ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
-                                : shouldLockFullscreenRoot
-                                ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
-                            }
-                          >
-                            {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
-                              <div data-app-shell-top-spacer="true" aria-hidden />
-                            ) : null}
-                            <div
-                              ref={pageRef}
-                              data-app-shell-content="true"
-                              className={shouldLockFullscreenRoot ? "min-h-0 h-full" : "min-h-0"}
-                            >
-                              {children}
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    }
-                  >
-                    <ConsentNotificationProvider>
-                      <ConsentSheetProvider>
-                        {/* Flex container for proper scroll behavior */}
-                        <div
-                          className="flex flex-col flex-1 min-h-0"
-                          style={topShellRouteStyle}
-                          data-top-shell-profile={topShellRouteProfile.id}
-                          data-app-shell-root="true"
-                          data-app-shell-offset-mode={signedInShellContentOffset.mode}
-                        >
-                          <Navbar />
-                          <Suspense fallback={null}>
-                            <TopAppBar />
-                          </Suspense>
-                          <VaultContext.Consumer>
-                            {() =>
-                              showSharedBottomChromeGlass ? (
-                                <div
-                                  aria-hidden
-                                  className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-                                >
-                                  <div
-                                    className="w-full bar-glass bar-glass-bottom"
-                                    style={
-                                      {
-                                        height: "var(--bottom-chrome-full-height)",
-                                        transform:
-                                          "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                        "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.16)",
-                                        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.22)",
-                                        "--app-bar-glass-blur": "0px",
-                                        "--app-bar-shadow": "none",
-                                        "--app-bar-mask-overscan": "6px",
-                                        "--app-bar-bottom-fade-strong":
-                                          "color-mix(in oklab, var(--background) 6%, transparent)",
-                                        "--app-bar-bottom-fade-medium":
-                                          "color-mix(in oklab, var(--background) 4%, transparent)",
-                                        "--app-bar-bottom-fade-soft":
-                                          "color-mix(in oklab, var(--background) 1.8%, transparent)",
-                                        "--app-bar-bottom-fade-trace": "transparent",
-                                      } as CSSProperties
-                                    }
-                                  />
-                                </div>
-                              ) : null
-                            }
-                          </VaultContext.Consumer>
-                          <PostAuthOnboardingSyncBridge />
-                          <Suspense fallback={null}>
-                            <KaiCommandBarGlobal />
-                          </Suspense>
-                          {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
-                          <div
-                            data-app-scroll-root="true"
-                            data-app-scroll-mode={
-                              hideGlobalChrome
-                                ? "hidden-shell"
-                                : shouldLockFullscreenRoot
-                                ? "fullscreen-flow"
-                                : "standard"
-                            }
-                            className={
-                              hideGlobalChrome
-                                ? // Landing/onboarding flows should still allow vertical scroll on small screens.
-                                  "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
-                                : shouldLockFullscreenRoot
-                                ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
-                                  "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
-                            }
-                          >
-                            {!hideGlobalChrome && !shouldLockFullscreenRoot ? (
-                              <div data-app-shell-top-spacer="true" aria-hidden />
-                            ) : null}
-                            <div
-                              ref={pageRef}
-                              data-app-shell-content="true"
-                              className={shouldLockFullscreenRoot ? "min-h-0 h-full" : "min-h-0"}
-                            >
-                              {children}
-                            </div>
-                          </div>
-                        </div>
-                      </ConsentSheetProvider>
-                    </ConsentNotificationProvider>
-                  </Suspense>
-                </AgentPopoverProvider>
-              </VaultProvider>
-            </PersonaProvider>
-          </CacheProvider>
+          <AppShellFrame>{children}</AppShellFrame>
         </AuthProvider>
         <Toaster
           position="top-center"

@@ -88,12 +88,107 @@ export function ThemeToggle({ className }: { className?: string }) {
             )}
           >
             <span className="relative z-10 inline-flex items-center gap-1.5">
-              <Icon icon={option.icon} size="sm" aria-hidden="true" />
+              <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
               <span className="text-[11px] font-medium leading-none sm:text-xs">
                 {option.label}
               </span>
             </span>
             <MaterialRipple variant="none" effect="fade" className="z-0" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Lean segmented theme toggle — icon-forward, mobile-perfect.
+ *
+ * Used at the top of onboarding and in Profile › Preferences. Three equal
+ * segments (Light / Dark / System) with icons always visible and labels that
+ * appear only when there's room (sm+), so it stays compact on a phone while
+ * remaining fully labeled on wider surfaces. The active segment slides via a
+ * single animated thumb rather than per-button borders.
+ */
+export function ThemeToggleLean({
+  className,
+  showLabels = true,
+}: {
+  className?: string;
+  showLabels?: boolean;
+}) {
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const activeTheme = resolveActiveTheme(theme);
+  const isDark = resolvedTheme === "dark";
+  const activeIndex = Math.max(
+    0,
+    THEME_OPTIONS.findIndex((o) => o.value === activeTheme)
+  );
+
+  // Reserve height to avoid layout shift before mount/hydration.
+  if (!mounted) {
+    return <div className={cn("h-9 w-full max-w-[220px]", className)} aria-hidden="true" />;
+  }
+
+  return (
+    <div
+      data-theme-control
+      role="radiogroup"
+      aria-label="Theme"
+      className={cn(
+        "relative grid h-9 w-full max-w-[260px] grid-cols-3 items-center rounded-full p-[3px]",
+        isDark ? "bg-white/[0.07]" : "bg-black/[0.05]",
+        className
+      )}
+    >
+      {/* Sliding active thumb */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-y-[3px] left-[3px] w-[calc((100%-6px)/3)] rounded-full transition-transform duration-200 ease-out",
+          isDark
+            ? "bg-neutral-800 shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
+            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
+        )}
+        style={{ transform: `translateX(${activeIndex * 100}%)` }}
+      />
+      {THEME_OPTIONS.map((option) => {
+        const isActive = option.value === activeTheme;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-label={option.label}
+            title={option.label}
+            onClick={() => {
+              if (option.value === activeTheme) return;
+              setTheme(option.value);
+            }}
+            className={cn(
+              "relative z-10 flex h-full min-w-0 items-center justify-center gap-1 rounded-full px-0.5 transition-colors duration-150",
+              isActive
+                ? isDark
+                  ? "text-white"
+                  : "text-slate-950"
+                : isDark
+                  ? "text-zinc-400 hover:text-zinc-200"
+                  : "text-slate-500 hover:text-slate-800"
+            )}
+          >
+            <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
+            {showLabels ? (
+              <span className="hidden text-xs font-medium leading-none sm:inline">
+                {option.label}
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -112,7 +207,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
     setMounted(true);
   }, []);
 
-  if (!mounted) return <div className="h-9 w-9" />;
+  if (!mounted) return <div className={cn("h-10 w-10", className)} />;
 
   const activeTheme = resolveActiveTheme(theme);
   const activeOption = THEME_OPTIONS.find((o) => o.value === activeTheme) ?? THEME_OPTIONS[0]!;
@@ -125,14 +220,14 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           type="button"
           aria-label={`Theme: ${activeOption.label}`}
           className={cn(
-            "inline-flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-150",
+            "inline-flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-150",
             isDark
               ? "border-white/8 bg-black/85 text-zinc-100 hover:bg-neutral-900"
               : "border-slate-200 bg-white/85 text-slate-700 hover:bg-white",
             className
           )}
         >
-          <Icon icon={activeOption.icon} size="sm" aria-hidden="true" />
+          <Icon icon={activeOption.icon} size="sm" aria-hidden="true" className="text-current" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="min-w-[140px]">
@@ -142,9 +237,9 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
             <DropdownMenuItem
               key={option.value}
               onSelect={() => !isActive && setTheme(option.value)}
-              className={cn("flex items-center gap-2", isActive && "font-medium")}
+              className={cn("group flex items-center gap-2", isActive && "font-medium")}
             >
-              <Icon icon={option.icon} size="sm" aria-hidden="true" />
+              <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
               <span className="flex-1">{option.label}</span>
               {isActive && <span className="text-xs">✓</span>}
             </DropdownMenuItem>

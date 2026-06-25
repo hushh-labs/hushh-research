@@ -293,7 +293,11 @@ async def vault_check(
 
     try:
         service = VaultKeysService()
-        has_vault = await service.check_vault_exists(request.userId)
+        # Read-only existence check: this is the unlock-screen hot path, so it
+        # must avoid the login-marker upsert in _ensure_user_entry_sync (which
+        # adds extra write round-trips). Login tracking still happens via
+        # /vault/bootstrap-state on the session bootstrap path.
+        has_vault = await service.check_vault_exists(request.userId, ensure_entry=False)
         return VaultCheckResponse(hasVault=has_vault)
 
     except Exception as e:

@@ -349,7 +349,7 @@ export function PhoneVerificationFlow({
         </div>
         <Button
           onClick={() => void onContinueExisting?.()}
-          size="lg"
+          size="default"
           fullWidth
           className={`type-headline mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
         >
@@ -370,9 +370,11 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  setCountryQuery(
-                    getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
-                  );
+                  if (!open) {
+                    setCountryQuery(
+                      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
+                    );
+                  }
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
@@ -390,6 +392,7 @@ export function PhoneVerificationFlow({
                   }}
                   onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
                     setCountryComboboxOpen(true);
+                    setCountryQuery("");
                     event.currentTarget.select();
                   }}
                   className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
@@ -450,7 +453,7 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleStartVerification(false)}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
               className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
@@ -501,7 +504,7 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleConfirmVerification()}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
               className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
@@ -511,7 +514,7 @@ export function PhoneVerificationFlow({
               onClick={() => void handleStartVerification(true)}
               variant="none"
               effect="glass"
-              size="lg"
+              size="default"
               fullWidth
               disabled={busy}
               className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}

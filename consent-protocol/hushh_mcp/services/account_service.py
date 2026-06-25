@@ -42,6 +42,15 @@ class AccountService:
                 "DELETE FROM consent_export_refresh_jobs WHERE user_id = :user_id"
             ),
             "consent_exports": text("DELETE FROM consent_exports WHERE user_id = :user_id"),
+            "connected_system_audit_events": text(
+                "DELETE FROM connected_system_audit_events WHERE user_id = :user_id"
+            ),
+            "connected_system_intents": text(
+                "DELETE FROM connected_system_intents WHERE user_id = :user_id"
+            ),
+            "connected_system_record_bindings": text(
+                "DELETE FROM connected_system_record_bindings WHERE user_id = :user_id"
+            ),
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
@@ -103,8 +112,19 @@ class AccountService:
                 "WHERE actor_user_id = :user_id OR target_user_id = :user_id"
             ),
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
+            "pkm_default_available_projections": text(
+                "DELETE FROM pkm_default_available_projections WHERE user_id = :user_id"
+            ),
             "pkm_migration_state": text("DELETE FROM pkm_migration_state WHERE user_id = :user_id"),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
+            "pkm_upgrade_steps": text(
+                """
+                DELETE FROM pkm_upgrade_steps
+                WHERE run_id IN (
+                  SELECT run_id FROM pkm_upgrade_runs WHERE user_id = :user_id
+                )
+                """
+            ),
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
             ),
@@ -144,6 +164,22 @@ class AccountService:
             ),
             "one_location_public_invites": text(
                 "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
+            ),
+            "one_location_circle_invites": text(
+                """
+                DELETE FROM one_location_circle_invites
+                WHERE owner_user_id = :user_id
+                   OR claimed_by_user_id = :user_id
+                """
+            ),
+            "one_location_network_connections": text(
+                """
+                DELETE FROM one_location_network_connections
+                WHERE user_a_id = :user_id
+                   OR user_b_id = :user_id
+                   OR inviter_user_id = :user_id
+                   OR invitee_user_id = :user_id
+                """
             ),
             "one_location_recipient_keys": text(
                 "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
@@ -294,8 +330,10 @@ class AccountService:
 
     @staticmethod
     def _normalized_target(target: str | None) -> DeleteAccountTarget:
-        if target in {"investor", "ria"}:
-            return target
+        if target == "investor":
+            return "investor"
+        if target == "ria":
+            return "ria"
         return "both"
 
     def _table_exists(self, conn, table_name: str) -> bool:
@@ -404,8 +442,10 @@ class AccountService:
             "pkm_manifest_paths": False,
             "pkm_scope_registry": False,
             "pkm_events": False,
+            "pkm_default_available_projections": False,
             "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
+            "pkm_upgrade_steps": False,
             "world_model_index_v2": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
@@ -430,6 +470,9 @@ class AccountService:
             "kai_funding_reconciliation_runs": False,
             "consent_exports": False,
             "consent_export_refresh_jobs": False,
+            "connected_system_audit_events": False,
+            "connected_system_intents": False,
+            "connected_system_record_bindings": False,
             "consent_audit": False,
             "internal_access_events": False,
             "push_tokens": False,
@@ -448,6 +491,8 @@ class AccountService:
             "one_location_envelopes": False,
             "one_location_public_invite_submissions": False,
             "one_location_public_invites": False,
+            "one_location_circle_invites": False,
+            "one_location_network_connections": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "runtime_persona_state": False,
@@ -480,6 +525,11 @@ class AccountService:
                         "kai_portfolio_source_preferences",
                         "consent_export_refresh_jobs",
                         "consent_exports",
+                        "connected_system_audit_events",
+                        "connected_system_record_bindings",
+                        "connected_system_intents",
+                        "pkm_default_available_projections",
+                        "pkm_upgrade_steps",
                         "pkm_upgrade_runs",
                     ],
                     params=params,
@@ -651,6 +701,8 @@ class AccountService:
                     "one_location_referrals",
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
+                    "one_location_circle_invites",
+                    "one_location_network_connections",
                     "one_location_access_requests",
                     "one_location_envelopes",
                     "one_location_share_grants",
@@ -835,6 +887,10 @@ class AccountService:
             "pkm_manifest_paths": False,
             "pkm_scope_registry": False,
             "pkm_events": False,
+            "pkm_default_available_projections": False,
+            "pkm_migration_state": False,
+            "pkm_upgrade_runs": False,
+            "pkm_upgrade_steps": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
             "plaid_link_sessions": False,
@@ -884,6 +940,22 @@ class AccountService:
                 results["pkm_blobs"] = True
                 conn.execute(text("DELETE FROM pkm_index WHERE user_id = :user_id"), params)
                 results["pkm_index"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_default_available_projections", params=params
+                )
+                results["pkm_default_available_projections"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_upgrade_steps", params=params
+                )
+                results["pkm_upgrade_steps"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_upgrade_runs", params=params
+                )
+                results["pkm_upgrade_runs"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_migration_state", params=params
+                )
+                results["pkm_migration_state"] = True
                 self._delete_user_rows_if_table_exists(conn, table_name="pkm_data", params=params)
                 results["pkm_data"] = True
                 conn.execute(

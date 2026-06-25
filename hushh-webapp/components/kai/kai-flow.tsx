@@ -660,6 +660,19 @@ export function KaiFlow({
     stateRef.current = state;
   }, [state]);
 
+  const portfolioImportSurfaceActive =
+    state === "import_required" ||
+    state === "importing" ||
+    state === "import_complete" ||
+    state === "reviewing";
+
+  useEffect(() => {
+    setBusyOperation("portfolio_import_surface", portfolioImportSurfaceActive);
+    return () => {
+      setBusyOperation("portfolio_import_surface", false);
+    };
+  }, [portfolioImportSurfaceActive, setBusyOperation]);
+
   useScrollReset(`${mode}:${state}`, { enabled: true, behavior: "auto" });
 
   const plaidPortfolioData =

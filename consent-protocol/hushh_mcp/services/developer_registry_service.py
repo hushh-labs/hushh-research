@@ -29,6 +29,7 @@ DEFAULT_PUBLIC_TOOL_GROUPS = (TOOL_GROUP_CORE_CONSENT,)
 
 TOOL_GROUP_TOOL_NAMES = {
     TOOL_GROUP_CORE_CONSENT: (
+        "prepare_campaign_context",
         "discover_user_domains",
         "request_consent",
         "check_consent_status",
@@ -60,6 +61,12 @@ TOOL_GROUP_TOOL_NAMES = {
 }
 
 TOOL_CATALOG = (
+    {
+        "name": "prepare_campaign_context",
+        "group": TOOL_GROUP_CORE_CONSENT,
+        "compatibility_status": "recommended",
+        "description": "Recommended high-level consent loop for external campaign and customer-experience agents.",
+    },
     {
         "name": "discover_user_domains",
         "group": TOOL_GROUP_CORE_CONSENT,
@@ -385,6 +392,20 @@ class DeveloperRegistryService:
 
     def ensure_tables(self) -> None:
         if self.__class__._tables_ensured:
+            return
+
+        # Canonical schema source: db/migrations/070_developer_registry.sql
+        # (registered in db/release_migration_manifest.json under the
+        # "developer" group). The idempotent CREATE TABLE IF NOT EXISTS DDL
+        # below is retained only as a runtime safety net so a backend booting
+        # against a database that has not yet applied migration 070 still
+        # functions. The migration is authoritative; keep the two in sync.
+        #
+        # Offline mode: the developer_* tables are pre-created by the SQLite
+        # offline schema (db/offline_schema.sql). The Postgres DDL below uses
+        # BIGSERIAL/JSONB/::jsonb casts that SQLite cannot parse, so skip it.
+        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in ("1", "true", "yes", "on"):
+            self.__class__._tables_ensured = True
             return
 
         statements = [

@@ -29,6 +29,13 @@ const VAULT_GET_TIMEOUT_MS = Number.parseInt(
   process.env.VAULT_GET_TIMEOUT_MS ?? "12000",
   10
 );
+// Extended budget for the single retry, sized to absorb a cold backend /
+// database connection pool warm-up (which has been observed to take tens of
+// seconds on the first request after idle).
+const VAULT_GET_RETRY_TIMEOUT_MS = Number.parseInt(
+  process.env.VAULT_GET_RETRY_TIMEOUT_MS ?? "45000",
+  10
+);
 const inflightVaultGet = new Map<string, Promise<{ status: number; payload: unknown }>>();
 const ROUTE_CACHE_TTL_MS = 60 * 1000;
 const ROUTE_STALE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -120,15 +127,47 @@ export async function GET(request: NextRequest) {
     }
 
     const load = (async () => {
-      const response = await fetch(`${PYTHON_API_URL}/db/vault/get`, {
-        method: "POST",
-        headers: createUpstreamHeaders(requestId, {
-          "Content-Type": "application/json",
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        }),
-        body: JSON.stringify({ userId }),
-        signal: AbortSignal.timeout(VAULT_GET_TIMEOUT_MS),
-      });
+      // Cold backends (first request after idle / a fresh deploy) can take well
+      // over a single short timeout to answer because the DB connection pool is
+      // still warming up. A single hard timeout there turns a slow-but-healthy
+      // backend into a user-facing 503. So we attempt twice: a first try with
+      // the normal timeout, then one retry with a longer timeout that absorbs
+      // the cold start. Only timeouts (AbortError) and 5xx responses are
+      // retried; 4xx and 404 are returned immediately.
+      const attempt = async (timeoutMs: number) =>
+        fetch(`${PYTHON_API_URL}/db/vault/get`, {
+          method: "POST",
+          headers: createUpstreamHeaders(requestId, {
+            "Content-Type": "application/json",
+            ...(authHeader ? { Authorization: authHeader } : {}),
+          }),
+          body: JSON.stringify({ userId }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+
+      let response: Response;
+      try {
+        response = await attempt(VAULT_GET_TIMEOUT_MS);
+        // Retry once on a server error: a cold backend often answers the
+        // second time once the pool is warm.
+        if (response.status >= 500) {
+          console.warn(
+            `[API] request_id=${requestId} vault_get backend ${response.status}; retrying with extended timeout`
+          );
+          response = await attempt(VAULT_GET_RETRY_TIMEOUT_MS);
+        }
+      } catch (firstError) {
+        // The first attempt timed out (or the connection dropped). Retry once
+        // with a longer budget that covers the cold start before giving up.
+        if ((firstError as Error)?.name === "AbortError") {
+          console.warn(
+            `[API] request_id=${requestId} vault_get timed out after ${VAULT_GET_TIMEOUT_MS}ms; retrying with extended timeout`
+          );
+          response = await attempt(VAULT_GET_RETRY_TIMEOUT_MS);
+        } else {
+          throw firstError;
+        }
+      }
 
       if (response.status === 404) {
         return {

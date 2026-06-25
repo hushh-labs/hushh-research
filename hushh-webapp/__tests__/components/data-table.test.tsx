@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -25,6 +27,24 @@ function makeRows(count: number): TestRow[] {
 }
 
 describe("DataTable", () => {
+  it("does not own swipe pagination gestures", () => {
+    const dataTableSource = readFileSync(
+      join(process.cwd(), "components/app-ui/data-table.tsx"),
+      "utf8"
+    );
+    const marketListSource = readFileSync(
+      join(process.cwd(), "components/kai/cards/renaissance-market-list.tsx"),
+      "utf8"
+    );
+
+    for (const source of [dataTableSource, marketListSource]) {
+      expect(source).not.toContain("swipeStartRef");
+      expect(source).not.toContain("onTouchStart");
+      expect(source).not.toContain("onTouchEnd");
+      expect(source).not.toContain("Swipe left or right");
+    }
+  });
+
   it("supports direct page-number navigation", () => {
     render(
       <DataTable

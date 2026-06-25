@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { getRedirectResult, type User } from "firebase/auth";
-import { Shield } from "lucide-react";
+import { getRedirectResult } from "firebase/auth";
+import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { auth } from "@/lib/firebase/config";
@@ -16,6 +16,7 @@ import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
@@ -74,8 +75,8 @@ export function AuthStep({
     Boolean(nativeTestConfig.vaultPassphrase);
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
-    nativeTestConfig.expectedRoute === ROUTES.KAI_ONBOARDING &&
-    redirectPath === ROUTES.KAI_ONBOARDING;
+    nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING &&
+    redirectPath === ROUTES.ONE_ONBOARDING;
   const growthJourney = useMemo(() => resolveGrowthJourneyForPath(redirectPath), [redirectPath]);
   const growthEntrySurface = useMemo(
     () => resolveGrowthEntrySurface(redirectPath),
@@ -107,17 +108,15 @@ export function AuthStep({
     requestAnimationFrame(() => setActiveLegalDoc(docType));
   }, []);
 
-  const isLocationPhoneVerificationReturn = useMemo(() => {
-    if (redirectPath === ROUTES.ONE_LOCATION) {
-      return true;
+  const handleBack = useCallback(() => {
+    // Prefer real history; fall back to the marketing home when login was the
+    // first entry (deep link / fresh tab) so the control is never a dead end.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
     }
-    if (!redirectPath.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
-      return false;
-    }
-
-    const query = redirectPath.slice(ROUTES.PHONE_MANDATE.length + 1);
-    return new URLSearchParams(query).get("redirect") === ROUTES.ONE_LOCATION;
-  }, [redirectPath]);
+    router.push(ROUTES.HOME);
+  }, [router]);
 
   const resolveAndNavigate = useCallback(
     async (
@@ -136,7 +135,7 @@ export function AuthStep({
         if (preserveOnboardingAuditRoute) {
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
-          router.push(ROUTES.KAI_ONBOARDING);
+          router.push(ROUTES.ONE_ONBOARDING);
           return;
         }
         const resolvedIdToken =
@@ -167,17 +166,17 @@ export function AuthStep({
           resolvedPath === ROUTES.KAI_HOME && isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
-        setOnboardingRequiredCookie(nextPath === ROUTES.KAI_ONBOARDING);
+        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_ONBOARDING);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
         router.push(nextPath);
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
         const fallbackPath = redirectPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
-          fallbackPath === ROUTES.KAI_ONBOARDING || fallbackPath === ROUTES.KAI_IMPORT
+          fallbackPath === ROUTES.ONE_ONBOARDING || fallbackPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
             : fallbackPath;
-        setOnboardingRequiredCookie(safeFallbackPath === ROUTES.KAI_ONBOARDING);
+        setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_ONBOARDING);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
         router.push(safeFallbackPath);
       }
@@ -562,7 +561,7 @@ export function AuthStep({
 
   return (
     <main
-      className="min-h-[100dvh] w-full bg-white text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
+      className="h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-white text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
       data-testid="auth-step-primary"
     >
       <NativeTestBeacon
@@ -591,18 +590,29 @@ export function AuthStep({
       <div
         className={
           compact
-            ? "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(24px+var(--app-safe-area-top-effective,0px))] pb-[calc(24px+var(--app-screen-footer-pad))]"
-            : "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(48px+var(--app-safe-area-top-effective,0px))] pb-[calc(28px+var(--app-screen-footer-pad))]"
+            ? "relative mx-auto flex h-full min-h-0 w-full max-w-[27rem] flex-col justify-center px-6 pb-[calc(54px+var(--app-screen-footer-pad))] pt-[calc(24px+var(--app-safe-area-top-effective,0px))]"
+            : "relative mx-auto flex h-full min-h-0 w-full max-w-[27rem] flex-col justify-center px-6 pb-[calc(58px+var(--app-screen-footer-pad))] pt-[calc(32px+var(--app-safe-area-top-effective,0px))]"
         }
       >
+        {/* Back button: shares the exact lean ShellActionSurface aesthetic and
+            sits on the same fixed top line as the lean theme pill, mirroring the
+            getting-started screen so both onboarding surfaces are symmetric. */}
+        <ShellActionSurface
+          variant="icon"
+          onClick={handleBack}
+          aria-label="Go back"
+          wrapperClassName="fixed left-0 z-50 px-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))]"
+        >
+          <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+        </ShellActionSurface>
         <header className="flex-none text-center">
           <Image
             src="/one-quiet-emoji.png"
             alt="One"
-            width={48}
-            height={48}
+            width={44}
+            height={44}
             priority
-            className="mx-auto h-12 w-12 object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
+            className="mx-auto h-11 w-11 object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"
@@ -613,7 +623,7 @@ export function AuthStep({
             Sign in to <OneLockup />
           </div>
           <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
-            Continue to your personal financial advisor.
+            Sign in to open your private vault, only you can.
           </p>
         </header>
 
@@ -634,26 +644,26 @@ export function AuthStep({
               />
             ))}
 
+              {(reviewModeConfig.enabled ||
+                nativeReviewerVisible ||
+                localReviewerCredentialsAvailable ||
+                isLocalReviewerSurface) && (
+                <AuthProviderButton
+                  label="Continue as Reviewer"
+                  icon={<Icon icon={Shield} size="md" />}
+                  onClick={handleReviewerLogin}
+                />
+              )}
+
             <p className="type-footnote mx-auto max-w-[18.75rem] pt-2 text-center text-[#86868b] dark:text-[#8e8e93]">
               A verified phone number is required before you continue.
             </p>
+            </div>
+          </section>
 
-            {(reviewModeConfig.enabled ||
-              nativeReviewerVisible ||
-              localReviewerCredentialsAvailable ||
-              isLocalReviewerSurface) && (
-              <AuthProviderButton
-                label="Continue as Reviewer"
-                icon={<Icon icon={Shield} size="md" />}
-                onClick={handleReviewerLogin}
-              />
-            )}
-          </div>
-        </section>
-
-        <footer className={compact ? "mt-auto flex-none pt-8" : "mt-auto flex-none pt-10"}>
+        <footer className="absolute inset-x-6 bottom-[calc(20px+var(--app-screen-footer-pad))] flex-none">
           <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-[#8e8e93]">
-            By continuing, you agree to Kai&apos;s{" "}
+            By continuing, you agree to One&apos;s{" "}
             <button
               type="button"
               onClick={() => openLegalDoc("terms")}

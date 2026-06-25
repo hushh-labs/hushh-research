@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from hushh_mcp.consent.scope_helpers import get_scope_description
@@ -13,6 +14,23 @@ from hushh_mcp.services.ria_iam_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _one_location_consent_center_enabled() -> bool:
+    """Feature flag: union One Location rows into the consent center.
+
+    Defaults ON so location requests/approvals/active shares/history appear in
+    the shared Access Manager (the canonical consent surface) instead of only
+    the notification bell. The contributor is coordinate-free and the merge in
+    ``_location_buckets`` is wrapped in try/except, so a location failure can
+    never destabilize the consent surface. Set the env var to a falsey value
+    ("0"/"false"/"off") to explicitly disable.
+    See docs/future/one-location-consent-center-integration-plan.md.
+    """
+    raw = os.getenv("ONE_LOCATION_CONSENT_CENTER_ENABLED", "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
 
 
 class ConsentCenterService:
@@ -33,6 +51,45 @@ class ConsentCenterService:
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
+        self._location_center = None
+        if _one_location_consent_center_enabled():
+            try:
+                from hushh_mcp.services.one_location_center_contributor import (
+                    OneLocationCenterContributor,
+                )
+
+                self._location_center = OneLocationCenterContributor()
+            except Exception as exc:  # never block the consent surface
+                logger.warning(
+                    "consent_center.one_location_contributor_init_failed error=%s",
+                    exc,
+                )
+                self._location_center = None
+
+    def _location_buckets(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Coordinate-free One Location entries grouped by consent bucket.
+
+        Returns empty buckets when the feature flag is off or the contributor
+        is unavailable, so the shared consent surface is never destabilized.
+        """
+        empty = {
+            "incoming_requests": [],
+            "outgoing_requests": [],
+            "active_grants": [],
+            "history": [],
+            "invites": [],
+        }
+        if not self._location_center:
+            return empty
+        try:
+            return self._location_center.collect(user_id)
+        except Exception as exc:
+            logger.warning(
+                "consent_center.one_location_collect_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+            return empty
 
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
@@ -146,11 +203,38 @@ class ConsentCenterService:
             entry.get("counterpart_label"),
             entry.get("counterpart_email"),
             entry.get("counterpart_secondary_label"),
+            entry.get("identifier_label"),
             entry.get("scope"),
             entry.get("scope_description"),
             entry.get("reason"),
             entry.get("status"),
+            entry.get("action"),
+            entry.get("request_id"),
         ]
+        for trail in list(entry.get("consent_trails") or []):
+            if not isinstance(trail, dict):
+                continue
+            haystacks.extend(
+                [
+                    trail.get("scope"),
+                    trail.get("scope_description"),
+                    trail.get("status"),
+                    trail.get("action"),
+                    trail.get("latest_request_id"),
+                ]
+            )
+            for event in list(trail.get("events") or []):
+                if not isinstance(event, dict):
+                    continue
+                haystacks.extend(
+                    [
+                        event.get("scope"),
+                        event.get("scope_description"),
+                        event.get("status"),
+                        event.get("action"),
+                        event.get("request_id"),
+                    ]
+                )
         return any(needle in str(value or "").lower() for value in haystacks)
 
     async def _owned_user_identifiers(self, user_id: str) -> list[str]:
@@ -809,6 +893,258 @@ class ConsentCenterService:
         )
         return grouped
 
+    @staticmethod
+    def _chain_scope(entry: dict[str, Any]) -> str:
+        metadata = ConsentCenterService._metadata(entry.get("metadata"))
+        scope = str(entry.get("scope") or "").strip()
+        template = str(metadata.get("scope_template_id") or "").strip()
+        return scope or template
+
+    @staticmethod
+    def _chain_subject(entry: dict[str, Any]) -> str:
+        metadata = ConsentCenterService._metadata(entry.get("metadata"))
+        for key in (
+            "subject_user_id",
+            "subjectUserId",
+            "user_id",
+            "investor_user_id",
+            "target_investor_user_id",
+        ):
+            value = str(metadata.get(key) or entry.get(key) or "").strip()
+            if value:
+                return value
+        return "current_user"
+
+    @staticmethod
+    def _chain_account_suffix(entry: dict[str, Any]) -> str:
+        metadata = ConsentCenterService._metadata(entry.get("metadata"))
+        values: list[str] = []
+        for key in (
+            "account_id",
+            "account_ids",
+            "ria_profile_id",
+        ):
+            raw = metadata.get(key)
+            if isinstance(raw, list):
+                values.extend(str(item).strip() for item in raw if str(item).strip())
+            elif str(raw or "").strip():
+                values.append(str(raw).strip())
+        return ",".join(sorted(set(values)))
+
+    @staticmethod
+    def _chain_lifecycle_suffix(entry: dict[str, Any]) -> str:
+        metadata = ConsentCenterService._metadata(entry.get("metadata"))
+        for key in (
+            "consent_lifecycle_id",
+            "lifecycle_id",
+            "scope_chain_id",
+        ):
+            raw = str(metadata.get(key) or "").strip()
+            if raw:
+                return raw
+        return str(entry.get("request_id") or entry.get("id") or "").strip()
+
+    @classmethod
+    def _chain_key(cls, entry: dict[str, Any], *, include_lifecycle: bool = False) -> str:
+        counterpart_type = str(entry.get("counterpart_type") or "developer").strip()
+        counterpart_id = str(
+            entry.get("counterpart_id")
+            or entry.get("counterpart_email")
+            or entry.get("counterpart_label")
+            or "unknown"
+        ).strip()
+        parts = [
+            counterpart_type,
+            counterpart_id,
+            cls._chain_subject(entry),
+            cls._chain_scope(entry)
+            or str(entry.get("request_id") or entry.get("id") or "unspecified"),
+            cls._chain_lifecycle_suffix(entry) if include_lifecycle else "",
+            cls._chain_account_suffix(entry),
+        ]
+        return "|".join(part.lower() for part in parts if part)
+
+    @classmethod
+    def _history_identifier_key(cls, entry: dict[str, Any]) -> str:
+        counterpart_type = str(entry.get("counterpart_type") or "developer").strip()
+        counterpart_id = str(
+            entry.get("counterpart_id")
+            or entry.get("counterpart_email")
+            or entry.get("counterpart_label")
+            or "unknown"
+        ).strip()
+        parts = [counterpart_type, counterpart_id, cls._chain_subject(entry)]
+        return "|".join(part.lower() for part in parts if part)
+
+    @classmethod
+    def _group_history_identifier_trails(
+        cls, entries: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        identifier_groups: dict[str, list[dict[str, Any]]] = {}
+        for entry in entries:
+            identifier_groups.setdefault(cls._history_identifier_key(entry), []).append(entry)
+
+        grouped_rows: list[dict[str, Any]] = []
+        for identifier_key, identifier_entries in identifier_groups.items():
+            sorted_identifier_entries = cls._sort_entries(identifier_entries)
+            primary = dict(sorted_identifier_entries[0])
+            trail_groups: dict[str, list[dict[str, Any]]] = {}
+            for entry in sorted_identifier_entries:
+                trail_groups.setdefault(
+                    cls._chain_key(entry, include_lifecycle=True),
+                    [],
+                ).append(entry)
+
+            trails: list[dict[str, Any]] = []
+            for trail_key, trail_entries in trail_groups.items():
+                sorted_trail_entries = cls._sort_entries(trail_entries)
+                latest = sorted_trail_entries[0]
+                request_ids = [
+                    str(entry.get("request_id") or entry.get("id") or "").strip()
+                    for entry in sorted_trail_entries
+                    if str(entry.get("request_id") or entry.get("id") or "").strip()
+                ]
+                unique_request_ids = list(dict.fromkeys(request_ids))
+                events = [
+                    {
+                        "id": entry.get("id"),
+                        "request_id": entry.get("request_id"),
+                        "status": entry.get("status"),
+                        "action": entry.get("action"),
+                        "issued_at": entry.get("issued_at"),
+                        "expires_at": entry.get("expires_at"),
+                        "scope": entry.get("scope"),
+                        "scope_description": entry.get("scope_description"),
+                    }
+                    for entry in sorted_trail_entries
+                ]
+                trails.append(
+                    {
+                        "id": f"trail:{trail_key}",
+                        "trail_key": trail_key,
+                        "scope": latest.get("scope"),
+                        "scope_description": latest.get("scope_description"),
+                        "normalized_scope": cls._chain_scope(latest),
+                        "status": latest.get("status"),
+                        "action": latest.get("action"),
+                        "issued_at": latest.get("issued_at"),
+                        "expires_at": latest.get("expires_at"),
+                        "latest_request_id": latest.get("request_id") or latest.get("id"),
+                        "request_ids": unique_request_ids,
+                        "event_count": len(events),
+                        "events": events,
+                    }
+                )
+
+            trails.sort(key=lambda trail: cls._issued_at_ms(trail.get("issued_at")), reverse=True)
+            latest_trail = trails[0] if trails else None
+            latest_trail_events = list(latest_trail.get("events") or []) if latest_trail else []
+            latest_trail_request_ids = (
+                list(latest_trail.get("request_ids") or []) if latest_trail else []
+            )
+            all_request_ids = [
+                str(entry.get("request_id") or entry.get("id") or "").strip()
+                for entry in sorted_identifier_entries
+                if str(entry.get("request_id") or entry.get("id") or "").strip()
+            ]
+            unique_all_request_ids = list(dict.fromkeys(all_request_ids))
+            metadata = dict(cls._metadata(primary.get("metadata")))
+            metadata.update(
+                {
+                    "identifier_key": identifier_key,
+                    "identifier_label": primary.get("counterpart_label")
+                    or primary.get("counterpart_email")
+                    or primary.get("counterpart_id"),
+                    "trail_count": len(trails),
+                    "event_count": len(sorted_identifier_entries),
+                    "chain_key": latest_trail.get("trail_key") if latest_trail else None,
+                    "chain_request_count": len(latest_trail_events),
+                    "chain_request_ids": latest_trail_request_ids,
+                    "latest_request_id": primary.get("request_id") or primary.get("id"),
+                    "normalized_scope": latest_trail.get("normalized_scope")
+                    if latest_trail
+                    else cls._chain_scope(primary),
+                }
+            )
+            primary.update(
+                {
+                    "id": f"identifier:{identifier_key}",
+                    "identifier_key": identifier_key,
+                    "identifier_label": metadata.get("identifier_label"),
+                    "trail_count": len(trails),
+                    "event_count": len(sorted_identifier_entries),
+                    "chain_key": latest_trail.get("trail_key") if latest_trail else None,
+                    "chain_request_count": len(latest_trail_events),
+                    "chain_request_ids": latest_trail_request_ids,
+                    "latest_request_id": primary.get("request_id") or primary.get("id"),
+                    "normalized_scope": metadata.get("normalized_scope"),
+                    "consent_chain": latest_trail_events,
+                    "consent_trails": trails,
+                    "metadata": metadata,
+                }
+            )
+            if len(unique_all_request_ids) > 1:
+                primary["identifier_request_ids"] = unique_all_request_ids
+            grouped_rows.append(primary)
+
+        return cls._sort_entries(grouped_rows)
+
+    @classmethod
+    def _collapse_consent_chains(cls, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for entry in entries:
+            groups.setdefault(cls._chain_key(entry), []).append(entry)
+
+        collapsed: list[dict[str, Any]] = []
+        for chain_key, chain_entries in groups.items():
+            sorted_entries = cls._sort_entries(chain_entries)
+            primary = dict(sorted_entries[0])
+            request_ids = [
+                str(entry.get("request_id") or entry.get("id") or "").strip()
+                for entry in sorted_entries
+                if str(entry.get("request_id") or entry.get("id") or "").strip()
+            ]
+            unique_request_ids = list(dict.fromkeys(request_ids))
+            chain = [
+                {
+                    "id": entry.get("id"),
+                    "request_id": entry.get("request_id"),
+                    "status": entry.get("status"),
+                    "action": entry.get("action"),
+                    "issued_at": entry.get("issued_at"),
+                    "expires_at": entry.get("expires_at"),
+                    "scope": entry.get("scope"),
+                }
+                for entry in sorted_entries
+            ]
+            normalized_scope = cls._chain_scope(primary)
+            metadata = dict(cls._metadata(primary.get("metadata")))
+            metadata.update(
+                {
+                    "chain_key": chain_key,
+                    "chain_request_count": len(unique_request_ids) or len(sorted_entries),
+                    "chain_request_ids": unique_request_ids,
+                    "latest_request_id": primary.get("request_id") or primary.get("id"),
+                    "normalized_scope": normalized_scope,
+                }
+            )
+            chain_count = len(unique_request_ids) or len(sorted_entries)
+            primary.update(
+                {
+                    "id": f"chain:{chain_key}" if chain_count > 1 else primary.get("id"),
+                    "chain_key": chain_key,
+                    "chain_request_count": chain_count,
+                    "chain_request_ids": unique_request_ids,
+                    "latest_request_id": primary.get("request_id") or primary.get("id"),
+                    "normalized_scope": normalized_scope,
+                    "consent_chain": chain,
+                    "metadata": metadata,
+                }
+            )
+            collapsed.append(primary)
+
+        return cls._sort_entries(collapsed)
+
     def _normalize_outgoing(self, item: dict[str, Any]) -> dict[str, Any]:
         metadata = self._metadata(item.get("metadata"))
         status = self._map_action_to_status(item.get("action"))
@@ -1037,28 +1373,54 @@ class ConsentCenterService:
                 ]
             )
         if normalized_actor == "investor":
+            location_buckets = (
+                self._location_buckets(user_id) if normalized_mode == "consents" else None
+            )
+            location_count = 0
+            if location_buckets:
+                if surface == "pending":
+                    location_count = len(location_buckets["incoming_requests"])
+                elif surface == "active":
+                    location_count = len(location_buckets["active_grants"])
+                else:
+                    location_count = len(location_buckets["history"])
             if surface == "pending":
-                return len(
-                    self._filter_mode_entries(
-                        await self._load_investor_pending_entries(user_id),
-                        actor=normalized_actor,
-                        mode=normalized_mode,
+                return (
+                    len(
+                        self._collapse_consent_chains(
+                            self._filter_mode_entries(
+                                await self._load_investor_pending_entries(user_id),
+                                actor=normalized_actor,
+                                mode=normalized_mode,
+                            )
+                        )
                     )
+                    + location_count
                 )
             if surface == "active":
-                return len(
-                    self._filter_mode_entries(
-                        await self._load_investor_active_entries(user_id),
-                        actor=normalized_actor,
-                        mode=normalized_mode,
+                return (
+                    len(
+                        self._collapse_consent_chains(
+                            self._filter_mode_entries(
+                                await self._load_investor_active_entries(user_id),
+                                actor=normalized_actor,
+                                mode=normalized_mode,
+                            )
+                        )
+                    )
+                    + location_count
+                )
+            return (
+                len(
+                    self._group_history_identifier_trails(
+                        self._filter_mode_entries(
+                            await self._load_investor_previous_entries(user_id),
+                            actor=normalized_actor,
+                            mode=normalized_mode,
+                        )
                     )
                 )
-            return len(
-                self._filter_mode_entries(
-                    await self._load_investor_previous_entries(user_id),
-                    actor=normalized_actor,
-                    mode=normalized_mode,
-                )
+                + location_count
             )
 
         if surface == "active":
@@ -1081,7 +1443,15 @@ class ConsentCenterService:
             actor="ria",
             surface=surface,
         )
-        return len(self._filter_mode_entries(items, actor=normalized_actor, mode=normalized_mode))
+        return len(
+            self._group_history_identifier_trails(
+                self._filter_mode_entries(
+                    items,
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
+            )
+        )
 
     async def list_outgoing_requests(self, user_id: str) -> list[dict[str, Any]]:
         try:
@@ -1229,6 +1599,21 @@ class ConsentCenterService:
                 "invited": len([item for item in roster if item.get("status") == "invited"]),
             }
 
+        location_buckets = (
+            self._location_buckets(user_id)
+            if (actor is None or normalized_actor != "ria")
+            else None
+        )
+        if location_buckets:
+            if need_incoming:
+                incoming = [*incoming, *location_buckets["incoming_requests"]]
+            if need_active:
+                active_entries = [*active_entries, *location_buckets["active_grants"]]
+            if need_history:
+                history_entries = [*history_entries, *location_buckets["history"]]
+            outgoing_entries = [*outgoing_entries, *location_buckets["outgoing_requests"]]
+            invite_entries = [*invite_entries, *location_buckets["invites"]]
+
         return {
             "user_id": user_id,
             "persona_state": persona_state,
@@ -1257,7 +1642,7 @@ class ConsentCenterService:
         }
 
     async def get_center_summary(
-        self, user_id: str, *, actor: str, mode: str = "consents"
+        self, user_id: str, *, actor: str | None, mode: str = "consents"
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
@@ -1291,7 +1676,7 @@ class ConsentCenterService:
         self,
         user_id: str,
         *,
-        actor: str,
+        actor: str | None,
         surface: str,
         mode: str = "consents",
         query: str | None = None,
@@ -1350,6 +1735,21 @@ class ConsentCenterService:
                 actor=normalized_actor,
                 mode=normalized_mode,
             )
+            entries = (
+                self._group_history_identifier_trails(entries)
+                if normalized_surface == "previous"
+                else self._collapse_consent_chains(entries)
+            )
+            location_buckets = (
+                self._location_buckets(user_id) if normalized_mode == "consents" else None
+            )
+            if location_buckets:
+                if normalized_surface == "pending":
+                    entries = [*entries, *location_buckets["incoming_requests"]]
+                elif normalized_surface == "active":
+                    entries = [*entries, *location_buckets["active_grants"]]
+                else:
+                    entries = [*entries, *location_buckets["history"]]
             paged = self._paginate_entries(
                 entries,
                 page=safe_page,
@@ -1368,6 +1768,7 @@ class ConsentCenterService:
                 actor=normalized_actor,
                 mode=normalized_mode,
             )
+            items = self._collapse_consent_chains(items)
             paged = {
                 "page": paged["page"],
                 "limit": paged["limit"],
@@ -1390,6 +1791,11 @@ class ConsentCenterService:
                 entries,
                 actor=normalized_actor,
                 mode=normalized_mode,
+            )
+            entries = (
+                self._group_history_identifier_trails(entries)
+                if normalized_surface == "previous"
+                else self._collapse_consent_chains(entries)
             )
             paged = self._paginate_entries(
                 entries,

@@ -37,4 +37,21 @@ describe("GET /api/vault/check database unavailable", () => {
     expect(payload.code).toBe("DATABASE_UNAVAILABLE");
     expect(payload.hint).toContain("proxy-aware launcher");
   });
+
+  it("treats an upstream missing vault as a successful no-vault check", async () => {
+    global.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ hasVault: false, error: "Vault not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      })
+    ) as typeof fetch;
+
+    const route = await import("../../app/api/vault/check/route");
+    const request = new NextRequest("http://localhost:3000/api/vault/check?userId=test-user");
+    const response = await route.GET(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ hasVault: false });
+  });
 });

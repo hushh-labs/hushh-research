@@ -15,7 +15,9 @@ import pytest
 # Load domain_inferrer directly without triggering hushh_mcp imports
 _file = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "hushh_mcp", "services", "domain_inferrer.py"
+    "hushh_mcp",
+    "services",
+    "domain_inferrer.py",
 )
 spec = importlib.util.spec_from_file_location("domain_inferrer", _file)
 _mod = importlib.util.module_from_spec(spec)

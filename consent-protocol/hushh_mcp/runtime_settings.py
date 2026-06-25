@@ -16,6 +16,19 @@ load_dotenv(_DOTENV_PATH, override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
+# Connector-credential encryption password (PBKDF2 input) for the MuleSoft
+# PBKDF2-AES256-CBC scheme. Separate trust domain from VAULT_DATA_KEY (user
+# data). Falls back to VAULT_DATA_KEY until a dedicated key is provisioned.
+CONNECTOR_SECRETS_KEY_ENV = "CONNECTOR_SECRETS_KEY"  # noqa: S105
+# Constant KDF parameters for the MuleSoft PBKDF2-AES256-CBC connector scheme.
+# These are identical across every MuleSoft-published CRM, so they live in config
+# rather than being repeated on each registry row. A row MAY still override them
+# (kdf_salt / kdf_iterations columns); config is the default when the row omits.
+# The salt is not a secret; the derived key never leaves connector-key custody.
+CONNECTOR_KDF_SALT_ENV = "CONNECTOR_KDF_SALT"
+CONNECTOR_KDF_ITERATIONS_ENV = "CONNECTOR_KDF_ITERATIONS"
+# Native FIPS default for MuleSoft JCE PBKDF2withHmacSHA256; overridable via env.
+_CONNECTOR_KDF_ITERATIONS_DEFAULT = 65536
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
@@ -170,6 +183,46 @@ def get_optional_gmail_oauth_token_key() -> str:
 
 def get_optional_plaid_access_token_key() -> str:
     return _clean_env(PLAID_ACCESS_TOKEN_KEY_ENV)
+
+
+def get_connector_secrets_key() -> str:
+    """Password for connector-credential PBKDF2-AES256-CBC encryption.
+
+    Separate trust domain from user-data encryption. Falls back to
+    VAULT_DATA_KEY during transition so existing deployments keep working;
+    provision a dedicated CONNECTOR_SECRETS_KEY before production self-serve.
+    """
+    return _clean_env(CONNECTOR_SECRETS_KEY_ENV) or _clean_env(VAULT_DATA_KEY_ENV)
+
+
+def get_connector_kdf_salt() -> str:
+    """Constant PBKDF2 salt for MuleSoft connector creds, from config.
+
+    Identical across every MuleSoft-published CRM, so it is config rather than a
+    per-row column. Returns "" if unset (a row-level kdf_salt then takes over).
+    The salt is not a secret.
+    """
+    return _clean_env(CONNECTOR_KDF_SALT_ENV)
+
+
+def get_connector_kdf_iterations() -> int:
+    """Constant PBKDF2 iteration count for MuleSoft connector creds, from config.
+
+    Falls back to the MuleSoft JCE-native default when unset/invalid.
+    """
+    raw = _clean_env(CONNECTOR_KDF_ITERATIONS_ENV)
+    try:
+        value = int(raw)
+        return value if value > 0 else _CONNECTOR_KDF_ITERATIONS_DEFAULT
+    except (TypeError, ValueError):
+        return _CONNECTOR_KDF_ITERATIONS_DEFAULT
+
+
+def crm_registry_db_enabled() -> bool:
+    """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
+    registry (decrypting credentials with VAULT_DATA_KEY) instead of the
+    hardcoded in-code definition. Defaults off until cutover."""
+    return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
 
 
 @lru_cache(maxsize=1)

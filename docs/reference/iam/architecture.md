@@ -112,6 +112,12 @@ Private data is always consent-gated and scoped.
 2. `pkm_blobs` stores encrypted user-owned private content only.
 3. `pkm_index` stores sanitized metadata only.
 4. RIA verification/compliance and relationship workflow do not belong in the PKM.
+5. Live-location coordinates are never stored in the clear. The One Location Agent (`one_location_*` tables) persists ciphertext-only envelopes; recipient private keys stay on-device. The legacy plaintext prototype (`kai_location_*`) was removed in migration `069_drop_kai_location_plaintext.sql`.
+6. The developer-token registry (`developer_applications`, `developer_apps`, `developer_tokens`) is defined by versioned migration `070_developer_registry.sql` and registered in `release_migration_manifest.json` (the `developer` lane); only peppered HMAC-SHA256 token hashes are stored, never raw tokens.
+
+### Device-to-Device Capability Tokens
+
+Cross-device sharing rides the consent protocol as a standard. A live-location grant mints a signed HCT consent token scoped `cap.location.live.view`, bound to a `device:<recipient_user_id>` agent identity, expiring with the grant. The recipient device exercises this token as its capability; the backend validates signature, expiry, and scope before accepting any ciphertext envelope. This makes the grant's authority a verifiable cryptographic capability rather than a descriptive column.
 
 ## Change Control
 

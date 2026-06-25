@@ -95,6 +95,162 @@ SECTOR_ETF_MAP: dict[str, str] = {
 _MARKET_REFRESH_TASK: asyncio.Task | None = None
 _MARKET_REFRESH_LOCK_KEY = 8_625_401
 
+# Region-aware market status configuration.
+#
+# Finnhub /stock/market-status accepts an `exchange` code. We map a client's
+# IANA timezone to a primary exchange so the "Live market" status reflects the
+# user's region instead of always assuming US. US remains the explicit default
+# when the timezone is unknown or unmapped. VIX and other macro signals stay
+# US-based (shared cache); only the market-status row is region-specific.
+DEFAULT_EXCHANGE = "US"
+
+# Per-exchange schedule fallback used when the live provider is unavailable.
+# Times are local exchange opens/closes in minutes from midnight, with the
+# exchange's IANA timezone. Kept intentionally small and conservative; the live
+# provider is the source of truth, this only degrades gracefully.
+EXCHANGE_SCHEDULE: dict[str, dict[str, Any]] = {
+    "US": {"tz": "America/New_York", "open": 9 * 60 + 30, "close": 16 * 60, "label": "US"},
+    "L": {"tz": "Europe/London", "open": 8 * 60, "close": 16 * 60 + 30, "label": "London"},
+    "F": {"tz": "Europe/Berlin", "open": 9 * 60, "close": 17 * 60 + 30, "label": "Frankfurt"},
+    "PA": {"tz": "Europe/Paris", "open": 9 * 60, "close": 17 * 60 + 30, "label": "Paris"},
+    "T": {"tz": "Asia/Tokyo", "open": 9 * 60, "close": 15 * 60, "label": "Tokyo"},
+    "HK": {"tz": "Asia/Hong_Kong", "open": 9 * 60 + 30, "close": 16 * 60, "label": "Hong Kong"},
+    "SS": {"tz": "Asia/Shanghai", "open": 9 * 60 + 30, "close": 15 * 60, "label": "Shanghai"},
+    "NS": {"tz": "Asia/Kolkata", "open": 9 * 60 + 15, "close": 15 * 60 + 30, "label": "India"},
+    "AX": {"tz": "Australia/Sydney", "open": 10 * 60, "close": 16 * 60, "label": "Australia"},
+    "TO": {"tz": "America/Toronto", "open": 9 * 60 + 30, "close": 16 * 60, "label": "Toronto"},
+    "SA": {"tz": "America/Sao_Paulo", "open": 10 * 60, "close": 17 * 60, "label": "Sao Paulo"},
+}
+
+# IANA timezone -> Finnhub exchange code. Only the most common zones are mapped;
+# anything unmapped falls back to the US default.
+_TIMEZONE_EXCHANGE_MAP: dict[str, str] = {
+    "America/New_York": "US",
+    "America/Detroit": "US",
+    "America/Chicago": "US",
+    "America/Denver": "US",
+    "America/Los_Angeles": "US",
+    "America/Phoenix": "US",
+    "America/Anchorage": "US",
+    "America/Toronto": "TO",
+    "America/Vancouver": "TO",
+    "America/Sao_Paulo": "SA",
+    "Europe/London": "L",
+    "Europe/Dublin": "L",
+    "Europe/Lisbon": "L",
+    "Europe/Berlin": "F",
+    "Europe/Zurich": "F",
+    "Europe/Vienna": "F",
+    "Europe/Amsterdam": "F",
+    "Europe/Madrid": "PA",
+    "Europe/Paris": "PA",
+    "Europe/Brussels": "PA",
+    "Asia/Tokyo": "T",
+    "Asia/Hong_Kong": "HK",
+    "Asia/Shanghai": "SS",
+    "Asia/Kolkata": "NS",
+    "Asia/Calcutta": "NS",
+    "Australia/Sydney": "AX",
+    "Australia/Melbourne": "AX",
+}
+
+MARKET_STATUS_FRESH_TTL_SECONDS = 600
+MARKET_STATUS_STALE_TTL_SECONDS = 1800
+
+# Market-hours-aware refresh policy.
+#
+# The flat 600s fresh TTL above is the baseline. During US regular trading
+# hours, price-sensitive modules (quotes, home, movers, sectors, market status)
+# should feel live, so their fresh window is tightened. Outside regular hours
+# prices barely move, so the fresh window is relaxed to avoid refreshing the
+# whole payload aggressively when there is nothing new to fetch. Non
+# price-sensitive modules (news, recommendation, financial summary) are not
+# tightened during the open and are relaxed the most when closed.
+#
+# The stale TTL (serve-stale-while-revalidate ceiling) is left unchanged so
+# graceful degradation behavior is unaffected; only the fresh window moves.
+MARKET_PRICE_SENSITIVE_PREFIXES = (
+    "quotes:",
+    "home:",
+    "movers:",
+    "sectors:",
+    "macro:",
+    "market_status:",
+    "market-status:",
+)
+# Modules that should stay relatively static and never tighten on the open.
+MARKET_LOW_VOLATILITY_PREFIXES = (
+    "news:",
+    "recommendation:",
+    "financial_summary:",
+)
+# Fresh TTL when US markets are open (price-sensitive modules feel live).
+MARKET_OPEN_FRESH_TTL_SECONDS = 120
+# Fresh TTL when US markets are closed (price-sensitive modules relax).
+MARKET_CLOSED_FRESH_TTL_SECONDS = 1800
+# Fresh TTL when closed for low-volatility modules (most relaxed).
+MARKET_CLOSED_LOW_VOLATILITY_FRESH_TTL_SECONDS = 3600
+
+
+def _us_market_is_open(now: datetime | None = None) -> bool:
+    """Best-effort check for US regular trading hours (Mon-Fri 09:30-16:00 ET).
+
+    Intentionally conservative and schedule-based (no holiday calendar): it only
+    governs cache-refresh cadence, never displayed market status, so a holiday
+    treated as "open" just means a slightly tighter (harmless) refresh window.
+    """
+    schedule = EXCHANGE_SCHEDULE[DEFAULT_EXCHANGE]
+    try:
+        local_now = (
+            now.astimezone(ZoneInfo(str(schedule["tz"])))
+            if now
+            else datetime.now(ZoneInfo(str(schedule["tz"])))
+        )
+    except Exception:
+        return False
+    if local_now.weekday() >= 5:
+        return False
+    minutes_now = local_now.hour * 60 + local_now.minute
+    return int(schedule["open"]) <= minutes_now < int(schedule["close"])
+
+
+def _market_aware_fresh_ttl(key: str, base_fresh_ttl_seconds: int) -> int:
+    """Scale a module's fresh TTL by market hours and price sensitivity.
+
+    Returns the base TTL unchanged for keys that are neither price-sensitive nor
+    low-volatility, so any future module keeps its caller-provided behavior.
+    """
+    if key.startswith(MARKET_LOW_VOLATILITY_PREFIXES):
+        if _us_market_is_open():
+            return base_fresh_ttl_seconds
+        return max(base_fresh_ttl_seconds, MARKET_CLOSED_LOW_VOLATILITY_FRESH_TTL_SECONDS)
+    if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES):
+        if _us_market_is_open():
+            return min(base_fresh_ttl_seconds, MARKET_OPEN_FRESH_TTL_SECONDS)
+        return max(base_fresh_ttl_seconds, MARKET_CLOSED_FRESH_TTL_SECONDS)
+    return base_fresh_ttl_seconds
+
+
+def _exchange_for_timezone(tz_name: str | None) -> str:
+    """Map a client IANA timezone to a Finnhub exchange code (US default)."""
+    if not tz_name:
+        return DEFAULT_EXCHANGE
+    cleaned = tz_name.strip()
+    if not cleaned:
+        return DEFAULT_EXCHANGE
+    mapped = _TIMEZONE_EXCHANGE_MAP.get(cleaned)
+    if mapped and mapped in EXCHANGE_SCHEDULE:
+        return mapped
+    return DEFAULT_EXCHANGE
+
+
+def _normalize_exchange(exchange: str | None) -> str:
+    """Validate an explicit exchange code, falling back to US default."""
+    if not exchange:
+        return DEFAULT_EXCHANGE
+    code = exchange.strip().upper()
+    return code if code in EXCHANGE_SCHEDULE else DEFAULT_EXCHANGE
+
 
 def _empty_market_home_payload(
     *,
@@ -241,12 +397,18 @@ def _market_home_cache_key(
     active_pick_source: str,
     roster_signature: str,
     personalized: bool,
+    exchange: str = DEFAULT_EXCHANGE,
 ) -> str:
+    exchange_code = _normalize_exchange(exchange)
+    exchange_suffix = "" if exchange_code == DEFAULT_EXCHANGE else f":x={exchange_code}"
     if not personalized:
-        return f"home:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+        return (
+            f"home:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+            f"{exchange_suffix}"
+        )
     return (
         f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
-        f"{roster_signature}"
+        f"{roster_signature}{exchange_suffix}"
     )
 
 
@@ -477,13 +639,16 @@ def _spotlight_story(row: dict[str, Any]) -> str:
     return f"{symbol} is range-bound{momentum} with a neutral near-term setup."
 
 
-def _scheduled_market_status_fallback() -> dict[str, Any]:
+def _scheduled_market_status_fallback(exchange: str = DEFAULT_EXCHANGE) -> dict[str, Any]:
+    code = _normalize_exchange(exchange)
+    schedule = EXCHANGE_SCHEDULE.get(code, EXCHANGE_SCHEDULE[DEFAULT_EXCHANGE])
+    region_label = str(schedule.get("label") or code)
     try:
-        ny_now = datetime.now(ZoneInfo("America/New_York"))
-        weekday = ny_now.weekday()
-        minutes_now = ny_now.hour * 60 + ny_now.minute
-        open_minutes = 9 * 60 + 30
-        close_minutes = 16 * 60
+        local_now = datetime.now(ZoneInfo(str(schedule["tz"])))
+        weekday = local_now.weekday()
+        minutes_now = local_now.hour * 60 + local_now.minute
+        open_minutes = int(schedule["open"])
+        close_minutes = int(schedule["close"])
 
         if weekday >= 5:
             value = "Closed (weekend)"
@@ -494,14 +659,15 @@ def _scheduled_market_status_fallback() -> dict[str, Any]:
         else:
             value = "Open (regular hours)"
 
-        as_of = ny_now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        as_of = local_now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         return {
             "label": "Market Status",
             "value": value,
             "delta_pct": None,
             "as_of": as_of,
-            "source": "US Session Schedule",
+            "source": f"{region_label} Session Schedule",
             "degraded": True,
+            "exchange": code,
         }
     except Exception:
         return {
@@ -511,6 +677,7 @@ def _scheduled_market_status_fallback() -> dict[str, Any]:
             "as_of": None,
             "source": "Unavailable",
             "degraded": True,
+            "exchange": code,
         }
 
 
@@ -601,6 +768,10 @@ async def _get_or_refresh_public_module(
     3) Live fetch (external providers) + write-through to L1 + L2
     """
     now_ts = time()
+    # Tighten the fresh window during US market hours and relax it when closed,
+    # for price-sensitive modules. Stale TTL is preserved so degradation and
+    # serve-stale-while-revalidate behavior are unchanged.
+    fresh_ttl_seconds = _market_aware_fresh_ttl(key, fresh_ttl_seconds)
 
     def has_recoverable_degradation(payload: Any) -> bool:
         if not isinstance(payload, dict):
@@ -723,15 +894,16 @@ def _recommendation_from_counts(payload: dict[str, Any]) -> tuple[str, str]:
     return "HOLD", "Analyst distribution is mixed to neutral."
 
 
-async def _fetch_market_status() -> dict[str, Any]:
+async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE) -> dict[str, Any]:
+    code = _normalize_exchange(exchange)
     api_key = _finnhub_api_key()
     if not api_key:
-        return _scheduled_market_status_fallback()
+        return _scheduled_market_status_fallback(code)
 
     url = "https://finnhub.io/api/v1/stock/market-status"
     timeout = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=3.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        res = await client.get(url, params={"exchange": "US", "token": api_key})
+        res = await client.get(url, params={"exchange": code, "token": api_key})
         res.raise_for_status()
         payload = res.json() or {}
         is_open = bool(payload.get("isOpen"))
@@ -761,7 +933,41 @@ async def _fetch_market_status() -> dict[str, Any]:
             "as_of": as_of,
             "source": "Finnhub",
             "degraded": False,
+            "exchange": code,
         }
+
+
+async def _fetch_market_status_for_exchange(exchange: str) -> dict[str, Any]:
+    """Cached, exchange-specific market status wrapped in provider_status shape.
+
+    Used for non-default regions so VIX/macro stays shared (US) while the
+    market-status row reflects the user's region. Reuses the same two-tier cache
+    via _get_or_refresh_public_module.
+    """
+    code = _normalize_exchange(exchange)
+
+    async def fetcher() -> dict[str, Any]:
+        try:
+            status_payload = await _fetch_market_status(code)
+            provider = "partial" if status_payload.get("degraded") else "ok"
+        except Exception as exc:
+            logger.warning("[Kai Market] market status (%s) failed: %s", code, exc)
+            status_payload = _scheduled_market_status_fallback(code)
+            provider = _provider_status_from_exception(exc)
+        return {
+            "market_status": status_payload,
+            "provider_status": {"market_status": provider},
+        }
+
+    value, _stale, _age, _tier, _hit = await _get_or_refresh_public_module(
+        key=f"market_status:{code.lower()}",
+        fresh_ttl_seconds=MARKET_STATUS_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=MARKET_STATUS_STALE_TTL_SECONDS,
+        fetcher=fetcher,
+    )
+    if isinstance(value, dict) and isinstance(value.get("market_status"), dict):
+        return value["market_status"]
+    return _scheduled_market_status_fallback(code)
 
 
 async def _fetch_vix_signal() -> dict[str, Any]:
@@ -1727,7 +1933,9 @@ async def _get_market_insights_payload(
     consent_token: str | None,
     personalized: bool,
     warm_source: str = "request",
+    exchange: str = DEFAULT_EXCHANGE,
 ) -> dict[str, Any]:
+    effective_exchange = _normalize_exchange(exchange)
     effective_pick_source = active_pick_source if personalized else DEFAULT_PICK_SOURCE_ID
     canonical_watchlist_key = ",".join(sorted(set(watchlist_symbols)))
     if personalized:
@@ -1746,6 +1954,7 @@ async def _get_market_insights_payload(
         active_pick_source=effective_pick_source,
         roster_signature=roster_signature,
         personalized=personalized,
+        exchange=effective_exchange,
     )
 
     async def build_payload() -> dict[str, Any]:
@@ -2023,6 +2232,22 @@ async def _get_market_insights_payload(
         provider_status.update(
             {str(k): str(v) for k, v in (macro_bundle.get("provider_status") or {}).items()}
         )
+        if effective_exchange != DEFAULT_EXCHANGE:
+            # VIX/macro stays US-shared; override only the market-status row with
+            # the user's region using its own cached, exchange-specific fetch.
+            try:
+                region_status = await _fetch_market_status_for_exchange(effective_exchange)
+                if isinstance(region_status, dict):
+                    status_payload = region_status
+                    provider_status["market_status"] = (
+                        "partial" if region_status.get("degraded") else "ok"
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[Kai Market] region status override failed for %s: %s",
+                    effective_exchange,
+                    exc,
+                )
         stale = stale or macro_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, macro_cache_tier)
         aggregated_cache_hit = aggregated_cache_hit and macro_cache_hit
@@ -2584,6 +2809,16 @@ async def get_market_insights(
         max_length=256,
         description="Active market picks source. Only the default source is live today.",
     ),
+    tz: str | None = Query(
+        default=None,
+        max_length=64,
+        description="Client IANA timezone (e.g. America/New_York) used to pick the regional exchange.",
+    ),
+    exchange: str | None = Query(
+        default=None,
+        max_length=8,
+        description="Explicit Finnhub exchange code override (e.g. US, L, T). Falls back to tz/US.",
+    ),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
@@ -2621,6 +2856,8 @@ async def get_market_insights(
             detail="Missing or invalid consent token",
         )
 
+    resolved_exchange = _normalize_exchange(exchange) if exchange else _exchange_for_timezone(tz)
+
     return await _get_market_insights_payload(
         user_id=user_id,
         requested_watchlist_symbols=requested_watchlist_symbols,
@@ -2630,6 +2867,7 @@ async def get_market_insights(
         active_pick_source=active_pick_source,
         consent_token=consent_token,
         personalized=True,
+        exchange=resolved_exchange,
     )
 
 

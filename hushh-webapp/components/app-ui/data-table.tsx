@@ -50,8 +50,6 @@ import { Search } from "lucide-react";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 
-const TABLE_SWIPE_THRESHOLD_PX = 44;
-
 function buildPaginationItems(currentPage: number, pageCount: number): Array<number | "ellipsis"> {
   if (pageCount <= 7) {
     return Array.from({ length: pageCount }, (_, index) => index + 1);
@@ -108,8 +106,6 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [globalFilter, setGlobalFilter] = React.useState("");
-
-  const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -202,39 +198,6 @@ export function DataTable<TData, TValue>({
     [currentPage, pageCount]
   );
 
-  const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0];
-    if (!touch) return;
-    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
-
-  const handleTouchEnd = React.useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const start = swipeStartRef.current;
-      swipeStartRef.current = null;
-      if (!start || !hasMultiplePages) return;
-
-      const touch = event.changedTouches[0];
-      if (!touch) return;
-      const deltaX = touch.clientX - start.x;
-      const deltaY = touch.clientY - start.y;
-
-      if (Math.abs(deltaX) < TABLE_SWIPE_THRESHOLD_PX || Math.abs(deltaY) > Math.abs(deltaX)) {
-        return;
-      }
-
-      if (deltaX < 0 && table.getCanNextPage()) {
-        table.nextPage();
-        return;
-      }
-
-      if (deltaX > 0 && table.getCanPreviousPage()) {
-        table.previousPage();
-      }
-    },
-    [hasMultiplePages, table]
-  );
-
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
 
@@ -242,8 +205,6 @@ export function DataTable<TData, TValue>({
     <div
       className="space-y-[var(--data-table-controls-gap)]"
       data-no-route-swipe={hasMultiplePages ? "true" : undefined}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
     >
       {(enableSearch || (filterKey && filterOptions)) && (
         <div className="flex flex-col gap-3 sm:flex-row">

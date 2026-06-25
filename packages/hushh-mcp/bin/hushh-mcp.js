@@ -10,15 +10,21 @@ const packageDir = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
 );
+const publicDocs = JSON.parse(
+  fs.readFileSync(path.join(packageDir, "public-docs.json"), "utf8"),
+);
 const packageName = packageJson.name;
 const packageVersion = packageJson.version;
+const promotedApiOrigin = publicDocs.promotedEnvironment.apiOrigin;
+const promotedRemoteUrl = publicDocs.promotedEnvironment.remoteUrlTemplate;
 const isWindows = process.platform === "win32";
 const args = process.argv.slice(2);
 
 function printUsage() {
   console.log(`${packageName} ${packageVersion}`);
   console.log("");
-  console.log("Bootstrap and run the existing Hussh Python MCP server.");
+  console.log("Bootstrap and run the Hussh Python MCP stdio bridge.");
+  console.log("Remote/streamable MCP is preferred when your host supports HTTP MCP directly.");
   console.log("");
   console.log("Usage:");
   console.log("  hushh-mcp");
@@ -31,7 +37,7 @@ function printUsage() {
   console.log("  HUSHH_MCP_RUNTIME_DIR   Optional path to a consent-protocol runtime");
   console.log("  HUSHH_MCP_CACHE_DIR     Optional bootstrap cache directory");
   console.log("  HUSHH_MCP_PYTHON        Optional base Python interpreter for bootstrap");
-  console.log("  CONSENT_API_URL         Backend origin for consent API and MCP calls");
+  console.log("  CONSENT_API_URL         Backend origin for stdio bridge consent API calls");
   console.log("  HUSHH_DEVELOPER_TOKEN   Self-serve developer token used by stdio MCP");
   console.log("  HUSHH_MCP_SKIP_BOOTSTRAP  Set to 1 to skip venv creation and pip install");
 }
@@ -45,7 +51,7 @@ function printConfig() {
             command: "npx",
             args: ["-y", "@hushh/mcp"],
             env: {
-              CONSENT_API_URL: "https://<consent-api-origin>",
+              CONSENT_API_URL: promotedApiOrigin,
               HUSHH_DEVELOPER_TOKEN: "<developer-token>",
             },
           },
@@ -63,7 +69,7 @@ function printCodexToml() {
   console.log('args = ["-y", "@hushh/mcp"]');
   console.log("enabled = true");
   console.log('[mcp_servers.hushh_consent.env]');
-  console.log('CONSENT_API_URL = "https://<consent-api-origin>"');
+  console.log(`CONSENT_API_URL = "${promotedApiOrigin}"`);
   console.log('HUSHH_DEVELOPER_TOKEN = "<developer-token>"');
 }
 
@@ -73,7 +79,7 @@ function printRemoteConfig() {
       {
         mcpServers: {
           "hushh-consent-remote": {
-            url: "https://<consent-api-origin>/mcp/?token=<developer-token>",
+            url: promotedRemoteUrl,
           },
         },
       },

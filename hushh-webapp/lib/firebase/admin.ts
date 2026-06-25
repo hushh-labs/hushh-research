@@ -98,10 +98,65 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 
 export { admin, auth };
 
+type VerifyIdTokenResult = {
+  valid: boolean;
+  uid: string | null;
+  decodedToken: admin.auth.DecodedIdToken | null;
+  error?: string;
+  unavailable?: boolean;
+};
+
 /**
- * Verify a Firebase ID token
+ * In-process cache of successful ID token verifications.
+ *
+ * Why this exists
+ * ---------------
+ * `auth.verifyIdToken()` fetches and validates against Google's public signing
+ * keys. The first verification (and every verification after the Admin SDK's
+ * key cache is dropped, which happens frequently under the dev server's module
+ * reloading) performs a network round-trip that has been observed to take
+ * several seconds. The vault unlock screen issues two authenticated proxy
+ * calls back to back (`/api/vault/check` then `/api/vault/get`), and without a
+ * cache each pays that cost and they serialize on the single Node event loop,
+ * producing ~10s+ stalls and the intermittent "second load fails" behaviour.
+ *
+ * Safety
+ * ------
+ * Only SUCCESSFUL verifications are cached. The cache entry is keyed by the
+ * exact token string and expires at the token's own `exp` claim (never later),
+ * so this never extends a token's validity or accepts an expired/invalid token.
+ * Concurrent verifications of the same token are de-duplicated so the two
+ * vault calls on one page load share a single SDK verification.
  */
-export async function verifyIdToken(idToken: string) {
+const VERIFIED_TOKEN_CACHE = new Map<
+  string,
+  { result: VerifyIdTokenResult; expiresAtMs: number }
+>();
+const VERIFY_INFLIGHT = new Map<string, Promise<VerifyIdTokenResult>>();
+// Small safety margin so a token never serves from cache right up to its exact
+// expiry instant.
+const VERIFIED_TOKEN_CACHE_SKEW_MS = 5_000;
+
+function getCachedVerification(idToken: string): VerifyIdTokenResult | null {
+  const entry = VERIFIED_TOKEN_CACHE.get(idToken);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAtMs) {
+    VERIFIED_TOKEN_CACHE.delete(idToken);
+    return null;
+  }
+  return entry.result;
+}
+
+function cacheVerification(idToken: string, result: VerifyIdTokenResult): void {
+  // Only cache valid results with a usable expiry from the token itself.
+  const expSeconds = result.decodedToken?.exp;
+  if (!result.valid || typeof expSeconds !== "number") return;
+  const expiresAtMs = expSeconds * 1000 - VERIFIED_TOKEN_CACHE_SKEW_MS;
+  if (expiresAtMs <= Date.now()) return;
+  VERIFIED_TOKEN_CACHE.set(idToken, { result, expiresAtMs });
+}
+
+async function runVerifyIdToken(idToken: string): Promise<VerifyIdTokenResult> {
   try {
     const decodedToken = await withTimeout(
       auth.verifyIdToken(idToken),
@@ -124,6 +179,35 @@ export async function verifyIdToken(idToken: string) {
         message.toLowerCase().includes("fetch failed"),
     };
   }
+}
+
+/**
+ * Verify a Firebase ID token
+ */
+export async function verifyIdToken(
+  idToken: string
+): Promise<VerifyIdTokenResult> {
+  const cached = getCachedVerification(idToken);
+  if (cached) return cached;
+
+  // De-duplicate concurrent verifications of the same token (e.g. the vault
+  // check + get calls fired together on one page load).
+  const inflight = VERIFY_INFLIGHT.get(idToken);
+  if (inflight) return inflight;
+
+  const promise = runVerifyIdToken(idToken)
+    .then((result) => {
+      cacheVerification(idToken, result);
+      return result;
+    })
+    .finally(() => {
+      if (VERIFY_INFLIGHT.get(idToken) === promise) {
+        VERIFY_INFLIGHT.delete(idToken);
+      }
+    });
+
+  VERIFY_INFLIGHT.set(idToken, promise);
+  return promise;
 }
 
 /**

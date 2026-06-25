@@ -45,9 +45,40 @@ For non-trivial planning, questions must be research-backed instead of bare choi
 
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 
+## Project-Wide Routing Gate
+
+Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.
+
+The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner.
+
+Run this detection sequence:
+
+1. Extract the intent and the concrete surfaces the request touches: paths, domains (consent, vault, PKM, Kai, Nav, MCP, IAM, backend, frontend, mobile, docs, comms, ops, analytics, security), and risk tags.
+2. Map intent to the owning contract in priority order:
+   - prefer a matching `workflow` over a bare skill, because workflows already compose owner plus spoke
+   - prefer the `default_spoke` over the `owner_skill` when both match the narrower surface
+   - fall back to the closest `owner_skill` only when no workflow or spoke fits
+3. Resolve ambiguity deterministically. When multiple skills score close, pick the spoke over the owner and the workflow over the bare skill. Do not improvise a blended lane.
+4. Read first. Open every composed `required_reads` entry before touching code, then follow the routed Workflow or Playbook section verbatim. That is the path the repo already decided works.
+5. Detect delegation lanes from the same routing pass, not as an afterthought. When intent or changed paths are not obvious, run the delegation router to surface specialist lanes:
+
+```bash
+python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow <workflow-id> --phase start --prompt "<user request>" --paths "<comma-separated paths>" --text
+```
+
+6. Hand off on drift. If the work expands past the routed scope, stop and re-route to the next entry in `handoff_chain` instead of stretching the current lane.
+7. Re-route mid-task when new evidence changes the surface, such as discovering a trust boundary, a generated contract, a schema migration, a duplicate runtime, or a cross-surface caller mismatch.
+
+Routing accuracy rules:
+
+- Never skip routing because the task feels familiar. Familiarity is the most common cause of landing in the wrong spoke.
+- Never invent a parallel skill, workflow, or agent. If the lane seems missing, classify it with the premise gate (`already_exists`, `partially_exists`, `missing`) and confirm against the `.codex/` tree before proposing anything new.
+- Keep routing and delegation as one decision. The lane you route to is the lane you delegate to or execute in, so the owner skill, the verification bundle, and any spawned agent stay aligned.
+- State the routed lane briefly for non-trivial work, for example: `Routed: workflow new-feature-tri-flow (owner frontend-architecture, spoke frontend-design-system).`
+
 ## Project-Wide Delegation Checkpoint
 
-At the start of every non-trivial request, run a quick delegation suitability checkpoint before choosing a local-only path.
+At the start of every non-trivial request, run a quick delegation suitability checkpoint as the second half of the routing pass above, before choosing a local-only path. Routing picks the lane; this checkpoint decides whether that lane runs in the parent session or in a read-only subagent.
 
 This applies to every non-trivial Codex task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
 

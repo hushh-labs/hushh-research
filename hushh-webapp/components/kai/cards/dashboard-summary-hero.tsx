@@ -71,13 +71,32 @@ export function DashboardSummaryHero({
   return (
     <Card variant="none" effect="glass" preset="hero" glassAccent="soft">
       <CardContent className="space-y-4 p-5 sm:p-6">
-        {isLoading ? (
-          <div className="flex h-40 animate-pulse items-center justify-center text-muted-foreground">
-            Loading Portfolio...
+        <div className="space-y-2 text-center">
+          <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Risk: {normalizeRiskLabel(riskLabel)}
+            </Badge>
+            <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Holdings: {holdingsCount}
+            </Badge>
+            {brokerageName && (
+              <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                {brokerageName}
+              </Badge>
+            )}
           </div>
-        ) : (
-          <div className="space-y-2 text-center">
-            <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
+          <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">{formatCurrency(totalValue)}</h2>
+          <div className="flex items-center justify-center gap-2 text-sm">
+            <span className={positive ? "inline-flex items-center font-medium text-emerald-600 dark:text-emerald-400" : "inline-flex items-center font-medium text-rose-500 dark:text-rose-400"}>
+              <Icon icon={positive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
+              {formatChange(netChange)} ({changePct >= 0 ? "+" : ""}
+              {changePct.toFixed(2)}%)
+            </span>
+            <span className="text-muted-foreground">•</span>
+            <span className="font-medium text-muted-foreground">{periodLabel}</span>
+          </div>
+        </div>
 
             <div className="flex flex-wrap items-center justify-center gap-2">
               {[

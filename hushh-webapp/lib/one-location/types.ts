@@ -185,6 +185,7 @@ export type OneLocationPublicInvite = {
   ownerLabel?: string | null;
   ownerDisplayName?: string | null;
   ownerMaskedPhone?: string | null;
+  locationAvailable?: boolean;
   status: "active" | "expired" | "revoked" | string;
   durationHours: number;
   expiresAt?: string | null;
@@ -215,6 +216,36 @@ export type OneLocationPublicInviteSubmission = {
   resolvedAt?: string | null;
 };
 
+export type OneLocationCircleInvite = {
+  id?: string;
+  ownerUserId?: string | null;
+  ownerLabel?: string | null;
+  status: "active" | "claimed" | "expired" | "revoked" | string;
+  durationHours: number;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  revokedAt?: string | null;
+  claimedAt?: string | null;
+  claimedByUserId?: string | null;
+  requestId?: string | null;
+  message?: string | null;
+};
+
+export type OneLocationNetworkConnection = {
+  id: string;
+  userAId: string;
+  userBId: string;
+  inviterUserId: string;
+  inviteeUserId: string;
+  inviteId?: string | null;
+  status: "active" | "revoked" | string;
+  connectedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  revokedAt?: string | null;
+};
+
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
   kaiCircleCandidates?: KaiCircleCandidate[];
@@ -224,6 +255,8 @@ export type OneLocationState = {
   requests: OneLocationAccessRequest[];
   referrals: OneLocationReferral[];
   publicInvites: OneLocationPublicInvite[];
+  circleInvites?: OneLocationCircleInvite[];
+  networkConnections?: OneLocationNetworkConnection[];
   publicInviteSubmissions: OneLocationPublicInviteSubmission[];
   capabilityScopes: string[];
 };

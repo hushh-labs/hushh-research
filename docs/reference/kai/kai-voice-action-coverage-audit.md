@@ -93,12 +93,12 @@ The frontend dispatcher supports the backend tools above plus `switch_persona`.
 
 | Command | Effective behavior |
 | --- | --- |
-| `analyze` | Requires `symbol`; clears any stale live intent and routes to `/kai/analysis?ticker=...` so the comparison preview is confirmed before a debate starts. Blocks if another analysis is active. |
-| `optimize` | Routes to `/kai/optimize`; if no portfolio exists, routes to `/kai/import` and blocks execution. |
-| `import` | Routes to `/kai/import`. |
-| `history` | Routes to `/kai/analysis` with history/tab params. |
-| `dashboard` | Routes to `/kai/portfolio`. |
-| `home` | Routes to `/kai`. |
+| `analyze` | Requires `symbol`; clears any stale live intent and routes to `/one/kai/analysis?ticker=...` so the comparison preview is confirmed before a debate starts. Blocks if another analysis is active. |
+| `optimize` | Routes to `/one/kai/optimize`; if no portfolio exists, routes to `/one/kai/import` and blocks execution. |
+| `import` | Routes to `/one/kai/import`. |
+| `history` | Routes to `/one/kai/analysis` with history/tab params. |
+| `dashboard` | Routes to `/one/kai/portfolio`. |
+| `home` | Routes to `/one/kai`. |
 | `consent` | Routes to `/consents`. |
 | `profile` | Routes to `/profile`. |
 
@@ -117,7 +117,7 @@ Action inventory:
 
 | Action id | Status / target | Effective voice behavior |
 | --- | --- | --- |
-| `route.kai_analysis` | wired route `/kai/analysis` | Can navigate to analysis. |
+| `route.kai_analysis` | wired route `/one/kai/analysis` | Can navigate to analysis. |
 | `route.analysis_history` | wired Kai command `history` | Can open analysis history. |
 | `analysis.start` | wired Kai command `analyze` | Can start stock analysis when a symbol is present and analysis is idle. |
 | `analysis.resume_active` | wired voice tool `resume_active_analysis` | Can resume an active analysis run when vault and run state are valid. |
@@ -153,11 +153,11 @@ Action inventory:
 | `marketplace.ria.request_advisory` | unwired | Manual-only investor-to-RIA consent request creation. |
 | `route.consents` | wired Kai command `consent` | Can open consent center. |
 | `route.back` | wired voice tool `navigate_back` | Can call the app back handler. |
-| `route.kai_dashboard` | wired Kai command `dashboard` | Can open `/kai/portfolio`. |
-| `route.kai_import` | wired Kai command `import` | Can open `/kai/import`. |
-| `route.kai_investments` | wired route `/kai/investments` | Can navigate to investments. |
-| `route.kai_optimize` | wired route `/kai/optimize` | Can navigate to optimize; backend command path can also execute `optimize`. |
-| `route.kai_home` | wired Kai command `home` | Can open `/kai`. |
+| `route.kai_dashboard` | wired Kai command `dashboard` | Can open `/one/kai/portfolio`. |
+| `route.kai_import` | wired Kai command `import` | Can open `/one/kai/import`. |
+| `route.kai_investments` | wired route `/one/kai/investments` | Can navigate to investments. |
+| `route.kai_optimize` | wired route `/one/kai/optimize` | Can navigate to optimize; backend command path can also execute `optimize`. |
+| `route.kai_home` | wired Kai command `home` | Can open `/one/kai`. |
 
 ## Coverage Gaps
 
@@ -167,12 +167,12 @@ The app currently has 39 `page.tsx`/`page.ts` routes under `hushh-webapp/app`, w
 
 Examples without matching action-contract coverage or explicit voice-ignore contracts:
 
-- `/kai/onboarding`
-- `/kai/funding-trade`
-- `/kai/dashboard`
-- `/kai/dashboard/analysis`
-- `/kai/plaid/oauth/return`
-- `/kai/alpaca/oauth/return`
+- `/one/onboarding`
+- `/one/kai/funding-trade`
+- `/one/kai/dashboard`
+- `/one/kai/dashboard/analysis`
+- `/one/kai/plaid/oauth/return`
+- `/one/kai/alpaca/oauth/return`
 - marketplace routes
 - login/register/logout routes
 

@@ -2715,13 +2715,13 @@ export function AgentChatWorkspace({
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            isPopover && "rounded-lg border border-border shadow-sm"
+            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
           )}
           inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "relative flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
               isPopover
                 ? "h-14 sm:h-16"
                 : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
@@ -2751,7 +2751,7 @@ export function AgentChatWorkspace({
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-background text-primary shadow-sm">
                 <Bot className="h-4 w-4" />
               </div>
-              <div className="min-w-0 bg-background/95 pr-1">
+              <div className="min-w-0">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
                   Agent
                 </div>
@@ -2784,6 +2784,19 @@ export function AgentChatWorkspace({
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
                   onClick={onMinimize}
                   aria-label="Close Agent"
                   title="Close Agent"

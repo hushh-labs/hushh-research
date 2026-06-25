@@ -137,15 +137,11 @@ class TestDeveloperPortalTokenResponseBounds:
 
     def test_app_id_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperPortalTokenResponse(
-                id=1, app_id="A" * 129, token_prefix=_PREFIX, created_at=0
-            )
+            DeveloperPortalTokenResponse(id=1, app_id="A" * 129, token_prefix=_PREFIX, created_at=0)
 
     def test_token_prefix_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperPortalTokenResponse(
-                id=1, app_id="app_1", token_prefix="A" * 65, created_at=0
-            )
+            DeveloperPortalTokenResponse(id=1, app_id="app_1", token_prefix="A" * 65, created_at=0)
 
     def test_label_over_max_rejected(self):
         with pytest.raises(ValidationError):
@@ -210,12 +206,8 @@ class TestDeveloperPortalAccessResponseBounds:
 
     def test_owner_email_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperPortalAccessResponse(
-                access_enabled=True, user_id="u1", owner_email="A" * 321
-            )
+            DeveloperPortalAccessResponse(access_enabled=True, user_id="u1", owner_email="A" * 321)
 
     def test_raw_token_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperPortalAccessResponse(
-                access_enabled=True, user_id="u1", raw_token="A" * 513
-            )
+            DeveloperPortalAccessResponse(access_enabled=True, user_id="u1", raw_token="A" * 513)

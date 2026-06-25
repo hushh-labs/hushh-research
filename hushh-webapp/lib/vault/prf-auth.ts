@@ -19,6 +19,41 @@
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 
+// WebAuthn only allows a single outstanding navigator.credentials.get() /
+// create() request per page at a time. If a second one starts while the first
+// is still pending, the browser rejects it with
+// "OperationError: A request is already pending." This happens when the vault
+// auto-prompt fires again (remount, route change, React re-render) before a
+// prior, still-open prompt has resolved or been cancelled. We serialize all
+// WebAuthn ceremonies through this guard: a new request first aborts the stale
+// pending one (so it cannot strand the new attempt) and then proceeds.
+let pendingWebAuthnAbort: AbortController | null = null;
+
+async function runExclusiveWebAuthn<T>(
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  // Cancel any request that is still pending so the new one is not rejected
+  // with "A request is already pending."
+  if (pendingWebAuthnAbort) {
+    try {
+      pendingWebAuthnAbort.abort();
+    } catch {
+      // Ignore: aborting an already-settled controller is a no-op.
+    }
+  }
+  const controller = new AbortController();
+  pendingWebAuthnAbort = controller;
+  try {
+    return await run(controller.signal);
+  } finally {
+    // Only clear the shared reference if it still points at this request, so a
+    // newer request that replaced us is not accidentally cleared.
+    if (pendingWebAuthnAbort === controller) {
+      pendingWebAuthnAbort = null;
+    }
+  }
+}
+
 // PRF Support Matrix (as of 2024):
 // Chrome + Google Password Manager = ✅ PRF supported
 // Edge + Microsoft Password Manager (synced passkeys) = ✅ PRF supported
@@ -312,9 +347,12 @@ export async function registerWithPrf(
     },
   };
 
-  const credential = (await navigator.credentials.create({
-    publicKey: createOptions,
-  })) as PublicKeyCredential;
+  const credential = (await runExclusiveWebAuthn((signal) =>
+    navigator.credentials.create({
+      publicKey: createOptions,
+      signal,
+    })
+  )) as PublicKeyCredential;
 
   if (!credential) {
     throw new Error("Failed to create passkey");
@@ -394,9 +432,12 @@ export async function authenticateWithPrf(
     },
   };
 
-  const credential = (await navigator.credentials.get({
-    publicKey: getOptions,
-  })) as PublicKeyCredential;
+  const credential = (await runExclusiveWebAuthn((signal) =>
+    navigator.credentials.get({
+      publicKey: getOptions,
+      signal,
+    })
+  )) as PublicKeyCredential;
 
   if (!credential) {
     throw new Error("Authentication cancelled");

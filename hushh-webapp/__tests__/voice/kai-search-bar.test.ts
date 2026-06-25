@@ -24,7 +24,31 @@ vi.mock("lucide-react", () => ({
 }));
 
 vi.mock("@/components/kai/kai-command-palette", () => ({
-  KaiCommandPalette: () => null,
+  KaiCommandPalette: ({
+    open,
+    onVoiceClick,
+    voiceActive,
+    voiceDisabled,
+    voiceHidden,
+  }: {
+    open: boolean;
+    onVoiceClick?: (event: unknown) => void;
+    voiceActive?: boolean;
+    voiceDisabled?: boolean;
+    voiceHidden?: boolean;
+  }) =>
+    open && !voiceHidden
+      ? createElement(
+          "button",
+          {
+            type: "button",
+            "aria-label": voiceActive ? "End Kai voice" : "Start Kai voice",
+            "aria-disabled": voiceDisabled,
+            onClick: onVoiceClick,
+          },
+          "voice",
+        )
+      : null,
 }));
 
 vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
@@ -68,6 +92,12 @@ vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
 
 vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
   VoiceDebugDrawer: () => null,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
 }));
 
 vi.mock("@/components/app-ui/shell-action-surface", () => ({
@@ -135,6 +165,7 @@ vi.mock("@/lib/navigation/kai-bottom-chrome-visibility", () => ({
 
 vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
   KAI_COMMAND_BAR_OPEN_EVENT: "kai-open",
+  KAI_COMMAND_BAR_TOGGLE_EVENT: "kai-toggle",
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -443,27 +474,12 @@ describe("kai-search-bar helpers", () => {
     expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
       "true",
     );
+
+    // The Kai search chrome no longer renders its own Agent launcher; the
+    // persistent AgentBar (components/agent/agent-bar.tsx) is the single agent
+    // entry point, so the duplicate "Open Agent" robot must be gone.
     expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
     expect(mockOpenAgent).not.toHaveBeenCalled();
-  });
-
-  it("hides Agent action until the shell marks Agent ready", () => {
-    vi.useRealTimers();
-
-    render(
-      createElement(KaiSearchBar, {
-        onSelectAction: vi.fn(),
-        onVoiceResponse: vi.fn(),
-        surfaceVariant: "ria",
-        userId: "user_1",
-        vaultOwnerToken: "vault_token",
-        voiceAvailable: false,
-        voiceVisibilityMode: "disabled",
-        showAgent: false,
-      }),
-    );
-
-    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
   });
 
   it("keeps Kai voice inside the compact search surface", () => {

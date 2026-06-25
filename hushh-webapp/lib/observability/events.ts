@@ -89,6 +89,7 @@ export type ObservabilityEventName =
   | "one_location_contact_signal_synced"
   | "one_location_request_sent"
   | "one_location_public_link_created"
+  | "one_location_circle_invite_created"
   | "one_location_recommendation_selected"
   | "one_location_share_review_opened";
 
@@ -222,6 +223,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_contact_signal_synced: "feature",
   one_location_request_sent: "feature",
   one_location_public_link_created: "feature",
+  one_location_circle_invite_created: "feature",
   one_location_recommendation_selected: "feature",
   one_location_share_review_opened: "feature",
 };
@@ -508,6 +510,13 @@ export interface EventPayloadMap {
     has_note: boolean;
   };
   one_location_public_link_created: {
+    route_id: RouteId;
+    result: EventResult;
+    duration_bucket: string;
+    copied_to_clipboard: boolean;
+    active_invite_count: number;
+  };
+  one_location_circle_invite_created: {
     route_id: RouteId;
     result: EventResult;
     duration_bucket: string;

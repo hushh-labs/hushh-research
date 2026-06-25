@@ -98,9 +98,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # Allow assert in tests
+"tests/*" = ["S101", "S105"]  # Allow assert + placeholder credential fixtures in tests
 "api/routes/*" = ["B008"]  # Redundant with global; FastAPI Depends() pattern
-"scripts/*" = ["S106"]  # Test/script fixtures may use placeholder tokens
+"scripts/*" = ["S101", "S106", "S108"]  # Verification scripts: assert-driven checks + isolated offline tmp db
 
 [tool.ruff.format]
 # Enable ruff format for consistent Python formatting

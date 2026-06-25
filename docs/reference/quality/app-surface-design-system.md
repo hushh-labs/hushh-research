@@ -1,6 +1,5 @@
 # App Surface Design System
 
-
 ## Visual Context
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
@@ -81,13 +80,17 @@ Rules:
 12. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
 13. `AppPageShell` owns route width and horizontal gutters for signed-in routes.
 14. The canonical shell widths are:
-   - `reading`
-   - `standard`
-   - `expanded`
+
+- `reading`
+- `standard`
+- `expanded`
+
 15. The canonical container tokens are:
-   - `--app-shell-reading: 54rem`
-   - `--app-shell-standard: 90rem`
-   - `--app-shell-expanded: 96rem`
+
+- `--app-shell-reading: 54rem`
+- `--app-shell-standard: 90rem`
+- `--app-shell-expanded: 96rem`
+
 16. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
 17. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
 18. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
@@ -126,14 +129,49 @@ Rules:
 12. `leading` is reserved for semantic non-icon content such as badges, avatars, or endpoint method pills; it must not be used to recreate a custom route-header icon well.
 13. The chosen `accent` must match the surface identity, not the broader product parent. For example, a market workspace uses `marketplace`, not `kai`.
 14. Standard mobile route headers should default to a three-row composition when they include both description and actions:
-   - title block
-   - actions
-   - full-width description
+
+- title block
+- actions
+- full-width description
+
 15. `actionsInlineMobile` is reserved for short utility headers; do not use it on primary route headers with full-width descriptive copy.
 16. The three-part eyebrow/title/description composition belongs to the primary page header only. Body sections must not recreate page-header hierarchy.
 17. Body section subheaders must use the shared compact section scale through `SectionHeader` or `SettingsGroup`: larger than row/body text, smaller than the page title, and independent of global `h1`/`h2` element rules.
 18. Shared body section primitives must expose accessible compact headings with `role="heading"` and `aria-level`; they must not render raw `h2` elements that can inherit page-scale global heading rules.
 19. Settings-style body sections may show a short eyebrow inline with the section title and one optional supporting line. They must not stack eyebrow, title, and description as three separate lines.
+
+## Search and Filter Surface Contract
+
+Use the shared command/search surface for app-wide agent search and route action discovery.
+
+Rules:
+
+1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal` / `KaiSearchBar`, not route-local floating search bars.
+2. Route-local search is allowed only when it filters a visible local collection such as a table, receipt list, holdings list, CRM record list, or settings list.
+3. Local filters must stay inside the surface they filter and must not replace the global command/search surface.
+4. Persist query state only when it is part of the route contract, shareable URL, or recovery path; otherwise keep transient filter state local to the component.
+5. Search empty/loading/error states should use existing list/table/surface primitives and Sonner for transient failures, not page-level banners that shift layout.
+6. Mobile search overlays must respect `--top-shell-reserved-height`, bottom command chrome, and the shared scroll root; do not add raw viewport or safe-area math in route files.
+7. Search inputs, command pickers, and filter controls must use shared app-ui or Morphy primitives before adding feature-local styling.
+
+## Bottom Navigation Contract
+
+The signed-in bottom navigation is a shared shell surface, not a route-local tab bar.
+
+Rules:
+
+1. The segmented bottom bar is contextual route-family navigation. Do not include global destinations such as `One`, `Search`, or `Profile` on every route.
+2. The bottom bar uses fixed five-item sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch two-tab bars wider.
+3. `/one` and `/profile` show the compact root switch `One / Connect / Profile` because that is the dashboard/connection/account shell relationship, not a feature-family tab list.
+4. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
+5. Generic One sub-app routes such as `/one/gmail`, `/one/pkm`, `/one/connected-systems`, and `/consents` may show `One / current context / Connect / Profile` when the current context is meaningful.
+6. Investor finance routes own finance-family actions such as `Market`, `Portfolio`, `Connect`, and `Analysis`.
+7. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
+8. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
+9. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
+10. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
+11. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
+12. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 
 ## Row and Card Interaction Contract
 
@@ -336,7 +374,7 @@ Rules:
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. The RIA bottom navigation is `Home / Clients / Picks / Profile`.
+2. The RIA bottom navigation is scoped to the RIA route family: `RIA / Clients / Connect / Picks`.
 3. `/consents` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/consents`, not as a second consent system.
 5. The shell should contextualize `/consents` as `Profile > Privacy` for breadcrumb and primary-nav highlighting while preserving `/consents` as the canonical URL.
