@@ -313,9 +313,23 @@ ${naturalApprovedSentence({
 ${signature}`;
   }
 
+  // Explicit "bullet points" / "list" keyword (isolated from structured/table,
+  // which also set bulletList): render EVERY entry as a uniform "- label: value"
+  // line so the bullet structure is consistent, not whichever entry happens to
+  // take the dash branch in approvedEntryBlock.
+  const forceBullets = style.bulletList && !style.structured && !style.table;
   const sectionBlocks = sections
     .filter((section) => section.entries.length)
     .map((section) => {
+      if (forceBullets) {
+        const lines = section.entries
+          .map(
+            (entry) =>
+              `- ${entry.label}: ${entry.value.replace(/\s*\n+\s*/g, " ").trim()}`
+          )
+          .join("\n");
+        return `${section.title}\n\n${lines}`;
+      }
       const blocks = sectionPlainBlocks(section, renderModel);
       const title = sectionDisplayTitle(section, blocks);
       return `${title}\n\n${blocks.join("\n\n")}`;
@@ -507,9 +521,24 @@ export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel
     !model.style.table &&
     !model.style.fullDetail &&
     !model.style.human;
+  // Mirror buildApprovedDisclosurePlainText: an explicit bullet/list keyword
+  // (isolated from structured/table) renders EVERY entry as a uniform <li>, not a
+  // mix of key-value cards and paragraphs.
+  const forceBullets =
+    model.style.bulletList && !model.style.structured && !model.style.table;
   const sections = model.sections
     .filter((section) => section.entries.length)
     .map((section) => {
+      if (forceBullets) {
+        const items = section.entries
+          .map(
+            (entry) =>
+              `<li style="margin:0 0 8px;color:${EMAIL_THEME.text};line-height:1.5;">${escapeHtml(entry.label)}: ${escapeHtml(entry.value.replace(/\s*\n+\s*/g, " ").trim())}</li>`
+          )
+          .join("");
+        const heading = `<h1 style="margin:0;color:${EMAIL_THEME.heading};font-size:24px;line-height:1.15;">${escapeHtml(section.title)}</h1>`;
+        return `<section style="margin:0;">${heading}<div style="height:14px;line-height:14px;">&nbsp;</div><ul style="margin:0;padding-left:20px;">${items}</ul></section>`;
+      }
       const rendered = renderBlocksForSection(section, model);
       const title = canRenderAsDirectAnswer
         ? ""
