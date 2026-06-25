@@ -22,7 +22,8 @@ from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
-from hushh_mcp.consent.token import revoke_token
+from hushh_mcp.consent.token import issue_token, revoke_token
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
@@ -44,14 +45,17 @@ async def issue_session_token(
     The userId in request body MUST match the verified token's UID.
 
     Called after successful passphrase unlock on the frontend.
-    """
-    from hushh_mcp.consent.token import issue_token
-    from hushh_mcp.constants import ConsentScope
 
+    Status codes:
+    - 400 Bad Request  — invalid scope value
+    - 401 Unauthorized — Firebase token missing, expired, or invalid
+    - 403 Forbidden    — userId in body does not match the verified Firebase UID
+    - 500 Internal Server Error — unexpected backend failure
+    """
+    # --- Step 1: Validate Firebase identity ---
     try:
         verified_uid = verify_firebase_bearer(authorization)
 
-        # Ensure request userId matches verified token
         if request.userId != verified_uid:
             logger.warning("session_token.user_mismatch")
             raise HTTPException(status_code=403, detail="userId mismatch")
@@ -59,24 +63,30 @@ async def issue_session_token(
         logger.info("session_token.firebase_verified")
 
     except HTTPException:
-        raise  # keep original error
+        raise  # propagate 403 / any explicitly raised error
 
     except ValueError as e:
+        # verify_firebase_bearer raises ValueError for malformed / expired tokens
         logger.warning("session_token.invalid_token: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid or expired Firebase token")
 
     except Exception as e:
-        logger.error("session_token.internal_error: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Network errors, Firebase Admin SDK failures, etc. → 500, not 401
+        logger.error("session_token.firebase_verification_failed: %s", e)
+        raise HTTPException(status_code=500, detail="Token verification is temporarily unavailable")
 
+    # --- Step 2: Resolve requested scope → 400 for unknown values ---
+    if request.scope == "session":
+        scope_to_grant = ConsentScope.VAULT_OWNER
+    else:
+        try:
+            scope_to_grant = ConsentScope(request.scope)
+        except ValueError:
+            logger.warning("session_token.invalid_scope scope=%s", request.scope)
+            raise HTTPException(status_code=400, detail=f"Unknown scope: {request.scope!r}")
+
+    # --- Step 3: Issue the token ---
     try:
-        # Issue token with session scope
-        # Issue token with session scope
-        # If request asks for "session", grant VAULT_OWNER (Master Scope)
-        scope_to_grant = (
-            ConsentScope.VAULT_OWNER if request.scope == "session" else ConsentScope(request.scope)
-        )
-
         token_obj = issue_token(
             user_id=request.userId,
             agent_id="self",

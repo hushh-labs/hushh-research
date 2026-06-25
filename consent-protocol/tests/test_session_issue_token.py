@@ -37,7 +37,7 @@ def test_issue_session_token_invalid_firebase_token_returns_401(monkeypatch):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid token"
+    assert response.json()["detail"] == "Invalid or expired Firebase token"
 
 
 def test_issue_session_token_user_mismatch_returns_403(monkeypatch):
@@ -74,7 +74,7 @@ def test_issue_session_token_unexpected_verifier_failure_returns_500(monkeypatch
     )
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Internal server error"
+    assert response.json()["detail"] == "Token verification is temporarily unavailable"
 
 
 def test_issue_session_token_rejects_oversized_scope(monkeypatch):
