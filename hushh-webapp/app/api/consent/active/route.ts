@@ -68,10 +68,12 @@ export async function GET(request: NextRequest) {
 
       const payload = await response
         .json()
-        .catch(async () => ({ detail: await response.text().catch(() => "") }));
+        .catch(async () => ({
+          error: (await response.text().catch(() => "")) || "Failed to fetch active consents",
+        }));
       return {
-        status: response.ok ? response.status : response.status,
-        payload: response.ok ? payload : { error: "Failed to fetch active consents", detail: payload?.detail || "" },
+        status: response.status,
+        payload: response.ok ? payload : { error: "Failed to fetch active consents", ...payload },
       };
     })();
 
