@@ -281,11 +281,13 @@ async def get_initial_chat_state(
 class AnalyzeLoserRequest(BaseModel):
     """Request body for analyze-loser endpoint."""
 
-    user_id: str = Field(..., description="User's Firebase UID")
+    user_id: str = Field(..., description="User's Firebase UID", min_length=1, max_length=128)
     symbol: str = Field(
         ..., description="Stock ticker symbol to analyze", min_length=1, max_length=10
     )
-    conversation_id: Optional[str] = Field(default=None, description="Existing conversation ID")
+    conversation_id: Optional[str] = Field(
+        None, description="Existing conversation ID", max_length=128
+    )
 
 
 class AnalyzeLoserResponse(BaseModel):
