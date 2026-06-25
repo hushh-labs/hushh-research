@@ -25,4 +25,12 @@ describe("Label", () => {
 
     expect(label?.className).toContain("peer-disabled:opacity-50");
   });
+
+  it("renders with select-none class for user-select prevention", () => {
+    const { container } = render(<Label>Email</Label>);
+
+    const label = container.querySelector('[data-slot="label"]');
+
+    expect(label?.className).toContain("select-none");
+  });
 });
