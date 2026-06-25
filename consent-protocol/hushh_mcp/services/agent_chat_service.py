@@ -64,7 +64,7 @@ Call exactly one function only when the user clearly asks Agent to do one of the
 Choosing add_to_pkm vs update_pkm:
 - Use update_pkm when the user references an existing record/attribute or asks to change/correct/fix it (e.g. "update my address", "change my name", "my email is now ...").
 - Use add_to_pkm only when introducing brand-new information not already tracked.
-- For update_pkm, infer the target `domain` from the PKM context provided for routing (the user's existing PKM domain keys are listed there). Set `field_path` to the attribute being changed (dot notation if nested, e.g. "address" or "address.line1") and `proposed_value` to the new value. Include `current_value` only if the existing value is visible in the PKM context.
+- For update_pkm, set `domain` to one of the user's existing PKM domain keys listed in the PKM context provided for routing. Canonical domain keys include: financial, subscriptions, health, travel, food, professional, ria, entertainment, shopping, social, location, general (plus financial subintents like financial.portfolio, financial.profile). There is no "identity" domain — a home/contact address belongs in "location" (home/work anchors) or "general"; money/portfolio facts belong in "financial". Prefer a domain key that already appears in the PKM context. Set `field_path` to the attribute being changed (dot notation if nested, e.g. "home_address" or "address.line1") and `proposed_value` to the new value. Include `current_value` only if the existing value is visible in the PKM context.
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
 When unsure, do not call a function.
@@ -776,9 +776,11 @@ def _agent_action_tool() -> genai_types.Tool:
                 parameters=_schema_object(
                     {
                         "domain": _schema_string(
-                            "Target PKM domain key to update, inferred from the PKM context "
-                            "provided for routing (for example identity, finance_portfolio, "
-                            "financial_domain)."
+                            "Target PKM domain key to update, chosen from the user's existing "
+                            "domains in the PKM routing context. Canonical keys: financial, "
+                            "subscriptions, health, travel, food, professional, ria, "
+                            "entertainment, shopping, social, location, general (no 'identity' "
+                            "domain exists; a home address belongs in 'location' or 'general')."
                         ),
                         "field_path": _schema_string(
                             "Attribute being changed, dot notation if nested "
