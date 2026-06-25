@@ -723,7 +723,7 @@ export function ManagePortfolioView() {
                   <p className="text-muted-foreground mb-4">
                     No holdings yet. Add your first holding or import a portfolio statement.
                   </p>
-                  <Button onClick={handleAddHolding} icon={{ icon: Plus, gradient: false }}>
+                  <Button type="button" onClick={handleAddHolding} icon={{ icon: Plus, gradient: false }}>
                     Add Holding
                   </Button>
                 </CardContent>
