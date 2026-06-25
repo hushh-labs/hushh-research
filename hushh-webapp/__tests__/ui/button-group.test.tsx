@@ -29,4 +29,15 @@ describe("ButtonGroup", () => {
 
     expect(group?.getAttribute("data-orientation")).toBe("vertical");
   });
+
+  it("renders with data-orientation='horizontal' when orientation is set to horizontal", () => {
+    const { container } = render(
+      <ButtonGroup orientation="horizontal">content</ButtonGroup>,
+    );
+
+    const group = container.querySelector('[data-slot="button-group"]');
+
+    expect(group?.getAttribute("data-orientation")).toBe("horizontal");
+  });
+
 });
