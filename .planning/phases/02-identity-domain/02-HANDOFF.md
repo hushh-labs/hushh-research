@@ -4,6 +4,11 @@
 **Branch:** `feature/agent-pkm-update-intent`
 **Status:** All 4 plans' CODE committed + unit-tested. Live UAT found 2 gaps. 1 new feature requested.
 **Author of session:** pair session (orchestrated GSD execute-phase 02)
+**Continuation:** Work on this phase is paused at end of day on 2026-06-24. The session owner
+(Gautam) will resume on the morning of 2026-06-25, beginning with GAP 1 (the confirm-first review
+panel) per §7. This branch has been pushed to `origin/feature/agent-pkm-update-intent` so the work
+is backed up and available to collaborators; it is intentionally **not** merged into
+`integration/pr-train` yet.
 
 > TL;DR — The backend identity logic works and is unit-tested. Live UAT in the chatbot
 > exposed two things automated tests could not: (1) the confirm-first **review panel is
