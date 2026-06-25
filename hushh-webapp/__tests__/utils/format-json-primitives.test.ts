@@ -83,4 +83,17 @@ describe("formatCompleteJson — boolean and symbol primitives", () => {
     expect(out).not.toContain("N/A");
     expect(out).toContain("Beginning Value: $1,000.00");
   });
+  it("strips triple-asterisk (bold+italic) markdown from a string primitive value", () => {
+    // cleanMarkdown strips "***" before "**" and "*" (regex order in source).
+    // The existing test above only exercises "**" and backtick stripping;
+    // the triple-asterisk path was previously uncharacterized.
+    const out = formatCompleteJson({
+      note: "***emphasis***",
+    });
+
+    expect(out).toContain("Note: emphasis");
+    expect(out).not.toContain("***");
+    expect(out).not.toContain("*");
+  });
+
 });
