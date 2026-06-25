@@ -18,6 +18,110 @@ is backed up and available to collaborators; it is intentionally **not** merged 
 
 ---
 
+# ⏩ SESSION 2 CONTINUATION (2026-06-25) — read this first
+
+This section supersedes the older GAP descriptions below where they conflict. The earlier
+sections (§1–§7) remain accurate as system/structure reference.
+
+## Done this session (committed)
+
+- **GAP 1 (confirm panel) — FIXED & tested.** Commit `4d9808341`
+  `fix(02): surface confirm panel for identity/field updates (GAP 1)`.
+  - Root cause: the FE update flow discarded the structured `field_path`/`proposed_value`,
+    rebuilt a synthetic sentence (`Update <domain> - <field>: change from X to Y`), and
+    re-ran the **live LLM classifier** on it. For address the classifier resolved to
+    `no_op`/`do_not_save`, so the identity force-confirm guard (fires only on `can_save`)
+    never triggered → 0 confirm cards → panel suppressed. Email/dob survived the round-trip,
+    address didn't. The passing unit test was a false positive (content-blind LLM mock).
+  - Fix: deterministic update path. FE sends an explicit `update_intent`
+    (`domain`/`field_path`/`current_value`/`proposed_value`) to `/agent-lab/structure`;
+    backend derives routing + `confirm_first` from those slots instead of re-classifying
+    synthetic text. Value-structuring stays LLM-driven. Files: backend
+    `pkm_agent_lab_service.py` (`_normalize_update_intent`, threaded through
+    `generate_structure_preview` → `_generate_single_structure_preview` →
+    `_normalize_structure_preview`, deterministic override before the identity guard,
+    cache-key), `api/routes/pkm.py` (`PKMAgentLabStructureRequest.update_intent`),
+    FE `lib/agent/agent-pkm-memory.ts` (`previewAgentPkmMemory`/`previewAgentPkmUpdate`).
+    Tests RED→GREEN: backend `test_explicit_identity_update_intent_forces_confirm_first`,
+    FE `"sends a structured update_intent ..."`. Backend 407+80 pass, FE 16 pass, ruff+tsc clean.
+
+## Live UAT result after the GAP-1 fix
+
+- ✅ Confirm panel **now renders** for "update my address" (Current → Proposed + Submit).
+- ⚠️ The card targets **Domain: Location**, not Identity — because the address is **existing
+  data stored in the `location` domain**, and an *update* edits it **in place**. (This also
+  solves the old "123 Main St" mystery: it IS stored — in `location`. The earlier backfill
+  dry-run returned 0 moves because it ran on UID `rkEUelrK4lMOkIaLUfbdEuAUHPp1`, which has no
+  location domain. **The frontend is logged in as a DIFFERENT UID** that has
+  `location.address = "123 Main St, New York, NY 10001"`. Get the real logged-in UID next session.)
+- ❌ After clicking Submit, "what's my address?" **still returns the old value** → OPEN BUG below.
+
+## OPEN BUG — PKM update does not persist (root-caused, NOT fixed) — `task #7`
+
+Two reinforcing mechanisms (both in the FE save/read path; unrelated to the GAP-1 fix):
+
+1. **Path mismatch (primary).** `saveAgentPkmUpdate` → `applyFieldPatch(blob, fieldPath, value)`
+   (`hushh-webapp/lib/agent/agent-pkm-memory.ts:357-380`, `:422-426`). `fieldPath` is a
+   human LABEL (`"address"`) from the LLM tool arg (`agent_chat_service.py:786-789, 1745, 1760`),
+   not the real nested storage path. The address is stored nested (e.g.
+   `location.entities.{id}.address`), so `applyFieldPatch` creates a **new top-level `address`
+   key** and leaves the original nested value intact. The read (`flattenDomain` in
+   `agent-pkm-context-store.ts:112-165, 245-247`) still emits the original nested leaf → old value.
+2. **Stale summary (secondary).** `saveAgentPkmUpdate` passes only `{domainData, summary}` — no
+   regenerated `readable_summary`/`readable_highlights` (`agent-pkm-memory.ts:427-434`);
+   `storeDomainData` doesn't rebuild them (`personal-knowledge-model-service.ts:1791-1834`). So
+   `metadata.domains.location.readableSummary` keeps the old "123 Main St" text, which also feeds
+   the read (`agent-pkm-context-store.ts:190,272`). Cache invalidation is fine (`invalidateUser`
+   + `forceRefresh`); the persisted data is just wrong.
+
+Email/dob "work" only because their stored path == their label (flat scalars).
+
+**Fix needs (task #7):** (a) write to the value's ACTUAL stored path (resolve real path / use the
+structure decision's path descriptors, not the LLM label), and (b) regenerate the domain's
+readable summary on update. **Recommend inspecting the real logged-in UID's `location` blob
+(read-only) first** so the path-resolution fix is grounded in the actual shape, not guessed.
+
+## OPEN DESIGN DECISION — address: location vs identity (do NOT change blindly)
+
+Phase plan said: identity owns its own address field (D-02) + Wave-4 backfill moves mis-stored
+address into identity (D-14). **User now prefers a different model:** keep `location` as the
+canonical domain and **include the address in identity by REFERENCE (a view/scope mapping), NOT
+by duplicating it.** Reference = single source of truth, no migration, KYC still sees it via the
+identity scope. Duplication was rejected (two sources of truth → double-update bugs).
+
+**BLOCKER before deciding:** there is a separate **"location agent"** whose behavior nobody has
+verified — it may read/write/manage the `location` domain and could conflict with a
+reference-mapping or with editing `location.address`. **First task next session: find and read
+the location agent** (grep `location` agents/services; check `domain_inferrer.py`, any
+`*location*` service/agent, and how the location domain is populated) and document what it does.
+
+## Next-session task order
+
+1. **Investigate the "location agent"** — what reads/writes the `location` domain. Document it.
+   (Required before any domain-model change.)
+2. **Get the real logged-in frontend UID** and decrypt its `location` blob read-only
+   (`audit_active_pkm_shape_readonly.py --user-id <UID> --passphrase ...`) to see the actual
+   stored address shape.
+3. **Fix update persistence (task #7)** — real-path write + summary regeneration. Required
+   regardless of the domain model. TDD: failing test with a NESTED stored address (the existing
+   test only covers the path-aligned happy case `profile.name`).
+4. **Decide the domain model** — reference (recommended) vs migrate (Wave-4 backfill) vs
+   duplicate (no). If migrating, run the backfill on the RIGHT uid.
+5. **Auto-seed feature (Phase 03)** — still parked (login → seed identity name/email,
+   phone-if-verified; reference §5 below).
+6. Finalize `02-04-SUMMARY.md`; run deferred governance gates 2 & 3; phase verification.
+
+## Resume prompt for the fresh session (paste this)
+
+> Resume Phase 02 identity-domain work on branch `feature/agent-pkm-update-intent`. Read
+> `.planning/phases/02-identity-domain/02-HANDOFF.md` (start at "SESSION 2 CONTINUATION").
+> GAP 1 (confirm panel) is fixed & committed (`4d9808341`). Next: (1) investigate the unknown
+> "location agent", (2) fix the PKM update-persistence bug (writes flat label key instead of the
+> real nested path + stale summary), (3) decide address domain model (reference location→identity
+> vs backfill). Use `consent-protocol/.venv/bin/python` for tests.
+
+---
+
 ## 1. What this phase is
 
 Introduce `identity` as a canonical PKM domain so the agent routes PII (name, email,
