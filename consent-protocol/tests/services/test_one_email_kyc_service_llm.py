@@ -175,3 +175,211 @@ async def test_redraft_llm_scope_expansion_blocked(monkeypatch):
             consent_token=VALID_TOKEN,
         )
     assert exc_info.value.code == "ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED"
+
+
+def _ok_validate_factory():
+    async def _ok_validate(token, scope):  # noqa: ANN001
+        return True, None, SimpleNamespace(user_id="u1", agent_id="agent_one")
+
+    return _ok_validate
+
+
+def _capture_update_workflow(store: dict):
+    def _fake_update(self, workflow_id, **values):  # noqa: ANN001
+        store["workflow_id"] = workflow_id
+        store["values"] = values
+        return {"workflow_id": workflow_id, **values}
+
+    return _fake_update
+
+
+def _patch_valid_redraft_llm(monkeypatch, rewritten: str, update_store: dict) -> None:
+    """Patch all collaborators for a successful redraft_llm call."""
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    _patch_gemini(monkeypatch, rewritten)
+    monkeypatch.setattr(svc_mod, "validate_token_with_db", _ok_validate_factory(), raising=False)
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(
+        OneEmailKycService,
+        "_update_workflow",
+        _capture_update_workflow(update_store),
+        raising=False,
+    )
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+
+
+@pytest.mark.asyncio
+async def test_redraft_llm_rejects_missing_scope(monkeypatch):
+    """Gate-named alias: a token without agent.kyc.redraft.llm is rejected."""
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    _patch_gemini(monkeypatch, "ignored")
+
+    async def _deny(token, scope):  # noqa: ANN001
+        return False, "no scope", None
+
+    monkeypatch.setattr(svc_mod, "validate_token_with_db", _deny, raising=False)
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+
+    with pytest.raises(PermissionError):
+        await _service().redraft_llm(
+            user_id="u1",
+            workflow_id="wf-1",
+            tokenized_template=TEMPLATE,
+            instruction=INSTRUCTION,
+            consent_token="HCT:bad",  # noqa: S106 - test fixture, not a secret
+        )
+
+
+@pytest.mark.asyncio
+async def test_redraft_llm_no_draft_body_in_update(monkeypatch):
+    """No-persist contract: draft_body never appears in the _update_workflow args."""
+    update_store: dict = {}
+    _patch_valid_redraft_llm(monkeypatch, "Hello {{F0}}", update_store)
+
+    await _service().redraft_llm(
+        user_id="u1",
+        workflow_id="wf-1",
+        tokenized_template="Hello {{F0}}",
+        instruction="shorter",
+        consent_token=VALID_TOKEN,
+    )
+
+    # draft_body must NOT be in the update kwargs nor the metadata blob.
+    assert "draft_body" not in update_store["values"]
+    assert "draft_body" not in update_store["values"]["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_redraft_llm_metadata_updated(monkeypatch):
+    """Revision bumped and a 64-char hex instruction hash is recorded."""
+    update_store: dict = {}
+    _patch_valid_redraft_llm(monkeypatch, "Hello {{F0}}", update_store)
+
+    await _service().redraft_llm(
+        user_id="u1",
+        workflow_id="wf-1",
+        tokenized_template="Hello {{F0}}",
+        instruction="shorter",
+        consent_token=VALID_TOKEN,
+    )
+
+    metadata = update_store["values"]["metadata"]
+    instruction_hash = metadata["last_redraft_instruction_hash"]
+    assert isinstance(instruction_hash, str)
+    assert len(instruction_hash) == 64
+    int(instruction_hash, 16)  # raises if not valid hex
+    assert metadata["draft_revision"] == 2
+
+
+@pytest.mark.asyncio
+async def test_redraft_llm_token_preserving_prompt(monkeypatch):
+    """The system instruction enforces exact placeholder preservation."""
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    captured: dict = {}
+
+    monkeypatch.setattr(svc_mod, "validate_token_with_db", _ok_validate_factory(), raising=False)
+    monkeypatch.setattr(svc_mod, "_require_gemini_ready", lambda: True, raising=False)
+    monkeypatch.setattr(svc_mod, "_gemini_model_name", "gemini-test", raising=False)
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, config):  # noqa: ANN001
+            captured["config"] = config
+            return SimpleNamespace(text="Hello {{F0}}")
+
+    monkeypatch.setattr(
+        svc_mod, "_gemini_client", SimpleNamespace(models=_FakeModels()), raising=False
+    )
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(
+        OneEmailKycService, "_update_workflow", lambda self, wf_id, **v: {}, raising=False
+    )
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+
+    await _service().redraft_llm(
+        user_id="u1",
+        workflow_id="wf-1",
+        tokenized_template="Hello {{F0}}",
+        instruction="shorter",
+        consent_token=VALID_TOKEN,
+    )
+
+    system_instruction = captured["config"].system_instruction
+    assert "Preserve EVERY placeholder token exactly" in system_instruction
+
+
+@pytest.mark.asyncio
+async def test_redraft_llm_returns_rewritten_template(monkeypatch):
+    """The method returns {'rewritten_template': <gemini text>}."""
+    update_store: dict = {}
+    _patch_valid_redraft_llm(monkeypatch, "Hello {{F0}}", update_store)
+
+    result = await _service().redraft_llm(
+        user_id="u1",
+        workflow_id="wf-1",
+        tokenized_template="Hello {{F0}}",
+        instruction="shorter",
+        consent_token=VALID_TOKEN,
+    )
+
+    assert result == {"rewritten_template": "Hello {{F0}}"}
+
+
+@pytest.mark.asyncio
+async def test_regression_redraft_keyword_path_no_gemini_call(monkeypatch):
+    """Regression: the existing regex redraft() bumps revision + records the hash
+    and NEVER calls Gemini generate_content."""
+    import hushh_mcp.services.one_email_kyc_service as svc_mod
+
+    generate_called = {"count": 0}
+
+    class _ExplodingModels:
+        def generate_content(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            generate_called["count"] += 1
+            raise AssertionError("regex redraft path must not call Gemini")
+
+    monkeypatch.setattr(
+        svc_mod, "_gemini_client", SimpleNamespace(models=_ExplodingModels()), raising=False
+    )
+
+    update_store: dict = {}
+
+    monkeypatch.setattr(
+        OneEmailKycService,
+        "_update_workflow",
+        _capture_update_workflow(update_store),
+        raising=False,
+    )
+
+    async def _fake_get(self, *, user_id, workflow_id):  # noqa: ANN001
+        return _ready_workflow()
+
+    monkeypatch.setattr(OneEmailKycService, "get_workflow", _fake_get, raising=False)
+    # No scope-expansion: a plain keyword instruction.
+    monkeypatch.setattr(
+        OneEmailKycService, "_detect_scope_candidates", lambda self, **kw: [], raising=False
+    )
+
+    result = await _service().redraft(
+        user_id="u1",
+        workflow_id="wf-1",
+        instructions="make it formal",
+        source="text",
+    )
+
+    assert generate_called["count"] == 0
+    metadata = result["metadata"]
+    assert metadata["draft_revision"] == 2
+    assert len(metadata["last_redraft_instruction_hash"]) == 64
