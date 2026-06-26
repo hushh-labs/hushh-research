@@ -2611,6 +2611,7 @@ export class ApiService {
     conversationId?: string;
     vaultOwnerToken: string;
     pkmContext?: string;
+    screenContext?: Record<string, unknown> | null;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
     signal?: AbortSignal;
@@ -2625,6 +2626,7 @@ export class ApiService {
         message: data.message,
         conversation_id: data.conversationId,
         pkm_context: data.pkmContext,
+        screen_context: data.screenContext || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
       }),

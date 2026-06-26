@@ -32,6 +32,7 @@ class AgentChatStreamRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: Optional[str] = Field(default=None, max_length=128)
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
+    screen_context: Optional[dict] = Field(default=None)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
 
@@ -168,6 +169,7 @@ async def stream_agent_chat(
             runtime_client=runtime.client,
             runtime_model=runtime.model,
             pkm_context=body.pkm_context,
+            screen_context=body.screen_context,
         )
     except AgentRuntimeContractError as error:
         logger.warning(

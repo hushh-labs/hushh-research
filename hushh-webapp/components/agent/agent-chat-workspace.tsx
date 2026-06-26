@@ -94,6 +94,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
   id: string;
@@ -2106,6 +2107,9 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        screenContext: buildStructuredScreenContext({
+          appRuntimeState: appRuntimeStateRef.current,
+        }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {

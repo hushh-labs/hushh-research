@@ -6,10 +6,13 @@ import pytest
 
 from hushh_mcp.services.agent_chat_service import (
     AGENT_SYSTEM_PROMPT,
+    AgentChatActionPlan,
     AgentChatMessage,
     AgentChatService,
     AgentRuntimeContractError,
     RuntimeSecretSession,
+    _current_screen_from_context,
+    _enrich_plan_with_manifest,
     create_managed_runtime_client,
     create_runtime_client,
 )
@@ -24,7 +27,7 @@ from hussh_sdk import (
 def test_agent_chat_service_uses_agent_yaml_model(test_vault_key):
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == "gemini-2.5-flash"
+    assert service.model == "gemini-3.5-flash"
 
 
 def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_key):
@@ -32,7 +35,7 @@ def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_k
 
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == "gemini-2.5-flash"
+    assert service.model == "gemini-3.5-flash"
 
 
 def test_agent_chat_runtime_contract_defaults_to_hushh_managed(test_vault_key):
@@ -44,7 +47,9 @@ def test_agent_chat_runtime_contract_defaults_to_hushh_managed(test_vault_key):
     assert contract.credential_supplied is False
 
 
-def test_agent_chat_runtime_contract_accepts_byok_with_runtime_credential(test_vault_key):
+def test_agent_chat_runtime_contract_accepts_byok_with_runtime_credential(
+    test_vault_key,
+):
     service = AgentChatService(vault_key_hex=test_vault_key)
 
     contract = service.prepare_runtime_contract(
@@ -109,7 +114,7 @@ async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
     )
 
     assert prepared.mode == "byok"
-    assert prepared.model == "gemini-2.5-flash"
+    assert prepared.model == "gemini-3.5-flash"
     assert prepared.client.kind == "client"
     assert calls == [{"vertexai": False, "api_key": sample_runtime_value}]
     assert sample_runtime_value not in str(prepared.evidence)
@@ -239,7 +244,9 @@ def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vau
     assert message.role == "assistant"
 
 
-def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(test_vault_key):
+def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
+    test_vault_key,
+):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
     action_plan = service.plan_action("Start analysis of Nvidia")
     assert action_plan is not None
@@ -278,7 +285,7 @@ def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
     )
     current_turn_text = contents[-1].parts[0].text or ""
 
-    assert "Kai-focused financial assistant" in AGENT_SYSTEM_PROMPT
+    assert "You are One, the top personal agent" in AGENT_SYSTEM_PROMPT
     assert contents[0].role == "user"
     assert contents[0].parts[0].text == "Can you help with stocks?"
     assert contents[1].role == "model"
@@ -292,7 +299,9 @@ def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
     assert AGENT_SYSTEM_PROMPT not in current_turn_text
 
 
-def test_agent_chat_translates_gemini_function_call_to_frontend_analysis(test_vault_key):
+def test_agent_chat_translates_gemini_function_call_to_frontend_analysis(
+    test_vault_key,
+):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
@@ -310,7 +319,9 @@ def test_agent_chat_translates_gemini_function_call_to_frontend_analysis(test_va
     assert action_plan.slots == {"symbol": "NVDA"}
 
 
-def test_agent_chat_translates_gemini_function_call_to_frontend_navigation(test_vault_key):
+def test_agent_chat_translates_gemini_function_call_to_frontend_navigation(
+    test_vault_key,
+):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
@@ -406,3 +417,84 @@ def test_agent_chat_blocks_destructive_actions(test_vault_key):
     assert action_plan.action_id is None
     assert action_plan.execution == "blocked"
     assert action_plan.reason == "manual_or_destructive_action"
+
+
+def test_current_screen_from_context_reads_voice_shape():
+    assert _current_screen_from_context(None) is None
+    assert _current_screen_from_context({}) is None
+    assert (
+        _current_screen_from_context({"route": {"screen": "marketplace_ria_profile"}})
+        == "marketplace_ria_profile"
+    )
+    assert _current_screen_from_context({"surface": {"screen_id": "kai_home"}}) == "kai_home"
+
+
+def test_enrich_plan_with_manifest_flags_manual_only_and_reachability():
+    plan = AgentChatActionPlan(
+        call_id="tool_1",
+        action_id="marketplace.ria.request_advisory",
+        label="Request Advisory Access",
+        execution="frontend",
+        slots={},
+        message="Requesting advisory access.",
+    )
+
+    enriched = _enrich_plan_with_manifest(plan, current_screen="marketplace_ria_profile")
+
+    assert enriched.execution_policy == "manual_only"
+    assert enriched.requires_confirmation is True
+    assert enriched.reachable is True
+
+    payload = enriched.to_event_payload()
+    assert payload["execution_policy"] == "manual_only"
+    assert payload["requires_confirmation"] is True
+    assert payload["reachable"] is True
+
+
+def test_enrich_plan_with_manifest_marks_unreachable_off_screen():
+    plan = AgentChatActionPlan(
+        call_id="tool_2",
+        action_id="marketplace.ria.request_advisory",
+        label="Request Advisory Access",
+        execution="frontend",
+        slots={},
+        message="Requesting advisory access.",
+    )
+
+    enriched = _enrich_plan_with_manifest(plan, current_screen="kai_home")
+
+    assert enriched.reachable is False
+
+
+def test_enrich_plan_with_manifest_degrades_on_unknown_action():
+    plan = AgentChatActionPlan(
+        call_id="tool_3",
+        action_id="not.a.real.action",
+        label="Unknown",
+        execution="frontend",
+        slots={},
+        message="Doing something.",
+    )
+
+    enriched = _enrich_plan_with_manifest(plan, current_screen="kai_home")
+
+    assert enriched.execution_policy is None
+    assert enriched.requires_confirmation is False
+    assert enriched.reachable is None
+    assert "execution_policy" not in enriched.to_event_payload()
+
+
+def test_enrich_plan_with_manifest_unknown_screen_leaves_reachability_unknown():
+    plan = AgentChatActionPlan(
+        call_id="tool_4",
+        action_id="marketplace.ria.request_advisory",
+        label="Request Advisory Access",
+        execution="frontend",
+        slots={},
+        message="Requesting advisory access.",
+    )
+
+    enriched = _enrich_plan_with_manifest(plan, current_screen=None)
+
+    assert enriched.execution_policy == "manual_only"
+    assert enriched.reachable is None
