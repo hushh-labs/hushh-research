@@ -111,4 +111,18 @@ describe("Empty", () => {
     expect(media?.getAttribute("data-variant")).toBe("default");
   });
 
+  it("renders EmptyDescription as a p element", () => {
+    const { container } = render(
+      <Empty>
+        <EmptyDescription>Try again later</EmptyDescription>
+      </Empty>,
+    );
+
+    const description = container.querySelector(
+      '[data-slot="empty-description"]',
+    );
+
+    expect(description?.tagName).toBe("P");
+  });
+
 });
