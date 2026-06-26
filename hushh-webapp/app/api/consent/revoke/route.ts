@@ -42,10 +42,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Revoking consent for scope: ${scope}`);
-
     const backendUrl = `${BACKEND_URL}/api/consent/revoke`;
-    console.log(`[API] Calling backend: ${backendUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Revoking consent for scope: ${scope}`);
+      console.log(`[API] Calling backend: ${backendUrl}`);
+    }
 
     const response = await fetch(backendUrl, {
       method: "POST",
@@ -57,19 +58,27 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorPayload = await response.json().catch(async () => ({
-        error: (await response.text().catch(() => "")) || "Failed to revoke consent",
-      }));
-      console.error("[API] Backend error:", response.status, errorPayload);
-      return NextResponse.json(errorPayload, { status: response.status });
+      // Trust boundary: log the backend detail server-side only, never forward
+      // the upstream error body to the client. This consent endpoint returns an
+      // opaque message so backend revocation internals are not leaked to callers
+      // (matches /api/consent/cancel and /api/consent/vault-owner-token).
+      const errorDetail = await response.text().catch(() => "");
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[API] Backend error:", response.status, errorDetail);
+      }
+      return NextResponse.json(
+        { error: "Failed to revoke consent" },
+        { status: response.status },
+      );
     }
 
     const data = await response.json().catch(() => ({}));
     return NextResponse.json(data);
   } catch (error) {
     console.error("[API] Revoke consent error:", error);
+    // Do not interpolate the raw error into the client response.
     return NextResponse.json(
-      { error: `Internal server error: ${error}` },
+      { error: "Internal server error" },
       { status: 500 },
     );
   }
