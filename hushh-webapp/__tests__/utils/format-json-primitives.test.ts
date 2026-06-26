@@ -66,4 +66,21 @@ describe("formatCompleteJson — boolean and symbol primitives", () => {
     expect(out).toContain("  Reconciled: Yes");
     expect(out).toContain("  Label: Q1");
   });
+
+  it("never emits 'N/A' — null fields inside a named object section are silently omitted", () => {
+    // formatValue(key, null) returns "N/A", but formatCompleteJson guards every
+    // object-branch field with `if (value === null) continue` before reaching
+    // formatValue, so "N/A" is unreachable in the final output.
+    const out = formatCompleteJson({
+      portfolio_summary: {
+        ending_value: null,
+        beginning_value: 1000,
+      },
+    });
+
+    expect(out).toContain("--- Portfolio Summary ---");
+    expect(out).not.toContain("Ending Value");
+    expect(out).not.toContain("N/A");
+    expect(out).toContain("Beginning Value: $1,000.00");
+  });
 });

@@ -301,6 +301,31 @@ export class OneKycService {
     );
   }
 
+  static redraftWithLlm({
+    userId,
+    vaultOwnerToken,
+    workflowId,
+    tokenizedTemplate,
+    instruction,
+  }: AuthInput & {
+    workflowId: string;
+    tokenizedTemplate: string;
+    instruction: string;
+  }): Promise<{ rewritten_template: string }> {
+    return apiJson<{ rewritten_template: string }>(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/redraft-llm`,
+      {
+        method: "POST",
+        headers: authHeaders(vaultOwnerToken),
+        body: JSON.stringify({
+          user_id: userId,
+          tokenized_template: tokenizedTemplate,
+          instruction,
+        }),
+      }
+    );
+  }
+
   static getClientConnector({
     userId,
     vaultOwnerToken,

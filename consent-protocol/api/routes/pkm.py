@@ -116,6 +116,11 @@ class PKMAgentLabStructureRequest(BaseModel):
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
+    # Explicit field-update intent (domain + field_path + proposed_value). When
+    # present, routing and the confirm decision are derived deterministically
+    # from these structured slots instead of re-classifying a synthesized
+    # sentence with the LLM (GAP 1 fix — identity address updates).
+    update_intent: dict | None = None
 
 
 class PKMAgentLabStructureResponse(BaseModel):
@@ -303,5 +308,6 @@ async def preview_pkm_structure(
         current_domains=request.current_domains,
         current_manifests=request.current_manifests,
         simulated_state=request.simulated_state,
+        update_intent=request.update_intent,
     )
     return PKMAgentLabStructureResponse(**payload)
