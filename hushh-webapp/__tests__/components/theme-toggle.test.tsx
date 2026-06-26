@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-
-// resolveActiveTheme is not exported, so we re-implement the contract inline.
-// This characterises the normalisation behaviour at the boundary.
-type ThemeOption = "light" | "dark" | "system";
-function resolveActiveTheme(theme: string | undefined): ThemeOption {
-  const normalized = (theme ?? "").trim().toLowerCase();
-  if (normalized === "light" || normalized === "dark" || normalized === "system") {
-    return normalized as ThemeOption;
-  }
-  return "system";
-}
+import { resolveActiveTheme } from "@/components/theme-toggle";
 
 describe("resolveActiveTheme", () => {
   it("returns light for light input", () => {
