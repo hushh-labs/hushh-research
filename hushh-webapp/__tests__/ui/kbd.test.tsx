@@ -9,4 +9,13 @@ describe("Kbd", () => {
 
     expect(container.querySelector('[data-slot="kbd"]')).not.toBeNull();
   });
+
+  it("renders as a kbd element", () => {
+    const { container } = render(<Kbd>⌘K</Kbd>);
+
+    const el = container.querySelector('[data-slot="kbd"]');
+
+    expect(el?.tagName).toBe("KBD");
+  });
+
 });
