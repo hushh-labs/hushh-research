@@ -505,8 +505,13 @@ class ConsentDBService:
         *,
         user_ids: Optional[List[str]] = None,
     ) -> Optional[Dict]:
-        """Get a specific pending request by request_id."""
+        """Get a specific pending request by request_id.
+
+        Returns None when the request does not exist, has been resolved, or
+        its poll_timeout_at window has elapsed.
+        """
         supabase = self._get_supabase()
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
         query = supabase.table("consent_audit").select("*")
         response = (
@@ -522,6 +527,15 @@ class ConsentDBService:
             if not self._is_external_audit_row(row):
                 return None
             if row.get("action") == "REQUESTED":
+                # Enforce the same timeout gate used by get_pending_requests().
+                # Without this check a caller can approve a request whose
+                # poll_timeout_at window has already elapsed.
+                poll_timeout_at = self._effective_pending_timeout_at(row)
+                if poll_timeout_at is not None and poll_timeout_at <= now_ms:
+                    logger.info(
+                        "consent.get_pending_by_request_id.timed_out request_id=%s", request_id
+                    )
+                    return None
                 notification_events = await self.list_internal_request_events(
                     [request_id],
                     actions=["NOTIFICATION_OPENED"],
@@ -775,7 +789,6 @@ class ConsentDBService:
             user_id,
             requested_scope=requested_scope,
             agent_id=agent_id,
-            user_ids=user_ids,
         )
         if not covering:
             return None
