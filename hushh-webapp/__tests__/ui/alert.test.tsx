@@ -56,4 +56,16 @@ describe("Alert", () => {
     expect(alert?.getAttribute("role")).toBe("alert");
     expect(slots).toEqual(["alert", "alert-title", "alert-description"]);
   });
+
+  it("renders AlertTitle as an h5 heading element", () => {
+    const { container } = render(
+      <Alert>
+        <AlertTitle>Title</AlertTitle>
+      </Alert>,
+    );
+
+    const title = container.querySelector('[data-slot="alert-title"]');
+
+    expect(title?.tagName).toBe("H5");
+  });
 });
