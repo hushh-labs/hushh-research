@@ -54,4 +54,26 @@ describe("Table", () => {
     expect(header).toBeTruthy();
     expect(header?.tagName).toBe("THEAD");
   });
+
+  it("renders the table container with role='region' and an aria-label", () => {
+    const { container } = render(
+      <Table>
+        <tbody>
+          <tr>
+            <td>Holding</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const tableContainer = container.querySelector(
+      '[data-slot="table-container"]',
+    );
+
+    expect(tableContainer?.getAttribute("role")).toBe("region");
+    expect(tableContainer?.getAttribute("aria-label")).toBe(
+      "Scrollable table",
+    );
+  });
+
 });
