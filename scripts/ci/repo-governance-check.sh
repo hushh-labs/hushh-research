@@ -11,6 +11,8 @@ python3 scripts/ci/verify-pr-governance-sections.py
 python3 scripts/ci/verify-protected-pipeline-edits.py
 python3 scripts/ci/verify-protected-pipeline-edits.py --self-test
 python3 scripts/ci/verify-pr-base-policy.py --self-test
+python3 scripts/ci/verify-branch-governance-doc-consistency.py
+python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_resolve_deploy_scope.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
