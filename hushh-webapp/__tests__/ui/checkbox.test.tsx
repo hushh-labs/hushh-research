@@ -28,4 +28,13 @@ describe("Checkbox", () => {
 
     expect(checkbox?.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("has role='checkbox'", () => {
+    const { container } = render(<Checkbox />);
+
+    const checkbox = container.querySelector('[data-slot="checkbox"]');
+
+    expect(checkbox?.getAttribute("role")).toBe("checkbox");
+  });
+
 });
