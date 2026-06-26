@@ -10,6 +10,12 @@ describe("Skeleton", () => {
     expect(container.querySelector('[data-slot="skeleton"]')).toBeTruthy();
   });
 
+  it("keeps the skeleton data-slot when custom layout classes are provided", () => {
+    const { container } = render(<Skeleton className="h-8 w-24" />);
+
+    expect(container.firstElementChild?.getAttribute("data-slot")).toBe("skeleton");
+  });
+
   it("renders with aria-hidden='true'", () => {
     const { container } = render(<Skeleton />);
 
