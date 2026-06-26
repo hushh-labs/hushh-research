@@ -102,4 +102,13 @@ describe("Empty", () => {
       container.querySelector('[data-slot="empty-content"]'),
     ).toBeTruthy();
   });
+
+  it("renders EmptyMedia with data-variant='default' when no variant is provided", () => {
+    const { container } = render(<EmptyMedia />);
+
+    const media = container.querySelector('[data-slot="empty-icon"]');
+
+    expect(media?.getAttribute("data-variant")).toBe("default");
+  });
+
 });

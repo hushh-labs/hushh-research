@@ -66,3 +66,19 @@ describe("DialogContent", () => {
     expect(dialogOverlay).toHaveClass("z-(--z-dialog-overlay)");
   });
 });
+
+describe("DialogTitle", () => {
+  it("renders with data-slot='dialog-title'", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Title text</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(
+      document.querySelector('[data-slot="dialog-title"]'),
+    ).toBeTruthy();
+  });
+});

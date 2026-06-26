@@ -165,8 +165,13 @@ function cloneValue<T>(value: T): T {
 
 function inferSensitivityLabel(path: string, concretePath?: string, value?: unknown): string | null {
   const normalized = path.toLowerCase();
+  // Restricted: highest-sensitivity identifiers. `ssn`/`social_security` are
+  // classified defensively (no SSN is ever stored, but if such a token ever
+  // appears it must be treated as restricted). Mirrors backend
+  // PKMAgentLabService._infer_sensitivity — keep token sets in lockstep.
   if (
     normalized.includes("ssn") ||
+    normalized.includes("social_security") ||
     normalized.includes("tax") ||
     normalized.includes("aadhaar") ||
     normalized.includes("aadhar") ||
@@ -176,7 +181,9 @@ function inferSensitivityLabel(path: string, concretePath?: string, value?: unkn
     normalized.includes("license_number") ||
     normalized.includes("voter_id") ||
     normalized.includes("account_number") ||
-    normalized.includes("routing")
+    normalized.includes("routing") ||
+    normalized.includes("passport") ||
+    normalized.includes("national_id")
   ) {
     return "restricted";
   }
@@ -184,7 +191,16 @@ function inferSensitivityLabel(path: string, concretePath?: string, value?: unkn
     normalized.includes("risk") ||
     normalized.includes("holdings") ||
     normalized.includes("portfolio") ||
-    normalized.includes("income")
+    normalized.includes("income") ||
+    // Identity PII: name, address, dob, phone, nationality.
+    normalized.includes("full_name") ||
+    normalized.includes("first_name") ||
+    normalized.includes("last_name") ||
+    normalized.includes("date_of_birth") ||
+    normalized.includes("dob") ||
+    normalized.includes("address") ||
+    normalized.includes("phone_number") ||
+    normalized.includes("nationality")
   ) {
     return "confidential";
   }

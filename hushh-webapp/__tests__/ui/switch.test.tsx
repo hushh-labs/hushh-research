@@ -25,4 +25,14 @@ describe("Switch", () => {
       "true",
     );
   });
+
+  it("renders thumb with data-slot='switch-thumb'", () => {
+    const { container } = render(<Switch />);
+
+    expect(
+      container
+        .querySelector('[data-slot="switch-thumb"]')
+        ?.getAttribute("data-slot"),
+    ).toBe("switch-thumb");
+  });
 });
