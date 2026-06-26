@@ -342,7 +342,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
     runId: string;
-  }): Promise<{ run: GmailSyncRun }> {
+  }): Promise<{ run: GmailSyncRun | null }> {
     const query = new URLSearchParams({ user_id: params.userId }).toString();
     const response = await ApiService.apiFetch(
       `${buildGmailSyncRunPath(params.runId)}?${query}`,
@@ -358,7 +358,7 @@ export class GmailReceiptsService {
       throw new Error(await extractError(response, "Failed to load Gmail sync run status."));
     }
 
-    return (await response.json()) as { run: GmailSyncRun };
+    return (await response.json()) as { run: GmailSyncRun | null };
   }
 
   static async listReceipts(params: {

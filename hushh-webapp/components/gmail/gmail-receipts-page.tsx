@@ -434,6 +434,16 @@ export default function ProfileReceiptsPage() {
             has_more: nextHasMore,
           },
         });
+      } catch (error) {
+        const message = sanitizeGmailUserMessage(error, {
+          fallback:
+            "We couldn't load your receipts right now. Please try again in a moment.",
+          authFallback: "Unlock your vault to view synced receipts.",
+        });
+        console.error("[ProfileReceiptsPage] Failed to load Gmail receipts:", error);
+        if (!options?.silent) {
+          toast.error(message);
+        }
       } finally {
         if (showBlockingLoader) {
           setLoadingReceipts(false);

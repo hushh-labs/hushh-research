@@ -56,6 +56,7 @@ function isUpstreamTimeoutError(error: unknown): boolean {
       ? (error as Error & { cause: { code: string } }).cause.code
       : "";
   return (
+    error.name === "AbortError" ||
     error.name === "TimeoutError" ||
     normalizedMessage.includes("timed out") ||
     normalizedMessage.includes("timeout") ||
@@ -63,7 +64,7 @@ function isUpstreamTimeoutError(error: unknown): boolean {
   );
 }
 
-function isClientAbortError(error: unknown): boolean {
+function isAbortError(error: unknown): boolean {
   const name =
     typeof (error as { name?: unknown })?.name === "string"
       ? (error as { name: string }).name
@@ -357,7 +358,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     return withRequestIdJson(requestId, data);
   } catch (error) {
-    if (isClientAbortError(error)) {
+    if (request.signal.aborted && isAbortError(error)) {
       console.info(`[Kai API] request_id=${requestId} client_aborted path=${path}`);
       return withRequestIdJson(
         requestId,

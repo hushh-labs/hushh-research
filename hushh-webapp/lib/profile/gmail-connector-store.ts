@@ -403,14 +403,14 @@ function syncTaskRouteHref(routeHref?: string | null): string {
 
 function seedTaskFromRun(
   userId: string,
-  run: GmailSyncRun,
+  run: GmailSyncRun | null | undefined,
   options?: {
     routeHref?: string | null;
     taskKind?: GmailConnectorTaskKind | null;
   },
 ): string | null {
-  const normalizedRunId = String(run.run_id || "").trim();
-  if (!normalizedRunId) return null;
+  const normalizedRunId = String(run?.run_id || "").trim();
+  if (!run || !normalizedRunId) return null;
 
   const kind = options?.taskKind || deriveConnectorTaskKind(run);
   const taskId = taskIdForRun(normalizedRunId, kind, userId);
@@ -665,7 +665,35 @@ async function pollSyncRun(params: {
       });
       if (controller.signal.aborted) return;
 
-      const run = payload.run;
+      const run = payload.run || null;
+      if (!run?.run_id) {
+        try {
+          const refreshed = await fetchStatusFromNetwork({
+            userId: normalizedUserId,
+            idToken,
+            force: true,
+            routeHref: params.routeHref,
+            idTokenProvider: params.idTokenProvider,
+            pollActiveRun: false,
+          });
+          params.onComplete?.(refreshed);
+        } catch (refreshError) {
+          console.warn(
+            "[gmail-connector-store] Failed to refresh Gmail status after missing sync run:",
+            refreshError,
+          );
+          params.onComplete?.(null);
+        }
+        updateEntry(normalizedUserId, {
+          activeRunId: null,
+          activeTaskId: null,
+          activeTaskKind: null,
+          suppressedRunId: normalizedRunId,
+          isPolling: false,
+        });
+        shouldStopPolling = true;
+        continue;
+      }
       const taskKind = params.taskKind || deriveConnectorTaskKind(run);
       const taskId = seedTaskFromRun(normalizedUserId, run, {
         routeHref: params.routeHref,
