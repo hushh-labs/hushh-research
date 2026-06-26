@@ -12,6 +12,16 @@ describe("Badge", () => {
     ).toBeTruthy();
   });
 
+  it("preserves the badge data-slot when rendered asChild", () => {
+    const { container } = render(
+      <Badge asChild>
+        <a href="/profile">Profile</a>
+      </Badge>,
+    );
+
+    expect(container.querySelector("a")?.getAttribute("data-slot")).toBe("badge");
+  });
+
   it("defaults to data-variant='default'", () => {
     const { container } = render(<Badge>Label</Badge>);
 
