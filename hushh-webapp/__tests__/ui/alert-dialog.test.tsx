@@ -80,4 +80,28 @@ describe("AlertDialog", () => {
     expect(alertOverlay).toHaveClass("z-(--z-dialog-overlay)");
     expect(alertContent).toHaveClass("z-(--z-dialog)");
   });
+
+  it("renders action and cancel buttons with their data-slot contracts", () => {
+    render(
+      <AlertDialog open>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>,
+    );
+
+    expect(screen.getByRole("button", { name: /cancel/i }).getAttribute("data-slot")).toBe(
+      "alert-dialog-cancel",
+    );
+    expect(screen.getByRole("button", { name: /continue/i }).getAttribute("data-slot")).toBe(
+      "alert-dialog-action",
+    );
+  });
 });
