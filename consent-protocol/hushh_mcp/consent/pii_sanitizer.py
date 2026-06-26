@@ -57,6 +57,25 @@ def _mask_phone_digits(raw: str) -> str:
     return digits[:prefix_len] + "****" + digits[-4:]
 
 
+def _mask_text(value: str) -> str:
+    """
+    Fully mask an arbitrary free-text PII value (name, address, dob, passport,
+    national_id, ssn).
+
+    Preserves the first character and the length class so masked records stay
+    debuggable, but never leaks the cleartext. Short values are fully redacted.
+
+    >>> _mask_text("Jane Doe")
+    'J*******'
+    >>> _mask_text("ab")
+    '***'
+    """
+    stripped = value.strip()
+    if len(stripped) <= 2:
+        return "***"
+    return stripped[0] + "*" * (len(stripped) - 1)
+
+
 # ---------------------------------------------------------------------------
 # Public string-level sanitizers
 # ---------------------------------------------------------------------------
@@ -103,8 +122,8 @@ def sanitize_log_value(value: str) -> str:
 # Payload-level sanitizer (recursive, non-mutating)
 # ---------------------------------------------------------------------------
 
-#: Dict keys whose string values are always fully masked regardless of format.
-_ALWAYS_MASK_KEYS: frozenset[str] = frozenset(
+#: Email/phone keys — values routed through the format-aware email/phone maskers.
+_FORMAT_MASK_KEYS: frozenset[str] = frozenset(
     {
         "email",
         "user_email",
@@ -117,12 +136,45 @@ _ALWAYS_MASK_KEYS: frozenset[str] = frozenset(
     }
 )
 
+#: Identity PII keys — values fully masked via ``_mask_text`` even when they
+#: contain no email/phone pattern (name, address, dob, passport, national_id).
+#: ``ssn``/``social_security`` are included defensively: no SSN value is ever
+#: stored, but if such a key ever appears it must be masked before any log sink.
+_TEXT_MASK_KEYS: frozenset[str] = frozenset(
+    {
+        "full_name",
+        "first_name",
+        "last_name",
+        "name",
+        "address",
+        "line1",
+        "line2",
+        "street",
+        "date_of_birth",
+        "dob",
+        "passport",
+        "passport_number",
+        "national_id",
+        "ssn",
+        "social_security",
+    }
+)
+
+#: Dict keys whose string values are always masked regardless of format.
+_ALWAYS_MASK_KEYS: frozenset[str] = _FORMAT_MASK_KEYS | _TEXT_MASK_KEYS
+
 
 def _sanitize_value(key: str, value: Any) -> Any:
     """Recursively sanitize a single value from a payload dict."""
     if isinstance(value, str):
-        if key in _ALWAYS_MASK_KEYS:
-            return sanitize_log_value(value) if value else value
+        if not value:
+            return value
+        if key in _TEXT_MASK_KEYS:
+            # Free-text identity PII: fully mask even without an email/phone
+            # pattern (e.g. "Jane Doe", "500 Market St", "1990-01-01").
+            return _mask_text(value)
+        # email/phone keys and all other strings route through the
+        # format-aware maskers (preserves the existing email/phone contract).
         return sanitize_log_value(value)
     if isinstance(value, dict):
         return sanitize_payload(value)

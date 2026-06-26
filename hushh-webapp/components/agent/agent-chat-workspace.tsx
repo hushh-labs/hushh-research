@@ -5816,6 +5816,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         };
       }
 
+      if (toolEvent.actionId === "pkm.update") {
+        await executePkmUpdateTool(toolEvent);
+        return;
+      }
+
       setActiveFrontendToolCount((count) => count + 1);
       const action = getKaiActionById(toolEvent.actionId);
       const actionRun = appInteractionCoordinator.startActionRun({
