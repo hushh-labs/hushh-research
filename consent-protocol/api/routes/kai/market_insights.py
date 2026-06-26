@@ -1,6 +1,15 @@
 """Kai market insights route for /kai home revamp.
 
 Provides cached, provider-backed market overview data with graceful degradation.
+
+Attach points for CWE-400 path/query-param bounds (added in this module):
+  GET /market/insights/baseline/{user_id}  user_id   max_length=128
+  GET /market/insights/{user_id}           user_id   max_length=128
+                                           symbols   max_length=512  (CSV, described as max 8 tickers)
+                                           pick_source  max_length=128
+  GET /stock-preview/{user_id}             user_id   max_length=128
+                                           symbol    max_length=20   (stock tickers are <=5 chars)
+                                           pick_source  max_length=128
 """
 
 from __future__ import annotations

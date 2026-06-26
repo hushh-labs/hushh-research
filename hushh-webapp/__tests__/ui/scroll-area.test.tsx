@@ -19,4 +19,17 @@ describe("ScrollArea", () => {
     viewport?.focus();
     expect(document.activeElement).not.toBe(viewport);
   });
+
+  it("renders root with data-slot='scroll-area'", () => {
+    const { container } = render(
+      <ScrollArea className="h-20 w-40">
+        <div className="h-40">Scrollable content</div>
+      </ScrollArea>,
+    );
+
+    const root = container.querySelector('[data-slot="scroll-area"]');
+
+    expect(root).toBeTruthy();
+    expect(root?.getAttribute("data-slot")).toBe("scroll-area");
+  });
 });

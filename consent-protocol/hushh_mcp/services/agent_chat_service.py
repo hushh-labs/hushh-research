@@ -56,9 +56,15 @@ Decide whether the latest user message needs a frontend app function.
 Call exactly one function only when the user clearly asks Agent to do one of these:
 - start stock analysis for a ticker or public company
 - open a Hussh/Kai app surface
-- save, remember, or add durable personal context to the user's PKM
+- save, remember, or add NEW durable personal context to the user's PKM
+- update, change, correct, or fix an EXISTING value already stored in the user's PKM
 - read a Salesforce CRM record or propose a Salesforce CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
+
+Choosing add_to_pkm vs update_pkm:
+- Use update_pkm when the user references an existing record/attribute or asks to change/correct/fix it (e.g. "update my address", "change my name", "my email is now ...").
+- Use add_to_pkm only when introducing brand-new information not already tracked.
+- For update_pkm, set `domain` to one of the user's existing PKM domain keys listed in the PKM context provided for routing. Canonical domain keys include: identity, financial, subscriptions, health, travel, food, professional, ria, entertainment, shopping, social, location, general (plus financial subintents like financial.portfolio, financial.profile). Legal name, email, postal/home address, date of birth, and phone number route to the "identity" domain; money/portfolio facts belong in "financial"; location/mobility patterns (where the user travels or checks in) belong in "location". Prefer a domain key that already appears in the PKM context. Set `field_path` to the attribute being changed (dot notation if nested, e.g. "home_address" or "address.line1") and `proposed_value` to the new value. Include `current_value` only if the existing value is visible in the PKM context.
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
 When unsure, do not call a function.
@@ -755,6 +761,41 @@ def _agent_action_tool() -> genai_types.Tool:
                         ),
                     },
                     required=["memory_text"],
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="update_pkm",
+                description=(
+                    "Update or correct an existing value already stored in the user's encrypted "
+                    "PKM through the frontend PKM writer. Use when the user asks to update, change, "
+                    "correct, or fix an existing personal record or attribute (for example "
+                    "'update my address', 'change my name', 'my email is now ...'). Prefer this over "
+                    "add_to_pkm whenever the user references something already tracked. The frontend "
+                    "shows the user a confirmation panel before any write happens."
+                ),
+                parameters=_schema_object(
+                    {
+                        "domain": _schema_string(
+                            "Target PKM domain key to update, chosen from the user's existing "
+                            "domains in the PKM routing context. Canonical keys: identity, "
+                            "financial, subscriptions, health, travel, food, professional, ria, "
+                            "entertainment, shopping, social, location, general. Name, email, "
+                            "postal/home address, date of birth, and phone number belong in the "
+                            "'identity' domain."
+                        ),
+                        "field_path": _schema_string(
+                            "Attribute being changed, dot notation if nested "
+                            "(for example 'address' or 'address.line1')."
+                        ),
+                        "proposed_value": _schema_string(
+                            "The new value the user wants stored for that attribute."
+                        ),
+                        "current_value": _schema_string(
+                            "The existing value, only if visible in the PKM context. "
+                            "Display-only; the write uses the authoritative stored value."
+                        ),
+                    },
+                    required=["domain", "field_path", "proposed_value"],
                 ),
             ),
         ]
@@ -1697,6 +1738,30 @@ class AgentChatService:
                 slots={},
                 message="Checking PKM and saving what fits.",
                 reason=reason[:160] if reason else None,
+            )
+
+        if name == "update_pkm":
+            domain = str(args.get("domain") or "").strip()
+            field_path = str(args.get("field_path") or "").strip()
+            proposed_value = str(args.get("proposed_value") or "").strip()
+            current_value = str(args.get("current_value") or "").strip()
+            # Without a domain, field, and new value the frontend cannot target an
+            # update; do not emit a broken pkm.update (it would fall through to a
+            # no-op review). The LLM receives PKM domain context to fill these.
+            if not domain or not field_path or not proposed_value:
+                return None
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="pkm.update",
+                label="Update PKM",
+                execution="frontend",
+                slots={
+                    "domain": domain,
+                    "field_path": field_path,
+                    "proposed_value": proposed_value,
+                    "current_value": current_value,
+                },
+                message="Reviewing your PKM update for your confirmation.",
             )
 
         return None

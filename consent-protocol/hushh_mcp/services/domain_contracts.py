@@ -102,6 +102,14 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         status="active_core",
     ),
     DomainContractEntry(
+        domain_key="identity",
+        display_name="Identity",
+        icon_name="user-round",
+        color_hex="#0EA5E9",
+        description="Legal name, contact, and verified identity attributes for KYC/compliance",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="entertainment",
         display_name="Entertainment",
         icon_name="tv",

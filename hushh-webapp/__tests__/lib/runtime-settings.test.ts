@@ -47,4 +47,10 @@ describe("runtime settings", () => {
 
   expect(resolveVoiceDirectBackendPreference()).toBe(true);
   });
+
+  it("treats false as disabled for direct backend preference", () => {
+  process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "false";
+
+  expect(resolveVoiceDirectBackendPreference()).toBe(false);
+  });
 });

@@ -95,4 +95,28 @@ describe("Pagination", () => {
       container.querySelector('[data-slot="pagination-ellipsis"]'),
     ).toBeTruthy();
   });
+
+  it("sets aria-current='page' on an active link and omits it otherwise", () => {
+    const { container } = render(
+      <Pagination>
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationLink href="#" isActive>
+              1
+            </PaginationLink>
+          </PaginationItem>
+          <PaginationItem>
+            <PaginationLink href="#">2</PaginationLink>
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>,
+    );
+
+    const links = container.querySelectorAll(
+      '[data-slot="pagination-link"]',
+    );
+
+    expect(links[0]?.getAttribute("aria-current")).toBe("page");
+    expect(links[1]?.getAttribute("aria-current")).toBeNull();
+  });
 });

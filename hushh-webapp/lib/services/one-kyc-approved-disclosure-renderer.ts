@@ -313,9 +313,23 @@ ${naturalApprovedSentence({
 ${signature}`;
   }
 
+  // Explicit "bullet points" / "list" keyword (isolated from structured/table,
+  // which also set bulletList): render EVERY entry as a uniform "- label: value"
+  // line so the bullet structure is consistent, not whichever entry happens to
+  // take the dash branch in approvedEntryBlock.
+  const forceBullets = style.bulletList && !style.structured && !style.table;
   const sectionBlocks = sections
     .filter((section) => section.entries.length)
     .map((section) => {
+      if (forceBullets) {
+        const lines = section.entries
+          .map(
+            (entry) =>
+              `- ${entry.label}: ${entry.value.replace(/\s*\n+\s*/g, " ").trim()}`
+          )
+          .join("\n");
+        return `${section.title}\n\n${lines}`;
+      }
       const blocks = sectionPlainBlocks(section, renderModel);
       const title = sectionDisplayTitle(section, blocks);
       return `${title}\n\n${blocks.join("\n\n")}`;
@@ -507,9 +521,24 @@ export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel
     !model.style.table &&
     !model.style.fullDetail &&
     !model.style.human;
+  // Mirror buildApprovedDisclosurePlainText: an explicit bullet/list keyword
+  // (isolated from structured/table) renders EVERY entry as a uniform <li>, not a
+  // mix of key-value cards and paragraphs.
+  const forceBullets =
+    model.style.bulletList && !model.style.structured && !model.style.table;
   const sections = model.sections
     .filter((section) => section.entries.length)
     .map((section) => {
+      if (forceBullets) {
+        const items = section.entries
+          .map(
+            (entry) =>
+              `<li style="margin:0 0 8px;color:${EMAIL_THEME.text};line-height:1.5;">${escapeHtml(entry.label)}: ${escapeHtml(entry.value.replace(/\s*\n+\s*/g, " ").trim())}</li>`
+          )
+          .join("");
+        const heading = `<h1 style="margin:0;color:${EMAIL_THEME.heading};font-size:24px;line-height:1.15;">${escapeHtml(section.title)}</h1>`;
+        return `<section style="margin:0;">${heading}<div style="height:14px;line-height:14px;">&nbsp;</div><ul style="margin:0;padding-left:20px;">${items}</ul></section>`;
+      }
       const rendered = renderBlocksForSection(section, model);
       const title = canRenderAsDirectAnswer
         ? ""
@@ -526,5 +555,104 @@ export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel
     `<p style="margin:0;padding-top:14px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.heading};font-weight:650;line-height:1.5;">Best,<br/>hussh One</p>`,
   ].join('<div style="height:18px;line-height:18px;">&nbsp;</div>');
 
+  return wrapApprovedDisclosureShell(content);
+}
+
+/**
+ * Wrap rendered inner HTML in the shared approved-disclosure email shell (outer
+ * container + "hussh One / approved reply" header chip). Extracted so the
+ * LLM-redraft path (renderLlmRedraftHtml) reuses the EXACT same chrome as the
+ * structured approved-disclosure draft — the preview/sent email no longer looks
+ * structurally different before vs after an LLM redraft.
+ */
+export function wrapApprovedDisclosureShell(content: string): string {
   return `<div style="margin:0;padding:16px;background:${EMAIL_THEME.background};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"><div style="width:100%;max-width:820px;margin:0 auto;border:1px solid ${EMAIL_THEME.border};border-radius:18px;background:${EMAIL_THEME.card};overflow:hidden;"><div style="padding:16px 20px;border-bottom:1px solid ${EMAIL_THEME.border};background:${EMAIL_THEME.panel};"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="width:42px;vertical-align:middle;"><div style="width:34px;height:34px;border-radius:12px;border:1px solid ${EMAIL_THEME.accentBorder};background:${EMAIL_THEME.accent};color:${EMAIL_THEME.background};font-size:19px;line-height:34px;text-align:center;font-weight:800;">🤫</div></td><td style="vertical-align:middle;"><div style="font-size:14px;line-height:1.2;color:${EMAIL_THEME.heading};font-weight:800;">hussh One</div><div style="margin-top:2px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${EMAIL_THEME.accent};font-weight:750;">approved reply</div></td></tr></table></div><div style="padding:20px;">${content}</div></div></div>`;
+}
+
+/**
+ * Apply a SAFE inline-markdown subset (`**bold**`, `*italic*`) to text that has
+ * ALREADY been HTML-escaped. Underscore emphasis is deliberately unsupported so
+ * re-substituted PII values containing underscores are never mangled. Operating
+ * on pre-escaped input means the only tags ever emitted are our own.
+ */
+function renderInlineRedraftMarkdown(escaped: string): string {
+  return escaped
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+}
+
+/**
+ * Render the LLM-rewritten plaintext draft into safe, themed preview/sent HTML
+ * (root cause (b) fix). Escape-FIRST (XSS-safe: any markup the model emits is
+ * inert), then apply a constrained markdown block grammar — ATX headings
+ * (`#`/`##`/`###`), `-`/`*` bullet lists, and blank-line-separated paragraphs —
+ * styled with the shared EMAIL_THEME and wrapped in wrapApprovedDisclosureShell.
+ *
+ * Replaces the former htmlFromPlaintext, which escaped markdown literally and
+ * dropped the theme shell, so an LLM redraft no longer "breaks" or looks
+ * structurally different from the original draft. Stays ZK-safe: this only ever
+ * runs on the locally re-substituted plaintext — no backend plaintext rendering.
+ */
+export function renderLlmRedraftHtml(text: string): string {
+  const escaped = escapeHtml(text ?? "");
+  const lines = escaped.split("\n");
+
+  const out: string[] = [];
+  let paragraph: string[] = [];
+  let bullets: string[] = [];
+
+  const flushParagraph = (): void => {
+    if (!paragraph.length) return;
+    out.push(
+      `<p style="margin:0;color:${EMAIL_THEME.text};font-size:15px;line-height:1.6;white-space:pre-wrap;">${renderInlineRedraftMarkdown(paragraph.join("<br/>"))}</p>`
+    );
+    paragraph = [];
+  };
+  const flushBullets = (): void => {
+    if (!bullets.length) return;
+    const items = bullets
+      .map(
+        (item) =>
+          `<li style="margin:0 0 8px;color:${EMAIL_THEME.text};line-height:1.5;">${renderInlineRedraftMarkdown(item)}</li>`
+      )
+      .join("");
+    out.push(`<ul style="margin:0;padding-left:20px;">${items}</ul>`);
+    bullets = [];
+  };
+
+  const headingSize: Record<number, string> = { 1: "22px", 2: "18px", 3: "15px" };
+
+  for (const line of lines) {
+    if (/^\s*$/.test(line)) {
+      flushParagraph();
+      flushBullets();
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      flushBullets();
+      const level = (heading[1] ?? "#").length;
+      const size = headingSize[level] || "15px";
+      out.push(
+        `<h${level} style="margin:0;color:${EMAIL_THEME.heading};font-size:${size};line-height:1.2;">${renderInlineRedraftMarkdown((heading[2] ?? "").trim())}</h${level}>`
+      );
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      bullets.push((bullet[1] ?? "").trim());
+      continue;
+    }
+    flushBullets();
+    paragraph.push(line.trim());
+  }
+  flushParagraph();
+  flushBullets();
+
+  const content =
+    out.join('<div style="height:12px;line-height:12px;">&nbsp;</div>') ||
+    htmlParagraph("");
+  return wrapApprovedDisclosureShell(content);
 }
