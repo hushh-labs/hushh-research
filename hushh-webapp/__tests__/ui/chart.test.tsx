@@ -21,4 +21,18 @@ describe("ChartContainer", () => {
 
     expect(container.querySelector('[data-slot="chart"]')).toBeTruthy();
   });
+
+  it('preserves custom className alongside data-slot="chart"', () => {
+    const { container } = render(
+      <ChartContainer config={{}} className="my-custom-chart">
+        <div />
+      </ChartContainer>,
+    );
+
+    const chartEl = container.querySelector('[data-slot="chart"]');
+
+    expect(chartEl).toBeTruthy();
+    expect(chartEl?.className).toContain("my-custom-chart");
+  });
+
 });

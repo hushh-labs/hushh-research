@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverDescription,
   PopoverHeader,
@@ -75,4 +76,17 @@ describe("Popover", () => {
       container.querySelector('[data-slot="popover-description"]'),
     ).toBeTruthy();
   });
+
+  it("renders PopoverAnchor with data-slot='popover-anchor'", () => {
+    const { container } = render(
+      <Popover>
+        <PopoverAnchor />
+      </Popover>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="popover-anchor"]'),
+    ).toBeTruthy();
+  });
+
 });

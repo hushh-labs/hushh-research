@@ -26,10 +26,11 @@ import re
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.investor_db import InvestorDBService
 
 logger = logging.getLogger(__name__)
@@ -129,7 +130,7 @@ async def search_investors(
     service = InvestorDBService()
     results = await service.search_investors(name=name, limit=limit)
 
-    logger.info(f"Search '{name}' returned {len(results)} results")
+    logger.info("investor.search.results name=%s count=%s", name, len(results))
     return results
 
 
@@ -150,7 +151,7 @@ async def get_investor(investor_id: int):
         if not profile:
             raise HTTPException(status_code=404, detail="Investor not found")
 
-        logger.info(f"Retrieved investor {investor_id}: {profile['name']}")
+        logger.info("investor.fetch.success investor_id=%s name=%s", investor_id, profile["name"])
         return profile
 
     except HTTPException:
@@ -180,27 +181,11 @@ async def get_investor_by_cik(
 # ============================================================================
 
 
-@router.post("/", status_code=201)
-async def create_investor(
-    investor: InvestorCreateRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
-):
-    """
-    Create or update an investor profile.
-
-    Admin endpoint for data ingestion from SEC EDGAR, etc.
-    Requires Firebase authentication.
-    """
-
-    # Use service layer
-    service = InvestorDBService()
-
-    # Normalize name for search
+def _build_investor_data(investor: InvestorCreateRequest) -> dict:
+    """Build the cleaned (None-stripped) DB record for an investor profile."""
     name_normalized = re.sub(r"\s+", "", investor.name.lower())
-
     now_iso = datetime.now().isoformat()
 
-    # Prepare data
     data = {
         "name": investor.name,
         "name_normalized": name_normalized,
@@ -230,13 +215,30 @@ async def create_investor(
     }
 
     # Remove None values
-    data = {k: v for k, v in data.items() if v is not None}
+    return {k: v for k, v in data.items() if v is not None}
+
+
+@router.post("/", status_code=201)
+async def create_investor(
+    investor: InvestorCreateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """
+    Create or update an investor profile.
+
+    Admin endpoint for data ingestion from SEC EDGAR, etc.
+    Requires Firebase authentication.
+    """
+
+    # Use service layer
+    service = InvestorDBService()
+    data = _build_investor_data(investor)
 
     try:
         # Use service method
         result = await service.upsert_investor(data, upsert_key="cik" if investor.cik else None)
 
-        logger.info(f"Created/updated investor profile: {investor.name} (id={result.get('id')})")
+        logger.info("investor.create.success name=%s id=%s", investor.name, result.get("id"))
         return {"id": result.get("id"), "name": investor.name, "status": "created"}
 
     except Exception:
@@ -245,7 +247,9 @@ async def create_investor(
 
 
 @router.post("/bulk", status_code=201)
+@limiter.limit("3/minute")
 async def bulk_create_investors(
+    request: Request,
     investors: List[InvestorCreateRequest] = Body(...),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -257,6 +261,10 @@ async def bulk_create_investors(
     database connection pool.
     Requires Firebase authentication (trust boundary: no unauthenticated
     bulk ingestion into the investor profiles table).
+
+    Upserts the whole batch via InvestorDBService.bulk_upsert_investors,
+    which issues one round-trip per distinct record shape instead of one
+    round-trip per investor.
     """
     if len(investors) > _BULK_INVESTOR_MAX:
         raise HTTPException(
@@ -265,12 +273,20 @@ async def bulk_create_investors(
             f"got {len(investors)}.",
         )
 
-    results = []
-    for investor in investors:
-        result = await create_investor(investor, firebase_uid=firebase_uid)
-        results.append(result)
+    service = InvestorDBService()
+    records = [_build_investor_data(investor) for investor in investors]
 
-    logger.info(f"Bulk created {len(results)} investor profiles")
+    try:
+        upserted = await service.bulk_upsert_investors(records)
+    except Exception:
+        logger.error("investor.bulk_create.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+    results = [
+        {"id": row.get("id"), "name": row.get("name"), "status": "created"} for row in upserted
+    ]
+
+    logger.info("investor.bulk_create.success count=%s", len(results))
 
     return {"created": len(results), "profiles": results}
 

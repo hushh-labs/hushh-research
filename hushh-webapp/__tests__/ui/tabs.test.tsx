@@ -88,4 +88,22 @@ describe("Tabs", () => {
     const list = container.querySelector('[data-slot="tabs-list"]');
     expect(list?.getAttribute("data-variant")).toBe("line");
   });
+
+  it("renders disabled TabsTrigger with data-disabled attribute", () => {
+    const { container } = render(
+      <Tabs defaultValue="tab-1">
+        <TabsList>
+          <TabsTrigger value="tab-1" disabled>
+            Tab 1
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="tab-1">Content 1</TabsContent>
+      </Tabs>,
+    );
+
+    const trigger = container.querySelector('[data-slot="tabs-trigger"]');
+
+    expect(trigger?.getAttribute("data-disabled")).toBe("");
+  });
+
 });

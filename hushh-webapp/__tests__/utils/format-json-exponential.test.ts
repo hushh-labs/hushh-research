@@ -71,4 +71,17 @@ describe("formatCompleteJson — exponential / scientific notation numbers", () 
     });
     expect(out).toContain("Precise: 0.1235");
   });
+
+  it("renders a negative percentage field with a bare minus sign — no plus prefix", () => {
+    // formatPercent: sign = "" when value < 0; toFixed(2) supplies the "-" itself.
+    // Distinct from the positive branch ("+" + value.toFixed(2)) tested above.
+    const out = formatCompleteJson({
+      portfolio_summary: {
+        est_yield: -2.5,
+      },
+    });
+
+    expect(out).toContain("Yield: -2.50%");
+    expect(out).not.toContain("+");
+  });
 });

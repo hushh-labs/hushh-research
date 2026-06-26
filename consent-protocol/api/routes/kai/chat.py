@@ -140,7 +140,7 @@ async def kai_chat(
 
 @router.get("/chat/history/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
-    conversation_id: str = Path(..., max_length=128),
+    conversation_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> ConversationHistoryResponse:
@@ -225,7 +225,7 @@ class InitialChatStateResponse(BaseModel):
 
 @router.get("/chat/initial-state/{user_id}", response_model=InitialChatStateResponse)
 async def get_initial_chat_state(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> InitialChatStateResponse:
     """

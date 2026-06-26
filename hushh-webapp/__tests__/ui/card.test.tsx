@@ -53,4 +53,18 @@ describe("Card", () => {
       container.querySelector('[data-slot="card-footer"]'),
     ).toBeTruthy();
   });
+
+  it("renders CardTitle as an h3 heading element", () => {
+    const { container } = render(
+      <Card>
+        <CardHeader>
+          <CardTitle>Title</CardTitle>
+        </CardHeader>
+      </Card>,
+    );
+
+    const title = container.querySelector('[data-slot="card-title"]');
+
+    expect(title?.tagName).toBe("H3");
+  });
 });

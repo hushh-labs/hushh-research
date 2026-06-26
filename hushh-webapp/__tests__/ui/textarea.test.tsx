@@ -29,4 +29,12 @@ describe("Textarea", () => {
 
     expect(el?.classList.contains("test-class")).toBeTruthy();
   });
+
+  it("includes disabled:opacity-50 class for disabled styling", () => {
+    const { container } = render(<Textarea />);
+
+    const el = container.querySelector('[data-slot="textarea"]');
+
+    expect(el?.className).toContain("disabled:opacity-50");
+  });
 });

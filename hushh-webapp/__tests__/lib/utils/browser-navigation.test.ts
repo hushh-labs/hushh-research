@@ -86,4 +86,48 @@ describe("browser navigation utilities", () => {
     },
   ]);
   });
+
+  it("dispatches push navigation event detail", () => {
+  const received: Array<{
+    href: string;
+    replace?: boolean;
+    scroll?: boolean;
+  }> = [];
+
+  const listener = (event: Event) => {
+    received.push(
+      (event as CustomEvent<{
+        href: string;
+        replace?: boolean;
+        scroll?: boolean;
+      }>).detail,
+    );
+  };
+
+  window.addEventListener(
+    INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+    listener,
+  );
+
+  try {
+    expect(
+      requestInternalAppNavigation({
+        href: `${ROUTES.KAI_ANALYSIS}?focus=active`,
+        scroll: true,
+      }),
+    ).toBe(true);
+  } finally {
+    window.removeEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      listener,
+    );
+  }
+
+  expect(received).toEqual([
+    {
+      href: `${ROUTES.KAI_ANALYSIS}?focus=active`,
+      scroll: true,
+    },
+  ]);
+  });
 });

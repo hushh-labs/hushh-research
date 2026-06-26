@@ -31,4 +31,19 @@ describe("Breadcrumb", () => {
     expect(list.children[1]).toBe(separator);
     expect(list.children[2]?.textContent).toBe("Settings");
   });
+
+  it('renders BreadcrumbList with data-slot="breadcrumb-list"', () => {
+    render(
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>Home</BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>,
+    );
+
+    const list = screen.getByRole("list");
+
+    expect(list.getAttribute("data-slot")).toBe("breadcrumb-list");
+  });
+
 });

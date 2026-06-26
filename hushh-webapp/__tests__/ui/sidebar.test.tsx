@@ -15,4 +15,17 @@ describe("Sidebar", () => {
       container.querySelector('[data-slot="sidebar-rail"]'),
     ).toBeTruthy();
   });
+
+  it('renders SidebarProvider wrapper with data-slot="sidebar-wrapper"', () => {
+    const { container } = render(
+      <SidebarProvider>
+        <div />
+      </SidebarProvider>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="sidebar-wrapper"]'),
+    ).toBeTruthy();
+  });
+
 });
