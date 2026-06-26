@@ -39,6 +39,7 @@ Usage:
 import hashlib
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -49,10 +50,41 @@ from hushh_mcp.services.consent_request_links import build_consent_request_url
 
 logger = logging.getLogger(__name__)
 
+_BACKGROUND_SCAN_LIMIT_ENV = "CONSENT_BACKGROUND_SCAN_LIMIT"
+_DEFAULT_BACKGROUND_SCAN_LIMIT = 2000
+_BACKGROUND_CONSENT_ACTIONS = [
+    "REQUESTED",
+    "CONSENT_GRANTED",
+    "CONSENT_DENIED",
+    "REVOKED",
+    "TIMEOUT",
+]
+_BACKGROUND_CONSENT_COLUMNS = (
+    "request_id,user_id,scope,agent_id,scope_description,action,"
+    "issued_at,poll_timeout_at,expires_at,metadata"
+)
+
 
 def _token_fingerprint(token: str) -> str:
     """Return a 12-char SHA-256 fingerprint for safe log messages."""
     return hashlib.sha256(token.encode()).hexdigest()[:12]
+
+
+def _background_scan_limit() -> int:
+    raw = os.getenv(_BACKGROUND_SCAN_LIMIT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_BACKGROUND_SCAN_LIMIT
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; using default %d",
+            _BACKGROUND_SCAN_LIMIT_ENV,
+            raw,
+            _DEFAULT_BACKGROUND_SCAN_LIMIT,
+        )
+        return _DEFAULT_BACKGROUND_SCAN_LIMIT
+    return max(100, min(value, 10000))
 
 
 class ConsentDBService:
@@ -1331,14 +1363,21 @@ class ConsentDBService:
         """
         supabase = self._get_supabase()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        scan_limit = _background_scan_limit()
         response = (
             supabase.table("consent_audit")
-            .select(
-                "request_id, user_id, scope, agent_id, scope_description, issued_at, poll_timeout_at, expires_at, metadata"
-            )
+            .select(_BACKGROUND_CONSENT_COLUMNS)
             .eq("action", "REQUESTED")
+            .order("issued_at", desc=True)
+            .limit(scan_limit)
             .execute()
         )
+        if response.count and response.count >= scan_limit:
+            logger.info(
+                "consent_timeout_scan_capped rows=%d limit=%d",
+                response.count,
+                scan_limit,
+            )
         if not response.data:
             return []
         # Dedupe by request_id (keep latest by issued_at)
@@ -1463,9 +1502,21 @@ class ConsentDBService:
         """Return latest pending requests with enough metadata for reminder scheduling."""
         supabase = self._get_supabase()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        scan_limit = _background_scan_limit()
         response = (
-            supabase.table("consent_audit").select("*").order("issued_at", desc=True).execute()
+            supabase.table("consent_audit")
+            .select(_BACKGROUND_CONSENT_COLUMNS)
+            .in_("action", _BACKGROUND_CONSENT_ACTIONS)
+            .order("issued_at", desc=True)
+            .limit(scan_limit)
+            .execute()
         )
+        if response.count and response.count >= scan_limit:
+            logger.info(
+                "consent_notification_scan_capped rows=%d limit=%d",
+                response.count,
+                scan_limit,
+            )
 
         latest_per_request: Dict[str, Dict[str, Any]] = {}
         for row in response.data or []:

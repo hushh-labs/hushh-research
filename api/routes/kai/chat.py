@@ -67,7 +67,7 @@ class ConversationHistoryResponse(BaseModel):
     """Response for conversation history endpoint."""
 
     conversation_id: str = Field(..., max_length=256)
-    messages: list[dict] = Field(default_factory=list)
+    messages: list[dict] = Field(default_factory=list, max_length=1000)
 
 
 @router.post("/chat", response_model=KaiChatResponseModel)
@@ -171,10 +171,10 @@ async def get_conversation_history(
 
 @router.get("/chat/conversations/{user_id}")
 async def list_user_conversations(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=20, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=10_000),
 ) -> dict:
     """
     List all conversations for a user.

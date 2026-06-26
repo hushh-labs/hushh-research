@@ -13,12 +13,15 @@ from typing import Any, AsyncGenerator, Literal
 from uuid import uuid4
 
 import yaml
-from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from db.db_client import get_db
 from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
+from hushh_mcp.runtime_providers import (
+    build_managed_runtime_client,
+    build_runtime_client,
+)
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 from hushh_mcp.types import EncryptedPayload
@@ -425,29 +428,15 @@ def load_kai_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
 
 
 def create_runtime_client(runtime_provider: str, user_key: str):
-    provider = runtime_provider.strip().lower()
-    key = user_key.strip()
+    """BYOK runtime client for the chosen provider (Gemini, Anthropic, OpenAI, Grok)."""
 
-    if not key:
-        raise ValueError("User BYOK runtime key is required")
-
-    if provider == "gemini":
-        return genai.Client(vertexai=False, api_key=key)
-
-    raise ValueError(f"Unsupported runtime provider: {provider}")
+    return build_runtime_client(runtime_provider, user_key)
 
 
 def create_managed_runtime_client(runtime_provider: str, user_key: str):
-    provider = runtime_provider.strip().lower()
-    key = user_key.strip()
+    """Hushh-managed runtime client for the chosen provider."""
 
-    if not key:
-        raise RuntimeError("Managed Gemini API key is not configured")
-
-    if provider == "gemini":
-        return genai.Client(vertexai=True, api_key=key)
-
-    raise ValueError(f"Unsupported runtime provider: {provider}")
+    return build_managed_runtime_client(runtime_provider, user_key)
 
 
 def _redacted_runtime_evidence(evidence: dict[str, Any]) -> dict[str, Any]:

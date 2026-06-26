@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
@@ -18,6 +19,8 @@ from hushh_mcp.services.crd_scrape_proxy_service import (
 
 router = APIRouter(prefix="/api/ria", tags=["RIA", "CRD Scraper"])
 
+logger = logging.getLogger(__name__)
+
 _JobId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
@@ -27,6 +30,7 @@ class CrdScrapeJobRequest(BaseModel):
     crdNumber: str = Field(
         ...,
         min_length=1,
+        max_length=20,
         validation_alias=AliasChoices("crdNumber", "crd_number", "crd"),
     )
 
@@ -113,7 +117,16 @@ async def _call_provider(coro: Any) -> CrdScrapeProviderResponse:
             detail={"code": "CRD_INVALID_REQUEST", "message": "Invalid request parameters."},
         )
     except CrdScrapeProxyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        # CWE-209: do not forward the internal proxy error verbatim to the client.
+        # Log the detail server-side; return a generic message with the status.
+        logger.warning("crd_scraper.proxy_error status=%s: %s", exc.status_code, exc)
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "code": "CRD_UPSTREAM_ERROR",
+                "message": "CRD lookup is temporarily unavailable.",
+            },
+        ) from exc
 
 
 def _request_id(request: Request) -> str | None:
