@@ -27,7 +27,7 @@ describe("ComingSoonCard", () => {
       />
     );
     const button = screen.getByRole("button", { name: /notify me when ready/i });
-    expect(button).toHaveAttribute("type", "button");
-    expect(button).toBeDisabled();
+    expect(button.getAttribute("type")).toBe("button");
+    expect(button.hasAttribute("disabled")).toBe(true);
   });
 });
