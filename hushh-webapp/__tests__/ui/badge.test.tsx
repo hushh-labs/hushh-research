@@ -57,4 +57,13 @@ describe("Badge", () => {
       ).toBe(variant);
     });
   });
+
+  it("renders Badge as a span element", () => {
+    const { container } = render(<Badge>Label</Badge>);
+
+    const badge = container.querySelector('[data-slot="badge"]');
+
+    expect(badge?.tagName).toBe("SPAN");
+  });
+
 });
