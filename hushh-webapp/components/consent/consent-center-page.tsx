@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -57,10 +58,12 @@ import {
 } from "@/lib/consent/consent-events";
 import {
   useConsentActions,
+  useOneLocationConsentActions,
   type ConsentActionState,
   type ConsentMutationDetail,
   type PendingConsent,
 } from "@/lib/consent";
+
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import {
   humanizeConsentScope,
@@ -1205,6 +1208,14 @@ export function ConsentCenterPage() {
   const notificationAction = normalizeNotificationAction(
     searchParams.get("notificationAction"),
   );
+  // Decouple the detail panel's visible open/close from the URL navigation.
+  // Closing via setParam() -> router.replace() forces an App Router re-render of
+  // this heavy route, which made the close button (and approve/deny dismissal)
+  // feel laggy. We close the panel locally first, then sync the URL in a
+  // transition so the navigation never blocks the close animation.
+  const [panelCloseRequested, setPanelCloseRequested] = useState(false);
+  const [, startPanelUrlSync] = useTransition();
+  const isPanelOpen = Boolean(selectedId) && !panelCloseRequested;
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
@@ -1282,18 +1293,87 @@ export function ConsentCenterPage() {
     handleApprove,
     handleDeny,
     handleRevoke,
-    activeAction,
-    isRequestBusy,
-    isScopeBusy,
+    activeAction: genericActiveAction,
+    isRequestBusy: isGenericRequestBusy,
+    isScopeBusy: isGenericScopeBusy,
   } = useConsentActions({
     userId: user?.uid,
   });
 
+  // One Location rows in the Access Manager are end-to-end encrypted and must go
+  // through the dedicated One Location endpoints + envelope publish, NOT the
+  // generic developer-consent flow. This hook mirrors the One Location page's
+  // Activity actions so Allow / Don't allow / Revoke behave identically on both
+  // surfaces (see lib/consent/use-one-location-consent-actions.ts).
+  const {
+    handleApprove: handleLocationApprove,
+    handleDeny: handleLocationDeny,
+    handleRevoke: handleLocationRevoke,
+    activeAction: locationActiveAction,
+    isRequestBusy: isLocationRequestBusy,
+    isScopeBusy: isLocationScopeBusy,
+  } = useOneLocationConsentActions({
+    userId: user?.uid,
+  });
+
+  const activeAction = genericActiveAction ?? locationActiveAction;
+  const isRequestBusy = useCallback(
+    (requestId?: string | null) =>
+      isGenericRequestBusy(requestId) || isLocationRequestBusy(requestId),
+    [isGenericRequestBusy, isLocationRequestBusy],
+  );
+  const isScopeBusy = useCallback(
+    (scope?: string | null) =>
+      isGenericScopeBusy(scope) || isLocationScopeBusy(scope),
+    [isGenericScopeBusy, isLocationScopeBusy],
+  );
+
+  // Route a consent entry to the correct backend pipeline. Location rows
+  // (`metadata.request_source` starts with `one_location`, or a location-family
+  // scope) use the One Location hook; everything else uses the generic flow.
+  const isLocationEntry = useCallback(
+    (entry: ConsentCenterEntry) =>
+      isLocationConsent(entry.metadata, entry.scope),
+    [],
+  );
+  const approveEntry = useCallback(
+    (entry: ConsentCenterEntry, durationHours?: number) => {
+      if (isLocationEntry(entry)) {
+        void handleLocationApprove(entry, durationHours);
+        return;
+      }
+      void handleApprove(toPendingConsent(entry, durationHours));
+    },
+    [handleApprove, handleLocationApprove, isLocationEntry],
+  );
+  const denyEntry = useCallback(
+    (entry: ConsentCenterEntry) => {
+      if (isLocationEntry(entry)) {
+        void handleLocationDeny(entry);
+        return;
+      }
+      void handleDeny(entry.request_id || entry.id);
+    },
+    [handleDeny, handleLocationDeny, isLocationEntry],
+  );
+  const revokeEntry = useCallback(
+    (entry: ConsentCenterEntry) => {
+      if (isLocationEntry(entry)) {
+        void handleLocationRevoke(entry);
+        return;
+      }
+      if (!entry.scope) return;
+      void handleRevoke(entry.scope);
+    },
+    [handleLocationRevoke, handleRevoke, isLocationEntry],
+  );
+
   const idTokenLoader = async () => user?.getIdToken();
+
 
   const summaryResource = useStaleResource({
     cacheKey: summaryCacheKey,
-    refreshKey: `${consentScopeKey}:${mode}:${mutationTick}`,
+    refreshKey: `${consentScopeKey}:${mode}`,
     enabled: Boolean(user?.uid),
     load: async (options) => {
       const idToken = await idTokenLoader();
@@ -1305,7 +1385,7 @@ export function ConsentCenterPage() {
         userId: user.uid,
         actor: apiActor,
         mode,
-        force: Boolean(options?.force) || mutationTick > 0,
+        force: Boolean(options?.force),
       });
     },
   });
@@ -1314,7 +1394,7 @@ export function ConsentCenterPage() {
     cacheKey: user?.uid
       ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}`)
       : "consent_center_guest",
-    refreshKey: `${actor}:${managerView}:${mutationTick}`,
+    refreshKey: `${actor}:${managerView}`,
     enabled: Boolean(user?.uid && tab === "relationships"),
     load: async (options) => {
       const idToken = await idTokenLoader();
@@ -1326,14 +1406,14 @@ export function ConsentCenterPage() {
         userId: user.uid,
         actor,
         view: managerView,
-        force: Boolean(options?.force) || mutationTick > 0,
+        force: Boolean(options?.force),
       });
     },
   });
 
   const listResource = useStaleResource({
     cacheKey: listCacheKey,
-    refreshKey: `${consentScopeKey}:${mode}:${listSurface}:${deferredQuery}:${page}:${mutationTick}`,
+    refreshKey: `${consentScopeKey}:${mode}:${listSurface}:${deferredQuery}:${page}`,
     enabled: Boolean(user?.uid && tab !== "relationships"),
     load: async (options) => {
       const idToken = await idTokenLoader();
@@ -1349,7 +1429,7 @@ export function ConsentCenterPage() {
         q: deferredQuery,
         page,
         limit: CONSENT_CENTER_PAGE_SIZE,
-        force: Boolean(options?.force) || mutationTick > 0,
+        force: Boolean(options?.force),
       });
     },
   });
@@ -1858,6 +1938,29 @@ export function ConsentCenterPage() {
     });
   };
 
+  // Close the detail panel instantly, then clear its URL params in a transition
+  // so the route navigation never blocks the panel's close animation.
+  const closeDetailPanel = useCallback(() => {
+    setPanelCloseRequested(true);
+    startPanelUrlSync(() => {
+      setParam({
+        requestId: null,
+        selected: null,
+        notificationAction: null,
+      });
+    });
+    // setParam intentionally excluded; it is recreated each render and only
+    // reads current searchParams/router refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startPanelUrlSync]);
+
+  // When the selected request changes (deep link, list selection, or after the
+  // URL finishes clearing), drop the local close override so the panel can open
+  // again and stays in sync with the URL.
+  useEffect(() => {
+    setPanelCloseRequested(false);
+  }, [selectedId]);
+
   const pageEyebrow = "Access / Consent";
   const pageTitle = "Access manager";
   const relationshipCount = relationshipItems.length;
@@ -1940,6 +2043,34 @@ export function ConsentCenterPage() {
               ]}
             />
 
+            <div className="flex items-center justify-between gap-3">
+              {visibleSnapshot ? (
+                <StaleCacheTimestamp
+                  updatedAt={visibleSnapshot.timestamp}
+                  stale={Boolean(activeListError && items.length > 0)}
+                />
+              ) : (
+                <span />
+              )}
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={retryConsentCenter}
+                aria-label="Refresh consent entries"
+                disabled={isConsentActionRefreshing}
+              >
+                <RefreshCcw
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    isConsentActionRefreshing && "animate-spin",
+                  )}
+                />
+                Refresh
+              </Button>
+            </div>
+
             <SettingsGroup embedded>
               <div className="px-4 py-4">
                 <div className="relative">
@@ -1956,14 +2087,6 @@ export function ConsentCenterPage() {
                     data-voice-control-id="consent_search"
                   />
                 </div>
-                {visibleSnapshot ? (
-                  <div className="mt-3">
-                    <StaleCacheTimestamp
-                      updatedAt={visibleSnapshot.timestamp}
-                      stale={Boolean(activeListError && items.length > 0)}
-                    />
-                  </div>
-                ) : null}
                 {(tab === "relationships"
                   ? centerResource.loading || centerResource.refreshing
                   : listResource.loading || listResource.refreshing) &&
@@ -2078,14 +2201,10 @@ export function ConsentCenterPage() {
       </AppPageContentRegion>
 
       <SettingsDetailPanel
-        open={Boolean(selectedId)}
+        open={isPanelOpen}
         onOpenChange={(open) => {
           if (!open) {
-            setParam({
-              requestId: null,
-              selected: null,
-              notificationAction: null,
-            });
+            closeDetailPanel();
           }
         }}
         title={
@@ -2129,6 +2248,7 @@ export function ConsentCenterPage() {
               trailing={
                 <div className="flex items-center gap-2">
                   {notificationAction === "approve" &&
+                  selectedEntry &&
                   selectedPendingConsent ? (
                     <Button
                       variant="blue-gradient"
@@ -2136,8 +2256,8 @@ export function ConsentCenterPage() {
                       size="sm"
                       disabled={isRequestBusy(selectedPendingConsent.id)}
                       onClick={() => {
-                        void handleApprove(selectedPendingConsent);
-                        setParam({ notificationAction: null });
+                        approveEntry(selectedEntry);
+                        closeDetailPanel();
                       }}
                     >
                       {activeAction?.kind === "approve" &&
@@ -2155,12 +2275,11 @@ export function ConsentCenterPage() {
                         selectedEntry.request_id || selectedEntry.id,
                       )}
                       onClick={() => {
-                        void handleDeny(
-                          selectedEntry.request_id || selectedEntry.id,
-                        );
-                        setParam({ notificationAction: null });
+                        denyEntry(selectedEntry);
+                        closeDetailPanel();
                       }}
                     >
+
                       {activeAction?.kind === "deny" &&
                       activeAction.requestId ===
                         (selectedEntry.request_id || selectedEntry.id)
@@ -2212,13 +2331,7 @@ export function ConsentCenterPage() {
                     variant="none"
                     effect="fade"
                     size="sm"
-                    onClick={() =>
-                      setParam({
-                        requestId: null,
-                        selected: null,
-                        notificationAction: null,
-                      })
-                    }
+                    onClick={closeDetailPanel}
                   >
                     View list
                   </Button>
@@ -2236,14 +2349,20 @@ export function ConsentCenterPage() {
           <ConsentEntryDetail
             actor={actor}
             entry={selectedEntry}
-            onApprove={(entry, durationHours) =>
-              void handleApprove(toPendingConsent(entry, durationHours))
-            }
-            onDeny={(entry) => void handleDeny(entry.request_id || entry.id)}
-            onRevoke={(entry) => {
-              if (!entry.scope) return;
-              void handleRevoke(entry.scope);
+            onApprove={(entry, durationHours) => {
+              approveEntry(entry, durationHours);
+              // Dismiss the panel immediately; the list already optimistically
+              // removes the row and any failure surfaces via toast.
+              closeDetailPanel();
             }}
+            onDeny={(entry) => {
+              denyEntry(entry);
+              closeDetailPanel();
+            }}
+            onRevoke={(entry) => {
+              revokeEntry(entry);
+            }}
+
             onRevokeScope={(scope) => void handleRevoke(scope)}
             activeAction={activeAction}
             isRequestBusy={isRequestBusy}

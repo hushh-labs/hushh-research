@@ -39,7 +39,6 @@ import { toast } from "sonner";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
 import {
   AppPageContentRegion,
@@ -114,7 +113,7 @@ import {
 import { resolveProfileVaultSettingsRow } from "@/lib/profile/profile-vault-settings-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Button } from "@/lib/morphy-ux/morphy";
+import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   AccountService,
@@ -693,12 +692,12 @@ function ProfilePageContent() {
     () => readAgentVoiceSettings().ttsVoice,
   );
   const [vaultUnlockReason, setVaultUnlockReason] = useState<
-    "profile_data" | "delete_account"
+    "profile_data" | "delete_account" | "reset_account"
   >("profile_data");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteTarget, setDeleteTarget] =
-    useState<AccountDeletionTarget>("both");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -841,12 +840,10 @@ function ProfilePageContent() {
   });
   const gmailActionsBusy = gmail.refreshingStatus || gmail.syncingRun;
   const personaList = personaState?.personas ?? ["investor"];
-  const hasInvestorPersona = personaList.includes("investor");
   const hasRiaPersona = personaList.includes("ria");
-  const hasDualPersona = hasInvestorPersona && hasRiaPersona;
-  const effectiveDeleteTarget: AccountDeletionTarget = hasDualPersona
-    ? deleteTarget
-    : "both";
+  // One account model: deletion always removes the whole One account. Persona-scoped
+  // deletes are retired from the UX; the backend still accepts "both" as the full wipe.
+  const effectiveDeleteTarget: AccountDeletionTarget = "both";
   const vaultAccess = useMemo(
     () =>
       resolveVaultAvailabilityState({
@@ -1452,60 +1449,63 @@ function ProfilePageContent() {
     if (!user) return;
 
     setIsDeleting(true);
+
+    // Resolve auth first so a vault-unlock requirement is handled as a guard
+    // (not as a failed delete). Only the real delete-and-ack work is wrapped in
+    // the branded promise toast.
+    let resolution: Awaited<ReturnType<typeof resolveDeleteAccountAuth>>;
     try {
-      const resolution = await resolveDeleteAccountAuth({
+      resolution = await resolveDeleteAccountAuth({
         userId: user.uid,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
       });
+    } catch (error) {
+      console.error("Delete account auth error:", error);
+      morphyToast.error("Failed to delete account. Please try again.");
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+      return;
+    }
 
-      if (resolution.kind === "needs_unlock") {
-        toast.error("Please unlock your vault first to delete your account.");
-        setShowDeleteConfirm(false);
-        setVaultUnlockReason("delete_account");
-        setShowVaultUnlock(true);
-        return;
-      }
+    if (resolution.kind === "needs_unlock") {
+      morphyToast.info("Please unlock your vault first to delete your account.");
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+      setVaultUnlockReason("delete_account");
+      setShowVaultUnlock(true);
+      return;
+    }
 
-      setHasVault(resolution.hasVault);
+    setHasVault(resolution.hasVault);
 
-      const result = await AccountService.deleteAccount(
-        resolution.token,
-        effectiveDeleteTarget,
-      );
+    // Branded actionable loading: the Sonner toast stays in its loading state
+    // while the delete promise runs and only resolves once the backend ack and
+    // local cleanup complete.
+    const token = resolution.token;
+    try {
+      await morphyToast.promise(
+        (async () => {
+          await AccountService.deleteAccount(token, effectiveDeleteTarget);
 
-      CacheSyncService.onAccountDeleted(user.uid);
-      await UserLocalStateService.clearForUser(user.uid);
+          CacheSyncService.onAccountDeleted(user.uid);
+          await UserLocalStateService.clearForUser(user.uid);
 
-      if (result.account_deleted) {
-        setOnboardingRequiredCookie(false);
-        setOnboardingFlowActiveCookie(false);
-        toast.success("Account deleted successfully. Redirecting...", {
-          duration: 3000,
-        });
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        await signOut();
-        return;
-      }
+          // One account model: deletion is always a full account removal.
+          setOnboardingRequiredCookie(false);
+          setOnboardingFlowActiveCookie(false);
+        })(),
+        {
+          loading: "Deleting your account...",
+          success: "Account deleted. Redirecting...",
+          error: "Failed to delete account. Please try again.",
+          variant: "destructive",
+        }
+      ).unwrap();
 
-      CacheSyncService.onPersonaStateChanged(user.uid);
-      CacheSyncService.onConsentMutated(user.uid);
-      await refreshPersonaState({ force: true });
-
-      const deletedTarget = result.deleted_target ?? effectiveDeleteTarget;
-      toast.success(
-        deletedTarget === "ria"
-          ? "RIA workspace deleted. Your investor account is still active."
-          : "Investor profile deleted. Your RIA workspace is still active.",
-      );
-
-      if (result.remaining_personas?.includes("ria")) {
-        router.push(ROUTES.RIA_HOME);
-      } else {
-        router.push(ROUTES.KAI_DASHBOARD);
-      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await signOut();
     } catch (error) {
       console.error("Delete account error:", error);
-      toast.error("Failed to delete account. Please try again.");
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -1514,7 +1514,6 @@ function ProfilePageContent() {
 
   const handleDeleteClick = async () => {
     if (!user) return;
-    setDeleteTarget("both");
 
     let nextHasVault = hasVault;
     if (nextHasVault === null) {
@@ -1536,6 +1535,96 @@ function ProfilePageContent() {
       setShowDeleteConfirm(true);
     } else {
       requestVaultUnlock("delete_account");
+    }
+  };
+
+  const handleResetAccount = async () => {
+    if (!user) return;
+
+    setIsResetting(true);
+
+    let resolution: Awaited<ReturnType<typeof resolveDeleteAccountAuth>>;
+    try {
+      resolution = await resolveDeleteAccountAuth({
+        userId: user.uid,
+        existingVaultOwnerToken: vaultOwnerToken ?? null,
+      });
+    } catch (error) {
+      console.error("Reset account auth error:", error);
+      morphyToast.error("Failed to reset account. Please try again.");
+      setIsResetting(false);
+      setShowResetConfirm(false);
+      return;
+    }
+
+    if (resolution.kind === "needs_unlock") {
+      morphyToast.info("Please unlock your vault first to reset your account.");
+      setIsResetting(false);
+      setShowResetConfirm(false);
+      setVaultUnlockReason("reset_account");
+      setShowVaultUnlock(true);
+      return;
+    }
+
+    setHasVault(resolution.hasVault);
+
+    // Branded actionable loading: keep the toast in its loading state until the
+    // reset has been acknowledged and local state has been cleared.
+    try {
+      await morphyToast.promise(
+        (async () => {
+          await AccountService.resetAccount(resolution.token);
+
+          CacheSyncService.onAccountDeleted(user.uid);
+          await UserLocalStateService.clearForUser(user.uid);
+          await refreshPersonaState({ force: true });
+
+          // Reset returns the account to a fresh, just-onboarded state: keep
+          // the identity and vault, but re-run onboarding on the next visit.
+          setOnboardingRequiredCookie(true);
+          setOnboardingFlowActiveCookie(true);
+        })(),
+        {
+          loading: "Resetting your account...",
+          success: "Account reset. Restarting onboarding...",
+          error: "Failed to reset account. Please try again.",
+          variant: "destructive",
+        }
+      ).unwrap();
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      router.replace(ROUTES.ONE_ONBOARDING);
+    } catch (error) {
+      console.error("Reset account error:", error);
+    } finally {
+      setIsResetting(false);
+      setShowResetConfirm(false);
+    }
+  };
+
+  const handleResetClick = async () => {
+    if (!user) return;
+
+    let nextHasVault = hasVault;
+    if (nextHasVault === null) {
+      try {
+        nextHasVault = await VaultService.checkVault(user.uid);
+        setHasVault(nextHasVault);
+      } catch (error) {
+        console.warn("[ProfilePage] Failed to check vault existence:", error);
+        nextHasVault = true;
+      }
+    }
+
+    if (!nextHasVault) {
+      setShowResetConfirm(true);
+      return;
+    }
+
+    if (vaultAccess.canMutateSecureData) {
+      setShowResetConfirm(true);
+    } else {
+      requestVaultUnlock("reset_account");
     }
   };
 
@@ -1581,7 +1670,7 @@ function ProfilePageContent() {
   }
 
   function requestVaultUnlock(
-    reason: "profile_data" | "delete_account" = "profile_data",
+    reason: "profile_data" | "delete_account" | "reset_account" = "profile_data",
   ) {
     setVaultUnlockReason(reason);
     setShowVaultUnlock(true);
@@ -1836,26 +1925,20 @@ function ProfilePageContent() {
   }
 
   const deleteButtonLabel = vaultAccess.needsUnlock
-    ? hasDualPersona
-      ? "Unlock to manage deletion"
-      : "Unlock to delete account"
-    : hasDualPersona
-      ? "Delete account or persona"
-      : "Delete account";
+    ? "Unlock to delete account"
+    : "Delete account";
   const deleteRowDescription = vaultAccess.needsVaultCreation
     ? "No vault exists yet. This deletes cloud-linked account records."
-    : hasDualPersona
-      ? "Choose whether to remove Investor, RIA, or the full account."
-      : "This action cannot be undone.";
-  const deleteDialogTitle = hasDualPersona
-    ? "Delete Investor, RIA, or everything?"
-    : "Delete Account?";
+    : "This permanently deletes your One account.";
+  const deleteDialogTitle = "Delete your One account?";
   const deleteDialogDescription =
-    effectiveDeleteTarget === "investor"
-      ? "This removes Kai profile data, portfolio imports, investor marketplace visibility, and advisor relationships. Your RIA workspace stays."
-      : effectiveDeleteTarget === "ria"
-        ? "This removes your advisor profile, client requests, picks uploads, and RIA marketplace presence. Your investor account stays."
-        : "This action cannot be undone. This permanently deletes your account, both personas, encrypted vault records, and cloud-linked user records.";
+    "This action cannot be undone. This permanently deletes your One account, your encrypted vault and personal data, every connected service, and your cloud-linked identity.";
+
+  const resetRowDescription =
+    "Clear your data and start onboarding fresh. Keeps your account and sign-in.";
+  const resetDialogTitle = "Reset your One account?";
+  const resetDialogDescription =
+    "This clears all your personal data: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -1875,11 +1958,15 @@ function ProfilePageContent() {
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
       ? "Unlock Vault to Delete Account"
-      : "Unlock Vault";
+      : vaultUnlockReason === "reset_account"
+        ? "Unlock Vault to Reset Account"
+        : "Unlock Vault";
   const unlockDialogDescription =
     vaultUnlockReason === "delete_account"
       ? "Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
-      : "Unlock your vault to access profile settings.";
+      : vaultUnlockReason === "reset_account"
+        ? "Unlock your vault to confirm reset. This clears your data but keeps your account and vault."
+        : "Unlock your vault to access profile settings.";
 
   const displayedUnlockMethod = effectiveVaultMethod ?? vaultMethod;
   const recommendedQuickMethod =
@@ -3188,6 +3275,14 @@ function ProfilePageContent() {
           }
         />
         <SettingsRow
+          icon={RefreshCw}
+          title="Reset account"
+          description={resetRowDescription}
+          tone="destructive"
+          chevron
+          onClick={() => void handleResetClick()}
+        />
+        <SettingsRow
           icon={Trash2}
           title={deleteButtonLabel}
           description={deleteRowDescription}
@@ -3292,7 +3387,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={Trash2}
           title="Danger zone"
-          description="Delete Investor, RIA, or the full account."
+          description="Reset your data or delete your One account."
           chevron
           tone="destructive"
           onClick={() =>
@@ -3915,9 +4010,17 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:danger",
         title: "Danger zone",
-        description: "Delete persona or account data.",
+        description: "Reset your data or delete your account.",
         content: (
           <SettingsGroup title="Danger zone">
+            <SettingsRow
+              icon={RefreshCw}
+              title="Reset account"
+              description={resetRowDescription}
+              tone="destructive"
+              onClick={() => void handleResetClick()}
+              chevron
+            />
             <SettingsRow
               icon={Trash2}
               title={deleteButtonLabel}
@@ -4139,6 +4242,13 @@ function ProfilePageContent() {
             setShowVaultUnlock(false);
             if (vaultUnlockReason === "delete_account") {
               setTimeout(() => setShowDeleteConfirm(true), 300);
+              setTimeout(() => {
+                vaultUnlockCompletingRef.current = false;
+              }, 0);
+              return;
+            }
+            if (vaultUnlockReason === "reset_account") {
+              setTimeout(() => setShowResetConfirm(true), 300);
               setTimeout(() => {
                 vaultUnlockCompletingRef.current = false;
               }, 0);
@@ -4393,28 +4503,6 @@ function ProfilePageContent() {
               {deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {hasDualPersona ? (
-            <div className="space-y-3">
-              <SettingsSegmentedTabs
-                value={deleteTarget}
-                onValueChange={(value) =>
-                  setDeleteTarget(value as AccountDeletionTarget)
-                }
-                options={[
-                  { value: "investor", label: "Investor" },
-                  { value: "ria", label: "RIA" },
-                  { value: "both", label: "Both" },
-                ]}
-              />
-              <p className="text-sm leading-6 text-muted-foreground">
-                {effectiveDeleteTarget === "investor"
-                  ? "Investor deletion keeps your advisor-side workspace and signs you into the RIA shell afterwards."
-                  : effectiveDeleteTarget === "ria"
-                    ? "RIA deletion keeps your Kai investor account and takes you back to the investor shell afterwards."
-                    : "Deleting both signs you out and removes the entire account."}
-              </p>
-            </div>
-          ) : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"
@@ -4431,13 +4519,40 @@ function ProfilePageContent() {
               }}
               disabled={isDeleting}
             >
-              {isDeleting
-                ? "Deleting..."
-                : effectiveDeleteTarget === "investor"
-                  ? "Yes, Delete Investor"
-                  : effectiveDeleteTarget === "ria"
-                    ? "Yes, Delete RIA"
-                    : "Yes, Delete Everything"}
+              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Icon icon={RefreshCw} size="md" />
+              {resetDialogTitle}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resetDialogDescription}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel
+              className="w-full sm:w-auto"
+              disabled={isResetting}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="default"
+              className="min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[12rem]"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleResetAccount();
+              }}
+              disabled={isResetting}
+            >
+              {isResetting ? "Resetting..." : "Yes, reset my account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

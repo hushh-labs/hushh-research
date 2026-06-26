@@ -27,7 +27,8 @@ export class AccountIdentityService {
   }
 
   static async refreshCurrentUserIdentity(
-    user: User | null | undefined
+    user: User | null | undefined,
+    options?: { force?: boolean }
   ): Promise<AccountIdentity | null> {
     if (!user) {
       return null;
@@ -38,7 +39,7 @@ export class AccountIdentityService {
       return null;
     }
 
-    const response = await ApiService.refreshAccountIdentityShadow(idToken);
+    const response = await ApiService.refreshAccountIdentityShadow(idToken, options);
     return this.identityFromResponse(response);
   }
 

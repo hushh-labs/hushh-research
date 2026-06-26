@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
+
+from starlette.concurrency import run_in_threadpool
 
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
@@ -90,6 +93,15 @@ class ConsentCenterService:
                 exc,
             )
             return empty
+
+    async def _location_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Async wrapper for :meth:`_location_buckets`.
+
+        The One Location contributor reads via the synchronous (blocking)
+        db_client. Run it in a worker thread so it never stalls the asyncio
+        event loop and serialises concurrent consent/vault/persona requests.
+        """
+        return await run_in_threadpool(self._location_buckets, user_id)
 
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
@@ -1374,7 +1386,9 @@ class ConsentCenterService:
             )
         if normalized_actor == "investor":
             location_buckets = (
-                self._location_buckets(user_id) if normalized_mode == "consents" else None
+                await self._location_buckets_async(user_id)
+                if normalized_mode == "consents"
+                else None
             )
             location_count = 0
             if location_buckets:
@@ -1600,7 +1614,7 @@ class ConsentCenterService:
             }
 
         location_buckets = (
-            self._location_buckets(user_id)
+            await self._location_buckets_async(user_id)
             if (actor is None or normalized_actor != "ria")
             else None
         )
@@ -1646,29 +1660,39 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
+        # Fetch the three surface counts concurrently instead of serially. Each
+        # count does its own DB work (and identity hydration), so running them
+        # one-after-another tripled the request latency and held pool
+        # connections far longer than needed, which exhausted the pool under
+        # load and produced cascading connection-acquire timeouts.
+        pending_count, active_count, previous_count = await asyncio.gather(
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="pending",
+                mode=normalized_mode,
+            ),
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="active",
+                mode=normalized_mode,
+            ),
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="previous",
+                mode=normalized_mode,
+            ),
+        )
         return {
             "user_id": user_id,
             "actor": normalized_actor,
             "mode": normalized_mode,
             "counts": {
-                "pending": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="pending",
-                    mode=normalized_mode,
-                ),
-                "active": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="active",
-                    mode=normalized_mode,
-                ),
-                "previous": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="previous",
-                    mode=normalized_mode,
-                ),
+                "pending": pending_count,
+                "active": active_count,
+                "previous": previous_count,
             },
         }
 
@@ -1741,7 +1765,9 @@ class ConsentCenterService:
                 else self._collapse_consent_chains(entries)
             )
             location_buckets = (
-                self._location_buckets(user_id) if normalized_mode == "consents" else None
+                await self._location_buckets_async(user_id)
+                if normalized_mode == "consents"
+                else None
             )
             if location_buckets:
                 if normalized_surface == "pending":

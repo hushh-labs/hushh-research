@@ -18,7 +18,8 @@
  *   focused task flows.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
 import {
   Inbox as InboxIcon,
   Link as LinkIcon,
@@ -29,9 +30,11 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type {
   OneLocationAccessRequest,
+
   OneLocationCircleInvite,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -78,6 +81,11 @@ export type LocationHubViewModel = {
   userId: string | null;
   canShare: boolean;
   busy: string | null;
+  /** Id of the grant currently being revoked (per-grant Stop sharing spinner). */
+  revokingGrantId: string | null;
+  /** Bumped on each successful share so the hub can close the share flow. */
+  shareCompletedTick: number;
+
 
   /* device + self location */
   readiness: {
@@ -193,6 +201,21 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     setShareStep("person");
     vm.setShareReviewOpen(false);
   };
+
+  // When a share completes successfully (page bumps shareCompletedTick), close
+  // the 3-step share flow and return to the main One Location hub.
+  const lastShareTickRef = useRef(vm.shareCompletedTick);
+  useEffect(() => {
+    if (vm.shareCompletedTick !== lastShareTickRef.current) {
+      lastShareTickRef.current = vm.shareCompletedTick;
+      // Closing the flow returns to the hub; the share flow always launches
+      // from the "Now" tab, so no explicit tab change is needed.
+      setFlow("none");
+      setShareStep("person");
+    }
+
+  }, [vm.shareCompletedTick]);
+
 
   /* ----------------------------------------------------------------- */
   /* Task flows (full-screen, no local tabs)                           */
@@ -315,8 +338,44 @@ function NowHub({
   onAsk: () => void;
   onGoTab: (tab: LocationHubTab) => void;
 }) {
+  // When location permission is blocked (denied / restricted / services off),
+  // surface the Device readiness card at the very TOP so the user immediately
+  // sees how to fix it, instead of it sitting in the middle of the page.
+  const readinessBlocked = vm.readiness.tone === "blocked";
+  const deviceReadinessCard = (
+    <SectionCard title="Device readiness">
+      <DeviceReadinessCard
+        tone={vm.readiness.tone}
+        title={vm.readiness.title}
+        description={vm.readiness.description}
+        actionLabel={vm.readiness.actionLabel ?? undefined}
+        onAction={
+          vm.readiness.actionLabel
+            ? vm.permissionIsPrompt
+              ? vm.onRequestPermission
+              : vm.onOpenLocationSettings
+            : undefined
+        }
+        actionBusy={vm.busy === "locationSettings"}
+        onRefresh={vm.onShowMyLocation}
+        refreshBusy={vm.busy === "selfLocation"}
+        refreshLabel={vm.myLocationPoint ? "Refresh location" : "Show my location"}
+      />
+      {vm.myLocationError ? (
+        <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-300">
+          {vm.myLocationError}
+        </p>
+      ) : null}
+      {vm.myLocationPoint ? (
+        <div className="mt-3">{vm.renderMapPreview(vm.myLocationPoint, false)}</div>
+      ) : null}
+    </SectionCard>
+  );
+
   return (
     <div className="space-y-5">
+      {readinessBlocked ? deviceReadinessCard : null}
+
       <PrivacyStatusCard
         isSharing={hasActiveShare}
         headline={hasActiveShare ? "Sharing in progress" : "Private right now"}
@@ -328,22 +387,24 @@ function NowHub({
       />
 
       <div className="grid grid-cols-2 gap-3">
+
         <Button
           onClick={onStartShare}
-          className="h-12 rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90"
+          className="h-12 whitespace-normal rounded-2xl bg-[#0a84ff] px-2 text-center text-[13px] font-semibold leading-tight text-white hover:bg-[#0a84ff]/90 sm:text-base"
         >
-          <MapPin className="mr-2 h-4 w-4" />
+          <MapPin className="mr-1.5 h-4 w-4 shrink-0" />
           Share my location
         </Button>
         <Button
           variant="outline"
           onClick={onAsk}
-          className="h-12 rounded-2xl text-base font-semibold"
+          className="h-12 whitespace-normal rounded-2xl px-2 text-center text-[13px] font-semibold leading-tight sm:text-base"
         >
-          <Send className="mr-2 h-4 w-4" />
+          <Send className="mr-1.5 h-4 w-4 shrink-0" />
           Ask someone
         </Button>
       </div>
+
 
       {/* Active shares */}
       <SectionCard title="Active shares">
@@ -356,7 +417,8 @@ function NowHub({
                 expiryLabel={vm.expiresCountdownLabel(grant.expiresAt)}
                 metaLabel={`Started ${vm.formatDateTime(grant.createdAt)}`}
                 onStop={() => vm.onStopGrant(grant.id)}
-                stopBusy={vm.busy === "revoke"}
+                stopBusy={vm.revokingGrantId === grant.id}
+
               />
             ))}
           </div>
@@ -368,36 +430,12 @@ function NowHub({
         )}
       </SectionCard>
 
-      {/* Device readiness */}
-      <SectionCard title="Device readiness">
-        <DeviceReadinessCard
-          tone={vm.readiness.tone}
-          title={vm.readiness.title}
-          description={vm.readiness.description}
-          actionLabel={vm.readiness.actionLabel ?? undefined}
-          onAction={
-            vm.readiness.actionLabel
-              ? vm.permissionIsPrompt
-                ? vm.onRequestPermission
-                : vm.onOpenLocationSettings
-              : undefined
-          }
-          actionBusy={vm.busy === "locationSettings"}
-          onRefresh={vm.onShowMyLocation}
-          refreshBusy={vm.busy === "selfLocation"}
-          refreshLabel={vm.myLocationPoint ? "Refresh location" : "Show my location"}
-        />
-        {vm.myLocationError ? (
-          <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-300">
-            {vm.myLocationError}
-          </p>
-        ) : null}
-        {vm.myLocationPoint ? (
-          <div className="mt-3">{vm.renderMapPreview(vm.myLocationPoint, false)}</div>
-        ) : null}
-      </SectionCard>
+      {/* Device readiness — rendered here in normal flow; when blocked it is
+          hoisted to the very top of the page above (so don't duplicate it). */}
+      {readinessBlocked ? null : deviceReadinessCard}
 
       {/* Quick paths */}
+
       <SectionCard title="Quick paths">
         <div className="space-y-2.5">
           <QuickPathRow
@@ -852,9 +890,9 @@ function ShareFlow({
         value={vm.recipientSearch}
         onChange={vm.setRecipientSearch}
       />
-      <div className="space-y-2.5">
-        {filtered.length ? (
-          filtered.map((r) => {
+      {filtered.length ? (
+        <div className={PEOPLE_LIST_SCROLL_CLASS}>
+          {filtered.map((r) => {
             const selected = vm.selectedRecipientIds.includes(r.userId);
             const ready = vm.isRecipientShareReady(r);
             return (
@@ -883,14 +921,14 @@ function ShareFlow({
                 selected={selected}
               />
             );
-          })
-        ) : (
-          <EmptyState
-            title="No trusted people yet"
-            description="Invite someone to your Circle to start sharing."
-          />
-        )}
-      </div>
+          })}
+        </div>
+      ) : (
+        <EmptyState
+          title="No trusted people yet"
+          description="Invite someone to your Circle to start sharing."
+        />
+      )}
       <Button
         onClick={() => setStep("details")}
         disabled={!selectedReady.length}
@@ -898,6 +936,7 @@ function ShareFlow({
       >
         Continue
       </Button>
+
     </div>
   );
 }
@@ -957,25 +996,35 @@ function AskFlow({
           value={vm.recipientSearch}
           onChange={vm.setRecipientSearch}
         />
-        <div className="mt-3 space-y-2.5">
-          {filtered.slice(0, 5).map((r) => {
-            const selected = vm.selectedRequestOwnerIds.includes(r.userId);
-            return (
-              <TrustedPersonCard
-                key={r.userId}
-                name={vm.recipientLabel(r)}
-                subtitle="Ready for private sharing"
-                tone="ready"
-                actionLabel={selected ? "Selected" : "Select"}
-                actionAriaLabel={`${
-                  selected ? "Deselect" : "Select"
-                } ${vm.recipientLabel(r)} for location request`}
-                onAction={() => vm.toggleRequestOwner(r.userId, "ask_flow")}
-                selected={selected}
-              />
-            );
-          })}
-        </div>
+        {filtered.length ? (
+          <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
+            {filtered.map((r) => {
+              const selected = vm.selectedRequestOwnerIds.includes(r.userId);
+              return (
+                <TrustedPersonCard
+                  key={r.userId}
+                  name={vm.recipientLabel(r)}
+                  subtitle="Ready for private sharing"
+                  tone="ready"
+                  actionLabel={selected ? "Selected" : "Select"}
+                  actionAriaLabel={`${
+                    selected ? "Deselect" : "Select"
+                  } ${vm.recipientLabel(r)} for location request`}
+                  onAction={() => vm.toggleRequestOwner(r.userId, "ask_flow")}
+                  selected={selected}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-3">
+            <EmptyState
+              title="No one to request from yet"
+              description="Invite someone to your Circle, then ask them to share."
+            />
+          </div>
+        )}
+
       </SectionCard>
 
       <SectionCard title="Duration requested">

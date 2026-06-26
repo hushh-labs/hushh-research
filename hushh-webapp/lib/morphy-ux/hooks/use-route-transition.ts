@@ -35,6 +35,77 @@ const SETTLE_MS = 200;
 
 type RouteTransitionState = "idle" | "pending" | "entering";
 
+// Module-scoped timers so the exit/enter envelope is shared by BOTH the click
+// interceptor and programmatic navigations (router.push from buttons, the
+// bottom nav, internal-navigation events). This is what makes the /one ->
+// /one/* crossfade play for *every* route/component switch, not just <a> clicks.
+let clearTimer: number | null = null;
+let maxPendingTimer: number | null = null;
+let settleTimer: number | null = null;
+
+function reducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+function clearRouteTimers() {
+  if (clearTimer) window.clearTimeout(clearTimer);
+  if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
+  if (settleTimer) window.clearTimeout(settleTimer);
+  clearTimer = null;
+  maxPendingTimer = null;
+  settleTimer = null;
+}
+
+function playEnter() {
+  if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
+  if (clearTimer) window.clearTimeout(clearTimer);
+  maxPendingTimer = null;
+  setRouteState("entering");
+  clearTimer = window.setTimeout(() => setRouteState("idle"), ENTER_MS);
+}
+
+/**
+ * Run the EXIT half of the route-transition envelope, then hand control to the
+ * supplied `navigate` callback (router.push/replace). The incoming page's ENTER
+ * beat is played by the pathname effect once the new route resolves. Exported so
+ * programmatic navigations share the exact same frame as link clicks.
+ */
+export function beginRouteTransition(
+  targetHref: string,
+  navigate: () => void,
+): void {
+  if (typeof window === "undefined") {
+    navigate();
+    return;
+  }
+  if (reducedMotion()) {
+    navigate();
+    return;
+  }
+
+  clearRouteTimers();
+  setRouteState("pending");
+  maxPendingTimer = window.setTimeout(
+    () => setRouteState("idle"),
+    MAX_PENDING_MS,
+  );
+  settleTimer = window.setTimeout(() => {
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (
+      current === targetHref &&
+      document.documentElement.dataset.routeTransition === "pending"
+    ) {
+      playEnter();
+    }
+  }, SETTLE_MS);
+
+  window.setTimeout(navigate, EXIT_MS);
+}
+
 function internalHref(anchor: HTMLAnchorElement): string | null {
   const href = anchor.getAttribute("href");
   if (!href || href.startsWith("#")) return null;
@@ -72,49 +143,8 @@ export function useRouteTransition() {
   const pathname = usePathname();
   const router = useRouter();
   const mounted = useRef(false);
-  const clearTimer = useRef<number | null>(null);
-  const maxPendingTimer = useRef<number | null>(null);
-  const settleTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    function clearTimers() {
-      if (clearTimer.current) window.clearTimeout(clearTimer.current);
-      if (maxPendingTimer.current) window.clearTimeout(maxPendingTimer.current);
-      if (settleTimer.current) window.clearTimeout(settleTimer.current);
-      clearTimer.current = null;
-      maxPendingTimer.current = null;
-      settleTimer.current = null;
-    }
-
-    function enter() {
-      if (maxPendingTimer.current) window.clearTimeout(maxPendingTimer.current);
-      if (clearTimer.current) window.clearTimeout(clearTimer.current);
-      maxPendingTimer.current = null;
-      setRouteState("entering");
-      clearTimer.current = window.setTimeout(
-        () => setRouteState("idle"),
-        ENTER_MS,
-      );
-    }
-
-    function begin(targetHref: string) {
-      clearTimers();
-      setRouteState("pending");
-      maxPendingTimer.current = window.setTimeout(
-        () => setRouteState("idle"),
-        MAX_PENDING_MS,
-      );
-      settleTimer.current = window.setTimeout(() => {
-        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        if (
-          current === targetHref &&
-          document.documentElement.dataset.routeTransition === "pending"
-        ) {
-          enter();
-        }
-      }, SETTLE_MS);
-    }
-
     function onClick(event: MouseEvent) {
       if (event.defaultPrevented || event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -130,8 +160,7 @@ export function useRouteTransition() {
       if (!href) return;
 
       event.preventDefault();
-      begin(href);
-      window.setTimeout(() => router.push(href), EXIT_MS);
+      beginRouteTransition(href, () => router.push(href));
     }
 
     function onPageShow() {
@@ -143,7 +172,7 @@ export function useRouteTransition() {
     window.addEventListener("pageshow", onPageShow);
 
     return () => {
-      clearTimers();
+      clearRouteTimers();
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("pageshow", onPageShow);
       delete document.documentElement.dataset.routeTransition;
@@ -151,18 +180,17 @@ export function useRouteTransition() {
     };
   }, [router]);
 
-  // When the resolved pathname actually changes (covers back/forward and
-  // programmatic pushes that didn't go through a click), play the enter beat.
+  // When the resolved pathname actually changes — which covers back/forward and
+  // programmatic pushes that did not go through a click — play the enter beat so
+  // every route switch shares the /one -> /one/* frame. (Query-only switches and
+  // link/programmatic nav already get the full exit -> enter envelope via the
+  // click interceptor and beginRouteTransition.)
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
-    if (clearTimer.current) window.clearTimeout(clearTimer.current);
-    setRouteState("entering");
-    clearTimer.current = window.setTimeout(
-      () => setRouteState("idle"),
-      ENTER_MS,
-    );
+    if (reducedMotion()) return;
+    playEnter();
   }, [pathname]);
 }

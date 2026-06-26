@@ -139,7 +139,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let cancelled = false;
 
     const hydrateBackendPhone = async () => {
-      const identity = await AccountIdentityService.refreshCurrentUserIdentity(user);
+      const identity = await AccountIdentityService.refreshCurrentUserIdentity(user, {
+        force: false,
+      });
       if (cancelled) return;
       const backendPhone = verifiedBackendPhoneNumber(identity);
       if (backendPhone) {

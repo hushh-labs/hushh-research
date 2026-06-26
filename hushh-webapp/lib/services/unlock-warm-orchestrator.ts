@@ -7,6 +7,10 @@ import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import {
+  ConsentCenterService,
+  CONSENT_CENTER_PAGE_SIZE,
+} from "@/lib/services/consent-center-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
@@ -239,6 +243,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
     routePath?: string;
+    firebaseIdToken?: string;
   }): Promise<UnlockWarmResult> {
     const warmPriority = resolveWarmPriority(params.routePath);
     const tokenSignature = params.vaultOwnerToken.slice(0, 24);
@@ -281,6 +286,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
     routePath?: string;
+    firebaseIdToken?: string;
   }): Promise<UnlockWarmResult> {
     const startedAtMs = nowMs();
     const cache = CacheService.getInstance();
@@ -479,6 +485,43 @@ export class UnlockWarmOrchestrator {
       const data = await auditResult.value.json();
       const auditData = Array.isArray(data) ? data : data?.items ?? data?.history ?? [];
       cache.set(CACHE_KEYS.CONSENT_AUDIT_LOG(params.userId), auditData, WARM_CACHE_TTL_MS);
+      result.consentsWarmed = true;
+    }
+
+    // Warm the exact cache keys the /consents page reads (consent center
+    // summary + list). The legacy ACTIVE/PENDING/AUDIT writes above feed other
+    // surfaces but do NOT match the consent center page keys, so without this
+    // step /consents always lands cold after unlock. ConsentCenterService
+    // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
+    // so calling it here populates the page-read keys directly. Requires a
+    // Firebase ID token (the consent center proxy is Firebase-authenticated).
+    if (shouldWarmConsents && params.firebaseIdToken) {
+      const idToken = params.firebaseIdToken;
+      await Promise.allSettled([
+        ConsentCenterService.getSummary({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+        }),
+        ConsentCenterService.listEntries({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+          surface: "pending",
+          q: "",
+          page: 1,
+          limit: CONSENT_CENTER_PAGE_SIZE,
+        }),
+        ConsentCenterService.listEntries({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+          surface: "active",
+          q: "",
+          page: 1,
+          limit: CONSENT_CENTER_PAGE_SIZE,
+        }),
+      ]);
       result.consentsWarmed = true;
     }
 

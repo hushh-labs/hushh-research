@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_AGENT_GEMINI_TTS_VOICE,
   isAgentGeminiVoiceEnabled,
+  isAgentRealtimeVoiceEnabled,
   normalizeAgentGeminiTtsVoice,
   readAgentVoiceSettings,
   writeAgentVoiceSettings,
@@ -38,5 +39,24 @@ describe("agent voice settings", () => {
 
     vi.stubEnv("NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED", "1");
     expect(isAgentGeminiVoiceEnabled()).toBe(true);
+  });
+
+  it("treats realtime voice as disabled by default and only enables on an explicit opt-in", () => {
+    expect(isAgentRealtimeVoiceEnabled()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED", "");
+    expect(isAgentRealtimeVoiceEnabled()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED", "false");
+    expect(isAgentRealtimeVoiceEnabled()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED", "true");
+    expect(isAgentRealtimeVoiceEnabled()).toBe(true);
+
+    vi.stubEnv("NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED", "1");
+    expect(isAgentRealtimeVoiceEnabled()).toBe(true);
+
+    vi.stubEnv("NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED", "on");
+    expect(isAgentRealtimeVoiceEnabled()).toBe(true);
   });
 });

@@ -308,11 +308,18 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const prefetchDashboardData = useCallback(
     async (userId: string, token: string, key: string, routePath?: string) => {
       try {
+        // The consent center warm step needs a Firebase ID token (its proxy is
+        // Firebase-authenticated). Fetch it best-effort; the orchestrator
+        // skips consent-center warming gracefully if it is unavailable.
+        const firebaseIdToken = await AuthService.getIdToken(false).catch(
+          () => null
+        );
         await UnlockWarmOrchestrator.run({
           userId,
           vaultKey: key,
           vaultOwnerToken: token,
           routePath,
+          firebaseIdToken: firebaseIdToken ?? undefined,
         });
       } catch (error) {
         console.warn("[VaultContext] Unlock warm orchestration failed:", error);
@@ -378,15 +385,13 @@ export function VaultProvider({ children }: VaultProviderProps) {
           void prefetchDashboardData(user.uid, token, key, warmRoutePath);
         };
 
-        if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-          const requestIdle = window.requestIdleCallback as (
-            callback: IdleRequestCallback,
-            options?: IdleRequestOptions
-          ) => number;
-          requestIdle(() => scheduleWarm(), { timeout: 1500 });
-        } else {
-          globalThis.setTimeout(scheduleWarm, 300);
-        }
+        // Warm the current route's caches immediately after unlock so the first
+        // paint of the revealed page (e.g. /one, /consents) hits a warm cache
+        // instead of a cold loader. Deferring to requestIdleCallback(1500) left
+        // the first post-unlock render cold. We still yield off the unlock
+        // synchronous path via a 0ms timeout so we don't block the state update
+        // that reveals the page, but we no longer wait for idle time.
+        globalThis.setTimeout(scheduleWarm, 0);
       }
     },
     [user, prefetchDashboardData]

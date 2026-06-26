@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Sparkles, type LucideIcon } from "lucide-react";
 
 import {
@@ -9,7 +10,11 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { Button } from "@/components/ui/button";
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import { useAuth } from "@/lib/firebase/auth-context";
+import { ROUTES } from "@/lib/navigation/routes";
+import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import {
   CAPABILITY_SETUP_COPY,
   type CapabilitySetupCopy,
@@ -42,10 +47,19 @@ import { cn } from "@/lib/utils";
  * - One owns the voice: "Set up One", plain language, no system nouns.
  */
 export function OneSetupHub() {
+  const router = useRouter();
+  const { user } = useAuth();
   const { byId, isLoading } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
   });
+
+  const handleNotNow = () => {
+    if (user?.uid) {
+      OneSetupGateService.markSeen(user.uid);
+    }
+    router.push(ROUTES.ONE_HOME);
+  };
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
 
@@ -79,6 +93,17 @@ export function OneSetupHub() {
           description={summary}
           icon={Sparkles}
           accent="neutral"
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleNotNow}
+              data-testid="one-setup-not-now"
+            >
+              Not now
+            </Button>
+          }
         />
       </AppPageHeaderRegion>
 

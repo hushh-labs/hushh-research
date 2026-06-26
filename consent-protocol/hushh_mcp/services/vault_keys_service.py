@@ -594,39 +594,46 @@ class VaultKeysService:
         if cached is not None:
             return cached
 
-        supabase = self._get_supabase()
-
-        header_response = (
-            supabase.table("vault_keys")
-            .select(
-                "vault_status,vault_key_hash,primary_method,primary_wrapper_id,"
-                "recovery_encrypted_vault_key,recovery_salt,recovery_iv"
+        # The db_client (SQLAlchemy + psycopg2) is a synchronous, blocking stack.
+        # Run the vault reads in a worker thread so they never stall the asyncio
+        # event loop; a blocked loop serialises every concurrent request (vault,
+        # consent, persona) into multi-second latency.
+        def _read_vault_state() -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
+            supabase = self._get_supabase()
+            header_resp = (
+                supabase.table("vault_keys")
+                .select(
+                    "vault_status,vault_key_hash,primary_method,primary_wrapper_id,"
+                    "recovery_encrypted_vault_key,recovery_salt,recovery_iv"
+                )
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
             )
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
+            header_rows = header_resp.data or []
+            if not header_rows:
+                return None, []
+            header_row = header_rows[0]
+            if self._normalize_vault_status(header_row.get("vault_status")) != "active":
+                return None, []
+            wrapper_resp = (
+                supabase.table("vault_key_wrappers")
+                .select(
+                    "method,wrapper_id,encrypted_vault_key,salt,iv,passkey_credential_id,passkey_prf_salt,passkey_rp_id,passkey_provider,passkey_device_label,passkey_last_used_at"
+                )
+                .eq("user_id", user_id)
+                .execute()
+            )
+            return header_row, list(wrapper_resp.data or [])
 
-        if not header_response.data or len(header_response.data) == 0:
+        header, wrapper_rows = await run_in_threadpool(_read_vault_state)
+
+        if header is None:
             self._set_cached_vault_state(user_id, None)
             return None
-
-        header = header_response.data[0]
-        if self._normalize_vault_status(header.get("vault_status")) != "active":
-            self._set_cached_vault_state(user_id, None)
-            return None
-
-        wrapper_response = (
-            supabase.table("vault_key_wrappers")
-            .select(
-                "method,wrapper_id,encrypted_vault_key,salt,iv,passkey_credential_id,passkey_prf_salt,passkey_rp_id,passkey_provider,passkey_device_label,passkey_last_used_at"
-            )
-            .eq("user_id", user_id)
-            .execute()
-        )
 
         wrappers: list[dict[str, Any]] = []
-        for row in wrapper_response.data or []:
+        for row in wrapper_rows:
             wrappers.append(
                 {
                     "method": self._clean_text(row.get("method")) or "passphrase",

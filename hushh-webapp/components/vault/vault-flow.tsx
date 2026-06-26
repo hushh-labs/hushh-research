@@ -914,7 +914,7 @@ export function VaultFlow({
                     : "Enter your passphrase to open Vault"}
                 </p>
                 {unlockHint ? (
-                  <p className="mt-1 text-xs font-medium text-amber-500">
+                  <p className="mx-auto mt-2 max-w-[19rem] text-balance rounded-[14px] border border-border/40 bg-muted/40 px-3 py-2 text-[12.5px] font-medium leading-[1.4] text-muted-foreground">
                     {unlockHint}
                   </p>
                 ) : null}
@@ -1044,7 +1044,7 @@ export function VaultFlow({
                       {showRecoveryAlternative ? (
                         <Button
                           variant="none"
-                          effect="glass"
+                          effect="fade"
                           size="default"
                           fullWidth
                           className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
@@ -1119,7 +1119,7 @@ export function VaultFlow({
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="none"
-                      effect="glass"
+                      effect="fade"
                       size="default"
                       fullWidth
                       className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
@@ -1135,7 +1135,7 @@ export function VaultFlow({
                     {availableGeneratedMethod && !webPasskeyUnsupported ? (
                       <Button
                         variant="none"
-                        effect="glass"
+                        effect="fade"
                         size="default"
                         fullWidth
                         className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"

@@ -457,11 +457,11 @@ export class ConsentCenterService {
     );
     payload.self_activity_summary = payload.self_activity_summary || null;
 
-    cache.set(cacheKey, payload, CACHE_TTL.SHORT);
+    cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
     cache.set(
       CACHE_KEYS.CONSENT_CENTER(userId, "all"),
       payload,
-      CACHE_TTL.SHORT,
+      CACHE_TTL.MEDIUM,
     );
     return payload;
   }
@@ -575,7 +575,7 @@ export class ConsentCenterService {
           payload.detail || payload.error || `Request failed: ${response.status}`,
         );
       }
-      cache.set(cacheKey, payload, CACHE_TTL.SHORT);
+      cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
       void DeviceResourceCacheService.write({
         userId: options.userId,
         resourceKey: deviceResourceKey,
@@ -595,7 +595,7 @@ export class ConsentCenterService {
         resourceKey: deviceResourceKey,
       });
       if (stored) {
-        cache.set(cacheKey, stored, CACHE_TTL.SHORT);
+        cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
         void this.refreshSummaryInBackground(cacheKey, fetchFresh);
         return stored;
       }
@@ -699,7 +699,7 @@ export class ConsentCenterService {
       );
     }
     payload.items = normalizeConsentEntries(payload.items);
-    cache.set(cacheKey, payload, CACHE_TTL.SHORT);
+    cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
     return payload;
   }
 

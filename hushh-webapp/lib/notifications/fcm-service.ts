@@ -751,6 +751,26 @@ async function initializeWebFCM(
         detail: "token_subscribe_failed",
       };
     }
+    // Push registration being denied/aborted by the browser (incognito, denied
+    // permission, unsupported Push API) is an expected, non-fatal outcome. Log
+    // it as a warning instead of an error so it does not surface as a red
+    // console error / Next.js dev overlay alarm. App functionality (vault,
+    // consent, agent) does not depend on web push.
+    const errorName = error instanceof Error ? error.name : "";
+    const isExpectedPushDenial =
+      errorName === "AbortError" ||
+      errorName === "NotAllowedError" ||
+      /permission denied|push service|registration failed/i.test(errorMessage);
+    if (isExpectedPushDenial) {
+      console.warn(
+        "[FCM] Web push unavailable (permission denied / unsupported). Continuing without push notifications.",
+        errorMessage || errorName
+      );
+      return {
+        status: "push_blocked",
+        detail: "push_permission_denied",
+      };
+    }
     console.error("[FCM] ❌ Web initialization failed:", error);
     return {
       status: "push_failed",

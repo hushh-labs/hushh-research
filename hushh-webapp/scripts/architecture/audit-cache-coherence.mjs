@@ -416,6 +416,69 @@ function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+/**
+ * Linkage invariants guard the two cache-coherence failure modes that the
+ * presence-only flags above cannot catch:
+ *
+ *   1. TTL drift  - a read-path service writes a different TTL class than the
+ *                   manifest declares, so cached data expires early and the
+ *                   page refetches on its own (the /consents scroll-refresh bug).
+ *   2. Warm/read key mismatch - the unlock warm orchestrator populates cache
+ *                   keys that the page never reads, so the screen always lands
+ *                   cold after unlock despite "warming".
+ *
+ * These are evidence-based source checks scoped to the surfaces that regressed,
+ * not a generic TTL scanner. Extend the lists below when new vault-backed read
+ * paths adopt the warm-cache contract.
+ */
+function linkageInvariants() {
+  const violations = [];
+  const readSource = (relPath) => {
+    const full = path.join(appRoot, relPath);
+    return fs.existsSync(full) ? read(full) : "";
+  };
+
+  // Invariant 1: the /consents read-path service must cache its read responses
+  // at CACHE_TTL.MEDIUM (matching the manifest ttl_class). A CACHE_TTL.SHORT
+  // write here is the TTL drift that caused stale-driven refetch on scroll.
+  const consentServiceSource = readSource(
+    "lib/services/consent-center-service.ts"
+  );
+  if (consentServiceSource) {
+    const usesMedium = consentServiceSource.includes("CACHE_TTL.MEDIUM");
+    const usesShort = /cache\.set\([^)]*CACHE_TTL\.SHORT/.test(
+      consentServiceSource
+    );
+    if (!usesMedium) {
+      violations.push(
+        "consent-center-service.ts read paths must cache at CACHE_TTL.MEDIUM to match the /consents manifest ttl_class"
+      );
+    }
+    if (usesShort) {
+      violations.push(
+        "consent-center-service.ts writes CACHE_TTL.SHORT on a cache.set read path; this causes early-expiry refetch on /consents (use CACHE_TTL.MEDIUM)"
+      );
+    }
+  }
+
+  // Invariant 2: the unlock warm orchestrator must warm the consent center
+  // read APIs so the warmed keys equal the keys the /consents page reads.
+  const warmSource = readSource("lib/services/unlock-warm-orchestrator.ts");
+  if (warmSource) {
+    const warmsConsentCenter =
+      warmSource.includes("ConsentCenterService") &&
+      warmSource.includes("getSummary") &&
+      warmSource.includes("listEntries");
+    if (!warmsConsentCenter) {
+      violations.push(
+        "unlock-warm-orchestrator.ts must call ConsentCenterService.getSummary + listEntries so warmed keys match the /consents page-read keys"
+      );
+    }
+  }
+
+  return violations;
+}
+
 const check = process.argv.includes("--check");
 const next = stableJson(buildManifest());
 
@@ -437,6 +500,13 @@ if (check) {
   if (manifest.summary.routes_missing_surface_map.length > 0) {
     console.error(
       `cache-coherence: missing surface map entries: ${manifest.summary.routes_missing_surface_map.join(", ")}`
+    );
+    process.exit(1);
+  }
+  const linkageViolations = linkageInvariants();
+  if (linkageViolations.length > 0) {
+    console.error(
+      `cache-coherence: linkage invariant violations:\n  - ${linkageViolations.join("\n  - ")}`
     );
     process.exit(1);
   }

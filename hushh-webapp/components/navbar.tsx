@@ -171,10 +171,13 @@ function navOptionForKey(
   pendingConsents: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
+  // Pending-consent badge home: the dedicated "guardian" tab when it exists
+  // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
+  // now lives as a subroute of the One dashboard.
   return {
     ...option,
     badge:
-      (key === "guardian" || key === "profile") && pendingConsents > 0
+      (key === "guardian" || key === "dashboard") && pendingConsents > 0
         ? pendingConsents
         : undefined,
   };
@@ -260,6 +263,8 @@ export const Navbar = () => {
       }
     };
 
+    // When the bottom nav is genuinely gone for this context (unauthenticated,
+    // onboarding chrome, or no nav options), collapse the reserved height to 0.
     if (!isAuthenticated || useOnboardingChrome || navOptions.length === 0) {
       setBottomChromeVars("0px", "58px");
       return;
@@ -267,7 +272,12 @@ export const Navbar = () => {
 
     const el = pillRef.current;
     if (!el) {
-      setBottomChromeVars("0px", "58px");
+      // The navbar is temporarily unmounted (e.g. the agent window is open, which
+      // also hides the agent bar that consumes --app-bottom-fixed-ui). Do NOT
+      // zero the reserved height here: when the agent window closes the navbar
+      // remounts but this effect's other deps are unchanged, so it would not
+      // re-measure and the stale 0px would collapse the agent bar onto the nav.
+      // Preserve the last measured value until a real measurement runs.
       return;
     }
 
@@ -292,7 +302,10 @@ export const Navbar = () => {
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [isAuthenticated, navOptions.length, useOnboardingChrome]);
+    // `agentWindowOpen` is included so the pill is re-measured when the navbar
+    // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
+    // stays stale and the agent bar overlaps the nav).
+  }, [agentWindowOpen, isAuthenticated, navOptions.length, useOnboardingChrome]);
 
   const bottomNavMaxWidth =
     navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
@@ -386,7 +399,7 @@ export const Navbar = () => {
     >
       <div
         className={cn(
-          "relative flex items-end justify-center gap-2",
+          "relative flex items-stretch justify-center gap-2",
           "pointer-events-none",
           hideBottomChrome && "pointer-events-none",
         )}
@@ -421,7 +434,9 @@ export const Navbar = () => {
           type="button"
           aria-label="Search"
           className={cn(
-            "pointer-events-auto relative z-20 inline-flex h-[58px] w-[58px] shrink-0 items-center justify-center overflow-hidden rounded-full",
+            // Stretch to the pill height and stay a perfect circle so the search
+            // bubble and the bottom-nav pill read as one symmetric row.
+            "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
             // Flat surface matching the top app bar controls (ShellActionSurface):
             // soft translucent track, no border/shadow/blur, symmetric in light + dark.
             "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",

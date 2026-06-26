@@ -1664,6 +1664,14 @@ function OneLocationAgentPageContent() {
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
+  // Per-grant revoke tracking so "Stop sharing" only spins on the specific
+  // active-share card the user tapped, not every active share at once.
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  // Monotonic counter bumped each time a share completes successfully, so the
+  // redesign hub can close the 3-step share flow and return to the main screen.
+  const [shareCompletedTick, setShareCompletedTick] = useState(0);
+
+
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
   const [locationOnboardingStep, setLocationOnboardingStep] =
@@ -2204,27 +2212,18 @@ function OneLocationAgentPageContent() {
               ? firstRecommendedRecipient?.userId || ""
               : "",
         );
-        setSelectedRecipientIds((current) => {
-          const validSelectedIds = current.filter((recipientId) =>
-            nextRecipientIds.has(recipientId),
-          );
-          return validSelectedIds.length
-            ? validSelectedIds
-            : shouldAutoSelectFallback && firstRecommendedRecipient
-              ? [firstRecommendedRecipient.userId]
-              : [];
-        });
-        setSelectedRequestOwnerIds((current) => {
-          const validSelectedIds = current.filter((recipientId) =>
-            nextRecipientIds.has(recipientId),
-          );
-          return validSelectedIds.length
-            ? validSelectedIds
-            : shouldAutoSelectFallback && firstRecommendedRecipient
-              ? [firstRecommendedRecipient.userId]
-              : [];
-        });
+        // Multi-select share/request lists must never auto-select a default
+        // person: the redesign hub ("Who can see you?" / "Make it comfortable")
+        // requires the user to pick explicitly. We only preserve selections that
+        // are still valid after a refresh and otherwise leave the list empty.
+        setSelectedRecipientIds((current) =>
+          current.filter((recipientId) => nextRecipientIds.has(recipientId)),
+        );
+        setSelectedRequestOwnerIds((current) =>
+          current.filter((recipientId) => nextRecipientIds.has(recipientId)),
+        );
         suppressAutoRecipientSelectionRef.current = false;
+
       } catch (error) {
         suppressAutoRecipientSelectionRef.current = false;
         setLoadError(
@@ -2810,7 +2809,11 @@ function OneLocationAgentPageContent() {
         )}.`,
       );
       resetShareComposer();
+      // Signal the redesign hub to close the 3-step share flow and return to
+      // the main One Location screen now that sharing finished.
+      setShareCompletedTick((value) => value + 1);
       await refresh();
+
     } catch (error) {
       const failureCount =
         shareReadySelectedRecipients.length - successCount || 1;
@@ -3176,7 +3179,9 @@ function OneLocationAgentPageContent() {
   const handleRevoke = useCallback(
     async (grantId: string) => {
       if (!vaultOwnerToken) return;
-      setBusy("revoke");
+      // Track the specific grant being revoked so only its "Stop sharing" card
+      // shows the loading state, not every active share at once.
+      setRevokingGrantId(grantId);
       try {
         await OneLocationService.revokeGrant({ vaultOwnerToken, grantId });
         toast.success("Location access revoked.");
@@ -3186,11 +3191,12 @@ function OneLocationAgentPageContent() {
           error instanceof Error ? error.message : "Could not revoke access.",
         );
       } finally {
-        setBusy(null);
+        setRevokingGrantId(null);
       }
     },
     [refresh, vaultOwnerToken],
   );
+
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -4126,7 +4132,10 @@ function OneLocationAgentPageContent() {
     userId: auth.userId ?? null,
     canShare,
     busy,
+    revokingGrantId,
+    shareCompletedTick,
     readiness: {
+
       tone: locationReadiness.tone,
       title: locationReadiness.title,
       description: locationReadiness.description,

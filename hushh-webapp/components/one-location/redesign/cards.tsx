@@ -73,11 +73,14 @@ export function TrustedPersonCard({
     >
       <Avatar initials={initialsFrom(name)} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-semibold text-foreground">
+        <p className="break-words text-[13px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere] sm:text-base">
           {name}
         </p>
-        <p className={cn(MUTED_TEXT, "truncate")}>{subtitle}</p>
+        <p className={cn(MUTED_TEXT, "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs")}>
+          {subtitle}
+        </p>
       </div>
+
       {statusLabel ? (
         <StatusPill tone={tone === "neutral" ? "neutral" : tone}>
           {statusLabel}

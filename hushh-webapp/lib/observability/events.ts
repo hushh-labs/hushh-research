@@ -69,6 +69,8 @@ export type ObservabilityEventName =
   | "profile_method_switch_result"
   | "account_delete_requested"
   | "account_delete_completed"
+  | "account_reset_requested"
+  | "account_reset_completed"
   | "gmail_connect_started"
   | "gmail_connect_result"
   | "gmail_disconnect_result"
@@ -203,6 +205,8 @@ const EVENT_CATEGORY_BY_NAME: Record<
   profile_method_switch_result: "system",
   account_delete_requested: "system",
   account_delete_completed: "system",
+  account_reset_requested: "system",
+  account_reset_completed: "system",
   gmail_connect_started: "system",
   gmail_connect_result: "system",
   gmail_disconnect_result: "system",
@@ -367,6 +371,13 @@ export interface EventPayloadMap {
     result: "success";
   };
   account_delete_completed: {
+    result: EventResult;
+    status_bucket?: StatusBucket;
+  };
+  account_reset_requested: {
+    result: "success";
+  };
+  account_reset_completed: {
     result: EventResult;
     status_bucket?: StatusBucket;
   };

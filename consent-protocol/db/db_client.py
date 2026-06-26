@@ -1,18 +1,22 @@
 # consent-protocol/db/db_client.py
 """
-Database Client - SQLAlchemy Session Pooler
+Database Client - SQLAlchemy (synchronous)
 
-This module provides a unified database access layer using SQLAlchemy with
-Supabase's session pooler for direct PostgreSQL connections.
+This module provides a unified, SYNCHRONOUS database access layer using
+SQLAlchemy + psycopg2 over Google Cloud SQL (Postgres). Supabase has been
+removed; Cloud SQL is the only datastore. Connectivity matches db.connection:
+the Cloud SQL Auth Proxy locally (127.0.0.1:CLOUDSQL_PROXY_PORT) and the Cloud
+SQL Unix socket on Cloud Run.
 
 Architecture:
-  API Route → Service Layer (validates consent) → DB Client → PostgreSQL
+  API Route → Service Layer (validates consent) → DB Client → Cloud SQL
 
-Benefits over REST API:
-  - Direct PostgreSQL connection (lower latency)
-  - Full SQL power (transactions, CTEs, raw queries)
-  - Single connection method for all operations
-  - Consistent with migration scripts
+IMPORTANT — blocking I/O:
+  Every execute()/execute_raw() here is a BLOCKING psycopg2 call. When called
+  from an async (FastAPI) request handler it MUST be wrapped in
+  ``starlette.concurrency.run_in_threadpool`` (or asyncio.to_thread); otherwise
+  it stalls the event loop and serialises all concurrent requests. Prefer the
+  async asyncpg pool in db.connection for new async code paths.
 """
 
 import json

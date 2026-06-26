@@ -90,7 +90,13 @@ export function PhoneMandateGuard({
 
     const loadIdentityState = async () => {
       try {
-        const identity = await AccountIdentityService.refreshCurrentUserIdentity(user);
+        // Read the cached identity shadow (force: false) so the guard does not
+        // block rendering on a synchronous Firebase Auth round-trip plus DB
+        // upsert. Freshness is maintained by the forced sync paths at login and
+        // after a phone claim.
+        const identity = await AccountIdentityService.refreshCurrentUserIdentity(user, {
+          force: false,
+        });
         if (!cancelled) {
           setBackendPhoneVerified(AccountIdentityService.hasVerifiedPhone(identity));
         }

@@ -16,7 +16,11 @@ const mocks = vi.hoisted(() => ({
   handleApprove: vi.fn(),
   handleDeny: vi.fn(),
   handleRevoke: vi.fn(),
+  handleLocationApprove: vi.fn(),
+  handleLocationDeny: vi.fn(),
+  handleLocationRevoke: vi.fn(),
   busyRequestIds: new Set<string>(),
+
   busyScopes: new Set<string>(),
   activeAction: null as null | {
     key: string;
@@ -58,7 +62,19 @@ vi.mock("@/lib/consent", () => ({
     isScopeBusy: (scope?: string | null) =>
       mocks.busyScopes.has(String(scope || "")),
   }),
+  // One Location rows route through a dedicated hook; non-location consents
+  // never touch it, so a no-op mock is enough for these deep-link tests.
+  useOneLocationConsentActions: () => ({
+    handleApprove: mocks.handleLocationApprove,
+    handleDeny: mocks.handleLocationDeny,
+    handleRevoke: mocks.handleLocationRevoke,
+    activeAction: null,
+    activeActions: [],
+    isRequestBusy: () => false,
+    isScopeBusy: () => false,
+  }),
 }));
+
 
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),

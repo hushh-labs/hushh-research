@@ -22,6 +22,13 @@ from hushh_mcp.services.voice_intent_service import (
     _is_executable_tool_call,
     _response_has_executable_plan,
 )
+from hushh_mcp.services.voice_transport import select_voice_lane
+
+# The realtime voice transport is OpenAI-backed (``gpt-realtime``); the chained
+# STT/TTS legs use OpenAI models too. Surface the resolved lane on the
+# capability contract via the shared selector so clients route explicitly
+# instead of re-deriving it from ``realtime_enabled``.
+_REALTIME_BRAIN_PROVIDER = "openai"
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +168,9 @@ def _voice_capability_state(user_id: str) -> dict[str, Any]:
         "bucket": rollout["bucket"],
         "canary_percent": rollout["canary_percent"],
         "realtime_enabled": realtime_enabled,
+        "voice_lane": select_voice_lane(
+            _REALTIME_BRAIN_PROVIDER, realtime_enabled=realtime_enabled
+        ),
         "tts_enabled": bool(rollout["enabled"]),
         "tts_timeout_ms": int(voice_service.tts_timeout_seconds * 1000),
         "tts_model": str(voice_service.tts_model or ""),
@@ -474,6 +484,7 @@ class VoiceCapabilityResponse(BaseModel):
     bucket: Optional[int] = Field(default=None, ge=0)
     canary_percent: Optional[int] = Field(default=None, ge=0, le=100)
     realtime_enabled: bool = False
+    voice_lane: str = Field(default="chained", max_length=16)
     tts_enabled: bool = False
     tts_timeout_ms: int = Field(..., ge=0)
     tts_model: str = Field(..., min_length=1, max_length=128)

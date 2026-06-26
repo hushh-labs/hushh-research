@@ -157,3 +157,6 @@ test_kai_endpoints.py
 ehthumbs.db
 ehthumbs_vista.db
 [Tt]humbs.db
+
+# Machine-local Claude project memory (path is bound to a specific local home dir)
+.claude/projects/

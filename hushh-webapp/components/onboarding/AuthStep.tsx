@@ -167,6 +167,7 @@ export function AuthStep({
           phoneNumber,
           phoneVerified: backendPhoneVerified,
           hostname: typeof window === "undefined" ? null : window.location.hostname,
+          enableFirstRunSetupGate: true,
         });
 
         const resumeImportFlow =

@@ -65,14 +65,20 @@ import {
   transcribeAgentVoice,
 } from "@/lib/services/agent-voice-client";
 import {
+  AgentRealtimeClient,
+  type AgentRealtimeVoiceState,
+} from "@/lib/services/agent-realtime-client";
+import {
   useAgentVoiceState,
   type AgentVoiceStatus,
 } from "@/lib/agent/agent-voice-state";
 import { handleAgentVoiceTranscriptTurn } from "@/lib/agent/agent-voice-turn";
 import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts";
 import {
+  AGENT_CONVERSATION_REQUEST_EVENT,
   AGENT_VOICE_SETTINGS_CHANGED_EVENT,
   isAgentGeminiVoiceEnabled,
+  isAgentRealtimeVoiceEnabled,
   readAgentVoiceSettings,
   type AgentGeminiTtsVoice,
 } from "@/lib/agent/agent-voice-settings";
@@ -93,6 +99,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
   id: string;
@@ -148,11 +155,11 @@ type AgentChatWorkspaceProps = {
 };
 
 const AGENT_GREETING =
-  "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
+  "Hi, I'm One \u2014 your personal agent. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
 const AGENT_WELCOME_PROMPTS = [
   "Review my portfolio",
-  "Save a PKM memory",
+  "Save a memory",
   "Explain consent flows",
 ] as const;
 
@@ -287,13 +294,13 @@ function AgentWelcomePanel({
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          Kai workspace
+          One workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
           Hi {name}
         </h2>
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
-          Ask Agent about your markets, portfolio, memories, or Hushh workflows.
+          Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
           {AGENT_WELCOME_PROMPTS.map((prompt) => (
@@ -750,6 +757,10 @@ export function AgentChatWorkspace({
     AppBackgroundTaskService.getState()
   );
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
+  const realtimeVoiceClientRef = useRef<AgentRealtimeClient | null>(null);
+  const realtimeVoiceActiveRef = useRef(false);
+  const realtimeUserTranscriptIdRef = useRef<string | null>(null);
+  const realtimeAssistantMessageIdRef = useRef<string | null>(null);
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -776,6 +787,7 @@ export function AgentChatWorkspace({
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentGeminiVoiceEnabled();
+  const agentRealtimeVoiceEnabled = isAgentRealtimeVoiceEnabled();
   const abortAgentTurnWork = useCallback(() => {
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
@@ -919,7 +931,9 @@ export function AgentChatWorkspace({
     !voiceActive &&
     input.trim().length > 0;
   const canToggleVoice =
-    agentVoiceEnabled && hasChatAccess && (!isVoiceConnecting || voiceActive);
+    (agentRealtimeVoiceEnabled || agentVoiceEnabled) &&
+    hasChatAccess &&
+    (!isVoiceConnecting || voiceActive);
   const historyInteractionDisabled =
     isLoadingHistory ||
     isChatLoading ||
@@ -1020,6 +1034,9 @@ export function AgentChatWorkspace({
       abortAgentTurnWork();
       void voiceClientRef.current?.stop();
       voiceClientRef.current = null;
+      realtimeVoiceActiveRef.current = false;
+      realtimeVoiceClientRef.current?.close();
+      realtimeVoiceClientRef.current = null;
       voiceTtsQueueRef.current?.cancel();
       voiceTtsQueueRef.current = null;
       resetGlobalVoiceState();
@@ -2105,6 +2122,9 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        screenContext: buildStructuredScreenContext({
+          appRuntimeState: appRuntimeStateRef.current,
+        }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -2513,14 +2533,171 @@ export function AgentChatWorkspace({
     }
   };
 
+  // Realtime full-duplex voice for One. Opt-in (NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED)
+  // and fail-closed: when the flag is off we never construct the realtime client and the
+  // conversational-mode control falls back to the turn-based path. Reuses the existing
+  // AgentRealtimeClient adapter over /agent/realtime/session (no new mic/STT/TTS code) and
+  // maps its voice state onto the shared agent voice store so the wave input renders as-is.
+  const mapRealtimeVoiceState = useCallback(
+    (state: AgentRealtimeVoiceState): AgentVoiceStatus => {
+      switch (state) {
+        case "connecting":
+          return "connecting";
+        case "listening":
+          return "listening";
+        case "thinking":
+          return "thinking";
+        case "speaking":
+          return "speaking";
+        case "idle":
+        default:
+          return "idle";
+      }
+    },
+    [],
+  );
+
+  const handleCancelRealtimeVoice = useCallback(async () => {
+    realtimeVoiceActiveRef.current = false;
+    realtimeUserTranscriptIdRef.current = null;
+    realtimeAssistantMessageIdRef.current = null;
+    realtimeVoiceClientRef.current?.close();
+    realtimeVoiceClientRef.current = null;
+    setIsVoiceConnecting(false);
+    setVoiceState("idle");
+    resetGlobalVoiceState();
+  }, [resetGlobalVoiceState]);
+
+  const handleToggleRealtimeVoice = async () => {
+    if (!agentRealtimeVoiceEnabled) {
+      addErrorMessage("Realtime voice is disabled for this environment.");
+      return;
+    }
+    if (!hasChatAccess || !user?.uid) return;
+
+    if (realtimeVoiceActiveRef.current) {
+      await handleCancelRealtimeVoice();
+      return;
+    }
+
+    const token = getVaultOwnerToken();
+    if (!token) {
+      addErrorMessage("Vault access expired. Unlock again to continue.");
+      return;
+    }
+
+    setIsVoiceConnecting(true);
+    setGlobalVoiceActive(true);
+    setAgentVoiceStatus("connecting");
+    realtimeVoiceActiveRef.current = true;
+
+    const client = new AgentRealtimeClient();
+    realtimeVoiceClientRef.current = client;
+
+    try {
+      await client.connect({ userId: user.uid, vaultOwnerToken: token });
+      await client.startMicrophone({
+        onVoiceState: (state) => {
+          if (!realtimeVoiceActiveRef.current) return;
+          if (state !== "connecting") {
+            setIsVoiceConnecting(false);
+          }
+          setAgentVoiceStatus(mapRealtimeVoiceState(state));
+        },
+        onInputTranscriptDelta: (delta) => {
+          if (!realtimeVoiceActiveRef.current || !delta) return;
+          const existingId = realtimeUserTranscriptIdRef.current;
+          if (existingId) {
+            updateMessage(existingId, (message) => ({
+              ...message,
+              text: `${message.text}${delta}`,
+            }));
+            return;
+          }
+          const id = `msg-${Date.now()}-user-voice`;
+          realtimeUserTranscriptIdRef.current = id;
+          appendMessage({
+            id,
+            role: "user",
+            text: delta,
+            timestamp: formatNow(),
+          });
+        },
+        onInputTranscriptDone: (text) => {
+          const existingId = realtimeUserTranscriptIdRef.current;
+          if (existingId && text.trim()) {
+            updateMessage(existingId, (message) => ({ ...message, text }));
+          }
+          realtimeUserTranscriptIdRef.current = null;
+        },
+        onResponseStart: () => {
+          if (!realtimeVoiceActiveRef.current) return;
+          const id = `msg-${Date.now()}-assistant-voice`;
+          realtimeAssistantMessageIdRef.current = id;
+          appendMessage({
+            id,
+            role: "assistant",
+            text: "",
+            timestamp: formatNow(),
+            status: "streaming",
+          });
+        },
+        onResponseDelta: (delta) => {
+          const existingId = realtimeAssistantMessageIdRef.current;
+          if (!existingId || !delta) return;
+          updateMessage(existingId, (message) => ({
+            ...message,
+            text: `${message.text}${delta}`,
+          }));
+        },
+        onResponseDone: (text) => {
+          const existingId = realtimeAssistantMessageIdRef.current;
+          if (existingId) {
+            updateMessage(existingId, (message) => ({
+              ...message,
+              text: text.trim() ? text : message.text,
+              status: "done",
+            }));
+          }
+          realtimeAssistantMessageIdRef.current = null;
+        },
+        onError: (message) => {
+          if (!realtimeVoiceActiveRef.current) return;
+          addErrorMessage(message);
+          setAgentVoiceStatus("error", message);
+          void handleCancelRealtimeVoice();
+        },
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Realtime voice session failed.";
+      addErrorMessage(message);
+      await handleCancelRealtimeVoice();
+    }
+  };
+
   useEffect(() => {
     if (!voiceActive) return;
-    if (agentVoiceEnabled && user?.uid && isVaultUnlocked && vaultOwnerToken && tokenIsFresh) {
+    if (
+      (agentVoiceEnabled || agentRealtimeVoiceEnabled) &&
+      user?.uid &&
+      isVaultUnlocked &&
+      vaultOwnerToken &&
+      tokenIsFresh
+    ) {
+      return;
+    }
+    if (realtimeVoiceActiveRef.current) {
+      void handleCancelRealtimeVoice();
       return;
     }
     void handleCancelVoice();
   }, [
     agentVoiceEnabled,
+    agentRealtimeVoiceEnabled,
+    handleCancelRealtimeVoice,
     handleCancelVoice,
     isVaultUnlocked,
     tokenIsFresh,
@@ -2528,6 +2705,59 @@ export function AgentChatWorkspace({
     vaultOwnerToken,
     voiceActive,
   ]);
+
+  // Keep a live reference to the latest voice toggle so the conversation-request
+  // listener (registered once) always invokes the current handler. When realtime
+  // voice is enabled the conversational-mode control prefers the realtime path;
+  // otherwise it falls back to the turn-based toggle (fail-closed default).
+  const startConversationalVoice = () =>
+    agentRealtimeVoiceEnabled ? handleToggleRealtimeVoice() : handleToggleVoice();
+  const handleToggleVoiceRef = useRef(startConversationalVoice);
+  handleToggleVoiceRef.current = startConversationalVoice;
+
+  // The agent bar's conversational-mode control dispatches a request event after
+  // opening the surface. Auto-start a voice turn once the workspace is ready and
+  // not already in a voice session. Honors the same access gates as the in-chat
+  // voice button (vault unlock, fresh token, voice feature flag).
+  const conversationVoiceEnabled = agentRealtimeVoiceEnabled || agentVoiceEnabled;
+  const conversationReady =
+    conversationVoiceEnabled && hasChatAccess && !voiceActive && !isVoiceConnecting;
+  const conversationReadyRef = useRef(conversationReady);
+  conversationReadyRef.current = conversationReady;
+  const pendingConversationRequestRef = useRef(false);
+
+  const tryStartPendingConversation = useCallback(() => {
+    if (!pendingConversationRequestRef.current) return;
+    if (!conversationReadyRef.current) return;
+    pendingConversationRequestRef.current = false;
+    void handleToggleVoiceRef.current();
+  }, []);
+
+  useEffect(() => {
+    const handleConversationRequest = () => {
+      pendingConversationRequestRef.current = true;
+      tryStartPendingConversation();
+    };
+    window.addEventListener(
+      AGENT_CONVERSATION_REQUEST_EVENT,
+      handleConversationRequest,
+    );
+    return () => {
+      window.removeEventListener(
+        AGENT_CONVERSATION_REQUEST_EVENT,
+        handleConversationRequest,
+      );
+      pendingConversationRequestRef.current = false;
+    };
+  }, [tryStartPendingConversation]);
+
+  // If the request arrived before the workspace was ready (e.g. vault still
+  // unlocking), retry once readiness flips true.
+  useEffect(() => {
+    if (conversationReady) {
+      tryStartPendingConversation();
+    }
+  }, [conversationReady, tryStartPendingConversation]);
 
   const accessMessage = authLoading
     ? "Checking access..."
@@ -2680,7 +2910,10 @@ export function AgentChatWorkspace({
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          isPopover ? "overflow-hidden p-2 sm:p-3" : "overflow-hidden"
+          // On phones the popover is a full-bleed immersive sheet, so the inner
+          // content must reach every edge (no surrounding padding gap). The
+          // inset padding only applies to the floating windowed card at >=sm.
+          isPopover ? "overflow-hidden p-0 sm:p-3" : "overflow-hidden"
         )}
       >
         <div className="hidden h-full lg:flex">
@@ -2715,7 +2948,10 @@ export function AgentChatWorkspace({
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
+            // Rounded card framing is only for the floating windowed popover at
+            // >=sm. On phones the sheet is edge-to-edge, so no rounding/border.
+            isPopover &&
+              "sm:rounded-lg sm:border sm:border-black/10 sm:shadow-sm sm:dark:border-white/10"
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -2753,10 +2989,10 @@ export function AgentChatWorkspace({
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
-                  Agent
+                  One
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                  Kai workspace
+                  Your personal agent
                 </p>
               </div>
             </div>
@@ -2930,8 +3166,18 @@ export function AgentChatWorkspace({
                     level={voiceLevel}
                     muted={voiceMuted}
                     disabled={!hasChatAccess || isVoiceConnecting}
-                    onToggleMute={handleToggleVoice}
+                    onToggleMute={
+                      realtimeVoiceActiveRef.current
+                        ? () => {
+                            void handleCancelRealtimeVoice();
+                          }
+                        : handleToggleVoice
+                    }
                     onCancel={() => {
+                      if (realtimeVoiceActiveRef.current) {
+                        void handleCancelRealtimeVoice();
+                        return;
+                      }
                       void handleCancelVoice();
                     }}
                   />
@@ -2940,7 +3186,7 @@ export function AgentChatWorkspace({
                 <div className="agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
                   <textarea
                     ref={composerTextareaRef}
-                    aria-label="Message Agent"
+                    aria-label="Message One"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => {
@@ -2953,18 +3199,20 @@ export function AgentChatWorkspace({
                       }
                     }}
                     disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
-                    placeholder="Message Agent..."
+                    placeholder="Message One..."
                     rows={1}
                     className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   />
-                  {agentVoiceEnabled ? (
+                  {agentRealtimeVoiceEnabled || agentVoiceEnabled ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
                       disabled={!canToggleVoice}
-                      onClick={handleToggleVoice}
+                      onClick={() => {
+                        void startConversationalVoice();
+                      }}
                       aria-label="Start voice mode"
                       title="Start voice mode"
                     >

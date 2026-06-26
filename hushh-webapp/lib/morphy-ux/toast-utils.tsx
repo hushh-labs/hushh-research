@@ -417,5 +417,45 @@ export const morphyToast = {
   },
 
   dismiss: toast.dismiss,
-  promise: toast.promise,
+  /**
+   * Branded promise toast for actionables.
+   *
+   * Use this for any destructive or async action that must show a single,
+   * coherent loading -> success / error lifecycle tied to the real action
+   * promise (waiting for ack / status). The toast shows the Morphy loading
+   * spinner while the promise is pending, then morphs in place to the
+   * success or error tone. This is the standard branded pattern for
+   * actionable feedback - prefer it over manual `loading` + `success`/`error`
+   * toast pairs.
+   */
+  promise: <T,>(
+    promise: Promise<T> | (() => Promise<T>),
+    data: {
+      loading: React.ReactNode;
+      success:
+        | React.ReactNode
+        | ((value: T) => React.ReactNode | Promise<React.ReactNode>);
+      error:
+        | React.ReactNode
+        | ((error: unknown) => React.ReactNode | Promise<React.ReactNode>);
+      description?: React.ReactNode;
+      variant?: ColorVariant;
+      finally?: () => void | Promise<void>;
+    }
+  ): ReturnType<typeof toast.promise> => {
+    const accent = getToastVariantAccentClassName(data.variant);
+    return toast.promise<T>(promise, {
+      loading: data.loading,
+      success: data.success,
+      error: data.error,
+      description: data.description,
+      finally: data.finally,
+      classNames: {
+        toast: cn("morphy-sonner-toast", accent),
+        loading: cn(getToastToneClassName("info", data.variant)),
+        success: cn(getToastToneClassName("success", data.variant)),
+        error: cn(getToastToneClassName("error", data.variant)),
+      },
+    });
+  },
 };

@@ -395,6 +395,8 @@ async def startup_pool_and_iam_cache() -> None:
     startup_required_schema_guard (below) will enforce hard failure in
     production if the DB is truly missing.
     """
+    import asyncio
+
     from db.connection import get_pool
     from hushh_mcp.services.ria_iam_service import (
         _IAM_REQUIRED_TABLES,
@@ -403,6 +405,25 @@ async def startup_pool_and_iam_cache() -> None:
 
     try:
         pool = await get_pool()
+        # Pre-open the pool's minimum connections concurrently so the first
+        # burst of real requests after a restart does not each pay the slow
+        # remote TLS handshake serially. Without this, only one connection is
+        # warm and a couple of concurrent first requests stall for 15-30s while
+        # additional connections are established to the remote Cloud SQL proxy.
+        min_warm = max(1, pool.get_min_size())
+
+        async def _warm_one() -> None:
+            async with pool.acquire() as warm_conn:
+                await warm_conn.fetchval("SELECT 1")
+
+        try:
+            await asyncio.gather(*[_warm_one() for _ in range(min_warm)])
+        except Exception as warm_exc:  # noqa: BLE001 - warm-up is best-effort
+            logger.warning(
+                "startup.pool_prewarm_failed reason=%s (cold-start cost may apply)",
+                warm_exc,
+            )
+
         async with pool.acquire() as conn:
             present = await RIAIAMService._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
             if present >= set(_IAM_REQUIRED_TABLES):

@@ -371,11 +371,21 @@ async function openSharePersonStep() {
 
 async function openShareDetailsStep() {
   await openSharePersonStep();
+  // No recipient is auto-selected anymore — the user must pick someone before
+  // Continue is enabled. Select the first ready recipient (the action button's
+  // accessible name is the aria-label "Select <name> for private sharing").
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: /Select Trusted B for private sharing/i,
+    }),
+  );
+
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(
     await screen.findByRole("heading", { name: "What are you sharing?" }),
   ).toBeTruthy();
 }
+
 
 async function openShareReviewStep() {
   await openShareDetailsStep();
@@ -971,15 +981,20 @@ describe("OneLocationAgentPage", () => {
         failure_count: 0,
       }),
     );
+    // After a successful share the flow closes and returns to the main hub.
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "What are you sharing?" }),
+        screen.getByRole("heading", { name: "Active shares" }),
       ).toBeTruthy(),
     );
     expect(
       screen.queryByRole("heading", { name: "Before you start" }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "What are you sharing?" }),
+    ).toBeNull();
   });
+
 
   it("retries transient foreground publish failures and tracks backoff metadata", async () => {
     mockGetState.mockResolvedValueOnce({
@@ -1070,6 +1085,13 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
+    // No recipient is auto-selected anymore — select Trusted B explicitly first
+    // so the multi-select ordering remains ["user_b", "user_d"].
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for private sharing/i,
+      }),
+    );
     expect(
       await screen.findByRole("button", {
         name: /Deselect Trusted B for private sharing/i,
@@ -1164,6 +1186,12 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
+    // No owner is auto-selected anymore — pick Trusted B explicitly first.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
     fireEvent.change(
       screen.getByPlaceholderText(
         "Hey, can you share your location until we meet?",
@@ -1261,6 +1289,18 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
+    // No owner is auto-selected anymore — select Trusted B explicitly first so
+    // the multi-select ordering remains ["user_b", "user_d"].
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: /Deselect Trusted B for location request/i,
+      }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", {
         name: /Select Investor D for location request/i,

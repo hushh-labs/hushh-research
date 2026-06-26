@@ -548,7 +548,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
   return (
     <div
       className={cn(
-        "fixed inset-x-0 top-0 z-50 pointer-events-none",
+        "fixed inset-x-0 top-0 pointer-events-none",
+        // While the vault unlock gate is showing, ride ABOVE the dialog overlay
+        // scrim (z-[499]) so the top navbar stays sharp instead of being blurred
+        // by the vault backdrop. Otherwise keep the normal top-chrome layer.
+        showVaultUnlockAction ? "z-[505]" : "z-50",
         className,
       )}
     >

@@ -1096,57 +1096,60 @@ html.native-ios {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
-/* Shared critical palette (use for delete/revoke/expire sections; avoids destructive variants). */
+/* Shared critical palette (use for delete/revoke/expire sections; avoids destructive variants).
+ * NOTE: the --critical-* tokens are full oklch() colors, so they must be used
+ * directly. Wrapping them in hsl() produces an invalid value that the browser
+ * silently drops (which previously left .app-critical-action with no fill). */
 .app-critical-card {
-  border: 1px solid color-mix(in oklab, hsl(var(--critical-soft-border)) 55%, transparent) !important;
+  border: 1px solid color-mix(in oklab, var(--critical-soft-border) 55%, transparent) !important;
   background:
     linear-gradient(
       155deg,
-      color-mix(in oklab, hsl(var(--critical-soft-bg)) 70%, transparent),
-      color-mix(in oklab, hsl(var(--critical-soft-bg)) 28%, transparent)
+      color-mix(in oklab, var(--critical-soft-bg) 70%, transparent),
+      color-mix(in oklab, var(--critical-soft-bg) 28%, transparent)
     ) !important;
   box-shadow:
-    0 8px 26px color-mix(in oklab, hsl(var(--critical-solid)) 16%, transparent),
-    inset 0 1px 0 color-mix(in oklab, hsl(var(--critical-foreground)) 22%, transparent);
+    0 8px 26px color-mix(in oklab, var(--critical-solid) 16%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--critical-foreground) 22%, transparent);
   backdrop-filter: blur(10px) saturate(140%);
   -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
 
 .app-critical-title {
-  color: hsl(var(--critical-soft-text));
+  color: var(--critical-soft-text);
 }
 
 .app-critical-alert {
-  border-color: color-mix(in oklab, hsl(var(--critical-soft-border)) 62%, transparent);
-  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 72%, transparent);
-  color: hsl(var(--critical-soft-text));
+  border-color: color-mix(in oklab, var(--critical-soft-border) 62%, transparent);
+  background: color-mix(in oklab, var(--critical-soft-bg) 72%, transparent);
+  color: var(--critical-soft-text);
 }
 
 .app-critical-badge {
-  border-color: color-mix(in oklab, hsl(var(--critical-soft-border)) 62%, transparent);
-  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 68%, transparent);
-  color: hsl(var(--critical-soft-text));
+  border-color: color-mix(in oklab, var(--critical-soft-border) 62%, transparent);
+  background: color-mix(in oklab, var(--critical-soft-bg) 68%, transparent);
+  color: var(--critical-soft-text);
 }
 
 .app-critical-action {
-  border-color: color-mix(in oklab, hsl(var(--critical-solid)) 78%, transparent);
-  background: hsl(var(--critical-solid));
-  color: hsl(var(--critical-foreground));
-  box-shadow: 0 10px 24px color-mix(in oklab, hsl(var(--critical-solid)) 28%, transparent);
+  border-color: color-mix(in oklab, var(--critical-solid) 78%, transparent);
+  background: var(--critical-solid);
+  color: var(--critical-foreground);
+  box-shadow: 0 10px 24px color-mix(in oklab, var(--critical-solid) 28%, transparent);
 }
 
 .app-critical-action:hover {
-  background: color-mix(in oklab, hsl(var(--critical-solid)) 92%, black);
+  background: color-mix(in oklab, var(--critical-solid) 92%, black);
 }
 
 .app-critical-action-outline {
-  border-color: color-mix(in oklab, hsl(var(--critical-soft-border)) 68%, transparent);
-  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 64%, transparent);
-  color: hsl(var(--critical-soft-text));
+  border-color: color-mix(in oklab, var(--critical-soft-border) 68%, transparent);
+  background: color-mix(in oklab, var(--critical-soft-bg) 64%, transparent);
+  color: var(--critical-soft-text);
 }
 
 .app-critical-action-outline:hover {
-  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 84%, transparent);
+  background: color-mix(in oklab, var(--critical-soft-bg) 84%, transparent);
 }
 
 @layer base {
@@ -2439,7 +2442,8 @@ html.dark .morphy-app-bg {
 [data-slot="dialog-scrim"],
 [data-slot="sheet-scrim"],
 [data-slot="drawer-scrim"],
-[data-slot="alert-dialog-scrim"] {
+[data-slot="alert-dialog-scrim"],
+[data-slot="popover-scrim"] {
   animation: overlay-scrim-in var(--motion-overlay-enter-duration)
     var(--motion-overlay-enter-ease) both;
 }
@@ -2447,7 +2451,8 @@ html.dark .morphy-app-bg {
 [data-slot="dialog-scrim"][data-state="closed"],
 [data-slot="sheet-scrim"][data-state="closed"],
 [data-slot="drawer-scrim"][data-state="closed"],
-[data-slot="alert-dialog-scrim"][data-state="closed"] {
+[data-slot="alert-dialog-scrim"][data-state="closed"],
+[data-slot="popover-scrim"][data-state="closed"] {
   animation: overlay-scrim-out var(--motion-overlay-exit-duration)
     var(--motion-overlay-exit-ease) both;
 }

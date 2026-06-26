@@ -12,6 +12,20 @@ export const DEFAULT_AGENT_GEMINI_TTS_VOICE: AgentGeminiTtsVoice = "Sulafat";
 
 export const AGENT_VOICE_SETTINGS_CHANGED_EVENT = "hushh:agent-voice-settings-changed";
 
+// Dispatched by the agent bar's conversational-mode control to request the
+// agent workspace auto-start a voice turn once it has opened and is ready.
+export const AGENT_CONVERSATION_REQUEST_EVENT = "hushh:agent-conversation-request";
+
+/**
+ * Ask the agent workspace to start conversational (voice) mode. Safe to call
+ * before the workspace mounts; the workspace re-checks the pending request on
+ * mount. Callers should also open the agent surface (openAgent) alongside this.
+ */
+export function requestAgentConversation(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(AGENT_CONVERSATION_REQUEST_EVENT));
+}
+
 const AGENT_VOICE_SETTINGS_STORAGE_KEY = "hushh.agent.voice.settings.v1";
 const DISABLED_FLAG_VALUES = new Set(["0", "false", "off", "disabled", "no"]);
 
@@ -79,4 +93,22 @@ export function isAgentGeminiVoiceEnabled(): boolean {
     return true;
   }
   return !DISABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());
+}
+
+const ENABLED_FLAG_VALUES = new Set(["1", "true", "on", "enabled", "yes"]);
+
+/**
+ * Realtime full-duplex voice for One. Opt-in and fail-closed: defaults to OFF so
+ * the agent surface keeps its turn-based voice path unless an operator explicitly
+ * enables realtime via NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED. When OFF, the
+ * conversational-mode control falls back to the existing turn-based flow.
+ */
+export function isAgentRealtimeVoiceEnabled(): boolean {
+  const configured =
+    process.env.NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED ??
+    process.env.AGENT_REALTIME_VOICE_ENABLED;
+  if (configured === undefined || configured === null || String(configured).trim() === "") {
+    return false;
+  }
+  return ENABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());
 }

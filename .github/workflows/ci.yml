@@ -324,7 +324,11 @@ jobs:
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: ${{ github.base_ref }}
-          MAIN_SYNC_MODE: warn
+          # block (not warn): branch freshness is mandatory even for governed
+          # maintainers. A PR behind its base must sync before it can land, so
+          # the freshness signal hard-fails at the PR layer instead of only at
+          # the merge queue. Bypass cohorts waive review, never validation.
+          MAIN_SYNC_MODE: block
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 

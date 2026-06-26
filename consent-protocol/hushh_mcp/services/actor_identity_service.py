@@ -905,7 +905,13 @@ class ActorIdentityService:
         try:
             from firebase_admin import auth as firebase_auth
 
-            user_record = firebase_auth.get_user(normalized_user_id, app=firebase_app)
+            # firebase_admin.auth.get_user performs a blocking network round-trip.
+            # Run it in a worker thread so it never stalls the asyncio event loop
+            # (a blocked loop serialises every concurrent request and manifests as
+            # multi-second latency and pool-acquire timeouts elsewhere).
+            user_record = await asyncio.to_thread(
+                firebase_auth.get_user, normalized_user_id, app=firebase_app
+            )
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache firebase sync skipped for %s: %s",

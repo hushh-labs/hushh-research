@@ -180,3 +180,71 @@ def test_fetch_optional_single_row_returns_none_when_table_missing(monkeypatch):
 
     assert row is None
     conn.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    user_id = "user_reset_123"
+
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service.reset_account(user_id)
+
+    assert result["success"] is True
+    assert result["account_deleted"] is False
+    assert result["account_reset"] is True
+
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+
+    # Personal data is cleared.
+    cleared_fragments = [
+        "DELETE FROM kai_funding_trade_events",
+        "DELETE FROM kai_gmail_receipts",
+        "DELETE FROM pkm_events",
+        "DELETE FROM pkm_blobs",
+        "DELETE FROM connected_system_intents",
+        "DELETE FROM consent_audit",
+        "DELETE FROM one_kyc_workflows",
+        "DELETE FROM one_location_events",
+    ]
+    for fragment in cleared_fragments:
+        assert fragment in executed_sql
+
+    # The account spine survives a reset: no DELETE touches identity or vault.
+    spine_fragments = [
+        "DELETE FROM actor_profiles",
+        "DELETE FROM actor_identity_cache",
+        "DELETE FROM actor_verified_email_aliases",
+        "DELETE FROM runtime_persona_state",
+        "DELETE FROM vault_key_wrappers",
+        "DELETE FROM vault_keys",
+    ]
+    for fragment in spine_fragments:
+        assert fragment not in executed_sql
+
+    # The spine is re-seeded to a clean One default, and onboarding flags reset.
+    assert "UPDATE actor_profiles" in executed_sql
+    assert "UPDATE runtime_persona_state" in executed_sql
+    assert "UPDATE vault_keys" in executed_sql
+    assert "pre_onboarding_completed = NULL" in executed_sql
+
+
+@pytest.mark.asyncio
+async def test_reset_account_returns_failure_on_error(monkeypatch):
+    service = AccountService()
+
+    def _boom(_conn, _user_id, _results):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(service, "_clear_user_data_tables", _boom)
+
+    conn = MagicMock()
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service.reset_account("user_reset_err")
+
+    assert result["success"] is False
+    assert result["account_reset"] is False
+    assert result["error"] == "account_reset_failed"

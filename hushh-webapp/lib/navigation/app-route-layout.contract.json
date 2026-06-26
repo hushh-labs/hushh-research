@@ -68,6 +68,11 @@
     "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell."
   },
   {
+    "route": "/one/location/invite/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public one-location circle invite route is a standalone external-acceptance form outside the signed-in app shell."
+  },
+  {
     "route": "/gmail",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/gmail surface."

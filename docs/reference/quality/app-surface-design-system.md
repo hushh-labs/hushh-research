@@ -59,6 +59,7 @@ Rules:
 5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
 6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
 7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
+8. Async actionables (deletes, resets, disconnects, sends, and any mutation that waits for a backend ack or status) must surface a single branded loading -> success/error lifecycle through `morphyToast.promise` from `@/lib/morphy-ux/morphy`, tied to the real action promise. The toast stays in its loading state while the promise is pending and morphs in place to success or error once the ack lands. Do not hand-roll a `loading` toast plus a separate `success`/`error` toast, and do not fire a success toast before the promise resolves. Pre-flight guards that are not failures of the action itself (for example a required vault unlock) stay outside the promise as an `info`/`error` toast. Use `variant: "destructive"` for destructive actionables so the toast accent matches the action.
 8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
 9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
@@ -160,18 +161,19 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. The segmented bottom bar is contextual route-family navigation. Do not include global destinations such as `One`, `Search`, or `Profile` on every route.
-2. The bottom bar uses fixed five-item sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch two-tab bars wider.
-3. `/one` and `/profile` show the compact root switch `One / Connect / Profile` because that is the dashboard/connection/account shell relationship, not a feature-family tab list.
-4. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
-5. Generic One sub-app routes such as `/one/gmail`, `/one/pkm`, `/one/connected-systems`, and `/consents` may show `One / current context / Connect / Profile` when the current context is meaningful.
-6. Investor finance routes own finance-family actions such as `Market`, `Portfolio`, `Connect`, and `Analysis`.
+1. Each navigation scope (`one`, `investor`, `ria`) owns a FIXED top-level set. The set does not change as the user moves through subroutes. Do not inject a per-subroute tab into the bar.
+2. The bottom bar uses fixed per-scope sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch narrow bars wider.
+3. Subroutes collapse onto their parent top-level tab (finance is the reference pattern). A subroute keeps its parent tab highlighted and never surfaces its own bottom-nav entry. The One scope collapses `/one/gmail`, `/one/pkm`, `/one/connected-systems`, `/one/location`, and `/consents` onto the `One` (dashboard) tab; profile subroutes keep the `Profile` tab.
+4. The One scope is the fixed set `One / Connect / Profile` on every One route. Consent/PKM/Gmail/Location/Systems are subroutes of the One dashboard, not their own tabs.
+5. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
+6. Investor finance routes own the fixed finance-family set `Market`, `Portfolio`, `Analysis`, `Connect`, and `Profile`. All finance subroutes collapse onto one of these via `activeKaiRouteTabFromPath`.
 7. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
 8. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
 9. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
 10. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
 11. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 12. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
+13. The pending-consent count badge homes on exactly one tab per scope: the `Dashboard` tab in the One scope and the `Guardian` tab in the investor/ria scopes. Do not duplicate the consent badge onto the Profile tab or any subroute tab.
 
 ## Row and Card Interaction Contract
 
@@ -185,6 +187,31 @@ Rules:
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
+
+## Control Surface Contract
+
+The agent bar, bottom nav, and top-app-bar action buttons define the gold-standard flat-control aesthetic. All standalone buttons, pill triggers, and icon controls should match it.
+
+Rules:
+
+1. `ShellActionSurface` (`components/app-ui/shell-action-surface.tsx`) is the canonical control primitive. It exports `SHELL_ICON_BUTTON_CLASSNAME` and `SHELL_PILL_TRIGGER_CLASSNAME` and embeds `MaterialRipple variant="blue" effect="glass"`. Reuse these instead of re-deriving the recipe per surface.
+2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
+3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
+4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. The vault unlock methods (Vault Key, Passkey, Recovery Key) must all share one effect so the buttons read as a uniform set.
+5. Bars use the shared `.bar-glass` and `.bar-glass-top` surfaces; cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
+6. Focus state is the shared ring `focus-visible:ring-2 focus-visible:ring-sky-400/70`. Do not invent per-control focus styling.
+
+## Overlay Backdrop Contract
+
+Every floating surface that takes modal focus shares one backdrop language so opening a surface gives the same dimming and blur thump.
+
+Rules:
+
+1. The canonical scrim is `bg-black/22 backdrop-blur-[8px]` plus the `-webkit-backdrop-filter` fallback, sitting at `z-[499]` directly below the surface at `z-[500]`. Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) already carry this via their `data-state` motion classes.
+2. Dialogs, sheets, drawers, the command palette, and the vault unlock dialog inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top.
+3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
+4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`.
+5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
 
 ## Consent Inbox And Notification Contract
 
@@ -303,12 +330,14 @@ Use the `Subtle Apple` depth model:
 4. Outer cards remain `overflow-visible`; ripple, media, code panes, and chart plots clip inside their own inner boundaries.
 5. Standard shared actionables include:
    - `Button`
+   - `AlertDialogAction` / `AlertDialogCancel` (confirmation buttons)
    - dropdown/select rows
    - segmented controls / bottom nav items
    - actionable settings rows
    - actionable cards or list rows
 6. Do not add route-level ripple wrappers when a shared primitive already provides one.
 7. The top shell uses `components/app-ui/shell-action-surface.tsx` as its canonical interaction host.
+8. Confirmation buttons get their ripple from the shared `components/ui/alert-dialog.tsx` primitive: `AlertDialogAction` and `AlertDialogCancel` host a clipped `MaterialRipple` (palette mapped from the shadcn variant) while preserving their appearance via the caller `className` (for example `app-critical-action`). Do not re-import the plain `@/components/ui/button` for confirmation actions or strip the ripple host; keep the action label inside the `z-10` content span so the ripple stays behind it.
 
 ## Labs Boundary
 

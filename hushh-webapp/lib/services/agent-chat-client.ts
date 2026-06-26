@@ -114,6 +114,7 @@ export async function streamAgentChat(input: {
   conversationId?: string | null;
   vaultOwnerToken: string;
   pkmContext?: string;
+  screenContext?: Record<string, unknown> | null;
   runtimeCredential?: string | null;
   runtimeCredentialMode?: string | null;
   signal?: AbortSignal;
@@ -125,6 +126,7 @@ export async function streamAgentChat(input: {
     conversationId: input.conversationId || undefined,
     vaultOwnerToken: input.vaultOwnerToken,
     pkmContext: input.pkmContext,
+    screenContext: input.screenContext,
     runtimeCredential: input.runtimeCredential,
     runtimeCredentialMode: input.runtimeCredentialMode,
     signal: input.signal,

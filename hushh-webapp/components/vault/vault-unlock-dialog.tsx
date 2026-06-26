@@ -33,6 +33,11 @@ export function VaultUnlockDialog({
 }: VaultUnlockDialogProps) {
   return (
     <Dialog
+      // The vault unlock is a true modal gate: it must render the blurred scrim
+      // behind it and block interaction with the app underneath. The shared
+      // Dialog wrapper defaults to modal={false}, which suppresses the overlay
+      // scrim, so opt back into modal behaviour here.
+      modal
       open={open}
       onOpenChange={(nextOpen) => {
         if (!dismissible && !nextOpen) return;
