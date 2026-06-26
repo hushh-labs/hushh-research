@@ -386,8 +386,8 @@ class VoiceMemoryHints(BaseModel):
 
 
 class VoiceResponsePayload(BaseModel):
-    kind: str = Field(..., max_length=64)
-    message: str = Field(..., max_length=4096)
+    kind: str = Field(..., min_length=1, max_length=64)
+    message: str = Field(..., min_length=1, max_length=4096)
     speak: bool = True
     execution_allowed: bool = False
     reason: Optional[str] = Field(default=None, max_length=256)
@@ -399,8 +399,8 @@ class VoiceResponsePayload(BaseModel):
 
 
 class VoiceClarificationPayload(BaseModel):
-    reason: str = Field(..., max_length=256)
-    question: str = Field(..., max_length=512)
+    reason: str = Field(..., min_length=1, max_length=256)
+    question: str = Field(..., min_length=1, max_length=512)
     options: list[str] = Field(default_factory=list)
     candidate: Optional[str] = Field(default=None, max_length=256)
 
@@ -412,7 +412,7 @@ class VoicePlanResponse(BaseModel):
     memory: VoiceMemoryHints
     elapsed_ms: int
     openai_http_ms: int
-    model: str
+    model: str = Field(..., min_length=1, max_length=128)
     turn_id: Optional[str] = None
     response_id: Optional[str] = None
     intent: Optional[dict[str, Any]] = None
@@ -454,11 +454,11 @@ class VoiceComposeRequest(BaseModel):
 
 
 class VoiceComposeResponse(BaseModel):
-    text: str = Field(..., max_length=4096)
-    segment_type: str = Field(..., max_length=64)
+    text: str = Field(..., min_length=1, max_length=4096)
+    segment_type: str = Field(..., min_length=1, max_length=64)
     elapsed_ms: int = Field(..., ge=0)
     openai_http_ms: int = Field(..., ge=0)
-    model: str = Field(..., max_length=128)
+    model: str = Field(..., min_length=1, max_length=128)
     turn_id: Optional[str] = Field(default=None, max_length=128)
     response_id: Optional[str] = Field(default=None, max_length=128)
 
@@ -474,22 +474,22 @@ class VoiceCapabilityRequest(BaseModel):
 
 
 class VoiceCapabilityResponse(BaseModel):
-    user_id: str = Field(..., max_length=256)
+    user_id: str = Field(..., min_length=1, max_length=256)
     enabled: bool
     reason: Optional[str] = Field(default=None, max_length=256)
     voice_enabled: bool
     execution_allowed: bool
     tool_execution_disabled: bool
-    rollout_reason: str = Field(..., max_length=128)
+    rollout_reason: str = Field(..., min_length=1, max_length=128)
     bucket: Optional[int] = Field(default=None, ge=0)
     canary_percent: Optional[int] = Field(default=None, ge=0, le=100)
     realtime_enabled: bool = False
     voice_lane: str = Field(default="chained", max_length=16)
     tts_enabled: bool = False
     tts_timeout_ms: int = Field(..., ge=0)
-    tts_model: str = Field(..., max_length=128)
-    tts_voice: str = Field(..., max_length=64)
-    tts_format: str = Field(..., max_length=32)
+    tts_model: str = Field(..., min_length=1, max_length=128)
+    tts_voice: str = Field(..., min_length=1, max_length=64)
+    tts_format: str = Field(..., min_length=1, max_length=32)
 
 
 class VoiceRealtimeSessionRequest(BaseModel):

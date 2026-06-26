@@ -14,7 +14,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -3643,7 +3643,7 @@ Content sample:
             "kpis": kpis,
             "losers": losers,
             "winners": winners,
-            "imported_at": datetime.utcnow().isoformat(),
+            "imported_at": datetime.now(UTC).isoformat(),
             "source": enhanced_portfolio.source,
         }
 

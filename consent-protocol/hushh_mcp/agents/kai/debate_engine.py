@@ -331,7 +331,6 @@ class DebateEngine:
         # But we do return it for the caller to use.
         # UPDATE: Async generators cannot return values in Python < 3.13 (or standard usage).
         # stream.py calculates this manually, so we just finish.
-        pass
 
     async def orchestrate_debate(
         self,
