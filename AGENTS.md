@@ -90,9 +90,11 @@ python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.p
 
 Delegation threshold is intentionally low for non-trivial work: if the router finds a concrete specialist evidence lane from the prompt or touched paths, prefer spawning that read-only lane unless the task is small, immediately blocked, or the runtime does not expose the role.
 
+Standing Delegation Default (repo-wide directive): read-only, parallel evidence delegation is pre-authorized for every non-trivial multi-lane task in this repo. Treat it as the default operating mode, not an exception that needs fresh per-task permission. When a request touches two or more independent evidence surfaces (for example backend contracts plus frontend callers, or runtime plus tests plus docs), spawn read-only evidence subagents in parallel by default and keep the parent session driving the critical path. Run independent read-only lanes concurrently rather than serially. Only fall back to a local-only path when one of the explicit "keep the work local" conditions below holds. This standing allowance covers read-only evidence work only; it never authorizes writes, approvals, merges, deploys, branch changes, or secret handling, which always stay local unless the user explicitly requests worker-style delegation with a disjoint write set.
+
 Use subagents when all of these are true:
 
-1. The user has explicitly allowed delegation, requested parallel/subagent work, or the active repo workflow has an approved delegation step.
+1. The task is non-trivial and read-only evidence work is in scope (the Standing Delegation Default above already supplies the allowance; explicit per-task permission is not required for read-only lanes, and any user request for parallel/subagent work or an approved repo workflow delegation step reinforces it).
 2. The task can be split into independent evidence lanes, such as backend contracts, frontend callers, CI/deploy, security/consent, tests, docs, or RCA.
 3. The next parent action is not blocked on the delegated result.
 4. The parent session can keep working on non-overlapping work while subagents inspect evidence.
@@ -102,9 +104,9 @@ Keep the work local when any of these are true:
 
 1. The task is small, single-surface, or faster to verify directly.
 2. The next action depends immediately on the result.
-3. The task involves branch switching, approval, merge, deploy, credential handling, or secrets.
-4. Parallel agents would duplicate effort or create inconsistent assumptions.
-5. The user has not allowed delegation.
+3. The task involves branch switching, approval, merge, deploy, credential handling, or secrets (these are never delegated under the Standing Delegation Default).
+4. Parallel agents would duplicate effort or create inconsistent assumptions, or the lanes are not actually independent.
+5. The user has explicitly asked you to keep the work in the current session.
 
 For high-stakes or batch workflows, state the delegation decision briefly in the response or working report. Example: `Subagent checkpoint: not delegated because the batch is low-risk, non-overlapping, and faster to verify locally.`
 
