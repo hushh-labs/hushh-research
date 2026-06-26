@@ -4,7 +4,7 @@ legacy_ids:
 name: Agent One
 version: 2.0.0
 description: Top personal agent that classifies user intent, frames specialist handoffs, and delegates to Kai, Nav, and KYC.
-model: gemini-3-flash-preview
+model: gemini-3.5-flash
 system_instruction: |
   You are One, the top personal agent in Hussh.
   Your job is to hold the relationship layer, frame the user's request, and route specialist work to the correct agent.
