@@ -67,4 +67,10 @@ describe("Card", () => {
 
     expect(title?.tagName).toBe("H3");
   });
+
+  it("renders CardFooter with the card-footer data-slot contract", () => {
+    const { container } = render(<CardFooter>Footer</CardFooter>);
+
+    expect(container.firstElementChild?.getAttribute("data-slot")).toBe("card-footer");
+  });
 });

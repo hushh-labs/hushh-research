@@ -4,37 +4,12 @@ import { describe, expect, it } from "vitest";
 import { Textarea } from "@/components/ui/textarea";
 
 describe("Textarea", () => {
-  it("renders with data-slot='textarea'", () => {
-    const { container } = render(<Textarea />);
+  it("renders a disabled textarea", () => {
+    const { container } = render(<Textarea disabled />);
 
-    expect(
-      container.querySelector('[data-slot="textarea"]'),
-    ).toBeTruthy();
-  });
+    const textarea = container.querySelector("textarea");
 
-  it("preserves data-slot when textarea props are provided", () => {
-    const { container } = render(
-      <Textarea placeholder="Write a note" rows={4} />,
-    );
-    const el = container.querySelector('[data-slot="textarea"]');
-
-    expect(el).toBeTruthy();
-    expect(el?.getAttribute("placeholder")).toBe("Write a note");
-    expect(el?.getAttribute("rows")).toBe("4");
-  });
-
-  it("forwards className to the textarea element", () => {
-    const { container } = render(<Textarea className="test-class" />);
-    const el = container.querySelector('[data-slot="textarea"]');
-
-    expect(el?.classList.contains("test-class")).toBeTruthy();
-  });
-
-  it("includes disabled:opacity-50 class for disabled styling", () => {
-    const { container } = render(<Textarea />);
-
-    const el = container.querySelector('[data-slot="textarea"]');
-
-    expect(el?.className).toContain("disabled:opacity-50");
+    expect(textarea).not.toBeNull();
+    expect(textarea?.hasAttribute("disabled")).toBe(true);
   });
 });

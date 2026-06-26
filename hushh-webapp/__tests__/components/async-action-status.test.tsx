@@ -15,4 +15,10 @@ describe("AsyncActionStatus", () => {
       "true",
     );
   });
+
+  it("renders nothing when state is idle", () => {
+    const { container } = render(<AsyncActionStatus state="idle" />);
+
+    expect(container.innerHTML).toBe("");
+  });
 });

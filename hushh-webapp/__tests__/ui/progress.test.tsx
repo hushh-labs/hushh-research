@@ -26,6 +26,16 @@ describe("Progress", () => {
     expect(indicator.style.transform).toBe("translate3d(-50%, 0, 0)");
   });
 
+  it("keeps the progress indicator data-slot when indicatorClassName is provided", () => {
+    const { container } = render(
+      <Progress value={25} indicatorClassName="custom-indicator" />,
+    );
+
+    expect(container.querySelector(".custom-indicator")?.getAttribute("data-slot")).toBe(
+      "progress-indicator",
+    );
+  });
+
   it("clamps values above 100", () => {
     const { container } = render(<Progress value={150} />);
 
