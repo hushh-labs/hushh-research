@@ -58,10 +58,12 @@ import {
 } from "@/lib/consent/consent-events";
 import {
   useConsentActions,
+  useOneLocationConsentActions,
   type ConsentActionState,
   type ConsentMutationDetail,
   type PendingConsent,
 } from "@/lib/consent";
+
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import {
   humanizeConsentScope,
@@ -1291,14 +1293,83 @@ export function ConsentCenterPage() {
     handleApprove,
     handleDeny,
     handleRevoke,
-    activeAction,
-    isRequestBusy,
-    isScopeBusy,
+    activeAction: genericActiveAction,
+    isRequestBusy: isGenericRequestBusy,
+    isScopeBusy: isGenericScopeBusy,
   } = useConsentActions({
     userId: user?.uid,
   });
 
+  // One Location rows in the Access Manager are end-to-end encrypted and must go
+  // through the dedicated One Location endpoints + envelope publish, NOT the
+  // generic developer-consent flow. This hook mirrors the One Location page's
+  // Activity actions so Allow / Don't allow / Revoke behave identically on both
+  // surfaces (see lib/consent/use-one-location-consent-actions.ts).
+  const {
+    handleApprove: handleLocationApprove,
+    handleDeny: handleLocationDeny,
+    handleRevoke: handleLocationRevoke,
+    activeAction: locationActiveAction,
+    isRequestBusy: isLocationRequestBusy,
+    isScopeBusy: isLocationScopeBusy,
+  } = useOneLocationConsentActions({
+    userId: user?.uid,
+  });
+
+  const activeAction = genericActiveAction ?? locationActiveAction;
+  const isRequestBusy = useCallback(
+    (requestId?: string | null) =>
+      isGenericRequestBusy(requestId) || isLocationRequestBusy(requestId),
+    [isGenericRequestBusy, isLocationRequestBusy],
+  );
+  const isScopeBusy = useCallback(
+    (scope?: string | null) =>
+      isGenericScopeBusy(scope) || isLocationScopeBusy(scope),
+    [isGenericScopeBusy, isLocationScopeBusy],
+  );
+
+  // Route a consent entry to the correct backend pipeline. Location rows
+  // (`metadata.request_source` starts with `one_location`, or a location-family
+  // scope) use the One Location hook; everything else uses the generic flow.
+  const isLocationEntry = useCallback(
+    (entry: ConsentCenterEntry) =>
+      isLocationConsent(entry.metadata, entry.scope),
+    [],
+  );
+  const approveEntry = useCallback(
+    (entry: ConsentCenterEntry, durationHours?: number) => {
+      if (isLocationEntry(entry)) {
+        void handleLocationApprove(entry, durationHours);
+        return;
+      }
+      void handleApprove(toPendingConsent(entry, durationHours));
+    },
+    [handleApprove, handleLocationApprove, isLocationEntry],
+  );
+  const denyEntry = useCallback(
+    (entry: ConsentCenterEntry) => {
+      if (isLocationEntry(entry)) {
+        void handleLocationDeny(entry);
+        return;
+      }
+      void handleDeny(entry.request_id || entry.id);
+    },
+    [handleDeny, handleLocationDeny, isLocationEntry],
+  );
+  const revokeEntry = useCallback(
+    (entry: ConsentCenterEntry) => {
+      if (isLocationEntry(entry)) {
+        void handleLocationRevoke(entry);
+        return;
+      }
+      if (!entry.scope) return;
+      void handleRevoke(entry.scope);
+    },
+    [handleLocationRevoke, handleRevoke, isLocationEntry],
+  );
+
   const idTokenLoader = async () => user?.getIdToken();
+
 
   const summaryResource = useStaleResource({
     cacheKey: summaryCacheKey,
@@ -2142,6 +2213,7 @@ export function ConsentCenterPage() {
               trailing={
                 <div className="flex items-center gap-2">
                   {notificationAction === "approve" &&
+                  selectedEntry &&
                   selectedPendingConsent ? (
                     <Button
                       variant="blue-gradient"
@@ -2149,7 +2221,7 @@ export function ConsentCenterPage() {
                       size="sm"
                       disabled={isRequestBusy(selectedPendingConsent.id)}
                       onClick={() => {
-                        void handleApprove(selectedPendingConsent);
+                        approveEntry(selectedEntry);
                         closeDetailPanel();
                       }}
                     >
@@ -2168,12 +2240,11 @@ export function ConsentCenterPage() {
                         selectedEntry.request_id || selectedEntry.id,
                       )}
                       onClick={() => {
-                        void handleDeny(
-                          selectedEntry.request_id || selectedEntry.id,
-                        );
+                        denyEntry(selectedEntry);
                         closeDetailPanel();
                       }}
                     >
+
                       {activeAction?.kind === "deny" &&
                       activeAction.requestId ===
                         (selectedEntry.request_id || selectedEntry.id)
@@ -2244,19 +2315,19 @@ export function ConsentCenterPage() {
             actor={actor}
             entry={selectedEntry}
             onApprove={(entry, durationHours) => {
-              void handleApprove(toPendingConsent(entry, durationHours));
+              approveEntry(entry, durationHours);
               // Dismiss the panel immediately; the list already optimistically
               // removes the row and any failure surfaces via toast.
               closeDetailPanel();
             }}
             onDeny={(entry) => {
-              void handleDeny(entry.request_id || entry.id);
+              denyEntry(entry);
               closeDetailPanel();
             }}
             onRevoke={(entry) => {
-              if (!entry.scope) return;
-              void handleRevoke(entry.scope);
+              revokeEntry(entry);
             }}
+
             onRevokeScope={(scope) => void handleRevoke(scope)}
             activeAction={activeAction}
             isRequestBusy={isRequestBusy}

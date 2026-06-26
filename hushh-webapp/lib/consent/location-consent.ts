@@ -80,3 +80,89 @@ export function locationConsentSummary(metadata: MetadataLike): string {
   }
   return `${who} wants to see your location through One Location.`;
 }
+
+/**
+ * The concrete One Location record a consent row maps back to. The backend
+ * `OneLocationCenterContributor` encodes the record kind in the entry id
+ * (`one_location_request:{id}`, `one_location_grant:{id}`,
+ * `one_location_public:{id}`, `one_location_circle:{id}`) and in
+ * `metadata.request_source`. The consent-manager CTAs use this to drive the
+ * correct One Location endpoint instead of the generic developer-consent flow.
+ */
+export type LocationConsentRecordKind =
+  | "access_request"
+  | "share_grant"
+  | "public_invite"
+  | "circle_invite"
+  | "unknown";
+
+export interface LocationConsentEntryRef {
+  /** The record kind this consent row maps back to. */
+  kind: LocationConsentRecordKind;
+  /** The underlying One Location record id (request/grant/invite id). */
+  id: string;
+  /** The access-request id, when this row is (or wraps) a request. */
+  requestId: string | null;
+}
+
+interface ParseableLocationConsentEntry {
+  id?: string | null;
+  request_id?: string | null;
+  metadata?: MetadataLike;
+}
+
+const _LOCATION_ID_PREFIXES: Record<string, LocationConsentRecordKind> = {
+  one_location_request: "access_request",
+  one_location_grant: "share_grant",
+  one_location_public: "public_invite",
+  one_location_circle: "circle_invite",
+};
+
+const _LOCATION_SOURCE_KINDS: Record<string, LocationConsentRecordKind> = {
+  one_location_access_request: "access_request",
+  one_location_share_grant: "share_grant",
+  one_location_public_invite: "public_invite",
+  one_location_circle_invite: "circle_invite",
+};
+
+/**
+ * Resolve a consent-center entry back to its One Location record. Prefers the
+ * prefixed entry id (most specific), then falls back to
+ * `metadata.request_source`. The trailing id is recovered from the entry id
+ * suffix or, when missing, from `metadata.grant_id` / `metadata.request_id`.
+ */
+export function parseLocationConsentEntry(
+  entry: ParseableLocationConsentEntry,
+): LocationConsentEntryRef {
+  const rawId = String(entry.id || "").trim();
+  const separatorIndex = rawId.indexOf(":");
+  const prefix = separatorIndex >= 0 ? rawId.slice(0, separatorIndex) : "";
+  const suffix = separatorIndex >= 0 ? rawId.slice(separatorIndex + 1) : "";
+
+  const kind: LocationConsentRecordKind =
+    _LOCATION_ID_PREFIXES[prefix] ??
+    _LOCATION_SOURCE_KINDS[readString(entry.metadata, "request_source")] ??
+    "unknown";
+
+
+  const metadataGrantId = readString(entry.metadata, "grant_id");
+  const metadataRequestId =
+    readString(entry.metadata, "request_id") ||
+    String(entry.request_id || "").trim();
+
+  let id = suffix.trim();
+  if (!id) {
+    id =
+      kind === "share_grant"
+        ? metadataGrantId
+        : kind === "access_request"
+          ? metadataRequestId
+          : "";
+  }
+
+  const requestId =
+    kind === "access_request" ? id || metadataRequestId || null : null;
+
+  return { kind, id, requestId };
+}
+
