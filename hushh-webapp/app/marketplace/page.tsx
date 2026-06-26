@@ -1585,11 +1585,11 @@ export default function MarketplacePage() {
                 </p>
               ) : null}
               <div className="flex flex-wrap justify-center gap-2">
-                <Button variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
+                <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
                   <RotateCcw className="mr-2 h-4 w-4" />
                   {directoryKind === "investors" ? "Refresh deck" : "Start over"}
                 </Button>
-                <Button variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
+                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
                   <List className="mr-2 h-4 w-4" />
                   Switch to list
                 </Button>
