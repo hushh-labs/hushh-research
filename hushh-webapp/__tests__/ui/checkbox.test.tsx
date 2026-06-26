@@ -28,4 +28,11 @@ describe("Checkbox", () => {
 
     expect(checkbox?.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("sets data-disabled attribute when disabled prop is passed", () => {
+    const { container } = render(<Checkbox disabled />);
+    const checkbox = container.querySelector('[data-slot="checkbox"]');
+
+    expect(checkbox?.getAttribute("data-disabled")).not.toBeNull();
+  });
 });
