@@ -18,6 +18,14 @@ describe("Button", () => {
     const button = screen.getByRole("button", { name: /submit/i });
 
     expect(button.getAttribute("aria-busy")).toBeNull();
+  });  
+  
+  it("renders with type='button' by default", () => {
+    render(<Button>Click me</Button>);
+
+    const button = screen.getByRole("button", { name: /click me/i });
+
+    expect(button.getAttribute("type")).toBe("button");
   });
 
 });
