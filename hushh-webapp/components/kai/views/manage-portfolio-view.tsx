@@ -228,7 +228,9 @@ export function ManagePortfolioView() {
           
           // Priority 2: Decrypt the financial PKM domain (fallback)
           if (!parsed) {
-            console.log("[ManagePortfolio] No cache, attempting to decrypt the financial PKM domain...");
+            if (process.env.NODE_ENV !== "production") {
+              console.log("[ManagePortfolio] No cache, attempting to decrypt the financial PKM domain...");
+            }
             try {
               const snapshot = await PkmDomainResourceService.getStaleFirst({
                 userId: user.uid,
@@ -247,10 +249,14 @@ export function ManagePortfolioView() {
 
                 // Update cache for future use
                 setCachePortfolioData(user.uid, parsed);
-                console.log("[ManagePortfolio] Decrypted and cached portfolio data");
+                if (process.env.NODE_ENV !== "production") {
+                  console.log("[ManagePortfolio] Decrypted and cached portfolio data");
+                }
               }
             } catch (decryptError) {
-              console.error("[ManagePortfolio] Failed to decrypt the financial PKM domain:", decryptError);
+              if (process.env.NODE_ENV !== "production") {
+                console.error("[ManagePortfolio] Failed to decrypt the financial PKM domain:", decryptError);
+              }
               toast.error("Unable to decrypt portfolio data. Please re-import your statement.");
             }
           }
