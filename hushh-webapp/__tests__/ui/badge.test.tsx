@@ -47,4 +47,13 @@ describe("Badge", () => {
       ).toBe(variant);
     });
   });
+
+  it("propagates custom class names", () => {
+    const { container } = render(
+      <Badge className="custom-badge-class">Label</Badge>,
+    );
+
+    const badge = container.querySelector('[data-slot="badge"]');
+    expect(badge?.className).toContain("custom-badge-class");
+  });
 });
