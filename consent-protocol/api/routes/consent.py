@@ -15,7 +15,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middlewares import RateLimits, limiter
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
@@ -338,8 +339,8 @@ class PendingConsentOpenedRequest(BaseModel):
 
 class GenericConsentRequestCreate(BaseModel):
     subject_user_id: str = Field(min_length=1, max_length=128)
-    requester_actor_type: str = Field(default="ria", max_length=64)
-    subject_actor_type: str = Field(default="investor", max_length=64)
+    requester_actor_type: Literal["investor", "ria"] = "ria"
+    subject_actor_type: Literal["investor", "ria"] = "investor"
     scope_template_id: str = Field(min_length=1, max_length=256)
     selected_scope: str | None = Field(default=None, max_length=256)
     duration_mode: str = Field(default="preset", max_length=64)
@@ -576,6 +577,7 @@ class ConsentApprovalPayload(BaseModel):
 
 
 @router.post("/pending/approve")
+@limiter.limit(RateLimits.CONSENT_ACTION)
 async def approve_consent(
     request: Request,
     token_data: dict = Depends(require_vault_owner_token),
@@ -1105,7 +1107,9 @@ async def approve_consent(
 
 
 @router.post("/pending/deny")
+@limiter.limit(RateLimits.CONSENT_ACTION)
 async def deny_consent(
+    request: Request,
     userId: str = Query(..., min_length=1, max_length=128),
     requestId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
@@ -1414,6 +1418,7 @@ async def issue_trusted_device_vault_owner_token(
 
 
 @router.post("/vault-owner-token")
+@limiter.limit(RateLimits.TOKEN_VALIDATION)
 async def issue_vault_owner_token(request: Request):
     """
     Issue VAULT_OWNER consent token for authenticated user.
@@ -1500,6 +1505,7 @@ async def issue_vault_owner_token(request: Request):
 
 
 @router.post("/revoke")
+@limiter.limit(RateLimits.CONSENT_ACTION)
 async def revoke_consent(
     request: Request,
     token_data: dict = Depends(require_vault_owner_token),

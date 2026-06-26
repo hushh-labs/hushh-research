@@ -110,4 +110,17 @@ describe("formatCompleteJson — array bounds with null and mixed primitives", (
     expect(out).toContain("• AAPL");
     expect(out).toContain("• MSFT");
   });
+
+  it("emits a disclosure count summary line for the legal_and_disclosures array", () => {
+    // Specialized branch: skips per-item rendering and emits only the count line.
+    const out = formatCompleteJson({
+      legal_and_disclosures: [
+        "First disclosure text.",
+        "Second disclosure text.",
+      ],
+    });
+
+    expect(out).toContain("--- Legal Disclosures (2 items) ---");
+    expect(out).toContain("2 disclosure(s) extracted");
+  });
 });
