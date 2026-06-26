@@ -405,4 +405,13 @@ describe("ConsentCenterPage requestId deep links", () => {
     }) as HTMLButtonElement;
     expect(revokeButton.disabled).toBe(true);
   });
+
+  it("shows loading consent entries copy while the list is loading", async () => {
+    mocks.search = "tab=pending";
+    mocks.listEntries.mockReturnValue(new Promise(() => {}));
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Loading consent entries…")).toBeTruthy();
+  });
 });
