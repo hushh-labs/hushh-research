@@ -64,4 +64,21 @@ describe("PrivacyToggle", () => {
     expect(toggle.getAttribute("tabindex")).toBe("-1");
     expect(handleCheckedChange).not.toHaveBeenCalled();
   });
+
+  it("reflects unchecked state via aria-checked false", () => {
+    render(
+      <PrivacyToggle
+        checked={false}
+        ariaLabel="Toggle analytics data"
+        onCheckedChange={() => {}}
+      />,
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Toggle analytics data",
+    });
+
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+  });
+
 });
