@@ -192,11 +192,13 @@ export function AuthStep({
   };
 
   const debugError = (label: string, error?: unknown) => {
-    if (process.env.NODE_ENV !== "production" && error !== undefined) {
-      console.error(label, error);
-      return;
+    if (process.env.NODE_ENV !== "production") {
+      if (error !== undefined) {
+        console.error(label, error);
+      } else {
+        console.error(label);
+      }
     }
-    console.error(label);
   };
 
   useEffect(() => {
