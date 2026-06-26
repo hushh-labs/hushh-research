@@ -39,4 +39,21 @@ describe("OnboardingStepLicense", () => {
     expect(screen.getByRole("button", { name: "Verify licence" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Bypass for dev/UAT" })).toBeNull();
   });
+
+  it("associates licence label with input via htmlFor and id", () => {
+    const { container } = render(
+      <OnboardingStepLicense
+        licenseNumber=""
+        onLicenseNumberChange={vi.fn()}
+        verificationStatus="idle"
+        onVerify={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector("#ria-license-number")).toBeTruthy();
+
+    expect(
+      container.querySelector('label[for="ria-license-number"]'),
+    ).toBeTruthy();
+  });
 });
