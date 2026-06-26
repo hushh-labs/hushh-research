@@ -5,6 +5,26 @@
 **Branch:** `feature/agent-kyc-enhancement`
 **Status:** Approved — ready for implementation plan
 
+## Visual Map
+
+```text
+Before:  buildDraft -> extractApprovedValues -> formatPortfolioApprovedValue -> formatHoldingLine
+         (one line per holding; zero consolidation/aggregation/dedup/trim)
+
+After:   PKM financial data
+              │
+              ▼
+         consolidation layer (client-side, pre-tokenization)
+           merge lots/accounts per security -> aggregate totals -> de-noise
+              │
+              ▼
+         formatPortfolioApprovedValue
+           `Portfolio summary` + `Holdings`  (same two-block contract)
+              │
+              ▼
+         redact -> rewrite -> re-fill        (portfolio stays one opaque token)
+```
+
 ## Problem
 
 The KYC agent drafts an approved-disclosure email from decrypted PKM data. For the

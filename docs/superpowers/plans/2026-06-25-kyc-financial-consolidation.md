@@ -8,6 +8,26 @@
 
 **Tech Stack:** TypeScript, Next.js (client module, `"use client"`), Vitest. Reuses `hushh-webapp/lib/utils/portfolio-normalize.ts`.
 
+## Visual Map
+
+```text
+PKM financial data (fragmented: lots, accounts, cash, noise)
+        │
+        ▼
+one-kyc-financial-consolidation.ts   <- NEW pure module (client-side)
+  collect accounts -> merge per security -> aggregate header facts
+        │  (deterministic, BEFORE redaction — no real value leaves browser)
+        ▼
+formatPortfolioApprovedValue (ZK service)
+  emits same two-block contract: `Portfolio summary` + `Holdings`
+        │
+        ▼
+buildDraft -> renderModel -> renderer        (unchanged signatures)
+        │
+        ▼
+redact -> rewrite -> re-fill                 (portfolio = one opaque token)
+```
+
 ## Global Constraints
 
 - **Zero-knowledge:** all numeric consolidation is deterministic and client-side, completed BEFORE `redactDraftForLlm`. The LLM only ever sees `{{F0}}…` placeholders + prose. Never send a real value off-device.
@@ -1036,6 +1056,6 @@ If no fixups were needed, skip this step.
 - Tolerance `max($1, 1%)` → Task 2. ✓
 - Tests (multi-lot, multi-account, statement-vs-computed, recon threshold, cash, allocation data-vs-computed, no-drop, single-account backward-compat, ZK round-trip, golden snapshot) → Tasks 2-4. ✓
 
-**Placeholder scan:** No TBD/TODO/"handle edge cases"; every code step shows full code. ✓
+**Placeholder scan:** No unresolved placeholder markers or "handle edge cases" stubs; every code step shows full code. ✓
 
 **Type consistency:** `ConsolidatedAccount`, `CollectedAccount`, `AllocationSlice`, `ConsolidatedPortfolio`, `consolidateFinancialPortfolio`, `collectAccounts`, `dedupAccountsByFreshest`, `toNumber`, `toText`, `isRecord`, `accountLabel` defined in Tasks 1-2 and used consistently in Task 3. ✓
