@@ -11,4 +11,13 @@ describe("Label", () => {
       container.querySelector('[data-slot="label"]')
     ).not.toBeNull();
   });
+
+  it("renders as a label element", () => {
+    const { container } = render(<Label>Email</Label>);
+
+    const label = container.querySelector('[data-slot="label"]');
+
+    expect(label?.tagName).toBe("LABEL");
+  });
+
 });
