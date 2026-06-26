@@ -105,7 +105,7 @@ async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
         return SimpleNamespace(kind="client")
 
     monkeypatch.setenv("GOOGLE_API_KEY", "BACKEND_KEY_SHOULD_NOT_BE_USED")
-    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", fake_client)
+    monkeypatch.setattr("google.genai.Client", fake_client)
     service = AgentChatService(vault_key_hex=test_vault_key)
 
     prepared = await service.prepare_agent_runtime(
@@ -130,7 +130,7 @@ def test_create_runtime_client_uses_byok_key_without_env_fallback(monkeypatch):
         calls.append(kwargs)
         return SimpleNamespace(kind="client")
 
-    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", fake_client)
+    monkeypatch.setattr("google.genai.Client", fake_client)
 
     client = create_runtime_client("gemini", " USER_BYOK_KEY ")
 
@@ -145,7 +145,7 @@ def test_create_managed_runtime_client_uses_vertex_api_key(monkeypatch):
         calls.append(kwargs)
         return SimpleNamespace(kind="client")
 
-    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", fake_client)
+    monkeypatch.setattr("google.genai.Client", fake_client)
 
     client = create_managed_runtime_client("gemini", " MANAGED_KEY ")
 

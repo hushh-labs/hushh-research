@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -1659,29 +1660,39 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
+        # Fetch the three surface counts concurrently instead of serially. Each
+        # count does its own DB work (and identity hydration), so running them
+        # one-after-another tripled the request latency and held pool
+        # connections far longer than needed, which exhausted the pool under
+        # load and produced cascading connection-acquire timeouts.
+        pending_count, active_count, previous_count = await asyncio.gather(
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="pending",
+                mode=normalized_mode,
+            ),
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="active",
+                mode=normalized_mode,
+            ),
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="previous",
+                mode=normalized_mode,
+            ),
+        )
         return {
             "user_id": user_id,
             "actor": normalized_actor,
             "mode": normalized_mode,
             "counts": {
-                "pending": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="pending",
-                    mode=normalized_mode,
-                ),
-                "active": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="active",
-                    mode=normalized_mode,
-                ),
-                "previous": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="previous",
-                    mode=normalized_mode,
-                ),
+                "pending": pending_count,
+                "active": active_count,
+                "previous": previous_count,
             },
         }
 

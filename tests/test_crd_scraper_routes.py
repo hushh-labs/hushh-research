@@ -128,7 +128,13 @@ def test_crd_scrape_provider_errors_return_502() -> None:
     response = client.post("/api/ria/crd-scrape-jobs", json={"crd": "7413463"})
 
     assert response.status_code == 502
-    assert "provider request failed" in response.json()["detail"]
+    detail = response.json()["detail"]
+    # CWE-209: the internal proxy error must not be forwarded to the client.
+    assert detail == {
+        "code": "CRD_UPSTREAM_ERROR",
+        "message": "CRD lookup is temporarily unavailable.",
+    }
+    assert "provider request failed" not in str(detail)
 
 
 def test_create_financial_verification_job_proxies_payload_unchanged() -> None:

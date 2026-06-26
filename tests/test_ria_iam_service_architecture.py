@@ -1580,3 +1580,13 @@ async def test_queue_ria_invite_email_delivery_records_queue_and_success_metadat
     assert created_item["delivery_status"] == "sent"
     assert created_item["delivery_message_id"] == "msg_1"
     assert metadata_updates[-1][1]["status"] == "sent"
+
+
+def test_next_action_for_relationship_status():
+    service = RIAIAMService()
+    assert service._next_action_for_relationship_status("approved") == "open_workspace"
+    assert service._next_action_for_relationship_status("request_pending") == "await_consent"
+    assert service._next_action_for_relationship_status("revoked") == "re_request"
+    assert service._next_action_for_relationship_status("expired") == "re_request"
+    assert service._next_action_for_relationship_status("blocked") == "resolve_block"
+    assert service._next_action_for_relationship_status("unknown") == "request_access"
