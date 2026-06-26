@@ -22,4 +22,18 @@ describe("AccessibilityStatusAnnouncer", () => {
 
     expect(container.innerHTML).toBe("");
   });
+
+  it("renders an assertive live region when assertive is true", () => {
+    render(
+      <AccessibilityStatusAnnouncer
+        message="Critical alert"
+        assertive
+      />,
+    );
+
+    const status = screen.getByRole("status");
+
+    expect(status.getAttribute("aria-live")).toBe("assertive");
+    expect(status.textContent).toBe("Critical alert");
+  });
 });
