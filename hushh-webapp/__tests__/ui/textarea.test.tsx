@@ -12,4 +12,13 @@ describe("Textarea", () => {
     expect(textarea).not.toBeNull();
     expect(textarea?.hasAttribute("disabled")).toBe(true);
   });
+
+  it("renders as a textarea element", () => {
+    const { container } = render(<Textarea />);
+
+    const el = container.querySelector('[data-slot="textarea"]');
+
+    expect(el?.tagName).toBe("TEXTAREA");
+  });
+
 });
