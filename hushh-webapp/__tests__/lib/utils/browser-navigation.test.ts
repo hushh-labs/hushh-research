@@ -130,4 +130,11 @@ describe("browser navigation utilities", () => {
     },
   ]);
   });
+
+  it("exports the correct string value for the internal navigation event name", () => {
+    expect(INTERNAL_APP_NAVIGATION_REQUEST_EVENT).toBe(
+      "app-internal-navigation-requested",
+    );
+  });
+
 });
