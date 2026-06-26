@@ -733,10 +733,11 @@ export default function PortfolioHealthPage() {
               </p>
             )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <Button size="default" onClick={() => router.refresh()}>
+              <Button type="button" size="default" onClick={() => router.refresh()}>
                 Retry optimization
               </Button>
               <Button
+                type="button"
                 size="default"
                 variant="blue-gradient"
                 effect="fade"
