@@ -8,12 +8,23 @@ push safety, local runtime terminals, deploy cadence, and UAT release gates.
 1. Record `git status --short --branch` before branch, CI, deploy, PR, or
    hotfix work.
 2. Treat the user's active development branch as the return target.
-3. Do not create temporary branches for routine follow-up work.
-4. Use a temporary branch only for explicit isolation, a hotfix from latest
-   `main`, or unsafe unrelated in-flight changes.
-5. After temporary hotfix merge/validation, delete the temp branch when safe,
+3. Do NOT create a new branch for follow-up, continuation, or "phase N" work.
+   Continue on the existing development branch the user named or was last on.
+   Creating a branch is a non-routine action: ask the user first, or only do it
+   when the user explicitly requested a new branch.
+4. The ONLY times a new/temporary branch is allowed without asking: explicit
+   user instruction, a hotfix branched from latest `main`, or genuinely unsafe
+   unrelated in-flight changes that must be isolated. "It felt cleaner to
+   isolate the new work" is NOT a valid reason.
+5. When continuation work spans multiple existing branches (e.g. our merged
+   work plus a teammate's feature branch), apply it to each named existing
+   branch via cherry-pick; do not invent a third aggregation branch.
+6. After temporary hotfix merge/validation, delete the temp branch when safe,
    return to the preserved development branch, and back-sync landed `main`.
-6. Do not leave the workspace detached, parked on `main`, or parked on a temp
+7. If you discover you created a branch you should not have, move the real
+   commits back onto the correct existing branch(es) and delete the stray
+   branch (only if it was never pushed); state the correction to the user.
+8. Do not leave the workspace detached, parked on `main`, or parked on a temp
    branch unless the user explicitly asked for that state.
 
 ## Shared Branch A Teammate Is Actively Pushing
