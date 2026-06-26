@@ -57,11 +57,18 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorPayload = await response.json().catch(async () => ({
-        error: (await response.text().catch(() => "")) || "Failed to issue session token",
-      }));
-      console.error("[API] Backend error:", response.status, errorPayload);
-      return NextResponse.json(errorPayload, { status: response.status });
+      // Trust boundary: log the backend detail server-side only, never forward
+      // the upstream error body to the client. This consent/identity endpoint
+      // returns an opaque message so backend token-validation internals are not
+      // leaked to callers (matches /vault-owner-token and /cancel).
+      const errorDetail = await response.text().catch(() => "");
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[API] Backend error:", response.status, errorDetail);
+      }
+      return NextResponse.json(
+        { error: "Failed to issue session token" },
+        { status: response.status },
+      );
     }
 
     const data = await response.json();
