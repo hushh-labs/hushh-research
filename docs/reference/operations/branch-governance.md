@@ -1,6 +1,31 @@
 # Branch Governance
 
 
+## Lane decision: WHO authored the code (the one rule that prevents drift)
+
+The deciding question for how code reaches `main` is **who wrote it**, never the
+branch name. There are exactly two lanes:
+
+| Lane | For | Where you branch FROM | How it reaches `main` |
+|---|---|---|---|
+| **Maintainer Direct-to-Main** | code authored by a governed maintainer (anyone in `main.review_bypass_users` ∪ `main.merge_queue_bypass_users`) | **`origin/main`** | open a PR **directly into `main`**, green CI, merge. No train, no cherry-pick, no promote-branch whitelist. |
+| **Async PR-Train** | community / contributor / agent PRs | `integration/pr-train` | normal train intake → periodic train→`main` promotion PR |
+
+This is enforced — not just documented — by `scripts/ci/verify-pr-base-policy.py`,
+which authorizes a direct `→main` PR by **actor identity**: if the PR author is a
+governed maintainer, a direct PR to `main` from ANY branch passes the
+`PR Base Policy` gate. The `CI Status Gate`, merge queue, and
+`Main Post-Merge Smoke Gate` still run, so direct-to-main removes the train
+detour, not the safety gates. Non-maintainer PRs must still target the train.
+
+The single rule that keeps this clean: **a maintainer who intends to ship to
+`main` branches from `origin/main` at the START**, so the branch carries only its
+own commits and merges with zero missing dependencies. A branch cut from the
+train cannot be cherry-picked onto `main` (the train runs far ahead of `main`, so
+it references code `main` does not have yet) — if you started on the train, either
+rebase onto `origin/main` (small change) or let the train promotion carry it
+(large change). Cherry-picking a train-dependent commit onto `main` is deprecated.
+
 ## Visual Map
 
 ```mermaid
@@ -12,22 +37,23 @@ flowchart LR
   uat["UAT deploy<br/>manual exact SHA"]
   prod["Production deploy<br/>manual chosen SHA"]
   feature --> train --> main --> green
+  feature -->|maintainer-authored, branched from main| main
   green --> uat
   green --> prod
 ```
 
-This repo now runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
+This repo runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
 
 | Lane | Purpose | Default policy |
 |---|---|---|
-| `integration/pr-train` | Normal PR intake and async train landing | Effective landing base for every normal feature/fix/docs PR |
-| `main` | Promotion branch for deployable history | `integration/pr-train` opens normal promotion PRs; governed maintainers may also merge a direct PR into `main` (CI gate + merge queue + post-merge smoke still required) |
+| `integration/pr-train` | Community / contributor / agent PR intake and async train landing | Effective landing base for every non-maintainer feature/fix/docs PR |
+| `main` | Promotion branch for deployable history | Governed maintainers open PRs **directly into `main`** from a branch cut off `origin/main`; the train also opens normal promotion PRs. CI gate + merge queue + post-merge smoke always required. |
 | UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
-1. Start all maintainer/developer branches from the current `integration/pr-train` unless an isolated `main` hotfix is explicitly required.
+1. **If you are a maintainer shipping your own code to `main`, branch from `origin/main`** and open your PR directly into `main` — do not route maintainer milestones through `integration/pr-train` (that couples them to train-only commits and makes a clean landing on `main` impossible). Branch from `integration/pr-train` only when your work is genuinely train-lane work (e.g. coordinating a contributor train).
 2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
 3. Merge all normal feature/fix/docs work into `integration/pr-train`.
 4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
