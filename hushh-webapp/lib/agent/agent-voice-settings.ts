@@ -94,3 +94,21 @@ export function isAgentGeminiVoiceEnabled(): boolean {
   }
   return !DISABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());
 }
+
+const ENABLED_FLAG_VALUES = new Set(["1", "true", "on", "enabled", "yes"]);
+
+/**
+ * Realtime full-duplex voice for One. Opt-in and fail-closed: defaults to OFF so
+ * the agent surface keeps its turn-based voice path unless an operator explicitly
+ * enables realtime via NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED. When OFF, the
+ * conversational-mode control falls back to the existing turn-based flow.
+ */
+export function isAgentRealtimeVoiceEnabled(): boolean {
+  const configured =
+    process.env.NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED ??
+    process.env.AGENT_REALTIME_VOICE_ENABLED;
+  if (configured === undefined || configured === null || String(configured).trim() === "") {
+    return false;
+  }
+  return ENABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());
+}
