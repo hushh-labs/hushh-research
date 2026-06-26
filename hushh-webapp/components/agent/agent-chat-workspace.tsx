@@ -71,6 +71,7 @@ import {
 import { handleAgentVoiceTranscriptTurn } from "@/lib/agent/agent-voice-turn";
 import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts";
 import {
+  AGENT_CONVERSATION_REQUEST_EVENT,
   AGENT_VOICE_SETTINGS_CHANGED_EVENT,
   isAgentGeminiVoiceEnabled,
   readAgentVoiceSettings,
@@ -148,11 +149,11 @@ type AgentChatWorkspaceProps = {
 };
 
 const AGENT_GREETING =
-  "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
+  "Hi, I'm One \u2014 your personal agent. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
 const AGENT_WELCOME_PROMPTS = [
   "Review my portfolio",
-  "Save a PKM memory",
+  "Save a memory",
   "Explain consent flows",
 ] as const;
 
@@ -287,13 +288,13 @@ function AgentWelcomePanel({
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          Kai workspace
+          One workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
           Hi {name}
         </h2>
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
-          Ask Agent about your markets, portfolio, memories, or Hushh workflows.
+          Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
           {AGENT_WELCOME_PROMPTS.map((prompt) => (
@@ -2529,6 +2530,54 @@ export function AgentChatWorkspace({
     voiceActive,
   ]);
 
+  // Keep a live reference to the latest voice toggle so the conversation-request
+  // listener (registered once) always invokes the current handler.
+  const handleToggleVoiceRef = useRef(handleToggleVoice);
+  handleToggleVoiceRef.current = handleToggleVoice;
+
+  // The agent bar's conversational-mode control dispatches a request event after
+  // opening the surface. Auto-start a voice turn once the workspace is ready and
+  // not already in a voice session. Honors the same access gates as the in-chat
+  // voice button (vault unlock, fresh token, voice feature flag).
+  const conversationReady =
+    agentVoiceEnabled && hasChatAccess && !voiceActive && !isVoiceConnecting;
+  const conversationReadyRef = useRef(conversationReady);
+  conversationReadyRef.current = conversationReady;
+  const pendingConversationRequestRef = useRef(false);
+
+  const tryStartPendingConversation = useCallback(() => {
+    if (!pendingConversationRequestRef.current) return;
+    if (!conversationReadyRef.current) return;
+    pendingConversationRequestRef.current = false;
+    void handleToggleVoiceRef.current();
+  }, []);
+
+  useEffect(() => {
+    const handleConversationRequest = () => {
+      pendingConversationRequestRef.current = true;
+      tryStartPendingConversation();
+    };
+    window.addEventListener(
+      AGENT_CONVERSATION_REQUEST_EVENT,
+      handleConversationRequest,
+    );
+    return () => {
+      window.removeEventListener(
+        AGENT_CONVERSATION_REQUEST_EVENT,
+        handleConversationRequest,
+      );
+      pendingConversationRequestRef.current = false;
+    };
+  }, [tryStartPendingConversation]);
+
+  // If the request arrived before the workspace was ready (e.g. vault still
+  // unlocking), retry once readiness flips true.
+  useEffect(() => {
+    if (conversationReady) {
+      tryStartPendingConversation();
+    }
+  }, [conversationReady, tryStartPendingConversation]);
+
   const accessMessage = authLoading
     ? "Checking access..."
     : !user?.uid
@@ -2680,7 +2729,7 @@ export function AgentChatWorkspace({
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          isPopover ? "overflow-hidden p-2 sm:p-3" : "overflow-hidden"
+          isPopover ? "overflow-hidden p-0 sm:p-3" : "overflow-hidden"
         )}
       >
         <div className="hidden h-full lg:flex">
@@ -2715,7 +2764,8 @@ export function AgentChatWorkspace({
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
+            isPopover &&
+              "sm:rounded-lg sm:border sm:border-black/10 sm:shadow-sm sm:dark:border-white/10"
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -2752,10 +2802,10 @@ export function AgentChatWorkspace({
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
-                  Agent
+                  One
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                  Kai workspace
+                  Your personal agent
                 </p>
               </div>
             </div>
@@ -2926,7 +2976,7 @@ export function AgentChatWorkspace({
                 <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
                   <textarea
                     ref={composerTextareaRef}
-                    aria-label="Message Agent"
+                    aria-label="Message One"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => {
@@ -2939,7 +2989,7 @@ export function AgentChatWorkspace({
                       }
                     }}
                     disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
-                    placeholder="Message Agent..."
+                    placeholder="Message One..."
                     rows={1}
                     className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
                   />

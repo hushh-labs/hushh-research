@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation";
 import { AudioLines, Mic } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { requestAgentConversation } from "@/lib/agent/agent-voice-settings";
 import { useAuth } from "@/hooks/use-auth";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -84,6 +85,11 @@ export function AgentBar() {
 
   const openAgent = () => agentPopover.openAgent();
 
+  const startConversation = () => {
+    agentPopover.openAgent();
+    requestAgentConversation();
+  };
+
   return (
     <div
       className="pointer-events-none fixed inset-x-0 z-[118] flex justify-center px-4 transform-gpu"
@@ -137,9 +143,9 @@ export function AgentBar() {
         </button>
         <button
           type="button"
-          onClick={openAgent}
+          onClick={startConversation}
           aria-label="Start a conversational session"
-          title="Conversational mode (coming soon)"
+          title="Conversational mode"
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
             "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
