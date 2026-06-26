@@ -1433,3 +1433,209 @@ export class OneKycClientZkService {
     };
   }
 }
+
+/**
+ * Injectable LLM rewrite interface (D-G forward-compat). The default implementation
+ * is `OneKycService.redraftWithLlm` (server Gemini Vertex via the Wave 2 proxy), but
+ * an on-device model can be swapped in without touching the redact/refill pipeline.
+ */
+export type KycLlmRewriteCallable = (
+  tokenizedTemplate: string,
+  instruction: string
+) => Promise<string>;
+
+/**
+ * Returns true when `instruction` is a pure keyword/formatting instruction that the
+ * existing regex path (`redraftTransformFromInstructions`) can handle locally — i.e.
+ * it matches at least one keyword regex AND contains no semantic-intent phrasing.
+ *
+ * Routing rule (D-F):
+ *  - keyword-only ("make it shorter", "bullet list") -> regex path (return true)
+ *  - free-form / semantic ("rephrase the intro", "shorter and warmer") -> LLM path (return false)
+ *
+ * The keyword regexes are reused verbatim from `redraftTransformFromInstructions`.
+ */
+export function isKeywordOnlyInstruction(instruction: string): boolean {
+  const text = String(instruction || "").toLowerCase().trim();
+  if (!text) return false;
+  // Keyword regexes reused EXACTLY from redraftTransformFromInstructions (renderer).
+  const keywordPatterns: RegExp[] = [
+    /\b(human|natural|plain english|readable|less programmatic|rewrite|polish|polished|email)\b/,
+    /\b(format|formatted|structure|structured|headings|sections|sectioned|readable|clean|beautiful)\b/,
+    /\b(table|tabular|columns|spreadsheet)\b/,
+    /\b(shorter|short|concise|summary|brief|direct|tighten)\b/,
+    /\b(formal|professional|polished)\b/,
+    /\b(bullet|bullets|list)\b/,
+    /\b(full detail|all details|complete|everything|full)\b/,
+    /\b(double headers?|duplicate headers?|remove headers?|clean headers?|headings?)\b/,
+  ];
+  const matchesKeyword = keywordPatterns.some((pattern) => pattern.test(text));
+  if (!matchesKeyword) return false;
+  // Semantic-intent phrases route to the LLM even if a keyword also matched.
+  const semanticIntent =
+    /\b(rephrase|rewrite|reword|warmer|friendlier|colder|intro|opening|paragraph|sentence|tone|voice|style|explain|describe)\b/i;
+  if (semanticIntent.test(text)) return false;
+  return true;
+}
+
+/**
+ * Deterministically redact every PII value from `body` (D-B). Iterates `approvedValues`
+ * (map-driven, not scan-driven) assigning each value an opaque placeholder `{{F0}}..{{FN}}`,
+ * keeping the token->value map for client-side re-substitution. Throws (D-H guardrail 1) if
+ * any value of length >= 3 still appears verbatim in the tokenized template.
+ */
+export function redactDraftForLlm(params: {
+  body: string;
+  approvedValues: Record<string, string>;
+}): { tokenizedTemplate: string; tokenMap: Record<string, string> } {
+  const tokenMap: Record<string, string> = {};
+  // Preserve insertion order for token-index assignment.
+  const orderedEntries = Object.entries(params.approvedValues);
+  orderedEntries.forEach(([, value], index) => {
+    tokenMap[`F${index}`] = value;
+  });
+
+  // Substitute longest values first to avoid partial-match shadowing, but keep the
+  // original insertion-order index in the token name.
+  const substitutionOrder = orderedEntries
+    .map(([, value], index) => ({ index, value }))
+    .sort((a, b) => b.value.length - a.value.length);
+
+  let tokenizedTemplate = params.body;
+  for (const { index, value } of substitutionOrder) {
+    if (!value) continue;
+    tokenizedTemplate = tokenizedTemplate.replaceAll(value, `{{F${index}}}`);
+  }
+
+  // Completeness assertion (D-H guardrail 1): no real value of length >= 3 may remain.
+  for (const [key, value] of Object.entries(tokenMap)) {
+    if (value.length >= 3 && tokenizedTemplate.includes(value)) {
+      throw new Error(
+        `KYC redact incomplete: value for key "${key}" still present in tokenized template`
+      );
+    }
+  }
+
+  return { tokenizedTemplate, tokenMap };
+}
+
+/**
+ * Re-fill placeholders with their real values from `tokenMap` (client-side only, D-B).
+ * Unknown placeholders are left as-is — the integrity check rejects those upstream.
+ */
+export function resubstituteDraft(
+  tokenizedTemplate: string,
+  tokenMap: Record<string, string>
+): string {
+  let result = tokenizedTemplate;
+  for (const [key, value] of Object.entries(tokenMap)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  return result;
+}
+
+/**
+ * Hard token-integrity gate (D-H guardrail 2). Returns true only if EVERY token in
+ * `tokenMap` appears exactly once in `rewrittenTemplate` AND no token outside `tokenMap`
+ * is present. Returns false on any dropped, duplicated, or invented token — never throws.
+ */
+export function validateTokenIntegrity(
+  _tokenizedTemplate: string,
+  rewrittenTemplate: string,
+  tokenMap: Record<string, string>
+): boolean {
+  for (const key of Object.keys(tokenMap)) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matches = rewrittenTemplate.match(new RegExp(`\\{\\{${escapedKey}\\}\\}`, "g"));
+    if (!matches || matches.length !== 1) {
+      return false;
+    }
+  }
+  // Reject any token present in the output that is not in the map (invented token).
+  const tokenPattern = /\{\{([^}]+)\}\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(rewrittenTemplate)) !== null) {
+    const tokenKey = match[1];
+    if (tokenKey === undefined || !Object.prototype.hasOwnProperty.call(tokenMap, tokenKey)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The fixed signature the renderer appends to every approved-disclosure draft.
+ * Kept byte-identical to `buildApprovedDisclosurePlainText` (renderer) so that
+ * `splitDraftTemplate` can strip it deterministically.
+ */
+const DRAFT_SIGNATURE = "Best,\nhussh One";
+
+/**
+ * Recompute the EXACT opening line the renderer produced for `renderModel`.
+ * Must stay byte-identical to `buildApprovedDisclosurePlainText` (renderer).
+ */
+function computeDraftOpening(renderModel: KycDraftRenderModel): string {
+  return renderModel.style.formal
+    ? `I am replying on behalf of ${renderModel.accountHolder} with the approved information below.`
+    : `I am replying on behalf of ${renderModel.accountHolder}.`;
+}
+
+/**
+ * Deterministically split a draft `body` into its fixed template framing
+ * ({ opening, content, signature }) using `renderModel`.
+ *
+ * The renderer composes every draft body as:
+ *   `${opening}\n\n${content...}\n${signature}`  (and the compact single-entry
+ *   branch uses the same `${opening}` prefix + `${signature}` suffix).
+ *
+ * This recomputes the opening from `style.formal + accountHolder` and uses the
+ * constant signature, then strips the known prefix/suffix; the trimmed remainder
+ * is `content` — the ONLY part an LLM redraft may rewrite. The opening and
+ * signature are returned verbatim so the caller can reassemble a byte-identical
+ * template around the rewritten content.
+ *
+ * Defensive: if the body does not start with the expected opening or end with the
+ * expected signature, returns `matched: false` with the WHOLE body as `content`
+ * (opening/signature empty), so the caller falls back to sending the full body.
+ */
+export function splitDraftTemplate(params: {
+  body: string;
+  renderModel: KycDraftRenderModel;
+}): { opening: string; content: string; signature: string; matched: boolean } {
+  const body = params.body;
+  const opening = computeDraftOpening(params.renderModel);
+  const signature = DRAFT_SIGNATURE;
+
+  const openingPrefix = `${opening}\n\n`;
+  const signatureSuffix = signature;
+
+  const startsWithOpening = body.startsWith(openingPrefix);
+  const endsWithSignature = body.endsWith(signatureSuffix);
+
+  if (!startsWithOpening || !endsWithSignature) {
+    // Defensive fallback: framing did not match — send the whole body.
+    return { opening: "", content: body, signature: "", matched: false };
+  }
+
+  const middle = body.slice(openingPrefix.length, body.length - signatureSuffix.length);
+  // The renderer separates content from the signature with a trailing "\n" (or
+  // "\n\n" in the compact branch); strip surrounding newline whitespace so the
+  // content is the clean rewritable core. Reassembly re-adds the framing.
+  const content = middle.replace(/^\n+/, "").replace(/\n+$/, "");
+
+  return { opening, content, signature, matched: true };
+}
+
+/**
+ * Reassemble a draft body from its fixed framing and a (possibly rewritten)
+ * content core, byte-identical to the renderer's `${opening}\n\n...\n\n${signature}`
+ * shape. Used after an LLM rewrite of the content portion so the opening line and
+ * signature remain unchanged.
+ */
+export function reassembleDraftTemplate(params: {
+  opening: string;
+  content: string;
+  signature: string;
+}): string {
+  return `${params.opening}\n\n${params.content}\n\n${params.signature}`;
+}

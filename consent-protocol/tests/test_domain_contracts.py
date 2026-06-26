@@ -90,6 +90,35 @@ class TestDomainRegistryStructure:
         with pytest.raises(FrozenInstanceError):
             entry.domain_key = "hacked"  # type: ignore[misc]
 
+    def test_identity_entry_registered(self) -> None:
+        # Phase 02-01: identity is a canonical PKM domain (the missing producer
+        # for the existing KYC consumer that reads attr.identity.*).
+        identity_entries = [
+            entry for entry in CANONICAL_DOMAIN_REGISTRY if entry.domain_key == "identity"
+        ]
+        assert len(identity_entries) == 1, "exactly one identity entry expected"
+        entry = identity_entries[0]
+        assert entry.icon_name == "user-round"
+        assert entry.color_hex == "#0EA5E9"
+        assert entry.status == "active_core"
+
+    def test_identity_in_canonical_domain_keys(self) -> None:
+        assert "identity" in CANONICAL_DOMAIN_KEYS
+
+    def test_identity_metadata_lookup(self) -> None:
+        entry = get_canonical_domain_metadata("identity")
+        assert entry is not None
+        assert entry.icon_name == "user-round"
+        assert entry.color_hex == "#0EA5E9"
+
+    def test_no_ssn_field_in_identity_registry(self) -> None:
+        # D-A: NO SSN anywhere in the identity registry entry.
+        for entry in CANONICAL_DOMAIN_REGISTRY:
+            if entry.domain_key == "identity":
+                blob = " ".join([entry.display_name, entry.description, entry.icon_name]).lower()
+                assert "ssn" not in blob
+                assert "social security" not in blob
+
 
 # ---------------------------------------------------------------------------
 # Structural invariants: FINANCIAL_SUBINTENT_REGISTRY
