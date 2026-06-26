@@ -94,6 +94,7 @@ import {
 import {
   effectiveOneKycRequiredFields,
   OneKycClientZkService,
+  runLlmRedraft,
   type KycDraftBuildResult,
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
@@ -851,6 +852,14 @@ function OneKycWorkspace() {
 
     return () => {
       cancelled = true;
+      // Clear the background draft-prep flag when this run is superseded or
+      // unmounted. The in-flight run's `finally` skips the reset while
+      // `cancelled`, and a follow-up run can early-return before the `try`
+      // (e.g. the failed-attempt/recovery guards on a 409), which would leave
+      // `busy` stuck at "draft" and disable every action button. Only "draft"
+      // is cleared, so a concurrent user action's busy state is never touched;
+      // the next run re-sets it if it actually starts preparing.
+      setBusy((current) => (current === "draft" ? null : current));
     };
   }, [
     auth.userId,
@@ -981,51 +990,32 @@ function OneKycWorkspace() {
             setError("Prepare the email draft before revising it.");
             return;
           }
-          const next = await OneKycService.redraft({
-            ...input,
-            instructions: redraftInstructions.trim(),
-            source: "text",
+          const exportPayloads = localExportPayloads[workflow.workflow_id] || [];
+          const result = await runLlmRedraft({
+            localDraft,
+            instruction: redraftInstructions.trim(),
+            workflow,
+            exportPayloads,
+            llmRewrite: (tokenizedTemplate, instruction) =>
+              OneKycService.redraftWithLlm({
+                ...input,
+                tokenizedTemplate,
+                instruction,
+              }).then((response) => response.rewritten_template),
           });
-          updateWorkflow(next);
-          if (next.status === "waiting_on_user") {
-            let exportPayloads = localExportPayloads[workflow.workflow_id] || [];
-            if (exportPayloads.length === 0) {
-              const connector = await OneKycClientZkService.ensureConnector({
-                userId: auth.userId,
-                vaultKey,
-                vaultOwnerToken,
-              });
-              const exportResponse = await OneKycService.getWorkflowConsentExports({
-                userId: auth.userId,
-                vaultOwnerToken,
-                workflowId: next.workflow_id,
-              });
-              exportPayloads = await Promise.all(
-                exportResponse.exports.map(async (exportPackage) => ({
-                  scope: exportPackage.scope,
-                  payload: await OneKycClientZkService.decryptScopedExport({
-                    exportPackage,
-                    connector,
-                  }),
-                })),
-              );
-              setLocalExportPayloads((current) => ({
-                ...current,
-                [workflow.workflow_id]: exportPayloads,
-              }));
-            }
-            const draft = await OneKycClientZkService.buildDraft({
-              workflow: next,
-              exportPayloads,
-              instructions: redraftInstructions.trim(),
-            });
-            setLocalDrafts((current) => ({
-              ...current,
-              [workflow.workflow_id]: draft,
-            }));
-          } else {
-            clearLocalWorkflowState(workflow.workflow_id);
+          if (!result.ok) {
+            setError(
+              result.errorCode === "TOKEN_INTEGRITY"
+                ? "AI output failed token integrity check — using original draft. Try again or use a simpler instruction."
+                : "AI output altered the consented field set — using original draft. Try again.",
+            );
+            setRedraftInstructions("");
+            return;
           }
+          setLocalDrafts((current) => ({
+            ...current,
+            [workflow.workflow_id]: result.draft,
+          }));
           setRedraftInstructions("");
           return;
         }
@@ -1617,9 +1607,12 @@ function OneKycWorkspace() {
                           size="icon"
                           className="size-8"
                           aria-label="Remove request"
-                          disabled={
-                            Boolean(busy) || Boolean(archivingWorkflowId)
-                          }
+                          // Removing a request only opens the confirm dialog and is
+                          // its own action; it must not be blocked by a background
+                          // draft-prep (busy === "draft"), or a stuck/looping draft
+                          // prep would trap the user with no way to delete the
+                          // workflow. Guard only against an in-flight archive.
+                          disabled={Boolean(archivingWorkflowId)}
                           onClick={(event) => {
                             event.stopPropagation();
                             setArchiveTarget(workflow);

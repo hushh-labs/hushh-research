@@ -221,4 +221,33 @@ describe("OneKycService", () => {
       }),
     });
   });
+
+  it("redraftWithLlm posts tokenized_template + instruction to the redraft-llm route", async () => {
+    mockApiJson.mockResolvedValue({ rewritten_template: "Hi {{F0}}" });
+
+    const result = await OneKycService.redraftWithLlm({
+      userId: "u1",
+      vaultOwnerToken: "tok",
+      workflowId: "wf 1",
+      tokenizedTemplate: "Hi {{F0}}, ref {{F1}}.",
+      instruction: "warmer tone",
+    });
+
+    expect(result).toEqual({ rewritten_template: "Hi {{F0}}" });
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/kyc/workflows/wf%201/redraft-llm",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer tok",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: "u1",
+          tokenized_template: "Hi {{F0}}, ref {{F1}}.",
+          instruction: "warmer tone",
+        }),
+      },
+    );
+  });
 });
