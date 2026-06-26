@@ -13,8 +13,13 @@ describe("cn", () => {
     expect(cn("p-2", "p-4")).toBe("p-4");
   });
   it("ignores null, undefined, and empty string values", () => {
-  expect(cn("flex", null, undefined, "", "items-center")).toBe(
-    "flex items-center",
-  );
-});
+    expect(cn("flex", null, undefined, "", "items-center")).toBe(
+      "flex items-center",
+    );
+  });
+
+  it("returns empty string for undefined and null arguments", () => {
+    expect(cn(undefined, null)).toBe("");
+  });
+
 });
