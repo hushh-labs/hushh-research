@@ -16,6 +16,33 @@ push safety, local runtime terminals, deploy cadence, and UAT release gates.
 6. Do not leave the workspace detached, parked on `main`, or parked on a temp
    branch unless the user explicitly asked for that state.
 
+## Shared Branch A Teammate Is Actively Pushing
+
+Use this when asked to "pull main into" or "update" a feature branch that
+another developer is also pushing from a different machine (for example a
+long-lived integration branch like `kai-voice-level3`).
+
+1. Identify the canonical branch name exactly. A `feat/<name>` and a bare
+   `<name>` (and any `<name>-main` or `backup/<name>-*`) can all coexist on
+   `origin`; confirm with `git ls-remote --heads origin '*<name>*'` and treat the
+   most recently advanced, least-behind-`main` ref as canonical.
+2. `git fetch origin <branch> main` first, then read `git rev-list
+   --left-right --count origin/main...origin/<branch>`.
+3. If `origin/<branch>` is already `0` behind `origin/main`, the teammate has
+   already merged `main`. Do not start a local `git merge origin/main` — that
+   races their push and can manufacture hundreds of phantom conflicts against a
+   stale local line.
+4. In that case, sync local to their authoritative remote with
+   `git merge --ff-only origin/<branch>` (or `git switch -c <branch> --track
+   origin/<branch>` if absent locally), then verify
+   `origin/<branch>..origin/main` is empty.
+5. Only run an actual `git merge origin/main` when `origin/<branch>` is
+   genuinely behind `main` AND no teammate push is in flight. If a merge yields
+   a very large conflict set, the local base is almost always stale — re-fetch
+   and re-check canonical identity before resolving anything.
+6. Never force-push or reset a shared branch a teammate is pushing. Preserve any
+   superseded local line under a `_safety/<name>-...` tag before discarding it.
+
 ## Commit And Push Safety
 
 1. Before every commit or push, classify remaining dirty files as included,
