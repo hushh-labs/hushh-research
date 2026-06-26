@@ -1,3 +1,4 @@
+import { fireEvent } from "@testing-library/react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -90,5 +91,27 @@ describe("ConsentAuditTimeline", () => {
     expect(screen.getByText("Requested")).toBeTruthy();
     expect(screen.getAllByText("Revoked").length).toBeGreaterThan(0);
     expect(screen.queryByText("Activity trails")).toBeNull();
+  });
+
+  it("renders the empty filtered history state", () => {
+    renderTimeline({
+      id: "identifier:macy",
+      kind: "history",
+      status: "approved",
+      action: "CONSENT_GRANTED",
+      counterpart_type: "developer",
+      counterpart_label: "Macy's CRM",
+      issued_at: "2026-06-18T17:30:00.000Z",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoked" }));
+
+    expect(screen.getByText("No matching consent history")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Change the filter or wait for the next consent decision to be recorded.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Recent consent history")).toBeNull();
   });
 });
