@@ -64,11 +64,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate the consent token with Python backend
-    console.log("🔍 Validating consent token...");
+    if (process.env.NODE_ENV !== "production") {
+      console.log("🔍 Validating consent token...");
+    }
     const validation = await validateConsentToken(consentToken);
 
     if (!validation.valid) {
-      console.warn(`❌ Vault write rejected: ${validation.reason}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(`❌ Vault write rejected: ${validation.reason}`);
+      }
       return NextResponse.json(
         {
           error: `Consent validation failed: ${validation.reason}`,
@@ -80,7 +84,9 @@ export async function POST(request: NextRequest) {
 
     // Additional check: token user must match request user
     if (validation.user_id && validation.user_id !== userId) {
-      console.warn("❌ Vault write rejected: consent token user mismatch");
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("❌ Vault write rejected: consent token user mismatch");
+      }
       return NextResponse.json(
         {
           error: "Consent token user mismatch",
@@ -90,7 +96,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("✅ Consent validated for encrypted preference write");
+    if (process.env.NODE_ENV !== "production") {
+      console.log("✅ Consent validated for encrypted preference write");
+    }
 
     // =========================================================================
     // VAULT WRITE: Now authorized
@@ -102,9 +110,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(
-      `📦 Storing ${Object.keys(preferences).length} encrypted preference field(s)`
-    );
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `📦 Storing ${Object.keys(preferences).length} encrypted preference field(s)`
+      );
+    }
 
     // Dynamically store each preference field
     const storePromises = [];
@@ -121,7 +131,9 @@ export async function POST(request: NextRequest) {
 
       // Validate encrypted structure
       if (!encrypted.ciphertext || !encrypted.iv || !encrypted.tag) {
-        console.warn("⚠️ Skipping invalid encrypted preference field");
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("⚠️ Skipping invalid encrypted preference field");
+        }
         continue;
       }
 
@@ -139,7 +151,9 @@ export async function POST(request: NextRequest) {
 
     await Promise.all(storePromises);
 
-    console.log(`✅ Stored ${storePromises.length} encrypted preference field(s)`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`✅ Stored ${storePromises.length} encrypted preference field(s)`);
+    }
 
     return NextResponse.json({
       success: true,
