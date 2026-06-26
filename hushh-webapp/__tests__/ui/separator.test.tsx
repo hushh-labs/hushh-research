@@ -40,4 +40,12 @@ describe("Separator", () => {
     expect(el?.getAttribute("role")).toBe("separator");
   });
 
+  it("renders as a div element", () => {
+    const { container } = render(<Separator />);
+
+    const el = container.querySelector('[data-slot="separator"]');
+
+    expect(el?.tagName).toBe("DIV");
+  });
+
 });
