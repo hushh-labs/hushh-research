@@ -54,4 +54,18 @@ describe("RadioGroup", () => {
     expect(checkedOptions).toHaveLength(1);
     expect(checkedOptions[0].getAttribute("value")).toBe("b");
   });
+
+  it("marks the decorative CircleIcon as aria-hidden", () => {
+    const { container } = render(
+      <RadioGroup defaultValue="a">
+        <RadioGroupItem value="a" />
+      </RadioGroup>,
+    );
+
+    const icon = container.querySelector(
+      '[data-slot="radio-group-indicator"] svg',
+    );
+
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+  });
 });
