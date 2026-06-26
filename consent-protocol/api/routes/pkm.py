@@ -232,7 +232,7 @@ async def update_upgrade_run_status(
     run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _update_upgrade_run_status(request, run_id, token_data)
+    return await _update_upgrade_run_status(run_id, request, token_data)
 
 
 @router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
@@ -242,7 +242,7 @@ async def update_upgrade_step(
     domain: str = Path(..., min_length=1, max_length=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _update_upgrade_step(request, run_id, domain, token_data)
+    return await _update_upgrade_step(run_id, domain, request, token_data)
 
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
@@ -251,7 +251,7 @@ async def complete_upgrade_run(
     run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _complete_upgrade_run(request, run_id, token_data)
+    return await _complete_upgrade_run(run_id, request, token_data)
 
 
 @router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
@@ -260,7 +260,7 @@ async def fail_upgrade_run(
     run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _fail_upgrade_run(request, run_id, token_data)
+    return await _fail_upgrade_run(run_id, request, token_data)
 
 
 @router.get("/domain-registry", response_model=DomainRegistryResponse)
