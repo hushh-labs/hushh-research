@@ -6,6 +6,7 @@ Modular architecture with routes organized in api/routes/ directory.
 Run with: uvicorn server:app --reload --port 8000
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -22,6 +23,12 @@ logging.basicConfig(level=logging.INFO)
 install_sensitive_log_filter()
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
+_STARTUP_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _track_startup_background_task(task: asyncio.Task[None]) -> None:
+    _STARTUP_BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_STARTUP_BACKGROUND_TASKS.discard)
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -460,16 +467,26 @@ async def startup_consent_listener():
 
 @app.on_event("startup")
 async def startup_ticker_cache():
-    """Preload SEC tickers into an in-memory cache on server startup.
+    """Preload SEC tickers into an in-memory cache after server startup.
 
     This avoids a DB roundtrip for each keystroke in the frontend ticker search.
+    The cache is best-effort and route-level fallback exists, so the synchronous
+    SQLAlchemy loader must not block the FastAPI event loop from serving health.
     """
-    try:
-        from hushh_mcp.services.ticker_cache import ticker_cache
 
-        ticker_cache.load_from_db()
-    except Exception as e:
-        logger.warning("[startup] Ticker cache preload failed (routes will fall back to DB): %s", e)
+    async def _load_cache() -> None:
+        try:
+            from hushh_mcp.services.ticker_cache import ticker_cache
+
+            loaded = await asyncio.to_thread(ticker_cache.load_from_db)
+            logger.info("[startup] Ticker cache preload completed rows=%d", loaded)
+        except Exception as e:
+            logger.warning(
+                "[startup] Ticker cache preload failed (routes will fall back to DB): %s",
+                e,
+            )
+
+    _track_startup_background_task(asyncio.create_task(_load_cache(), name="ticker-cache-preload"))
 
 
 @app.on_event("startup")

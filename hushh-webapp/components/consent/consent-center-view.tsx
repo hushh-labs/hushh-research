@@ -28,7 +28,7 @@ import {
   type ConsentCenterView,
 } from "@/lib/services/consent-center-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   buildConsentSheetProfileHref,
   CONSENT_BUNDLE_QUERY_KEY,
@@ -1041,9 +1041,7 @@ export function ConsentCenterView({
 
             {canOpenWorkspace ? (
               <Link
-                href={`${ROUTES.RIA_HOME}/workspace/${encodeURIComponent(
-                  String(entry.counterpart_id)
-                )}`}
+                href={buildRiaClientWorkspaceRoute(String(entry.counterpart_id))}
                 className="inline-flex min-h-10 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground"
               >
                 Open workspace

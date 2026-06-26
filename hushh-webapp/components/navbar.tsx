@@ -318,7 +318,7 @@ export const Navbar = () => {
       ? `min(calc(100vw - 2rem), calc(${bottomNavMaxWidth} + ${BOTTOM_NAV_SEARCH_BUBBLE_WIDTH}))`
       : BOTTOM_NAV_EMPTY_GROUP_WIDTH;
 
-  if (hideNavbar) {
+  if (hideNavbar || agentWindowOpen) {
     return null;
   }
 

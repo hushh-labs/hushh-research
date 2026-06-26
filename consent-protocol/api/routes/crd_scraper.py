@@ -30,6 +30,7 @@ class CrdScrapeJobRequest(BaseModel):
     crdNumber: str = Field(
         ...,
         min_length=1,
+        max_length=20,
         validation_alias=AliasChoices("crdNumber", "crd_number", "crd"),
     )
 

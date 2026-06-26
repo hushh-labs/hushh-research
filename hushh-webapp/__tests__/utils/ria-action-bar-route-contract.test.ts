@@ -32,6 +32,18 @@ describe("RIA action bar route contract", () => {
     }
   });
 
+  it("keeps auth and phone mandate flows without the shared command bar", () => {
+    for (const pathname of [
+      ROUTES.LOGIN,
+      `${ROUTES.LOGIN}?redirect=%2Fone%2Flocation`,
+      ROUTES.PHONE_MANDATE,
+      `${ROUTES.PHONE_MANDATE}?redirect=%2Fone%2Flocation`,
+    ]) {
+      expect(getKaiChromeState(pathname).hideCommandBar).toBe(true);
+      expect(getKaiChromeState(pathname).hideBottomNav).toBe(true);
+    }
+  });
+
   it("keeps the shared command surface visible on signed-in marketplace routes", () => {
     for (const pathname of [
       ROUTES.MARKETPLACE,

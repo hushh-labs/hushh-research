@@ -3229,8 +3229,8 @@ class OneLocationAgentService:
               invite_id, status, connected_at, created_at, updated_at, metadata
             )
             VALUES (
-              LEAST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)), 
-              GREATEST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)), 
+              LEAST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
+              GREATEST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
               :inviter_user_id, :invitee_user_id,
               CAST(:invite_id AS UUID), 'active', NOW(), NOW(), NOW(),
               CAST(:metadata_json AS JSONB)

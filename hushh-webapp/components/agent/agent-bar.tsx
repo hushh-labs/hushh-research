@@ -5,17 +5,14 @@
 // every authenticated screen. It replaces the old draggable floating "Agent"
 // pill so the agent is always present and context-aware: the hint text adapts to
 // the current screen so the bar can guide the user from onboarding to any part
-// of the app. For now it keeps the existing behavior (tap or mic both open the
-// agent); richer per-screen actions are a planned follow-up.
+// of the app. The bar itself opens Agent; voice controls live inside Agent.
 
 "use client";
 
 import React, { useMemo, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, Mic } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
-import { requestAgentConversation } from "@/lib/agent/agent-voice-settings";
 import { useAuth } from "@/hooks/use-auth";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -99,11 +96,6 @@ export function AgentBar() {
   // the same envelope instead of popping in from a fresh mount.
   const barHidden = Boolean(agentWindowActive);
 
-  const startConversation = () => {
-    agentPopover.openAgent();
-    requestAgentConversation();
-  };
-
   return (
     <div
       className="pointer-events-none fixed inset-x-0 z-[118] flex justify-center px-4 transform-gpu"
@@ -126,8 +118,8 @@ export function AgentBar() {
     >
       <div
         className={cn(
-          "pointer-events-auto flex w-full max-w-[min(calc(100vw-2rem),34rem)] items-center gap-2",
-          "h-11 rounded-full pl-3 pr-1.5",
+          "pointer-events-auto flex w-full max-w-[min(calc(100vw-2rem),30rem)] items-center",
+          "h-11 rounded-full px-4",
           // Flat surface matching the top app bar controls and bottom nav.
           "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
           // Single, consolidated transition covering surface color plus the
@@ -143,41 +135,11 @@ export function AgentBar() {
           type="button"
           onClick={openAgent}
           aria-label={hint}
-          className={cn(
-            "flex min-w-0 flex-1 items-center gap-2.5 rounded-full pl-1 text-left",
-            "transition-colors duration-200 active:scale-[0.99]",
-          )}
+          className="flex h-full min-w-0 flex-1 items-center rounded-full text-left transition-transform duration-200 active:scale-[0.99]"
         >
           <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground/70">
             {hint}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={openAgent}
-          aria-label="Talk to your agent"
-          className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-            "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
-            "transition-[background-color,transform] duration-200",
-            "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90",
-          )}
-        >
-          <Mic className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={startConversation}
-          aria-label="Start a conversational session"
-          title="Conversational mode"
-          className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-            "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
-            "transition-[background-color,transform] duration-200",
-            "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90",
-          )}
-        >
-          <AudioLines className="h-4 w-4" />
         </button>
       </div>
     </div>

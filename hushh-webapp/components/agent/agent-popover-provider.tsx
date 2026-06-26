@@ -36,6 +36,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type AgentPopoverContextValue = {
+  available: boolean;
   expanded: boolean;
   hasOpened: boolean;
   motionState: AgentPopoverMotionState;
@@ -116,6 +117,16 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   );
   const [customSize, setCustomSize] =
     useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
+  const { isAuthenticated } = useAuth();
+  const pathname = usePathname();
+  const chromeState = getKaiChromeState(pathname);
+  const isLegacyAgentRoute = pathname === ROUTES.AGENT;
+  const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
+  const available =
+    isAuthenticated &&
+    !isLegacyAgentRoute &&
+    !isPhoneMandateRoute &&
+    !chromeState.hideCommandBar;
 
   useEffect(() => {
     setSizeModeState(readStoredSizeMode());
@@ -143,6 +154,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   useEffect(() => clearMotionHandles, [clearMotionHandles]);
 
   const openAgent = useCallback(() => {
+    if (!available) return;
     if (expanded && motionState !== "closing") return;
 
     clearMotionHandles();
@@ -157,7 +169,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
         setMotionState("idle");
       }, AGENT_POPOVER_TRANSITION_MS);
     });
-  }, [clearMotionHandles, expanded, motionState]);
+  }, [available, clearMotionHandles, expanded, motionState]);
 
   const minimizeAgent = useCallback(() => {
     if (!expanded && motionState !== "opening") return;
@@ -173,6 +185,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AgentPopoverContextValue>(
     () => ({
+      available,
       expanded,
       hasOpened,
       motionState,
@@ -182,6 +195,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
       setSizeMode,
     }),
     [
+      available,
       expanded,
       hasOpened,
       minimizeAgent,
@@ -191,6 +205,13 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
       sizeMode,
     ],
   );
+
+  useEffect(() => {
+    if (available) return;
+    clearMotionHandles();
+    setExpanded(false);
+    setMotionState("idle");
+  }, [available, clearMotionHandles]);
 
   useEffect(() => {
     window.localStorage.setItem(AGENT_POPOVER_STORAGE_KEYS.mode, sizeMode);
@@ -363,7 +384,7 @@ function AgentPopoverSurface({
         >
           <section
             className={cn(
-              "pointer-events-auto fixed flex min-h-0 origin-bottom-right flex-col overflow-hidden bg-white/95 text-[#1d1d1f] shadow-2xl backdrop-blur-xl transition-[border-radius,filter,height,opacity,transform,width] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transform-none motion-reduce:transition-none dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
+              "agent-themed-popover-surface pointer-events-auto fixed flex min-h-0 origin-bottom-right flex-col overflow-hidden border border-border/70 shadow-2xl backdrop-blur-xl transition-[border-radius,filter,height,opacity,transform,width] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transform-none motion-reduce:transition-none",
               isFullscreen
                 ? "inset-0 rounded-none border-0"
                 : // On phones the Agent window is a full immersive sheet: edge to
@@ -445,7 +466,7 @@ function AgentPopoverWindowControls({
 
   return (
     <div
-      className="hidden h-8 overflow-hidden rounded-md border border-black/10 bg-black/[0.035] dark:border-white/10 dark:bg-white/[0.03] sm:flex"
+      className="hidden h-8 overflow-hidden rounded-md border border-border bg-muted/50 sm:flex"
       aria-label="One window controls"
       role="group"
     >
@@ -453,7 +474,7 @@ function AgentPopoverWindowControls({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100"
+        className="h-8 w-10 rounded-none text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
         onClick={onMinimize}
         aria-label="Minimize One"
         title="Minimize One"
@@ -464,7 +485,7 @@ function AgentPopoverWindowControls({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100"
+        className="h-8 w-10 rounded-none text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
         onClick={() => setSizeMode(isFullscreen ? "large" : "fullscreen")}
         aria-label={isFullscreen ? "Restore One" : "Maximize One"}
         title={isFullscreen ? "Restore One" : "Maximize One"}
@@ -479,7 +500,7 @@ function AgentPopoverWindowControls({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-red-500/85 hover:text-white focus-visible:ring-2 focus-visible:ring-red-400/70 dark:text-zinc-400"
+        className="h-8 w-10 rounded-none text-muted-foreground hover:bg-red-500/85 hover:text-white focus-visible:ring-2 focus-visible:ring-red-400/70"
         onClick={onClose}
         aria-label="Close One"
         title="Close One"

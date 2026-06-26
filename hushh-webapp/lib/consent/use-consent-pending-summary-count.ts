@@ -79,6 +79,9 @@ export function useConsentPendingSummaryCount() {
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === cacheKey ? retainedSummary.data : null);
+  const pendingCount = summaryData?.counts?.pending;
 
-  return summaryData?.counts.pending ?? 0;
+  return typeof pendingCount === "number" && Number.isFinite(pendingCount)
+    ? pendingCount
+    : 0;
 }

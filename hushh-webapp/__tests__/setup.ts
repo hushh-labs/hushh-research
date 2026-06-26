@@ -34,6 +34,47 @@ if (typeof window !== "undefined") {
       dispatchEvent: vi.fn(),
     })),
   });
+
+  class LocalStorageMock {
+    private store: Record<string, string> = {};
+
+    clear() {
+      this.store = {};
+    }
+
+    getItem(key: string) {
+      return this.store[key] || null;
+    }
+
+    setItem(key: string, value: string) {
+      this.store[key] = String(value);
+    }
+
+    removeItem(key: string) {
+      delete this.store[key];
+    }
+
+    get length() {
+      return Object.keys(this.store).length;
+    }
+
+    key(i: number) {
+      const keys = Object.keys(this.store);
+      return keys[i] || null;
+    }
+  }
+
+  // Mock localStorage
+  Object.defineProperty(window, "localStorage", {
+    value: new LocalStorageMock(),
+    writable: true,
+  });
+
+  // Mock sessionStorage
+  Object.defineProperty(window, "sessionStorage", {
+    value: new LocalStorageMock(),
+    writable: true,
+  });
 }
 
 /**

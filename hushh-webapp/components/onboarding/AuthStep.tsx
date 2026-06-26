@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { getRedirectResult } from "firebase/auth";
+import { getRedirectResult, type User } from "firebase/auth";
 import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
@@ -18,6 +18,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
   kaiAppHeroBodyClassName,
@@ -76,6 +77,13 @@ export function AuthStep({
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING &&
     redirectPath === ROUTES.ONE_ONBOARDING;
+  const isLocationPhoneVerificationReturn = useMemo(
+    () =>
+      redirectPath === ROUTES.ONE_LOCATION ||
+      redirectPath.startsWith(`${ROUTES.ONE_LOCATION}?`) ||
+      redirectPath.startsWith(`${ROUTES.ONE_LOCATION}/`),
+    [redirectPath],
+  );
   const growthJourney = useMemo(() => resolveGrowthJourneyForPath(redirectPath), [redirectPath]);
   const growthEntrySurface = useMemo(
     () => resolveGrowthEntrySurface(redirectPath),
@@ -118,7 +126,12 @@ export function AuthStep({
   }, [router]);
 
   const resolveAndNavigate = useCallback(
-    async (userId: string, idToken?: string, phoneNumber?: string | null) => {
+    async (
+      userId: string,
+      idToken?: string,
+      phoneNumber?: string | null,
+      authenticatedUser?: User | null
+    ) => {
       const navigationKey = `${userId}:${redirectPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return;
@@ -134,11 +147,26 @@ export function AuthStep({
         }
         const resolvedIdToken =
           idToken || (user ? await user.getIdToken().catch(() => undefined) : undefined);
+        const routeUser = authenticatedUser ?? user;
+        const identity =
+          routeUser?.uid === userId
+            ? await AccountIdentityService.syncCurrentUser(routeUser).catch((error) => {
+                console.warn("[AuthStep] Failed to sync account identity:", error);
+                return null;
+              })
+            : null;
+        const backendPhoneVerified = identity
+          ? AccountIdentityService.hasVerifiedPhone(identity)
+          : isLocationPhoneVerificationReturn
+            ? false
+            : null;
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
           redirectPath,
           idToken: resolvedIdToken,
           phoneNumber,
+          phoneVerified: backendPhoneVerified,
+          hostname: typeof window === "undefined" ? null : window.location.hostname,
           enableFirstRunSetupGate: true,
         });
 
@@ -161,7 +189,7 @@ export function AuthStep({
         router.push(safeFallbackPath);
       }
     },
-    [preserveOnboardingAuditRoute, redirectPath, router, user]
+    [isLocationPhoneVerificationReturn, preserveOnboardingAuditRoute, redirectPath, router, user]
   );
 
   const debugLog = (...args: unknown[]) => {
@@ -220,7 +248,8 @@ export function AuthStep({
           void resolveAndNavigate(
             result.user.uid,
             await result.user.getIdToken(),
-            result.user.phoneNumber
+            result.user.phoneNumber,
+            result.user
           );
         }
       })
@@ -240,7 +269,7 @@ export function AuthStep({
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
+      void resolveAndNavigate(user.uid, undefined, user.phoneNumber, user);
     }
   }, [
     redirectPath,
@@ -318,7 +347,8 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber
+          authenticatedUser.phoneNumber,
+          authenticatedUser
         );
       } else {
         trackEvent("auth_failed", {
@@ -430,7 +460,8 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber
+          authenticatedUser.phoneNumber,
+          authenticatedUser
         );
       } else {
         debugError("[AuthStep] No user returned from signInWithGoogle");
@@ -482,7 +513,8 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber
+          authenticatedUser.phoneNumber,
+          authenticatedUser
         );
       } else {
         debugError("[AuthStep] No user returned from signInWithApple");

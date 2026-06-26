@@ -26,6 +26,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(searchBar).not.toContain('aria-label="Open Agent"');
 
     expect(agentBar).toContain("agentPopover.openAgent()");
-    expect(agentBar).toContain('aria-label="Talk to your agent"');
+    expect(agentBar).toContain("aria-label={hint}");
+    expect(agentBar).not.toContain('aria-label="Talk to your agent"');
   });
 });

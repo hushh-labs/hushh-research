@@ -874,7 +874,7 @@ export class VaultService {
         } catch (error) {
           const fallbackHasVault = await this.resolveVaultCheckFallback(userId);
           if (fallbackHasVault === null) {
-            console.error("❌ [VaultService] checkVault failed:", error);
+            console.warn("⚠️ [VaultService] checkVault unavailable:", error);
             throw error;
           }
           console.warn(

@@ -19,7 +19,6 @@ import {
   ClipboardCheck,
   ExternalLink,
   Fingerprint,
-  Folder,
   KeyRound,
   LifeBuoy,
   Loader2,
@@ -67,6 +66,7 @@ import {
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { PrivacyToggle } from "@/components/profile/privacy-toggle";
 import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -89,7 +89,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -104,14 +103,9 @@ import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
-import {
-  resolveGmailConnectionPresentation,
-  resolveGmailStatusSummary,
-  sanitizeGmailUserMessage,
-} from "@/lib/profile/mail-flow";
+import { resolveGmailStatusSummary } from "@/lib/profile/mail-flow";
 import {
   getProfileRiaRefreshLicenseNumber,
   resolveProfileRiaRegulatoryRow,
@@ -159,7 +153,6 @@ import {
 import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
 import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { VaultService, type VaultWrapper } from "@/lib/services/vault-service";
 import {
@@ -221,8 +214,6 @@ type ProfileDetail =
   | "vault"
   | "session"
   | "danger"
-  | "gmail-connection"
-  | "gmail-actions"
   | "support-routing"
   | `support-compose:${SupportMessageKind}`;
 
@@ -413,12 +404,6 @@ function normalizeProfileDetail(
   if (
     panel === "security" &&
     (detail === "vault" || detail === "session" || detail === "danger")
-  ) {
-    return detail;
-  }
-  if (
-    panel === "gmail" &&
-    (detail === "gmail-connection" || detail === "gmail-actions")
   ) {
     return detail;
   }
@@ -812,9 +797,6 @@ function ProfilePageContent() {
   const [supportSubject, setSupportSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
   const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
-  const [gmailActionBusy, setGmailActionBusy] = useState<
-    "connect" | "disconnect" | "sync" | null
-  >(null);
   const [savingFinancialContext, setSavingFinancialContext] = useState(false);
   const [financialContextText, setFinancialContextText] = useState("");
   const [financialContextCategory, setFinancialContextCategory] =
@@ -830,7 +812,9 @@ function ProfilePageContent() {
   const shouldLoadProfileWorkspaceData =
     profileRouteNeedsWorkspaceData(activePanel);
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
-  const vaultReturnTo = normalizeProfileVaultReturnTo(searchParams.get("return_to"));
+  const vaultReturnTo = normalizeProfileVaultReturnTo(
+    searchParams.get("return_to"),
+  );
   const vaultReturnToRef = useRef<string | null>(vaultReturnTo);
   useEffect(() => {
     if (vaultReturnTo) {
@@ -854,8 +838,7 @@ function ProfilePageContent() {
     routeHref: gmailRouteHref,
     refreshKey: gmailRouteHref,
   });
-  const gmailActionsBusy =
-    gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy !== null;
+  const gmailActionsBusy = gmail.refreshingStatus || gmail.syncingRun;
   const personaList = personaState?.personas ?? ["investor"];
   const hasRiaPersona = personaList.includes("ria");
   // One account model: deletion always removes the whole One account. Persona-scoped
@@ -875,16 +858,7 @@ function ProfilePageContent() {
     hasVault === true &&
     vaultAccess.needsUnlock &&
     profileRouteRequiresUnlockedVault(activePanel, activeDetail);
-  const gmailPresentation = useMemo(
-    () =>
-      resolveGmailConnectionPresentation({
-        status: gmail.status,
-        loading: gmail.loadingStatus,
-        action: gmailActionBusy,
-        errorText: gmail.statusError,
-      }),
-    [gmail.loadingStatus, gmail.status, gmail.statusError, gmailActionBusy],
-  );
+  const gmailPresentation = gmail.presentation;
   const upgradeStatesByDomain = useMemo<Record<string, PkmUpgradeDomainState>>(
     () =>
       Object.fromEntries(
@@ -1769,84 +1743,6 @@ function ProfilePageContent() {
     }
   }
 
-  async function handleConnectGmail() {
-    if (!user?.uid) return;
-
-    try {
-      setGmailActionBusy("connect");
-
-      const idToken = await user.getIdToken();
-      const redirectUri =
-        typeof window !== "undefined"
-          ? `${window.location.origin}${ROUTES.PROFILE_GMAIL_OAUTH_RETURN}`
-          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
-      const isGoogleProvider = provider.id === "google";
-
-      const payload = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        redirectUri,
-        loginHint: isGoogleProvider ? user.email : null,
-        includeGrantedScopes: isGoogleProvider,
-      });
-
-      if (!payload.configured || !payload.authorize_url) {
-        throw new Error("Gmail OAuth is not configured for this environment.");
-      }
-      assignWindowLocation(payload.authorize_url);
-    } catch (error) {
-      const message = sanitizeGmailUserMessage(error, {
-        fallback:
-          "We couldn't start Gmail connection right now. Please try again in a moment.",
-      });
-      console.error("[ProfilePage] Failed to start Gmail OAuth:", error);
-      toast.error(message);
-    } finally {
-      setGmailActionBusy(null);
-    }
-  }
-
-  async function handleDisconnectGmail() {
-    if (!user?.uid) return;
-    try {
-      setGmailActionBusy("disconnect");
-      const next = await gmail.disconnectGmail();
-      if (!next) return;
-      toast.success("Gmail disconnected. Your saved receipts will stay here.");
-    } catch (error) {
-      const message = sanitizeGmailUserMessage(error, {
-        fallback:
-          "We couldn't disconnect Gmail right now. Please try again in a moment.",
-      });
-      console.error("[ProfilePage] Failed to disconnect Gmail:", error);
-      toast.error(message);
-    } finally {
-      setGmailActionBusy(null);
-    }
-  }
-
-  async function handleSyncGmailNow() {
-    if (!user?.uid) return;
-    try {
-      setGmailActionBusy("sync");
-      const payload = await gmail.syncNow();
-      if (!payload?.run?.run_id) {
-        toast.message("We're already syncing your receipts.");
-        return;
-      }
-      toast.message("Syncing your receipts now.");
-    } catch (error) {
-      const message = sanitizeGmailUserMessage(error, {
-        fallback:
-          "We couldn't sync your receipts. Please try again in a moment.",
-        authFallback: "Reconnect Gmail to continue syncing your receipts.",
-      });
-      console.error("[ProfilePage] Failed to start Gmail sync:", error);
-      toast.error(message);
-    } finally {
-      setGmailActionBusy(null);
-    }
-  }
   async function switchToQuickMethod(targetMethod: VaultMethod) {
     if (!user?.uid) return;
 
@@ -2128,12 +2024,11 @@ function ProfilePageContent() {
     () =>
       resolveGmailStatusSummary({
         status: gmail.status,
-        loading: gmail.loadingStatus || gmailActionBusy === "sync",
+        loading: gmail.loadingStatus,
         errorText: gmail.statusError,
       }),
-    [gmail.loadingStatus, gmail.status, gmail.statusError, gmailActionBusy],
+    [gmail.loadingStatus, gmail.status, gmail.statusError],
   );
-  const gmailSettingsDescription = gmailPresentation.description;
   const gmailLastSyncText = gmailPresentation.latestSyncText;
   const profileManagerLoading = loadingPkmMetadata || loadingConsentCenter;
   const {
@@ -2311,15 +2206,7 @@ function ProfilePageContent() {
         ];
     const availableActions =
       activePanel === "gmail"
-        ? [
-            gmailPresentation.isConnected
-              ? "Sync Gmail receipts"
-              : gmailPresentation.state === "needs_reauthentication"
-                ? "Reconnect Gmail"
-                : "Connect Gmail",
-            "Open receipts",
-            ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
-          ]
+        ? ["Open Gmail"]
         : activePanel === "support"
           ? ["Report a bug", "Get support", "Reach developer"]
           : activePanel === "connected-systems"
@@ -3310,14 +3197,10 @@ function ProfilePageContent() {
           title="Marketplace visibility"
           description={marketplaceStatusText}
           trailing={
-            <Switch
+            <PrivacyToggle
               checked={marketplaceOptIn}
               disabled={loadingMarketplaceOptIn || savingMarketplaceOptIn}
-              aria-label="Toggle marketplace visibility"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-              }}
-              onClick={(event) => event.stopPropagation()}
+              ariaLabel="Toggle marketplace visibility for privacy preferences"
               onCheckedChange={() => void handleMarketplaceOptInToggle()}
             />
           }
@@ -3558,29 +3441,12 @@ function ProfilePageContent() {
       <SettingsGroup>
         <SettingsRow
           icon={Mail}
-          title="Connection"
-          description={gmailSettingsDescription}
+          title="Open Gmail"
+          description="Connect Gmail, refresh mail, review receipts, or disconnect."
           trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
           chevron
           stackTrailingOnMobile
-          onClick={() =>
-            updateProfileView(
-              { panel: "gmail", detail: "gmail-connection" },
-              "push",
-            )
-          }
-        />
-        <SettingsRow
-          icon={RefreshCw}
-          title="Actions"
-          description="Connect, sync, receipts, or disconnect."
-          chevron
-          onClick={() =>
-            updateProfileView(
-              { panel: "gmail", detail: "gmail-actions" },
-              "push",
-            )
-          }
+          onClick={() => router.push(ROUTES.GMAIL)}
         />
       </SettingsGroup>
     </div>
@@ -3788,106 +3654,6 @@ function ProfilePageContent() {
         ) : null}
       </SettingsGroup>
     </div>
-  );
-
-  const gmailConnectionContent = (
-    <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup title="Connection">
-        <SettingsRow
-          icon={Mail}
-          title="Status"
-          description={gmailSettingsDescription}
-          trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          icon={SendHorizontal}
-          title="Inbox"
-          description={
-            gmail.status?.google_email
-              ? gmail.status.google_email
-              : gmail.loadingStatus
-                ? "Resolving connected inbox..."
-                : "No Gmail inbox connected yet."
-          }
-        />
-        <SettingsRow
-          icon={RefreshCw}
-          title="Latest sync"
-          description={gmailLastSyncText}
-          trailing={
-            gmail.syncRun?.status || gmailPresentation.latestSyncBadge ? (
-              <Badge variant="secondary">
-                {gmail.syncRun?.status || gmailPresentation.latestSyncBadge}
-              </Badge>
-            ) : undefined
-          }
-          stackTrailingOnMobile
-        />
-      </SettingsGroup>
-      {gmail.statusError ? (
-        <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
-          {gmail.statusError}
-        </SurfaceInset>
-      ) : null}
-    </div>
-  );
-
-  const gmailActionsContent = (
-    <SettingsGroup title="Actions">
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={RefreshCw}
-          title="Sync now"
-          description="Fetch new receipt emails and refresh extracted records."
-          disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-          chevron
-          onClick={() => void handleSyncGmailNow()}
-        />
-      ) : (
-        <SettingsRow
-          icon={Mail}
-          title={
-            gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Gmail"
-              : "Connect Gmail"
-          }
-          description="Authorize Gmail read-only access for receipt sync."
-          disabled={gmailActionsBusy || gmail.status?.configured === false}
-          chevron
-          onClick={() => void handleConnectGmail()}
-        />
-      )}
-
-      <SettingsRow
-        icon={RefreshCw}
-        title="Refresh status"
-        description="Re-check your Gmail connection, sync status, and inbox details."
-        disabled={gmailActionsBusy}
-        chevron
-        onClick={() => void gmail.refreshStatus({ force: true })}
-      />
-
-      <SettingsRow
-        icon={Folder}
-        title="Open receipts"
-        description="Review synced receipts, merchants, and extracted totals."
-        chevron
-        onClick={() => router.push(ROUTES.GMAIL)}
-      />
-
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={Trash2}
-          title="Disconnect Gmail"
-          description="Stop future syncs. Existing synced receipts remain available."
-          tone="destructive"
-          disabled={gmailActionsBusy}
-          chevron
-          onClick={() => void handleDisconnectGmail()}
-        />
-      ) : null}
-    </SettingsGroup>
   );
 
   const supportRoutingContent = (
@@ -4271,24 +4037,9 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:gmail",
       title: "Gmail receipts",
-      description: "Connection state, sync health, and receipt actions.",
+      description: "Connection state, sync health, and receipts.",
       content: gmailContent,
     });
-    if (activeDetail === "gmail-connection") {
-      profileStackEntries.push({
-        key: "detail:gmail-connection",
-        title: "Connection",
-        description: "Current inbox, status, and latest sync.",
-        content: gmailConnectionContent,
-      });
-    } else if (activeDetail === "gmail-actions") {
-      profileStackEntries.push({
-        key: "detail:gmail-actions",
-        title: "Actions",
-        description: "Connect, sync, open receipts, or disconnect.",
-        content: gmailActionsContent,
-      });
-    }
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
       key: "panel:support",

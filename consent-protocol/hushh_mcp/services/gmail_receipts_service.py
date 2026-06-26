@@ -415,7 +415,11 @@ class GmailReceiptsService:
         )
 
     def _sync_enabled(self) -> bool:
-        return _to_bool(os.getenv("KAI_GMAIL_RECEIPTS_SYNC_ENABLED"), True)
+        raw = os.getenv("KAI_GMAIL_RECEIPTS_SYNC_ENABLED")
+        if raw is not None:
+            return _to_bool(raw, True)
+        environment = _clean_text(os.getenv("ENVIRONMENT"), "development").lower()
+        return environment not in {"development", "dev", "local", "local-uatdb", "test"}
 
     def _auto_interval_seconds(self) -> int:
         raw = _clean_text(os.getenv("KAI_GMAIL_RECEIPTS_SYNC_LOOP_SECONDS"), "3600")
@@ -2130,9 +2134,11 @@ class GmailReceiptsService:
         }
 
     async def get_status(self, *, user_id: str) -> dict[str, Any]:
-        self._reconcile_active_runs(user_id=user_id)
-        row = self._fetch_connection_row(user_id=user_id)
-        latest_run = self._latest_sync_run(user_id=user_id)
+        await asyncio.to_thread(self._reconcile_active_runs, user_id=user_id)
+        row, latest_run = await asyncio.gather(
+            asyncio.to_thread(self._fetch_connection_row, user_id=user_id),
+            asyncio.to_thread(self._latest_sync_run, user_id=user_id),
+        )
         return self._serialize_status_payload(user_id=user_id, row=row, latest_run=latest_run)
 
     def _should_renew_watch(self, row: dict[str, Any] | None) -> bool:
@@ -3117,8 +3123,8 @@ class GmailReceiptsService:
             )
 
     async def get_sync_run(self, *, run_id: str, user_id: str) -> dict[str, Any] | None:
-        self._reconcile_active_runs(user_id=user_id, run_id=run_id)
-        result = self.db.execute_raw(
+        await asyncio.to_thread(self._reconcile_active_runs, user_id=user_id, run_id=run_id)
+        result = await self._execute_raw_async(
             """
             SELECT *
             FROM kai_gmail_sync_runs
@@ -3146,42 +3152,45 @@ class GmailReceiptsService:
         per_page = max(1, min(100, int(per_page or 25)))
         offset = (page - 1) * per_page
 
-        rows = self.db.execute_raw(
-            """
-            SELECT
-                id,
-                gmail_message_id,
-                gmail_thread_id,
-                gmail_internal_date,
-                subject,
-                snippet,
-                from_name,
-                from_email,
-                merchant_name,
-                order_id,
-                currency,
-                amount,
-                receipt_date,
-                classification_confidence,
-                classification_source,
-                created_at,
-                updated_at
-            FROM kai_gmail_receipts
-            WHERE user_id = :user_id
-            ORDER BY COALESCE(receipt_date, gmail_internal_date, created_at) DESC, created_at DESC
-            LIMIT :limit OFFSET :offset
-            """,
-            {
-                "user_id": user_id,
-                "limit": per_page,
-                "offset": offset,
-            },
-        ).data
-
-        total_row = self.db.execute_raw(
-            "SELECT COUNT(*) AS total FROM kai_gmail_receipts WHERE user_id = :user_id",
-            {"user_id": user_id},
-        ).data
+        rows_result, total_result = await asyncio.gather(
+            self._execute_raw_async(
+                """
+                SELECT
+                    id,
+                    gmail_message_id,
+                    gmail_thread_id,
+                    gmail_internal_date,
+                    subject,
+                    snippet,
+                    from_name,
+                    from_email,
+                    merchant_name,
+                    order_id,
+                    currency,
+                    amount,
+                    receipt_date,
+                    classification_confidence,
+                    classification_source,
+                    created_at,
+                    updated_at
+                FROM kai_gmail_receipts
+                WHERE user_id = :user_id
+                ORDER BY COALESCE(receipt_date, gmail_internal_date, created_at) DESC, created_at DESC
+                LIMIT :limit OFFSET :offset
+                """,
+                {
+                    "user_id": user_id,
+                    "limit": per_page,
+                    "offset": offset,
+                },
+            ),
+            self._execute_raw_async(
+                "SELECT COUNT(*) AS total FROM kai_gmail_receipts WHERE user_id = :user_id",
+                {"user_id": user_id},
+            ),
+        )
+        rows = rows_result.data
+        total_row = total_result.data
         total = int(total_row[0]["total"]) if total_row else 0
 
         return {
@@ -3194,7 +3203,7 @@ class GmailReceiptsService:
 
     async def _run_scheduled_sync_once(self) -> None:
         threshold = _utcnow() - timedelta(hours=self._daily_sync_age_hours())
-        due_rows = self.db.execute_raw(
+        due_result = await self._execute_raw_async(
             """
             SELECT user_id
             FROM kai_gmail_connections
@@ -3216,7 +3225,8 @@ class GmailReceiptsService:
                 "renew_threshold": _utcnow()
                 + timedelta(seconds=self._watch_renew_before_seconds()),
             },
-        ).data
+        )
+        due_rows = due_result.data
 
         for row in due_rows:
             uid = _clean_text(row.get("user_id"))
