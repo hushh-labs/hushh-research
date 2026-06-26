@@ -1,5 +1,6 @@
 "use client";
 
+import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { RiaService } from "@/lib/services/ria-service";
@@ -54,6 +55,26 @@ function inviteRedirectTargetFor(path: string): string | null {
 }
 
 export class PostAuthRouteService {
+  /**
+   * Apply the soft first-run One Setup gate to a home-bound destination.
+   *
+   * Returns `ROUTES.ONE_SETUP` only when the caller opted in, the login is
+   * organic (no explicit redirect target), and the user has not yet seen the
+   * one-time setup nudge. Otherwise returns the original home route unchanged,
+   * so existing post-auth behavior is preserved for every other path.
+   */
+  private static applyFirstRunSetupGate(params: {
+    userId: string;
+    homeRoute: string;
+    enableFirstRunSetupGate?: boolean;
+    hasExplicitRedirect: boolean;
+  }): string {
+    if (!params.enableFirstRunSetupGate) return params.homeRoute;
+    if (params.hasExplicitRedirect) return params.homeRoute;
+    if (OneSetupGateService.hasSeen(params.userId)) return params.homeRoute;
+    return ROUTES.ONE_SETUP;
+  }
+
   static async resolveAfterLogin(params: {
     userId: string;
     redirectPath?: string;
@@ -61,7 +82,9 @@ export class PostAuthRouteService {
     phoneNumber?: string | null;
     phoneVerified?: boolean | null;
     hostname?: string | null;
+    enableFirstRunSetupGate?: boolean;
   }): Promise<string> {
+    const hasExplicitRedirect = Boolean(params.redirectPath && params.redirectPath.trim());
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
     const canOverrideWithPersona =
@@ -116,6 +139,14 @@ export class PostAuthRouteService {
       ) {
         return buildPhoneMandateRoute(fallbackRoute);
       }
+      if (onboardingResolved && fallbackRoute === DEFAULT_HOME_ROUTE) {
+        return PostAuthRouteService.applyFirstRunSetupGate({
+          userId: params.userId,
+          homeRoute: fallbackRoute,
+          enableFirstRunSetupGate: params.enableFirstRunSetupGate,
+          hasExplicitRedirect,
+        });
+      }
       return fallbackRoute;
     }
 
@@ -168,6 +199,15 @@ export class PostAuthRouteService {
       })
     ) {
       return buildPhoneMandateRoute(inviteRedirectTarget ?? resolvedNoVaultRoute);
+    }
+
+    if (resolvedNoVaultRoute === NO_VAULT_DEFAULT_ROUTE) {
+      return PostAuthRouteService.applyFirstRunSetupGate({
+        userId: params.userId,
+        homeRoute: resolvedNoVaultRoute,
+        enableFirstRunSetupGate: params.enableFirstRunSetupGate,
+        hasExplicitRedirect,
+      });
     }
 
     return resolvedNoVaultRoute;

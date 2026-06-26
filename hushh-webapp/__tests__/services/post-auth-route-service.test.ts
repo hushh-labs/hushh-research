@@ -40,6 +40,7 @@ import {
   buildProfileVaultRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 
 describe("PostAuthRouteService", () => {
@@ -391,5 +392,110 @@ describe("PostAuthRouteService", () => {
         hostname: "127.0.0.1",
       })
     ).resolves.toBe(ROUTES.ONE_HOME);
+  });
+
+  describe("first-run One Setup gate", () => {
+    beforeEach(() => {
+      OneSetupGateService.reset("user_gate");
+    });
+
+    it("routes a first-run vault user to setup when the gate is enabled and unseen", async () => {
+      bootstrapStateMock.mockResolvedValue({
+        hasVault: true,
+        preOnboardingCompleted: true,
+        preOnboardingCompletedAt: 1,
+      });
+
+      await expect(
+        PostAuthRouteService.resolveAfterLogin({
+          userId: "user_gate",
+          phoneVerified: true,
+          enableFirstRunSetupGate: true,
+        })
+      ).resolves.toBe(ROUTES.ONE_SETUP);
+    });
+
+    it("routes a first-run no-vault user to setup when the gate is enabled and unseen", async () => {
+      bootstrapStateMock.mockResolvedValue({
+        hasVault: false,
+        preOnboardingCompleted: true,
+        preOnboardingCompletedAt: 1,
+        preOnboardingSkipped: false,
+      });
+      loadPendingOnboardingMock.mockResolvedValue(null);
+
+      await expect(
+        PostAuthRouteService.resolveAfterLogin({
+          userId: "user_gate",
+          phoneVerified: true,
+          enableFirstRunSetupGate: true,
+        })
+      ).resolves.toBe(ROUTES.ONE_SETUP);
+    });
+
+    it("does not gate when the setup nudge has already been seen", async () => {
+      OneSetupGateService.markSeen("user_gate");
+      bootstrapStateMock.mockResolvedValue({
+        hasVault: true,
+        preOnboardingCompleted: true,
+        preOnboardingCompletedAt: 1,
+      });
+
+      await expect(
+        PostAuthRouteService.resolveAfterLogin({
+          userId: "user_gate",
+          phoneVerified: true,
+          enableFirstRunSetupGate: true,
+        })
+      ).resolves.toBe(ROUTES.ONE_HOME);
+    });
+
+    it("does not gate when the caller has not opted in", async () => {
+      bootstrapStateMock.mockResolvedValue({
+        hasVault: true,
+        preOnboardingCompleted: true,
+        preOnboardingCompletedAt: 1,
+      });
+
+      await expect(
+        PostAuthRouteService.resolveAfterLogin({
+          userId: "user_gate",
+          phoneVerified: true,
+        })
+      ).resolves.toBe(ROUTES.ONE_HOME);
+    });
+
+    it("does not gate when an explicit redirect target is present", async () => {
+      bootstrapStateMock.mockResolvedValue({
+        hasVault: true,
+        preOnboardingCompleted: true,
+        preOnboardingCompletedAt: 1,
+      });
+
+      await expect(
+        PostAuthRouteService.resolveAfterLogin({
+          userId: "user_gate",
+          redirectPath: ROUTES.KAI_PORTFOLIO,
+          phoneVerified: true,
+          enableFirstRunSetupGate: true,
+        })
+      ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
+    });
+
+    it("does not gate a user with unresolved onboarding", async () => {
+      bootstrapStateMock.mockResolvedValue({
+        hasVault: true,
+        preOnboardingCompleted: false,
+        preOnboardingCompletedAt: null,
+      });
+
+      await expect(
+        PostAuthRouteService.resolveAfterLogin({
+          userId: "user_gate",
+          phoneVerified: true,
+          enableFirstRunSetupGate: true,
+        })
+      ).resolves.toBe(ROUTES.ONE_ONBOARDING);
+    });
   });
 });

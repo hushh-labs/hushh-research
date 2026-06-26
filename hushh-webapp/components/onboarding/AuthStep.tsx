@@ -139,6 +139,7 @@ export function AuthStep({
           redirectPath,
           idToken: resolvedIdToken,
           phoneNumber,
+          enableFirstRunSetupGate: true,
         });
 
         const resumeImportFlow =
