@@ -289,7 +289,9 @@ export function PhoneVerificationFlow({
           resendCode ? "A new verification code has been sent." : "Verification code sent."
         );
       } catch (error) {
-        console.error("[PhoneVerificationFlow] Failed to start verification:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[PhoneVerificationFlow] Failed to start verification:", error);
+        }
         trackEvent("phone_verification_started", {
           action: mode,
           result: "error",
@@ -321,7 +323,9 @@ export function PhoneVerificationFlow({
       morphyToast.success(mode === "replace" ? "Phone number updated." : "Phone number verified.");
       await onCompleted(verifiedUser);
     } catch (error) {
-      console.error("[PhoneVerificationFlow] Failed to confirm verification code:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[PhoneVerificationFlow] Failed to confirm verification code:", error);
+      }
       trackEvent("phone_verification_completed", {
         action: mode,
         result: "error",
