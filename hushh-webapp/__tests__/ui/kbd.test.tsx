@@ -18,4 +18,17 @@ describe("Kbd", () => {
     expect(el?.tagName).toBe("KBD");
   });
 
+  it("merges a custom className onto the kbd element", () => {
+    const { container } = render(
+      <Kbd className="test-class">⌘K</Kbd>,
+    );
+
+    const element = container.querySelector('[data-slot="kbd"]');
+    expect(
+      element?.classList.contains(
+        "test-class",
+      ),
+    ).toBe(true);
+  });
+
 });
