@@ -12,9 +12,13 @@ function read(relativePath: string) {
 }
 
 describe("ConsentInboxDropdown", () => {
-  it("covers pending consents list semantics", () => {
+  it("covers pending consents list semantics", async () => {
+    const { ConsentInboxDropdown } = await import(
+      "@/components/consent/consent-inbox-dropdown"
+    );
     const source = read("components/consent/consent-inbox-dropdown.tsx");
 
+    expect(ConsentInboxDropdown).toEqual(expect.any(Function));
     expect(source).toContain("items.length > 0");
     expect(source).toContain('role="list"');
     expect(source).toContain('aria-label="Pending consents"');
