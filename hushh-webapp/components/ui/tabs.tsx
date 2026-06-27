@@ -65,6 +65,7 @@ function TabsTrigger({
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
+      type="button"
       data-slot="tabs-trigger"
       className={cn(
         "ui-text-form-label focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:outline-ring relative isolate inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden px-4 py-2 whitespace-nowrap transition-[background-color,border-color,color,box-shadow] duration-120 ease-out focus-visible:ring-[3px] focus-visible:outline-1",
