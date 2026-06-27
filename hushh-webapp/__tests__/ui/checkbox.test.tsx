@@ -10,6 +10,11 @@ describe("Checkbox", () => {
     expect(container.querySelector('[data-slot="checkbox"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Checkbox className="custom-class" />);
+    expect(container.querySelector('[data-slot="checkbox"]')?.className).toContain("custom-class");
+  });
+
   it("renders indicator with data-slot='checkbox-indicator'", () => {
     const { container } = render(<Checkbox checked />);
 
@@ -28,4 +33,13 @@ describe("Checkbox", () => {
 
     expect(checkbox?.getAttribute("aria-checked")).toBe("true");
   });
+
+  it("has role='checkbox'", () => {
+    const { container } = render(<Checkbox />);
+
+    const checkbox = container.querySelector('[data-slot="checkbox"]');
+
+    expect(checkbox?.getAttribute("role")).toBe("checkbox");
+  });
+
 });

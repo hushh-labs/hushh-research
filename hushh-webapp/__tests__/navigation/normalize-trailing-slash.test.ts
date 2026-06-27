@@ -45,6 +45,11 @@ describe("normalizeInternalRouteHref — trailing slash handling", () => {
     );
   });
 
+  it("preserves empty query and fragment delimiters after a trailing slash", () => {
+    expect(normalizeInternalRouteHref("/profile/?")).toBe("/profile/?");
+    expect(normalizeInternalRouteHref("/profile/#")).toBe("/profile/#");
+  });
+
   it("trims surrounding whitespace but keeps the terminal slash", () => {
     expect(normalizeInternalRouteHref("  /profile/  ")).toBe("/profile/");
   });

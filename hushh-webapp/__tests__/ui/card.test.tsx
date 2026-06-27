@@ -67,4 +67,27 @@ describe("Card", () => {
 
     expect(title?.tagName).toBe("H3");
   });
+
+  it("renders CardFooter with the card-footer data-slot contract", () => {
+    const { container } = render(<CardFooter>Footer</CardFooter>);
+
+    expect(container.firstElementChild?.getAttribute("data-slot")).toBe("card-footer");
+  });
+
+  it("renders CardDescription as a div element", () => {
+    const { container } = render(
+      <Card>
+        <CardHeader>
+          <CardDescription>Description</CardDescription>
+        </CardHeader>
+      </Card>,
+    );
+
+    const description = container.querySelector(
+      '[data-slot="card-description"]',
+    );
+
+    expect(description?.tagName).toBe("DIV");
+  });
+
 });
