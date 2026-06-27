@@ -1918,6 +1918,7 @@ export function ConsentCenterPage() {
                       setSearchValue(next);
                       setParam({ q: next || null, page: "1" });
                     }}
+                    aria-label="Search consents"
                     placeholder={searchPlaceholder}
                     className="pl-9"
                     data-voice-control-id="consent_search"

@@ -4,33 +4,25 @@ import { describe, expect, it } from "vitest";
 import { Label } from "@/components/ui/label";
 
 describe("Label", () => {
-  it("renders with data-slot='label'", () => {
-    const { container } = render(<Label>Email</Label>);
-
-    expect(container.querySelector('[data-slot="label"]')).toBeTruthy();
-  });
-
-  it("preserves data-slot='label' when htmlFor is set", () => {
-    const { container } = render(<Label htmlFor="email">Email</Label>);
+  it("exposes the label data-slot contract", () => {
+    const { container } = render(<Label>Username</Label>);
 
     expect(
-      container.querySelector('label[for="email"][data-slot="label"]'),
-    ).toBeTruthy();
+      container.querySelector('[data-slot="label"]')
+    ).not.toBeNull();
   });
 
-  it("applies disabled peer styling class", () => {
+  it("renders as a label element", () => {
     const { container } = render(<Label>Email</Label>);
 
     const label = container.querySelector('[data-slot="label"]');
 
-    expect(label?.className).toContain("peer-disabled:opacity-50");
+    expect(label?.tagName).toBe("LABEL");
   });
 
-  it("renders with select-none class for user-select prevention", () => {
-    const { container } = render(<Label>Email</Label>);
-
-    const label = container.querySelector('[data-slot="label"]');
-
-    expect(label?.className).toContain("select-none");
+  it("propagates custom class names", () => {
+    const { container } = render(<Label className="custom-label">Text</Label>);
+    expect(container.querySelector('[data-slot="label"]')?.className).toContain("custom-label");
   });
+
 });

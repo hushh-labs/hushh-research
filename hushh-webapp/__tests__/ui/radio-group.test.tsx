@@ -54,4 +54,19 @@ describe("RadioGroup", () => {
     expect(checkedOptions).toHaveLength(1);
     expect(checkedOptions[0].getAttribute("value")).toBe("b");
   });
+
+  it("renders RadioGroupItem with role='radio'", () => {
+    const { container } = render(
+      <RadioGroup defaultValue="a">
+        <RadioGroupItem value="a" />
+      </RadioGroup>,
+    );
+
+    const item = container.querySelector(
+      '[data-slot="radio-group-item"]',
+    );
+
+    expect(item?.getAttribute("role")).toBe("radio");
+  });
+
 });

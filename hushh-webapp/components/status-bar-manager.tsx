@@ -124,7 +124,9 @@ export function StatusBarManager() {
           ]);
         }
       } catch (err) {
-        console.error("[StatusBarManager] Failed to update system bars:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[StatusBarManager] Failed to update system bars:", err);
+        }
       } finally {
         isUpdating.current = false;
       }

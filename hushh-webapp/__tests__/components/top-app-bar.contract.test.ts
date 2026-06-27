@@ -139,4 +139,17 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("selected: null");
     expect(source).toContain("notificationAction: null");
   });
+
+  it("covers notification loading icon and status live region semantics", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("<DebateTaskCenter");
+    expect(source).toContain('aria-label="Notifications"');
+    expect(source).toContain("activeCount > 0");
+    expect(source).toContain('className="h-5 w-5 animate-spin text-sky-500"');
+    expect(source).toContain('aria-hidden="true"');
+    expect(source).toContain('role="status"');
+    expect(source).toContain('aria-live="polite"');
+    expect(source).toContain('aria-atomic="true"');
   });
+});

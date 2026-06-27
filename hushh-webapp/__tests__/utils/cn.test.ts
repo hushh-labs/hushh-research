@@ -12,4 +12,9 @@ describe("cn", () => {
   it("lets later tailwind classes override earlier conflicts", () => {
     expect(cn("p-2", "p-4")).toBe("p-4");
   });
+  it("ignores null, undefined, and empty string values", () => {
+  expect(cn("flex", null, undefined, "", "items-center")).toBe(
+    "flex items-center",
+  );
+});
 });

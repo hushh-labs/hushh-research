@@ -34,4 +34,13 @@ describe("Input", () => {
 
     expect(el?.getAttribute("autocapitalize")).not.toBe("none");
   });
+
+  it("renders as an input element", () => {
+    const { container } = render(<Input />);
+
+    const el = container.querySelector('[data-slot="input"]');
+
+    expect(el?.tagName).toBe("INPUT");
+  });
+
 });

@@ -22,6 +22,20 @@ describe("DialogContent", () => {
     expect(screen.getByRole("button", { name: /close/i })).toBeTruthy();
   });
 
+  it("renders the close control with the dialog-close data-slot contract", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Test dialog</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(screen.getByRole("button", { name: /close/i }).getAttribute("data-slot")).toBe(
+      "dialog-close",
+    );
+  });
+
   it("hides the close button when showCloseButton is false", () => {
     render(
       <Dialog open>

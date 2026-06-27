@@ -48,6 +48,23 @@ describe("Tabs", () => {
     expect(container.querySelector('[data-slot="tabs-trigger"]')).toBeTruthy();
   });
 
+  it("keeps the tabs trigger data-slot when custom className is provided", () => {
+    const { container } = render(
+      <Tabs defaultValue="tab-1">
+        <TabsList>
+          <TabsTrigger value="tab-1" className="custom-trigger">
+            Tab 1
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="tab-1">Content 1</TabsContent>
+      </Tabs>,
+    );
+
+    expect(container.querySelector(".custom-trigger")?.getAttribute("data-slot")).toBe(
+      "tabs-trigger",
+    );
+  });
+
   it("renders TabsContent with data-slot='tabs-content'", () => {
     const { container } = render(
       <Tabs defaultValue="tab-1">

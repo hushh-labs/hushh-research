@@ -64,6 +64,21 @@ describe("Accordion", () => {
     ).toBeTruthy();
   });
 
+  it("keeps the accessible trigger button on the accordion-trigger data-slot", () => {
+    const { container } = render(
+      <Accordion type="single">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Trigger</AccordionTrigger>
+          <AccordionContent>Content</AccordionContent>
+        </AccordionItem>
+      </Accordion>,
+    );
+
+    const trigger = container.querySelector("button");
+
+    expect(trigger?.getAttribute("data-slot")).toBe("accordion-trigger");
+  });
+
   it("renders AccordionContent with data-slot='accordion-content' when item is open", () => {
     const { container } = render(
       <Accordion type="single" defaultValue="item-1">

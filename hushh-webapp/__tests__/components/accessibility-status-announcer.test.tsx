@@ -14,4 +14,12 @@ describe("AccessibilityStatusAnnouncer", () => {
     expect(status.className).toContain("sr-only");
     expect(status.textContent).toBe("Filters updated");
   });
+  
+  it("renders nothing when message is empty", () => {
+    const { container } = render(
+      <AccessibilityStatusAnnouncer message="" />,
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
 });

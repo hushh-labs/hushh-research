@@ -72,6 +72,7 @@ function DialogContent({
 
         {showCloseButton && (
           <DialogPrimitive.Close
+            type="button"
             data-slot="dialog-close"
             className="ring-offset-background focus:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-[opacity,transform] duration-200 hover:opacity-100 active:scale-[0.97] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >

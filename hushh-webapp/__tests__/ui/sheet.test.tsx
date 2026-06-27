@@ -58,3 +58,19 @@ describe("SheetFooter", () => {
     ).toBeTruthy();
   });
 });
+
+describe("SheetTitle", () => {
+  it("renders with data-slot='sheet-title'", () => {
+    render(
+      <Sheet open>
+        <SheetContent>
+          <SheetTitle>Sheet title</SheetTitle>
+        </SheetContent>
+      </Sheet>,
+    );
+
+    expect(
+      document.querySelector('[data-slot="sheet-title"]'),
+    ).toBeTruthy();
+  });
+});

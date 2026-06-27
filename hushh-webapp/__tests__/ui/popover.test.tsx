@@ -89,4 +89,24 @@ describe("Popover", () => {
     ).toBeTruthy();
   });
 
+  it("renders PopoverTitle as an h2 element", () => {
+    const { container } = render(<PopoverTitle>Section</PopoverTitle>);
+
+    const el = container.querySelector('[data-slot="popover-title"]');
+
+    expect(el?.tagName).toBe("H2");
+  });
+
+  it("renders PopoverDescription as a p element", () => {
+    const { container } = render(
+      <PopoverDescription>Details</PopoverDescription>,
+    );
+
+    const description = container.querySelector(
+      '[data-slot="popover-description"]',
+    );
+
+    expect(description?.tagName).toBe("P");
+  });
+
 });

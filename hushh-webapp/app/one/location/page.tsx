@@ -3921,6 +3921,7 @@ function OneLocationAgentPageContent() {
                         onChange={(event) =>
                           setRequestMessage(event.target.value)
                         }
+                        aria-label="Reason for location request"
                         placeholder="Optional reason"
                         rows={3}
                         className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"

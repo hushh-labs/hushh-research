@@ -23,4 +23,11 @@ describe("Spinner", () => {
 
     expect(screen.getByRole("status", { name: "Saving" })).toBeTruthy();
   });
+
+  it("renders Spinner as an svg element", () => {
+    render(<Spinner />);
+
+    expect(screen.getByRole("status").tagName).toBe("svg");
+  });
+
 });

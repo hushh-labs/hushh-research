@@ -852,7 +852,9 @@ function OnboardingRouteActions() {
       await signOut();
       router.push(ROUTES.HOME);
     } catch (error) {
-      console.error("[TopAppBar] Failed to sign out:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[TopAppBar] Failed to sign out:", error);
+      }
       toast.error("Couldn't sign out. Please retry.");
     }
   }

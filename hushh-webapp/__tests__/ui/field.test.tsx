@@ -85,4 +85,13 @@ describe("Field", () => {
       container.querySelector('[data-slot="field-description"]'),
     ).toBeTruthy();
   });
+
+  it("renders FieldSet as a fieldset element", () => {
+    const { container } = render(<FieldSet>content</FieldSet>);
+
+    const fieldSet = container.querySelector('[data-slot="field-set"]');
+
+    expect(fieldSet?.tagName).toBe("FIELDSET");
+  });
+
 });
