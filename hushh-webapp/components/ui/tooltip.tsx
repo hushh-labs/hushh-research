@@ -27,7 +27,7 @@ function Tooltip({
 function TooltipTrigger({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+  return <TooltipPrimitive.Trigger type="button" data-slot="tooltip-trigger" {...props} />
 }
 
 function TooltipContent({
