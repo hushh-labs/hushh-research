@@ -12,4 +12,19 @@ describe("Button", () => {
     expect(button).not.toBeNull();
     expect(button?.hasAttribute("disabled")).toBe(true);
   });
+  it("merges a custom className onto the button element", () => {
+  const { container } = render(
+    <Button className="test-class">
+      Save
+    </Button>,
+  );
+
+  const button =container.querySelector("button");
+
+  expect(
+    button?.classList.contains(
+      "test-class",
+    ),
+  ).toBe(true);
+});
 });
