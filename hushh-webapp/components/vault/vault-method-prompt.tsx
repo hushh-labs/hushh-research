@@ -220,6 +220,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button
+            type="button"
             variant="none"
             effect="fade"
             size="lg"
@@ -229,6 +230,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
             Not now
           </Button>
           <Button
+            type="button"
             variant="blue-gradient"
             effect="fill"
             size="lg"
