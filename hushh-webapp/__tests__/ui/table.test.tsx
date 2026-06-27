@@ -76,4 +76,26 @@ describe("Table", () => {
     );
   });
 
+  it("merges custom className onto the inner table element, not the container", () => {
+    const { container } = render(
+      <Table className="custom-table-class">
+        <tbody>
+          <tr>
+            <td>Holding</td>
+          </tr>
+        </tbody>
+      </Table>,
+    );
+
+    const table = container.querySelector('[data-slot="table"]');
+
+    const tableContainer =container.querySelector('[data-slot="table-container"]');
+
+    expect(table?.tagName).toBe("TABLE");
+
+    expect(table?.classList.contains("custom-table-class")).toBe(true);
+
+    expect(tableContainer?.classList.contains("custom-table-class")).toBe(false);
+  });
+
 });
