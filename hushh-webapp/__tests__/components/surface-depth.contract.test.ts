@@ -12,7 +12,8 @@ describe("Light mode surface depth contract", () => {
     expect(globals).toContain("--app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);");
     expect(globals).toContain("--shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);");
   });
-    it("preserves shared app card surface token stability", () => {
+
+  it("preserves shared app card surface token stability", () => {
     const globals = fs.readFileSync(
       path.join(WEBAPP_ROOT, "app/globals.css"),
       "utf8"
