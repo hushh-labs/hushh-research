@@ -30,14 +30,19 @@ import {
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 import { trackEvent } from "@/lib/observability/client";
+import {
+  kaiAppCardTitleClassName,
+  kaiAppHelperClassName,
+} from "@/components/kai/shared/kai-typography";
+import { cn } from "@/lib/utils";
 
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
-  "h-12 overflow-hidden rounded-[var(--radius-md)] border-black/10 bg-background/80 shadow-xs dark:border-white/10 dark:bg-input/30";
+  "h-12 overflow-hidden rounded-[18px] border-black/10 bg-[#f5f5f7]/92 shadow-xs dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
-  "h-full rounded-[inherit] border-0 bg-transparent px-4 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent md:text-sm";
-const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[var(--radius-md)]";
+  "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
+const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 
@@ -336,17 +341,17 @@ export function PhoneVerificationFlow({
           className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-emerald-500/20 bg-emerald-50/80 p-5 dark:bg-emerald-950/20`}
         >
           <ShieldCheck className="h-10 w-10 text-emerald-600" />
-          <h2 className="mt-4 text-lg font-semibold text-foreground">Phone already linked</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <h2 className={cn(kaiAppCardTitleClassName, "mt-4 text-foreground")}>Phone already linked</h2>
+          <p className={cn(kaiAppHelperClassName, "mt-2 text-muted-foreground")}>
             This account already has a verified phone number:{" "}
             {maskedPhone || "already on this account"}.
           </p>
         </div>
         <Button
           onClick={() => void onContinueExisting?.()}
-          size="lg"
+          size="default"
           fullWidth
-          className={`mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+          className={`type-headline mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
         >
           Continue
         </Button>
@@ -365,13 +370,11 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  if (open) {
-                    setCountryQuery("");
-                    return;
+                  if (!open) {
+                    setCountryQuery(
+                      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
+                    );
                   }
-                  setCountryQuery(
-                    getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
-                  );
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
@@ -387,8 +390,15 @@ export function PhoneVerificationFlow({
                       setCountryComboboxOpen(true);
                     }
                   }}
-                  onFocus={() => setCountryComboboxOpen(true)}
+                  onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
+                    setCountryComboboxOpen(true);
+                    setCountryQuery("");
+                    event.currentTarget.select();
+                  }}
                   className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   showTrigger
                 />
                 <ComboboxContent
@@ -435,7 +445,7 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="text-[15px] leading-7 text-muted-foreground">
+          <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
             {helperText ||
               "Choose your country code and enter your phone number. We’ll send you a verification code."}
           </FieldDescription>
@@ -443,11 +453,11 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleStartVerification(false)}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send verification code"}
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Send verification code"}
             </Button>
             {onCancel ? (
               <Button
@@ -456,7 +466,7 @@ export function PhoneVerificationFlow({
                 effect="fade"
                 fullWidth
                 disabled={busy}
-                className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+                className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
               >
                 Cancel
               </Button>
@@ -466,10 +476,10 @@ export function PhoneVerificationFlow({
       ) : (
         <>
           <div
-            className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-black/5 bg-neutral-50 p-5 dark:bg-neutral-900/60`}
+            className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-black/5 bg-[#f5f5f7]/85 p-5 dark:border-white/10 dark:bg-white/[0.08]`}
           >
-            <p className="text-sm font-medium text-foreground">Verification code sent</p>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className={cn(kaiAppCardTitleClassName, "text-foreground")}>Verification code sent</p>
+            <p className={cn(kaiAppHelperClassName, "mt-2 text-muted-foreground")}>
               We sent a verification code to {submittedPhoneNumber}. Enter it to continue.
             </p>
           </div>
@@ -494,20 +504,20 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleConfirmVerification()}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : confirmLabel || "Verify and continue"}
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : confirmLabel || "Verify and continue"}
             </Button>
             <Button
               onClick={() => void handleStartVerification(true)}
               variant="none"
               effect="glass"
-              size="lg"
+              size="default"
               fullWidth
               disabled={busy}
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               Resend code
             </Button>
@@ -519,7 +529,7 @@ export function PhoneVerificationFlow({
             effect="fade"
             fullWidth
             disabled={busy}
-            className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+            className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
           >
             Use a different number
           </Button>
