@@ -59,4 +59,19 @@ describe("Collapsible", () => {
         ?.classList.contains("custom-content-class"),
     ).toBe(true);
   });
+
+  it("passes className through to the root element", () => {
+    const { container } = render(
+      <Collapsible className="custom-root-class">
+        <CollapsibleTrigger>
+          Toggle
+        </CollapsibleTrigger>
+      </Collapsible>,
+    );
+
+    const root = container.querySelector('[data-slot="collapsible"]');
+
+    expect(root?.classList.contains("custom-root-class")).toBe(true);
+  });
+
 });
