@@ -12,9 +12,13 @@ function read(relativePath: string) {
 }
 
 describe("NativeTestRouter", () => {
-  it("covers expected route recovery guard", () => {
+  it("covers expected route recovery guard", async () => {
+    const { NativeTestRouter } = await import(
+      "@/components/app-ui/native-test-router"
+    );
     const source = read("components/app-ui/native-test-router.tsx");
 
+    expect(NativeTestRouter).toEqual(expect.any(Function));
     expect(source).toContain(
       "const EXPECTED_ROUTE_RECOVERY_RETRY_MS = 5_000;",
     );
