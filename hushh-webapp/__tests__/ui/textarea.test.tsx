@@ -21,4 +21,9 @@ describe("Textarea", () => {
     expect(el?.tagName).toBe("TEXTAREA");
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Textarea className="custom-textarea" />);
+    expect(container.querySelector('[data-slot="textarea"]')?.className).toContain("custom-textarea");
+  });
+
 });
