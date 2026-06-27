@@ -18,6 +18,6 @@ describe("DashboardBreadcrumb", () => {
     const currentPage = screen.getByText("Analysis");
 
     expect(currentPage.getAttribute("aria-current")).toBe("page");
-    expect(currentPage.getAttribute("aria-disabled")).toBe("true");
+    expect(currentPage.getAttribute("data-slot")).toBe("breadcrumb-page");
   });
 });
