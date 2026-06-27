@@ -12,6 +12,11 @@ describe("Badge", () => {
     ).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Badge className="custom-badge">Label</Badge>);
+    expect(container.querySelector('[data-slot="badge"]')?.className).toContain("custom-badge");
+  });
+
   it("preserves the badge data-slot when rendered asChild", () => {
     const { container } = render(
       <Badge asChild>
