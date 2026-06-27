@@ -12,9 +12,13 @@ function read(relativePath: string) {
 }
 
 describe("NativeTestBootstrap", () => {
-  it("keeps bootstrap state updates monotonic", () => {
+  it("keeps bootstrap state updates monotonic", async () => {
+    const { NativeTestBootstrap } = await import(
+      "@/components/app-ui/native-test-bootstrap"
+    );
     const source = read("components/app-ui/native-test-bootstrap.tsx");
 
+    expect(NativeTestBootstrap).toEqual(expect.any(Function));
     expect(source).toContain("const stageRank: Record<string, number> = {");
     expect(source).toContain("waiting_auth: 10");
     expect(source).toContain("authenticating: 20");
