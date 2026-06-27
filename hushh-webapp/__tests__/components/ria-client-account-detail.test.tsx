@@ -31,14 +31,11 @@ describe("RiaClientAccountDetail", () => {
       <RiaClientAccountDetail clientId="client-1" accountId="account-1" />,
     );
 
-    expect(screen.getByText("Loading account detail...")).toBeInTheDocument();
-    expect(
-      container.querySelector(
-        '[data-testid="native-route-ria-client-account-detail"]',
-      ),
-    ).toHaveAttribute(
-      "data-native-data-state",
-      "loading",
+    expect(screen.getByText("Loading account detail...")).toBeTruthy();
+
+    const beacon = container.querySelector(
+      '[data-testid="native-route-ria-client-account-detail"]',
     );
+    expect(beacon?.getAttribute("data-native-data-state")).toBe("loading");
   });
 });
