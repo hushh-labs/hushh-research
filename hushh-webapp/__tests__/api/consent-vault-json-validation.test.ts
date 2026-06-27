@@ -16,7 +16,8 @@ function malformedPost(path: string): NextRequest {
 
 async function expectInvalidJson(response: Response) {
   expect(response.status).toBe(400);
-  await expect(response.json()).resolves.toEqual({
+  const data = await response.json();
+  expect(data).toEqual({
     error: "Invalid JSON payload",
   });
 }
