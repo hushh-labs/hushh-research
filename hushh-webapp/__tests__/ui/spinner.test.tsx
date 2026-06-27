@@ -30,4 +30,12 @@ describe("Spinner", () => {
     expect(screen.getByRole("status").tagName).toBe("svg");
   });
 
+  it("merges a custom className onto the svg element", () => {
+    render(<Spinner className="test-class" />,);
+
+    expect(
+      screen.getByRole("status").classList.contains("test-class"),
+    ).toBe(true);
+  });
+
 });
