@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
         const parsed = JSON.parse(responseText);
         if (parsed.error) parsedError = parsed.error;
         else parsedError = parsed;
-      } catch (e) {
+      } catch {
         // Fallback to raw text
       }
       return NextResponse.json(
