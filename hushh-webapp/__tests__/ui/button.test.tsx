@@ -13,18 +13,29 @@ describe("Button", () => {
     expect(button?.hasAttribute("disabled")).toBe(true);
   });
   it("merges a custom className onto the button element", () => {
-  const { container } = render(
-    <Button className="test-class">
-      Save
-    </Button>,
-  );
+    const { container } = render(
+      <Button className="test-class">
+        Save
+      </Button>,
+    );
 
-  const button =container.querySelector("button");
+    const button =container.querySelector("button");
 
-  expect(
-    button?.classList.contains(
-      "test-class",
-    ),
-  ).toBe(true);
-});
+    expect(
+      button?.classList.contains(
+        "test-class",
+      ),
+    ).toBe(true);
+  });
+
+  it("renders a button element by default", () => {
+    const { container } = render(<Button>Save</Button>);
+
+    const button =container.querySelector("button");
+
+    expect(button).not.toBeNull();
+
+    expect(button?.tagName).toBe("BUTTON");
+  });
+
 });
