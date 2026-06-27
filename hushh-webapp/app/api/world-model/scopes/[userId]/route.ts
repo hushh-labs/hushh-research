@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 // app/api/world-model/scopes/[userId]/route.ts
 /**
  * Available Scopes API Route (Web Proxy)

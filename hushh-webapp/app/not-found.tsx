@@ -1,7 +1,6 @@
 "use client";
 
 import { ArrowLeft, Home, SearchX } from "lucide-react";
-
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
 import { BrandMark, Icon } from "@/lib/morphy-ux/ui";
@@ -22,31 +21,50 @@ export default function AppNotFoundPage() {
   };
 
   return (
-    <main className="flex min-h-[100dvh] flex-col items-center justify-center px-6 pb-[var(--app-screen-footer-pad)]">
-      <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
+    <main className="flex min-h-[100dvh] flex-col items-center justify-center px-6 pb-[var(--app-screen-footer-pad)] bg-background">
+      <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center animate-in fade-in zoom-in duration-500">
         <BrandMark size="sm" />
-        <Card preset="default" effect="glass" glassAccent="soft" className="w-full">
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-card-surface-compact)] text-muted-foreground">
-              <SearchX className="h-7 w-7" aria-hidden="true" />
+
+        <Card preset="default" effect="glass" glassAccent="soft" className="w-full p-8 border-border/50">
+          <div className="flex flex-col items-center gap-6">
+            {/* Visual Icon Container */}
+            <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-muted/50 text-muted-foreground ring-1 ring-border/50 shadow-inner">
+              <SearchX className="h-10 w-10" aria-hidden="true" />
             </div>
-            <div className="space-y-1.5">
-              <h1 className="text-lg font-semibold tracking-normal">
+
+            {/* Error Message */}
+            <div className="space-y-2">
+              <h1 className="text-xl font-bold tracking-tight" aria-live="polite">
                 Page not found
               </h1>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                The page you&apos;re looking for doesn&apos;t exist or may have
-                been moved.
+              <p className="text-sm text-muted-foreground max-w-[240px] mx-auto leading-relaxed">
+                The content you&apos;re looking for is unavailable or has been moved.
               </p>
             </div>
-            <div className="flex gap-3 pt-1">
-              <Button type="button" variant="muted" effect="glass" size="sm" onClick={handleGoBack}>
-                <Icon icon={ArrowLeft} size="sm" className="mr-1.5" />
-                Go back
+
+            {/* Actions */}
+            <div className="flex gap-3 w-full">
+              <Button
+                type="button"
+                variant="muted"
+                effect="glass"
+                size="default"
+                className="flex-1"
+                onClick={handleGoBack}
+              >
+                <Icon icon={ArrowLeft} size="sm" className="mr-2" />
+                Back
               </Button>
-              <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={handleGoHome}>
-                <Icon icon={Home} size="sm" className="mr-1.5" />
-                Go home
+              <Button
+                type="button"
+                variant="blue-gradient"
+                effect="fill"
+                size="default"
+                className="flex-1"
+                onClick={handleGoHome}
+              >
+                <Icon icon={Home} size="sm" className="mr-2" />
+                Home
               </Button>
             </div>
           </div>

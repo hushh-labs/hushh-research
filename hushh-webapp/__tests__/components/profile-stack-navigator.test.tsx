@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ProfileStackNavigator } from "@/components/profile/profile-stack-navigator";
+
+// Mock scrollTo as it's not implemented in JSDOM
+window.HTMLElement.prototype.scrollTo = vi.fn();
 
 describe("ProfileStackNavigator", () => {
   it("keeps shared stack screens live when their content updates", () => {
@@ -36,7 +39,8 @@ describe("ProfileStackNavigator", () => {
     expect(screen.queryByText("Checking your saved domains")).toBeNull();
     expect(screen.getByText("Financial domain ready")).toBeTruthy();
   });
-    it("preserves root rendering stability with empty stack entries", () => {
+
+  it("preserves root rendering stability with empty stack entries", () => {
     render(
       <ProfileStackNavigator
         rootContent={<div>Root workspace</div>}

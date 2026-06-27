@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 
 describe("AccessibilityStatusAnnouncer", () => {
-  it("renders a polite live region by default", () => {
+  it("renders a polite live region by default", async () => {
     render(<AccessibilityStatusAnnouncer message="Filters updated" />);
 
-    const status = screen.getByRole("status");
+    const status = await screen.findByRole("status");
 
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.getAttribute("aria-atomic")).toBe("true");

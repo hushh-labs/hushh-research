@@ -13,7 +13,7 @@ describe("NewHoldingCtaCard", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Add Holding" }).getAttribute("type"),
+      screen.getByRole("button", { name: "Add a new holding manually" }).getAttribute("type"),
     ).toBe("button");
   });
 });

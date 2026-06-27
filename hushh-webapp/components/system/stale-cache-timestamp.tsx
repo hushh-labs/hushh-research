@@ -1,7 +1,8 @@
 "use client";
 
+import * as React from "react";
 import { Clock3 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { cn } from "@/lib/utils";
 
 type StaleCacheTimestampProps = {
   updatedAt?: string | number | Date | null;
@@ -9,61 +10,42 @@ type StaleCacheTimestampProps = {
   label?: string;
 };
 
-function formatRelativeTime(value: string | number | Date) {
-  const timestamp = new Date(value).getTime();
+const getRelativeTime = (date: Date) => {
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (!Number.isFinite(timestamp)) {
-    return "Update time unavailable";
-  }
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
-  const deltaMs = Date.now() - timestamp;
-  const absMs = Math.abs(deltaMs);
+  if (diffInSeconds < 60) return "Updated just now";
+  if (diffInSeconds < 3600) return formatter.format(-Math.floor(diffInSeconds / 60), "minute");
+  if (diffInSeconds < 86400) return formatter.format(-Math.floor(diffInSeconds / 3600), "hour");
+  return formatter.format(-Math.floor(diffInSeconds / 86400), "day");
+};
 
-  const minuteMs = 60 * 1000;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
+export function StaleCacheTimestamp({ updatedAt, stale = false, label }: StaleCacheTimestampProps) {
+  const [mounted, setMounted] = React.useState(false);
+  const [, setTick] = React.useState(0);
 
-  if (absMs < minuteMs) return "Updated just now";
-  if (absMs < hourMs) {
-    const minutes = Math.round(absMs / minuteMs);
-    return `Updated ${minutes}m ago`;
-  }
-  if (absMs < dayMs) {
-    const hours = Math.round(absMs / hourMs);
-    return `Updated ${hours}h ago`;
-  }
-
-  const days = Math.round(absMs / dayMs);
-  return `Updated ${days}d ago`;
-}
-
-export function StaleCacheTimestamp({
-  updatedAt,
-  stale = false,
-  label,
-}: StaleCacheTimestampProps) {
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      setTick((value) => value + 1);
-    }, 60 * 1000);
-
-    return () => clearInterval(intervalId);
+  React.useEffect(() => {
+    setMounted(true);
+    const interval = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(interval);
   }, []);
 
-  const text = useMemo(() => {
-    if (!updatedAt) return label || "Using saved data";
-    return formatRelativeTime(updatedAt);
-  }, [label, updatedAt]);
+  if (!mounted) return null;
+
+  const date = updatedAt ? new Date(updatedAt) : null;
+  const text = date && !isNaN(date.getTime()) ? getRelativeTime(date) : (label || "Using saved data");
 
   return (
     <div
-      className={
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
         stale
-          ? "inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-300"
-          : "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-xs font-medium text-muted-foreground"
-      }
+          ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          : "border-border/60 bg-background/70 text-muted-foreground"
+      )}
+      suppressHydrationWarning
     >
       <Clock3 className="h-3.5 w-3.5" />
       <span>{stale ? `${text} · stale` : text}</span>

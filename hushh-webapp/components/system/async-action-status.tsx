@@ -1,6 +1,8 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCcw } from "lucide-react";
+import * as React from "react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCcw, type LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils"; // Assumed utility
 
 type AsyncActionStatusState = "idle" | "loading" | "success" | "error" | "retrying";
 
@@ -10,54 +12,35 @@ type AsyncActionStatusProps = {
   compact?: boolean;
 };
 
-const STATUS_COPY: Record<Exclude<AsyncActionStatusState, "idle">, string> = {
-  loading: "Working…",
-  retrying: "Retrying…",
-  success: "Completed",
-  error: "Action failed",
+const STATUS_CONFIG: Record<Exclude<AsyncActionStatusState, "idle">, {
+  label: string;
+  icon: LucideIcon;
+  iconClass: string
+}> = {
+  loading: { label: "Working…", icon: Loader2, iconClass: "animate-spin" },
+  retrying: { label: "Retrying…", icon: RefreshCcw, iconClass: "animate-spin" },
+  success: { label: "Completed", icon: CheckCircle2, iconClass: "text-emerald-600" },
+  error: { label: "Action failed", icon: AlertTriangle, iconClass: "text-amber-600" },
 };
 
-export function AsyncActionStatus({
-  state,
-  label,
-  compact = false,
-}: AsyncActionStatusProps) {
+export function AsyncActionStatus({ state, label, compact = false }: AsyncActionStatusProps) {
   if (state === "idle") return null;
 
-  const text = label || STATUS_COPY[state];
-
-  const Icon =
-    state === "success"
-      ? CheckCircle2
-      : state === "error"
-        ? AlertTriangle
-        : state === "retrying"
-          ? RefreshCcw
-          : Loader2;
+  const config = STATUS_CONFIG[state];
+  const Icon = config.icon;
 
   return (
     <div
       role="status"
       aria-live={state === "error" ? "assertive" : "polite"}
-      className={
-        compact
-          ? "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-xs font-medium text-muted-foreground"
-          : "flex items-center gap-2 rounded-[var(--app-card-radius-compact)] border border-border/60 bg-background/70 px-3 py-2 text-sm font-medium text-muted-foreground"
-      }
+      aria-atomic="true"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 font-medium text-muted-foreground",
+        compact ? "px-2.5 py-1 text-xs" : "px-3 py-2 text-sm rounded-[var(--app-card-radius-compact)]"
+      )}
     >
-      <Icon
-        aria-hidden="true"
-        className={
-          state === "loading" || state === "retrying"
-            ? "h-4 w-4 animate-spin"
-            : state === "success"
-              ? "h-4 w-4 text-emerald-600"
-              : state === "error"
-                ? "h-4 w-4 text-amber-600"
-                : "h-4 w-4"
-        }
-      />
-      <span>{text}</span>
+      <Icon aria-hidden="true" className={cn("h-4 w-4", config.iconClass)} />
+      <span>{label || config.label}</span>
     </div>
   );
 }
