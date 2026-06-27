@@ -17,6 +17,11 @@ describe("Empty", () => {
     expect(container.querySelector('[data-slot="empty"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Empty className="custom-empty-class" />);
+    expect(container.querySelector('[data-slot="empty"]')?.className).toContain("custom-empty-class");
+  });
+
   it("renders root with role='status'", () => {
     const { container } = render(<Empty />);
 
