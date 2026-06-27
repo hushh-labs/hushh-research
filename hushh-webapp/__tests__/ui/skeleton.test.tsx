@@ -31,4 +31,12 @@ describe("Skeleton", () => {
 
     expect(skeleton?.className).toContain("pointer-events-none");
   });
+
+  it("propagates className to the underlying element", () => {
+    const { container } = render(<Skeleton className="test-class" />);
+
+    const el = container.querySelector('[data-slot="skeleton"]');
+    
+    expect(el?.classList.contains("test-class")).toBe(true);
+  });
 });
