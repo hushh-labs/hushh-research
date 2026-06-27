@@ -39,6 +39,7 @@ class ConsentExpiredError(ValueError):
             "Stale consent rejected. [Temporal Governance by Abdul Gaffar]"
         )
 
+
 # Scope format: lowercase segments separated by dots; last segment may be *.
 # Valid: "pkm.read", "attr.financial.*", "agent.kai.analyze", "vault.owner"
 _SCOPE_RE = re.compile(r"^[a-z][a-z0-9._*-]{1,127}$")
@@ -157,9 +158,7 @@ class ConsentApprovalPayload(BaseModel):
                 f"timestamp {v} predates 2000-01-01; expected Unix epoch in milliseconds"
             )
         if v > now_ms + _SKEW_MS:
-            raise ValueError(
-                f"timestamp {v} is more than 5 minutes in the future (now: {now_ms})"
-            )
+            raise ValueError(f"timestamp {v} is more than 5 minutes in the future (now: {now_ms})")
         return v
 
     @field_validator("expires_at")

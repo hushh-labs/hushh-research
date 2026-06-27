@@ -36,7 +36,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[500] bg-transparent",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
         className
       )}
       {...props}
@@ -53,10 +53,6 @@ function AlertDialogContent({
 }) {
   return (
     <AlertDialogPortal>
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]"
-      />
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"

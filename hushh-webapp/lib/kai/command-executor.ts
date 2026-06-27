@@ -1,8 +1,12 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
-import type { KaiCommandAction, KaiCommandParams } from "@/lib/kai/kai-command-types";
+import type {
+  KaiCommandAction,
+  KaiCommandParams,
+} from "@/lib/kai/kai-command-types";
 import {
   getInvestorKaiActionByKaiCommand,
   resolveInvestorKaiActionWiring,
@@ -43,7 +47,7 @@ type BuildVoiceActionResultInput = {
 };
 
 export function buildVoiceActionResult(
-  input: BuildVoiceActionResultInput
+  input: BuildVoiceActionResultInput,
 ): VoiceActionResult {
   return {
     status: input.status,
@@ -77,9 +81,16 @@ export type ExecuteKaiCommandInput = {
   currentScreen?: string | null;
 };
 
-const VALID_HISTORY_TABS = new Set(["history", "debate", "summary", "transcript"]);
+const VALID_HISTORY_TABS = new Set([
+  "history",
+  "debate",
+  "summary",
+  "transcript",
+]);
 
-function getHistoryTarget(params?: Record<string, unknown> | KaiCommandParams): string {
+function getHistoryTarget(
+  params?: Record<string, unknown> | KaiCommandParams,
+): string {
   if (!params || typeof params !== "object") {
     return `${ROUTES.KAI_ANALYSIS}?tab=history`;
   }
@@ -105,7 +116,9 @@ function getHistoryTarget(params?: Record<string, unknown> | KaiCommandParams): 
 function getActiveAnalysisTarget(symbol?: string | null): string {
   const query = new URLSearchParams();
   query.set("focus", "active");
-  const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+  const normalizedSymbol = String(symbol || "")
+    .trim()
+    .toUpperCase();
   if (normalizedSymbol) {
     query.set("ticker", normalizedSymbol);
   }
@@ -125,7 +138,9 @@ type BuildCommandResultInput = {
   data?: Record<string, unknown>;
 };
 
-function buildCommandResult(input: BuildCommandResultInput): ExecuteKaiCommandResult {
+function buildCommandResult(
+  input: BuildCommandResultInput,
+): ExecuteKaiCommandResult {
   const actionStatus: VoiceActionResultStatus =
     input.actionStatus ??
     (input.status === "executed"
@@ -150,7 +165,9 @@ function buildCommandResult(input: BuildCommandResultInput): ExecuteKaiCommandRe
   };
 }
 
-export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiCommandResult {
+export function executeKaiCommand(
+  input: ExecuteKaiCommandInput,
+): ExecuteKaiCommandResult {
   const {
     command,
     params,
@@ -173,7 +190,9 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
 
   if (
     reviewDirty &&
-    !confirmLeave("You have unsaved portfolio changes. Leaving now will discard them.")
+    !confirmLeave(
+      "You have unsaved portfolio changes. Leaving now will discard them.",
+    )
   ) {
     return buildCommandResult({
       status: "blocked",
@@ -181,7 +200,8 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
       actionId: null,
       routeBefore: currentRoute,
       screenBefore: currentScreen,
-      resultSummary: "Stayed on the current screen because portfolio review has unsaved changes.",
+      resultSummary:
+        "Stayed on the current screen because portfolio review has unsaved changes.",
       data: { command },
     });
   }
@@ -192,13 +212,17 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
     const resolution = resolveInvestorKaiActionWiring(canonicalAction);
     if (!resolution.resolvable) {
       console.warn(
-        `[KAI_ACTION_REGISTRY] unresolved_wired_action id=${canonicalAction.id} reason=${resolution.reason}`
+        `[KAI_ACTION_REGISTRY] unresolved_wired_action id=${canonicalAction.id} reason=${resolution.reason}`,
       );
     } else {
-      console.info(`[KAI_ACTION_REGISTRY] resolved_action id=${canonicalAction.id}`);
+      console.info(
+        `[KAI_ACTION_REGISTRY] resolved_action id=${canonicalAction.id}`,
+      );
     }
   } else {
-    console.warn(`[KAI_ACTION_REGISTRY] missing_action_for_command command=${command}`);
+    console.warn(
+      `[KAI_ACTION_REGISTRY] missing_action_for_command command=${command}`,
+    );
   }
 
   if (!hasPortfolioData && command === "optimize") {
@@ -212,7 +236,8 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
       routeAfter: ROUTES.KAI_IMPORT,
       screenBefore: currentScreen,
       screenAfter: "import",
-      resultSummary: "Portfolio import is required before that Kai command can run.",
+      resultSummary:
+        "Portfolio import is required before that Kai command can run.",
       data: { command },
     });
   }
@@ -222,7 +247,9 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
       params && typeof params === "object" && typeof params.symbol === "string"
         ? params.symbol
         : "";
-    const symbol = String(symbolRaw || "").trim().toUpperCase();
+    const symbol = String(symbolRaw || "")
+      .trim()
+      .toUpperCase();
 
     if (!symbol) {
       return buildCommandResult({
@@ -231,7 +258,8 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
         actionId,
         routeBefore: currentRoute,
         screenBefore: currentScreen,
-        resultSummary: "Analysis could not start because no stock symbol was provided.",
+        resultSummary:
+          "Analysis could not start because no stock symbol was provided.",
         data: { command },
       });
     }
@@ -343,12 +371,13 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
   }
 
   if (command === "consent") {
-    router.push(ROUTES.CONSENTS);
+    const routeAfter = buildConsentCenterHref("pending");
+    router.push(routeAfter);
     return buildCommandResult({
       status: "executed",
       actionId,
       routeBefore: currentRoute,
-      routeAfter: ROUTES.CONSENTS,
+      routeAfter,
       screenBefore: currentScreen,
       screenAfter: "consents",
       resultSummary: "Opened the consent center.",

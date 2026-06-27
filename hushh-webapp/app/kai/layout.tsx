@@ -9,7 +9,6 @@
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { KaiOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-guard";
 import { KaiNavTour } from "@/components/kai/onboarding/kai-nav-tour";
-import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -34,7 +33,6 @@ export default function KaiLayout({
   const onPlaidOauthReturnRoute = pathname === ROUTES.KAI_PLAID_OAUTH_RETURN;
   const onAlpacaOauthReturnRoute = pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN;
   const onOauthReturnRoute = onPlaidOauthReturnRoute || onAlpacaOauthReturnRoute;
-  const shouldEnableMethodPrompt = !onOnboardingRoute && !onImportRoute && !onOauthReturnRoute;
   const localKaiPreview = isLocalKaiPreviewRequest({
     pathname,
     searchParams,
@@ -106,7 +104,6 @@ export default function KaiLayout({
         <main className={mainClassName}>
           {children}
         </main>
-        {localKaiPreview ? null : <VaultMethodPrompt enabled={shouldEnableMethodPrompt} />}
         {localKaiPreview || onOauthReturnRoute ? null : <KaiNavTour />}
       </div>
     </RouteErrorBoundary>

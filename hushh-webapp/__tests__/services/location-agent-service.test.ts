@@ -183,6 +183,36 @@ describe("OneLocationService", () => {
     );
   });
 
+  it("resolves public location links with an attached public snapshot", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      invite: {
+        status: "active",
+        durationHours: 1,
+        expiresAt: "2026-05-20T08:30:00.000Z",
+        ownerLabel: "A trusted person",
+        locationAvailable: true,
+      },
+      publicLocation: {
+        latitude: 28.6139,
+        longitude: 77.209,
+        accuracyM: 18,
+        capturedAt: "2026-05-20T07:30:00.000Z",
+        sourcePlatform: "web",
+      },
+    });
+
+    const response =
+      await OneLocationService.resolvePublicInvite("public-token");
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/location/public-invites/public-token",
+      {},
+    );
+    expect(response.invite.locationAvailable).toBe(true);
+    expect(response.publicLocation?.latitude).toBe(28.6139);
+    expect(response.publicLocation?.longitude).toBe(77.209);
+  });
+
   it("submits public invite intake without an auth token and receives public location", async () => {
     mockApiJson.mockResolvedValueOnce({
       submission: { id: "submission_1", status: "approved" },

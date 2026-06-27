@@ -6,4 +6,9 @@
  */
 
 // Actions Hook
-export { useConsentActions, type PendingConsent } from "./use-consent-actions";
+export {
+  useConsentActions,
+  type ConsentActionState,
+  type ConsentMutationDetail,
+  type PendingConsent,
+} from "./use-consent-actions";

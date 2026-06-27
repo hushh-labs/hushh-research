@@ -1000,3 +1000,82 @@ describe("ZK preflight — non-compliant and structurally empty payload rejectio
   });
 });
 // ── End ZK preflight invalid-payload coverage ──────────────────────────────────
+
+describe("KYC financial consolidation in buildDraft", () => {
+  const consolidationWorkflow: OneKycWorkflow = {
+    ...baseWorkflow,
+    required_fields: ["portfolio"],
+    requested_scope: "attr.financial.portfolio.*",
+    subject: "Portfolio information",
+    metadata: { account_holder_name: "Kushal Trivedi" },
+  };
+
+  it("combines repeated lots of the same security into one Holdings line", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: consolidationWorkflow,
+      exportPayload: {
+        financial: {
+          portfolio: {
+            account_summary: { ending_value: 22500 },
+            holdings: [
+              { symbol: "AAPL", quantity: 100, market_value: 15000, unrealized_gain_loss: 5000 },
+              { symbol: "AAPL", quantity: 50, market_value: 7500, unrealized_gain_loss: 1500 },
+            ],
+          },
+        },
+      },
+    });
+    // One merged AAPL line: 150 shares, $22,500 value.
+    const aaplLines = draft.body.split("\n").filter((line) => line.includes("AAPL"));
+    expect(aaplLines).toHaveLength(1);
+    expect(draft.body).toContain("AAPL: 150 shares; $22,500.00 value");
+    expect(draft.body).toContain("- Net unrealized gain/loss: $6,500.00");
+  });
+
+  it("renders a per-account breakdown when holdings span multiple accounts", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: consolidationWorkflow,
+      exportPayload: {
+        financial: {
+          portfolio: {
+            accounts: [
+              {
+                account_info: { brokerage_name: "Fidelity", account_type: "Individual" },
+                account_summary: { ending_value: 100000, cash_balance: 1000 },
+                holdings: [{ symbol: "AAPL", quantity: 100, market_value: 15000 }],
+              },
+              {
+                account_info: { brokerage_name: "Schwab", account_type: "IRA" },
+                account_summary: { ending_value: 50000, cash_balance: 500 },
+                holdings: [{ symbol: "AAPL", quantity: 200, market_value: 30000 }],
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(draft.body).toContain("- Accounts: 2");
+    expect(draft.body).toContain("- Total value: $150,000.00");
+    expect(draft.body).toContain("- Fidelity Individual: $100,000.00");
+    expect(draft.body).toContain("- Schwab IRA: $50,000.00");
+    expect(draft.body).toContain("- Cash balance: $1,500.00");
+    // AAPL merged across both accounts: 300 shares, $45,000.
+    expect(draft.body).toContain("AAPL: 300 shares; $45,000.00 value");
+  });
+
+  it("adds a reconciliation note when the statement total diverges from the holdings sum", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: consolidationWorkflow,
+      exportPayload: {
+        financial: {
+          portfolio: {
+            account_summary: { ending_value: 500000 },
+            holdings: [{ symbol: "AAPL", quantity: 1, market_value: 100000 }],
+          },
+        },
+      },
+    });
+    expect(draft.body).toContain("Totals as reported on statements");
+    expect(draft.body).toContain("$100,000.00");
+  });
+});

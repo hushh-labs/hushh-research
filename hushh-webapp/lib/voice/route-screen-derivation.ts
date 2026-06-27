@@ -25,32 +25,58 @@ export function deriveVoiceRouteScreen(
   if (!normalizedPath) {
     return { screen: "unknown", subview: null };
   }
-  if (normalizedPath === ROUTES.KAI_HOME || normalizedPath.startsWith("/kai/home")) {
+  if (
+    normalizedPath === ROUTES.KAI_HOME ||
+    normalizedPath === ROUTES.LEGACY_KAI_HOME ||
+    normalizedPath.startsWith("/kai/home")
+  ) {
     return { screen: "kai_market", subview: query.get("tab") || null };
   }
-  if (normalizedPath === ROUTES.KAI_INVESTMENTS) {
+  if (normalizedPath === ROUTES.KAI_INVESTMENTS || normalizedPath === ROUTES.LEGACY_KAI_INVESTMENTS) {
     return { screen: "kai_investments", subview: null };
   }
-  if (normalizedPath === ROUTES.KAI_FUNDING_TRADE) {
+  if (
+    normalizedPath === ROUTES.KAI_FUNDING_TRADE ||
+    normalizedPath === ROUTES.LEGACY_KAI_FUNDING_TRADE
+  ) {
     return { screen: "kai_funding_trade", subview: null };
   }
-  if (normalizedPath.startsWith("/kai/dashboard") || normalizedPath.startsWith(ROUTES.KAI_PORTFOLIO)) {
+  if (
+    normalizedPath.startsWith("/kai/dashboard") ||
+    normalizedPath.startsWith("/one/kai/dashboard") ||
+    normalizedPath.startsWith(ROUTES.KAI_PORTFOLIO) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO)
+  ) {
     const segments = normalizedPath.split("/").filter(Boolean);
+    const subview =
+      normalizedPath === ROUTES.KAI_PORTFOLIO ||
+      normalizedPath === ROUTES.LEGACY_KAI_PORTFOLIO
+        ? null
+        : query.get("tab") || segments.at(-1) || null;
     return {
       screen: "kai_portfolio_dashboard",
-      subview: query.get("tab") || segments[2] || null,
+      subview,
     };
   }
-  if (normalizedPath.startsWith(ROUTES.KAI_ANALYSIS)) {
+  if (
+    normalizedPath.startsWith(ROUTES.KAI_ANALYSIS) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)
+  ) {
     return {
       screen: "kai_analysis",
       subview: query.get("tab") || (query.get("focus") === "active" ? "active" : null),
     };
   }
-  if (normalizedPath.startsWith(ROUTES.KAI_IMPORT)) {
+  if (
+    normalizedPath.startsWith(ROUTES.KAI_IMPORT) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_IMPORT)
+  ) {
     return { screen: "import", subview: null };
   }
-  if (normalizedPath.startsWith(ROUTES.KAI_OPTIMIZE)) {
+  if (
+    normalizedPath.startsWith(ROUTES.KAI_OPTIMIZE) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_OPTIMIZE)
+  ) {
     return { screen: "kai_optimize", subview: null };
   }
   if (normalizedPath === ROUTES.RIA_HOME) {
@@ -86,6 +112,18 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_KYC) {
     return { screen: "one_kyc", subview: query.get("panel") || null };
   }
+  if (normalizedPath === ROUTES.GMAIL || normalizedPath === ROUTES.LEGACY_GMAIL) {
+    return { screen: "gmail", subview: null };
+  }
+  if (normalizedPath === ROUTES.PKM || normalizedPath === ROUTES.LEGACY_PKM) {
+    return { screen: "pkm", subview: query.get("tab") || null };
+  }
+  if (
+    normalizedPath === ROUTES.CONNECTED_SYSTEMS ||
+    normalizedPath === ROUTES.LEGACY_CONNECTED_SYSTEMS
+  ) {
+    return { screen: "connected_systems", subview: query.get("tab") || null };
+  }
   if (normalizedPath.startsWith(ROUTES.MARKETPLACE_RIA_PROFILE)) {
     return {
       screen: "marketplace_ria_profile",
@@ -95,23 +133,29 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath.startsWith(ROUTES.MARKETPLACE)) {
     return { screen: "marketplace", subview: query.get("tab") || null };
   }
-  if (
-    normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB ||
-    normalizedPath === ROUTES.PROFILE_PKM
-  ) {
+  if (normalizedPath === ROUTES.PROFILE_PKM) {
+    return {
+      screen: "pkm",
+      subview: query.get("tab") || "legacy",
+    };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB) {
     return {
       screen: "profile_pkm_agent_lab",
       subview: query.get("tab"),
     };
   }
   if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
-    return { screen: "profile_receipts", subview: null };
+    return { screen: "gmail", subview: "legacy" };
   }
   if (normalizedPath === ROUTES.PROFILE) {
     const panel = query.get("panel");
     const tab = query.get("tab");
     if (panel === "gmail") {
       return { screen: "profile_gmail_panel", subview: tab || null };
+    }
+    if (panel === "connected-systems") {
+      return { screen: "connected_systems", subview: tab || "legacy" };
     }
     if (panel === "support") {
       return { screen: "profile_support_panel", subview: tab || null };
@@ -131,8 +175,15 @@ export function deriveVoiceRouteScreen(
     return { screen: "profile", subview: null };
   }
   if (normalizedPath.startsWith(ROUTES.KAI_HOME)) {
-    const segments = normalizedPath.split("/").filter(Boolean);
-    return { screen: "kai", subview: segments[1] || null };
+    const subview = normalizedPath.slice(ROUTES.KAI_HOME.length).split("/").filter(Boolean)[0];
+    return { screen: "kai", subview: subview || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.LEGACY_KAI_HOME)) {
+    const subview = normalizedPath
+      .slice(ROUTES.LEGACY_KAI_HOME.length)
+      .split("/")
+      .filter(Boolean)[0];
+    return { screen: "kai", subview: subview || null };
   }
   return { screen: "app", subview: null };
 }

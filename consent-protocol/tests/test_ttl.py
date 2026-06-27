@@ -114,14 +114,10 @@ class TestExpiresAtValidation:
 
     def test_iso_string_past_rejected(self):
         with pytest.raises(ValidationError):
-            ConsentApprovalPayload.model_validate(
-                {**_BASE, "expiresAt": _PAST.isoformat()}
-            )
+            ConsentApprovalPayload.model_validate({**_BASE, "expiresAt": _PAST.isoformat()})
 
     def test_iso_string_future_accepted(self):
-        payload = ConsentApprovalPayload.model_validate(
-            {**_BASE, "expiresAt": _FUTURE.isoformat()}
-        )
+        payload = ConsentApprovalPayload.model_validate({**_BASE, "expiresAt": _FUTURE.isoformat()})
         assert payload.expires_at is not None
 
     def test_error_message_references_temporal_governance(self):

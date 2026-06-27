@@ -1,5 +1,6 @@
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
+import { ROUTES } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import {
   evaluateKaiActionAvailability,
@@ -56,10 +57,57 @@ function buildResult(input: Partial<AgentActionRuntimeResult>): AgentActionRunti
   };
 }
 
+function executeConnectedSystemAgentAction(
+  input: ExecuteAgentGatewayActionInput,
+  routeBefore: AppRuntimeState["route"]
+): AgentActionRuntimeResult | null {
+  if (!input.actionId.startsWith("connected_system.crm.")) {
+    return null;
+  }
+  if (input.actionId === "connected_system.crm.delete") {
+    return buildResult({
+      status: "blocked",
+      actionId: input.actionId,
+      label: "Blocked Salesforce CRM Delete",
+      routeBefore: routeBefore.pathname,
+      screenBefore: routeBefore.screen,
+      resultSummary: "Salesforce CRM delete is blocked in Agent v1.",
+      reason: "crm_delete_manual_only",
+    });
+  }
+
+  const target = ROUTES.CONNECTED_SYSTEMS;
+  input.router.push(target);
+  return buildResult({
+    status: "started",
+    actionId: input.actionId,
+    label:
+      input.actionId === "connected_system.crm.read"
+        ? "Read Salesforce CRM Record"
+        : input.actionId === "connected_system.crm.create.propose"
+          ? "Propose Salesforce CRM Create"
+          : "Propose Salesforce CRM Update",
+    routeBefore: routeBefore.pathname,
+    routeAfter: target,
+    screenBefore: routeBefore.screen,
+    screenAfter: "connected_systems",
+    resultSummary: "Connected Systems opened for Salesforce CRM.",
+    data: {
+      target,
+      slots: input.slots || {},
+    },
+  });
+}
+
 export async function executeAgentGatewayAction(
   input: ExecuteAgentGatewayActionInput
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
+  const connectedSystemResult = executeConnectedSystemAgentAction(input, routeBefore);
+  if (connectedSystemResult) {
+    return connectedSystemResult;
+  }
+
   const action = getKaiActionById(input.actionId);
   if (!action) {
     return buildResult({

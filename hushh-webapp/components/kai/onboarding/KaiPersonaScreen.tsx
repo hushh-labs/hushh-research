@@ -64,14 +64,14 @@ export function KaiPersonaScreen(props: {
       data-top-content-anchor="true"
       className="flex min-h-[100dvh] w-full flex-col bg-transparent px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
     >
-      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[42rem] flex-1 items-center">
-        <section className="w-full rounded-[32px] border border-black/[0.06] bg-white/[0.74] p-5 text-center shadow-[0_24px_80px_-56px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:p-7 lg:p-8 dark:border-white/10 dark:bg-white/[0.07]">
-          <div className="mx-auto flex w-full max-w-[33rem] flex-col items-center">
+      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[28rem] flex-1 items-center py-6">
+        <section className="w-full text-center">
+          <div className="mx-auto flex w-full flex-col items-center">
             <div
-              className={`grid h-14 w-14 place-items-center rounded-[18px] ${cfg.accent}`}
+              className={`grid h-[52px] w-[52px] place-items-center rounded-[17px] ${cfg.accent}`}
               aria-hidden="true"
             >
-              <Icon icon={icon} size={28} />
+              <Icon icon={icon} size={26} />
             </div>
 
             <div className="mt-5 space-y-3">
@@ -86,7 +86,7 @@ export function KaiPersonaScreen(props: {
               </p>
             </div>
 
-            <div className="mt-7 w-full rounded-[24px] border border-black/[0.06] bg-background/72 px-5 py-5 text-left shadow-[0_18px_48px_-42px_rgba(0,0,0,0.65)] dark:border-white/10 dark:bg-white/[0.05]">
+            <div className="mt-8 w-full border-y border-black/[0.08] py-5 text-left dark:border-white/10">
               <p className="text-[13px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 Kai profile
               </p>

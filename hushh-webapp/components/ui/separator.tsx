@@ -17,7 +17,7 @@ function Separator({
       orientation={orientation}
       className={cn(
         "shrink-0 bg-border",
-        orientation === "horizontal" ? "h-px w-full" : "h-full w-px",
+        orientation === "horizontal" ? "h-px w-full" : "min-h-4 w-px self-stretch",
         className
       )}
       {...props}

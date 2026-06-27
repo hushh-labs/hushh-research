@@ -337,3 +337,60 @@ class InvestorDBService:
         except Exception as e:
             logger.error("investor_db.upsert_investor.error: %s", e)
             raise
+
+    async def bulk_upsert_investors(
+        self, records: List[Dict[str, Any]], upsert_key: Optional[str] = "cik"
+    ) -> List[Dict[str, Any]]:
+        """
+        Create or update a batch of investor profiles in as few round-trips
+        as possible.
+
+        Records are grouped by their exact set of present keys (and, for
+        records carrying upsert_key, whether that value is truthy) before
+        each batched call. PostgREST infers the column set for a bulk
+        insert/upsert from the union of keys across the request body, so
+        mixing differently-shaped records into a single call could null
+        out fields on rows that never intended to supply them. Records
+        sharing a shape are still upserted/inserted together in one call,
+        so a uniformly-shaped batch collapses to a single round-trip.
+
+        Args:
+            records: List of investor data dictionaries
+            upsert_key: Field to use for conflict detection (default: "cik")
+
+        Returns:
+            List of created/updated investor records, in no particular order
+        """
+        if not records:
+            return []
+
+        supabase = self._get_supabase()
+        groups: Dict[tuple, List[Dict[str, Any]]] = {}
+        for data in records:
+            should_upsert = bool(upsert_key and data.get(upsert_key))
+            group_key = (frozenset(data.keys()), should_upsert)
+            groups.setdefault(group_key, []).append(data)
+
+        results: List[Dict[str, Any]] = []
+        try:
+            for (_, should_upsert), group_records in groups.items():
+                if should_upsert:
+                    response = (
+                        supabase.table("investor_profiles")
+                        .upsert(group_records, on_conflict=upsert_key)
+                        .execute()
+                    )
+                else:
+                    clean_records = [
+                        {k: v for k, v in data.items() if k != upsert_key or v is not None}
+                        for data in group_records
+                    ]
+                    response = (
+                        supabase.table("investor_profiles").insert(clean_records).execute()
+                    )
+                results.extend(response.data or [])
+            return results
+
+        except Exception as e:
+            logger.error("investor_db.bulk_upsert_investors.error: %s", e)
+            raise

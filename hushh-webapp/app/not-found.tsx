@@ -8,6 +8,18 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 export default function AppNotFoundPage() {
+  const handleGoBack = () => {
+    window.history.back();
+  };
+
+  const handleGoHome = () => {
+    requestInternalAppNavigation({
+      href: ROUTES.HOME,
+      replace: true,
+      scroll: false,
+    });
+  };
+
   return (
     <main className="flex min-h-[100dvh] flex-col items-center justify-center px-6 pb-[var(--app-screen-footer-pad)] bg-background">
       <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center animate-in fade-in zoom-in duration-500">
@@ -33,21 +45,23 @@ export default function AppNotFoundPage() {
             {/* Actions */}
             <div className="flex gap-3 w-full">
               <Button
+                type="button"
                 variant="muted"
                 effect="glass"
                 size="default"
                 className="flex-1"
-                onClick={() => window.history.back()}
+                onClick={handleGoBack}
               >
                 <Icon icon={ArrowLeft} size="sm" className="mr-2" />
                 Back
               </Button>
               <Button
+                type="button"
                 variant="blue-gradient"
                 effect="fill"
                 size="default"
                 className="flex-1"
-                onClick={() => requestInternalAppNavigation({ href: ROUTES.HOME, replace: true })}
+                onClick={handleGoHome}
               >
                 <Icon icon={Home} size="sm" className="mr-2" />
                 Home

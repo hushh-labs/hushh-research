@@ -6,6 +6,7 @@ arbitrarily long strings to be forwarded to the upstream provider.
 CWE-209: ValueError from the provider was forwarded verbatim to the client via
 str(exc), potentially disclosing internal implementation details.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -15,6 +16,7 @@ from unittest.mock import AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware import require_firebase_auth
 from api.routes import crd_scraper
 
 
@@ -41,6 +43,7 @@ def _build_app(svc=None) -> FastAPI:
     app.include_router(crd_scraper.router)
     if svc is not None:
         app.dependency_overrides[crd_scraper.get_crd_scrape_proxy_service] = lambda: svc
+    app.dependency_overrides[require_firebase_auth] = lambda: "test-firebase-uid"
     return app
 
 
@@ -89,4 +92,7 @@ class TestValueErrorDoesNotLeak:
     def test_source_does_not_use_str_exc_for_value_error(self) -> None:
         source = inspect.getsource(crd_scraper)
         # The ValueError handler must not forward str(exc) to the client
-        assert "detail=str(exc)" not in source or "ValueError" not in source.split("detail=str(exc)")[0].split("except")[-1]
+        assert (
+            "detail=str(exc)" not in source
+            or "ValueError" not in source.split("detail=str(exc)")[0].split("except")[-1]
+        )

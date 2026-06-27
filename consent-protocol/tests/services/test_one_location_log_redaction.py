@@ -16,11 +16,19 @@ class TestOneLocationLogRedaction:
     def test_notification_send_failed_redacts_user_id(self, caplog):
         """Real _deliver path must not log raw user_id on send failure."""
         from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
         svc = OneLocationAgentService.__new__(OneLocationAgentService)
         raw_user_id = "firebase-uid-abc123"
-        with patch("hushh_mcp.services.one_location_agent_service.ensure_firebase_admin"),\
-             patch("hushh_mcp.services.one_location_agent_service.get_db", side_effect=RuntimeError("db down")),\
-             caplog.at_level(logging.WARNING, logger="hushh_mcp.services.one_location_agent_service"):
+        with (
+            patch("hushh_mcp.services.one_location_agent_service.ensure_firebase_admin"),
+            patch(
+                "hushh_mcp.services.one_location_agent_service.get_db",
+                side_effect=RuntimeError("db down"),
+            ),
+            caplog.at_level(
+                logging.WARNING, logger="hushh_mcp.services.one_location_agent_service"
+            ),
+        ):
             svc._send_push_notification(
                 user_id=raw_user_id,
                 notification_type="push",
@@ -33,10 +41,16 @@ class TestOneLocationLogRedaction:
     def test_identity_lookup_failed_redacts_user_id(self, caplog):
         """Real _identity_row path must not log raw user_id on db failure."""
         from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
         svc = OneLocationAgentService.__new__(OneLocationAgentService)
         raw_user_id = "uid-secret-xyz"
-        with patch("hushh_mcp.services.one_location_agent_service.get_db", side_effect=RuntimeError("db down")),\
-             caplog.at_level(logging.DEBUG, logger="hushh_mcp.services.one_location_agent_service"):
+        with (
+            patch(
+                "hushh_mcp.services.one_location_agent_service.get_db",
+                side_effect=RuntimeError("db down"),
+            ),
+            caplog.at_level(logging.DEBUG, logger="hushh_mcp.services.one_location_agent_service"),
+        ):
             result = svc._identity_row(raw_user_id)
         assert result is None
         assert raw_user_id not in caplog.text

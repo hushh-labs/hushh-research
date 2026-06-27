@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ROUTES } from "@/lib/navigation/routes";
 import { resolveGroundedVoicePlan, VOICE_MANUAL_ONLY_MESSAGE } from "@/lib/voice/voice-grounding";
 import type { StructuredScreenContext } from "@/lib/voice/screen-context-builder";
 import type { AppRuntimeState, VoiceResponse } from "@/lib/voice/voice-types";
@@ -58,9 +59,9 @@ function makeRuntimeState(
       pathname,
       screen: pathname.startsWith("/profile")
         ? "profile_account"
-        : pathname.startsWith("/kai/analysis")
+        : pathname.startsWith(ROUTES.KAI_ANALYSIS) || pathname.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)
           ? "kai_analysis"
-          : pathname.startsWith("/kai/optimize")
+          : pathname.startsWith(ROUTES.KAI_OPTIMIZE) || pathname.startsWith(ROUTES.LEGACY_KAI_OPTIMIZE)
             ? "kai_optimize"
             : pathname.startsWith("/kai")
               ? "kai_market"
@@ -164,10 +165,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/kai/analysis",
+        href: ROUTES.KAI_ANALYSIS,
         reason: "hidden_action_navigation_prerequisite",
         settlementTarget: {
-          route: "/kai/analysis",
+          route: ROUTES.KAI_ANALYSIS,
           screen: "kai_analysis",
         },
       },
@@ -210,10 +211,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/kai/optimize",
+        href: ROUTES.KAI_OPTIMIZE,
         reason: "route_bound_action",
         settlementTarget: {
-          route: "/kai/optimize",
+          route: ROUTES.KAI_OPTIMIZE,
           screen: "kai_optimize",
         },
       },
@@ -239,10 +240,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/kai/analysis",
+        href: ROUTES.KAI_ANALYSIS,
         reason: "route_bound_action",
         settlementTarget: {
-          route: "/kai/analysis",
+          route: ROUTES.KAI_ANALYSIS,
           screen: "kai_analysis",
         },
       },
@@ -261,7 +262,7 @@ describe("resolveGroundedVoicePlan", () => {
     const plan = resolveGroundedVoicePlan({
       transcript: "analyze it",
       response,
-      structuredContext: makeContext("/kai/analysis"),
+      structuredContext: makeContext(ROUTES.KAI_ANALYSIS),
     });
 
     expect(plan.status).toBe("ambiguous");
@@ -328,11 +329,11 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toEqual([
       {
         type: "navigate",
-        href: "/profile/pkm-agent-lab",
+        href: ROUTES.PKM,
         reason: "route_bound_action",
         settlementTarget: {
-          route: "/profile/pkm-agent-lab",
-          screen: "profile_pkm_agent_lab",
+          route: ROUTES.PKM,
+          screen: "pkm",
         },
       },
     ]);

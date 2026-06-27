@@ -1,11 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import {
-  Shield,
-  TrendingUp,
-  Home,
-} from "lucide-react";
+import { Shield, TrendingUp, Home } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -18,12 +14,14 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 import { Icon, SidebarMenuButton } from "@/lib/morphy-ux/ui";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const domains = [
   {
     name: "Kai",
-    href: "/kai/portfolio",
+    href: ROUTES.KAI_PORTFOLIO,
     icon: TrendingUp,
     status: "active",
   },
@@ -52,13 +50,13 @@ export function AppSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  href="/kai"
-                  isActive={pathname === "/kai"}
+                  href={ROUTES.KAI_HOME}
+                  isActive={pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME}
                   size="lg"
                   className="md:h-12 md:text-base font-semibold"
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <Icon icon={Home} size="sm" />
+                    <Icon icon={Home} size="sm" aria-hidden="true" />
                   </div>
                   <span className="ml-2">Kai</span>
                 </SidebarMenuButton>
@@ -81,7 +79,7 @@ export function AppSidebar() {
                 return (
                   <SidebarMenuItem key={domain.href}>
                     <SidebarMenuButton href={domain.href} isActive={isActive}>
-                      <Icon icon={DomainIcon} size="sm" />
+                      <Icon icon={DomainIcon} size="sm" aria-hidden="true" />
                       <span>{domain.name}</span>
                     </SidebarMenuButton>
                     {domain.status === "soon" && (
@@ -101,10 +99,10 @@ export function AppSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  href="/consents"
+                  href={buildConsentCenterHref("pending")}
                   isActive={pathname === "/consents"}
                 >
-                  <Icon icon={Shield} size="sm" />
+                  <Icon icon={Shield} size="sm" aria-hidden="true" />
                   <span>Consents</span>
                 </SidebarMenuButton>
                 {pendingCount > 0 && (

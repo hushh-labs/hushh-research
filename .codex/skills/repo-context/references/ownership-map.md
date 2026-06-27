@@ -19,6 +19,11 @@ Use this reference after the initial scan to choose the correct owner skill firs
 13. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 14. `comms-community`: public/community explanation workflows.
 15. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
+16. `agent-orchestration-governance`: custom agents, subagent limits, delegation authority, and handoff verification.
+17. `autonomous-rca-governance`: resume-safe RCA for runtime, UAT, and CI failures.
+18. `desktop-mac`: native macOS One app, LaunchAgent, and local MCP host surfaces.
+19. `kai-voice-governance`: Kai voice/action contracts, planner/executor flow, and generated gateway parity.
+20. `pr-governance-review`: PR review, train governance, merge-readiness, and trust-boundary review.
 
 ## Spoke skills by owner
 
@@ -41,6 +46,8 @@ Use this reference after the initial scan to choose the correct owner skill firs
 2. `backend-api-contracts`
 3. `backend-agents-operons`
 4. `mcp-developer-surface`
+5. `hushh-consent-mcp`
+6. `ria-api-reference`
 
 ### `security-audit`
 
@@ -48,6 +55,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 2. `vault-pkm-governance`
 3. `quality-contracts`
 4. `streaming-contracts`
+5. `kai-test-account-reset`
 
 ### `repo-operations`
 
@@ -56,26 +64,37 @@ Use this reference after the initial scan to choose the correct owner skill firs
 
 ## Canonical workflow packs
 
-1. `repo-orientation`
-2. `new-feature-tri-flow`
+1. `agent-orchestration-governance`
+2. `analytics-observability-review`
 3. `api-contract-change`
-4. `bug-triage`
-5. `security-consent-audit`
-6. `mobile-parity-check`
-7. `release-readiness`
-8. `docs-sync`
-9. `founder-brief-curation`
-10. `skill-authoring`
-11. `board-update`
-12. `community-response`
-13. `future-roadmap-plan`
-14. `mcp-surface-change`
-15. `analytics-observability-review`
-16. `oss-license-governance`
-17. `contributor-onboarding`
-18. `subtree-upstream-governance`
-19. `github-contribution-governance`
-20. `uat-scoped-deploy`
-20. `data-model-audit`
-21. `frontend-native-surface-map`
-22. `frontend-cache-coherence`
+4. `autonomous-rca-governance`
+5. `board-update`
+6. `bug-triage`
+7. `ci-watch-and-heal`
+8. `community-response`
+9. `contributor-onboarding`
+10. `data-model-audit`
+11. `docs-sync`
+12. `founder-brief-curation`
+13. `frontend-cache-coherence`
+14. `frontend-native-surface-map`
+15. `future-roadmap-plan`
+16. `generic-pdf-artifact-generation`
+17. `github-contribution-governance`
+18. `hushh-consent-mcp-ops`
+19. `kai-voice-governance`
+20. `mcp-surface-change`
+21. `mobile-parity-check`
+22. `new-feature-tri-flow`
+23. `oss-license-governance`
+24. `pr-governance-review`
+25. `pre-pr-readiness`
+26. `release-readiness`
+27. `report-artifact-generation`
+28. `repo-orientation`
+29. `ria-api-reference`
+30. `security-consent-audit`
+31. `security-posture-maintenance`
+32. `skill-authoring`
+33. `subtree-upstream-governance`
+34. `uat-scoped-deploy`

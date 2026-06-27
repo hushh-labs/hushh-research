@@ -2,6 +2,18 @@
 
 Use this reference for GitHub write actions, post-merge closeouts, live report updates, and contributor-impact updates.
 
+## Communication Personality
+
+Every contributor-facing write uses the Hussh mentor voice defined in
+`comment-templates-and-reporting.md` ("Communication Personality"): lead with
+specific genuine appreciation, state the decision unambiguously, explain the why
+from linked repo truth, give a concrete achievable next step, encourage
+continued contribution, be firm-but-kind on non-negotiable boundaries, never
+leak internal governance, and credit fairly. The headings below are fixed; this
+voice governs how the prose inside them reads. Contributors should always finish
+a comment knowing what happened, why, and exactly what a great next PR looks
+like.
+
 ## GitHub Comment Rules
 
 1. First line must be a markdown headline: `## <Decision>: <contract or outcome>`.

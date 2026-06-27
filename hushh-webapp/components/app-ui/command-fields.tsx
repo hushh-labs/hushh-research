@@ -115,7 +115,9 @@ export function CommandPickerField<T = unknown>({
           setDynamicOptions(nextOptions);
         }
       } catch (error) {
-        console.error("Failed to load options:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("Failed to load options:", error);
+        }
       } finally {
         if (!abortController.signal.aborted) {
           setLoading(false);

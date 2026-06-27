@@ -1,0 +1,92 @@
+# Hussh fully offline local stack
+#
+# Use this profile when you want zero cloud dependency:
+#   - Local Postgres (all DB queries work offline)
+#   - Firebase Auth emulator (passkey/email auth works locally)
+#   - Mock AI service (Gemini/Vertex AI stubbed)
+#   - Mock Gmail/Email services
+#
+# Activate with:
+#   ./bin/hushh bootstrap --mode offline
+#   ./bin/hushh terminal backend --mode offline --reload
+#   ./bin/hushh web --mode offline
+
+name: hushh-offline
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+      POSTGRES_DB: "hushh_offline"
+    ports:
+      - "5432:5432"
+    volumes:
+      - hushh-offline-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - hushh-offline
+
+  firebase-emulator:
+    image: ghcr.io/firebase/firebase-emulator:latest
+    ports:
+      - "9099:9099"
+      - "4400:4400"
+    volumes:
+      - ./firebase-emulator-config:/etc/firebase-emulator
+    command:
+      - "--only",
+      - "auth"
+      - "--import",
+      - "/etc/firebase-emulator/data"
+      - "--export-on-exit",
+      - "/etc/firebase-emulator/data"
+    restart: unless-stopped
+    networks:
+      - hushh-offline
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - "redis-server"
+      - "--appendonly"
+      - "yes"
+      - "--maxmemory"
+      - "256mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-offline-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hushh-offline
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+    networks:
+      - hushh-offline
+
+volumes:
+  hushh-offline-db:
+  redis-offline-data:
+
+networks:
+  hushh-offline:
+    driver: bridge

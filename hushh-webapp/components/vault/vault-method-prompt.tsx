@@ -18,6 +18,7 @@ import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useHostname } from "@/lib/hooks/use-hostname";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   Dialog,
   DialogContent,
@@ -72,8 +73,8 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
       }
 
       try {
-        // Avoid stacking prompts on top of the first-time /kai nav tour.
-        if (pathname === "/kai") {
+        // Avoid stacking prompts on top of the first-time Kai nav tour.
+        if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME) {
           const navTourState = await KaiNavTourLocalService.load(user.uid);
           if (
             !navTourState?.completed_at &&

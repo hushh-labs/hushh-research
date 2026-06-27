@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
     setRiaMarketplaceDiscoverability: vi.fn(),
     getCrdScrapeJobStatus: vi.fn(),
   },
+  openKaiCommandBar: vi.fn(),
   draftService: {
     load: vi.fn(),
     save: vi.fn(),
@@ -190,17 +191,25 @@ vi.mock("@/components/ria/onboarding/onboarding-step-license-details", () => ({
 
 vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
   OnboardingStepServices: ({
+    bio,
+    onDraftBio,
     city,
     areaLocality,
     fullStreetAddress,
     pinZip,
   }: {
+    bio: string;
+    onDraftBio: () => void;
     city: string;
     areaLocality: string;
     fullStreetAddress: string;
     pinZip: string;
   }) => (
     <div data-testid="step-services">
+      <span data-testid="services-bio">{bio}</span>
+      <button data-testid="draft-bio" onClick={onDraftBio}>
+        Ask Kai to draft a bio
+      </button>
       <span data-testid="services-city">{city}</span>
       <span data-testid="services-area">{areaLocality}</span>
       <span data-testid="services-address">{fullStreetAddress}</span>
@@ -213,10 +222,12 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
   OnboardingStepReview: ({
     advisorName,
     onEditSection,
+    onAskKaiUpdateAnything,
     advisoryAccessReady,
   }: {
     advisorName: string;
     onEditSection: (section: string) => void;
+    onAskKaiUpdateAnything: () => void;
     advisoryAccessReady: boolean;
   }) => (
     <div data-testid="step-review">
@@ -234,6 +245,9 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
       >
         Edit Services
       </button>
+      <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
+        Ask Kai to update anything
+      </button>
     </div>
   ),
 }));
@@ -248,6 +262,10 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: { RIA_HOME: "/ria" },
+}));
+
+vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
+  openKaiCommandBar: mocks.openKaiCommandBar,
 }));
 
 vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
@@ -310,9 +328,9 @@ describe("RiaOnboardingPage", () => {
     });
     expect(screen.getByTestId("shell-eyebrow").textContent).toBe("Welcome");
     expect(screen.getByTestId("welcome-type").textContent).toBe("individual");
-    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(
-      false
-    );
+    expect(
+      (screen.getByTestId("continue-btn") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
   it("advances to license step after clicking Continue from welcome", async () => {
@@ -765,6 +783,82 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
+  it("drafts a bio from verified onboarding fields", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "services",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulatorStatus: "Active",
+      crdNumber: "7265726",
+      city: "New York",
+      areaLocality: "NY",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+      minEngagementAmount: "250,000",
+      verifiedLicensePrefillKey: "sec:7265726",
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("draft-bio"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("services-bio").textContent).toContain(
+        "Ria Ashley Sen is listed as",
+      );
+      expect(screen.getByTestId("services-bio").textContent).toContain(
+        "Portfolio Management",
+      );
+    });
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      "Bio drafted",
+      expect.any(Object),
+    );
+  });
+
+  it("opens Kai command from the review update action", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulator: "SEC",
+      regulatorStatus: "ACTIVE",
+      crdNumber: "7265726",
+      individualCrd: "7265726",
+      verifiedLicensePrefillKey: "sec:7265726",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-review")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ask-kai-update"));
+    });
+
+    expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.info).toHaveBeenCalledWith(
+      "Kai command opened",
+      expect.any(Object),
+    );
+  });
+
   it("does not force a second live verification after license verification", async () => {
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
@@ -861,6 +955,49 @@ describe("RiaOnboardingPage", () => {
       });
       await pendingSubmit;
     });
+  });
+
+  it("turns provider unavailable submit errors into actionable verification copy", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
+      licenseNumber: "999999",
+      licenseVerificationStatus: "found",
+      advisorName: "Fake Advisor",
+      firmName: "Fake Firm",
+      regulator: "SEC",
+      regulatorStatus: "ACTIVE",
+      crdNumber: "999999",
+      individualCrd: "999999",
+      verifiedLicensePrefillKey: "sec:999999",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+    });
+    mocks.riaService.submitOnboarding.mockRejectedValue(
+      new Error("RIA intelligence verification provider unavailable"),
+    );
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-review")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Live RIA verification is unavailable/i),
+      ).toBeTruthy();
+    });
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      "Could not submit verification",
+      expect.objectContaining({
+        description: expect.stringMatching(/regulator-backed CRD/i),
+      }),
+    );
   });
 
   it("redirects to RIA home if already verified when submit clicked", async () => {

@@ -6,6 +6,7 @@ response bodies from db_proxy.py, consent.py, or kai/stream.py.
 CWE-209: Internal validation reason strings (e.g. "expired", "revoked",
 "invalid_signature") could reveal internal token structure to callers.
 """
+
 from unittest.mock import AsyncMock, patch
 
 import pytest

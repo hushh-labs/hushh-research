@@ -10,6 +10,7 @@ import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
 export const CONSENT_CENTER_PAGE_SIZE = 20;
 
 export type ConsentCenterActor = "investor" | "ria";
+type ConsentCenterCacheActor = ConsentCenterActor | "one";
 export type ConsentCenterMode = "consents" | "connections";
 export type ConsentCenterView =
   | "incoming"
@@ -43,6 +44,50 @@ export interface ConsentCenterEntry {
   counterpart_image_url?: string | null;
   counterpart_website_url?: string | null;
   request_id?: string | null;
+  chain_key?: string | null;
+  chain_request_count?: number | null;
+  chain_request_ids?: string[] | null;
+  latest_request_id?: string | null;
+  normalized_scope?: string | null;
+  consent_chain?: Array<{
+    id?: string | null;
+    request_id?: string | null;
+    status?: string | null;
+    action?: string | null;
+    issued_at?: number | string | null;
+    expires_at?: number | string | null;
+    scope?: string | null;
+    scope_description?: string | null;
+  }> | null;
+  identifier_key?: string | null;
+  identifier_label?: string | null;
+  trail_count?: number | null;
+  event_count?: number | null;
+  identifier_request_ids?: string[] | null;
+  consent_trails?: Array<{
+    id?: string | null;
+    trail_key?: string | null;
+    scope?: string | null;
+    scope_description?: string | null;
+    normalized_scope?: string | null;
+    status?: string | null;
+    action?: string | null;
+    issued_at?: number | string | null;
+    expires_at?: number | string | null;
+    latest_request_id?: string | null;
+    request_ids?: string[] | null;
+    event_count?: number | null;
+    events?: Array<{
+      id?: string | null;
+      request_id?: string | null;
+      status?: string | null;
+      action?: string | null;
+      issued_at?: number | string | null;
+      expires_at?: number | string | null;
+      scope?: string | null;
+      scope_description?: string | null;
+    }> | null;
+  }> | null;
   invite_id?: string | null;
   relationship_status?: string | null;
   relationship_state?: string | null;
@@ -59,6 +104,12 @@ export interface ConsentCenterEntry {
     user_id?: string | null;
   } | null;
   metadata?: Record<string, unknown> | null;
+}
+
+function consentCenterCacheActor(
+  actor?: ConsentCenterActor,
+): ConsentCenterCacheActor {
+  return actor === "ria" || actor === "investor" ? actor : "one";
 }
 
 export interface PendingConsentLookupItem {
@@ -279,8 +330,8 @@ function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
       const status = ["approved", "active", "granted"].includes(entry.status)
         ? entry.status
         : entry.kind === "active_grant"
-        ? "active"
-        : "approved";
+          ? "active"
+          : "approved";
       return { ...entry, status };
     }
     // Explicit local revocation — return entry as-is, no promotion.
@@ -295,13 +346,21 @@ function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
     permissions: entry.existing_granted_scopes || undefined,
     scopes: entry.scope ? [entry.scope] : undefined,
   });
-  if (normalized.isGranted && !["approved", "active", "granted"].includes(entry.status)) {
-    return { ...entry, status: entry.kind === "active_grant" ? "active" : "approved" };
+  if (
+    normalized.isGranted &&
+    !["approved", "active", "granted"].includes(entry.status)
+  ) {
+    return {
+      ...entry,
+      status: entry.kind === "active_grant" ? "active" : "approved",
+    };
   }
   return entry;
 }
 
-function normalizeConsentEntries(entries: ConsentCenterEntry[] | undefined): ConsentCenterEntry[] {
+function normalizeConsentEntries(
+  entries: ConsentCenterEntry[] | undefined,
+): ConsentCenterEntry[] {
   return Array.isArray(entries) ? entries.map(normalizeConsentEntry) : [];
 }
 
@@ -353,12 +412,18 @@ export class ConsentCenterService {
       active: [],
       previous: [],
     };
-    payload.incoming_requests = normalizeConsentEntries(payload.incoming_requests);
-    payload.outgoing_requests = normalizeConsentEntries(payload.outgoing_requests);
+    payload.incoming_requests = normalizeConsentEntries(
+      payload.incoming_requests,
+    );
+    payload.outgoing_requests = normalizeConsentEntries(
+      payload.outgoing_requests,
+    );
     payload.active_grants = normalizeConsentEntries(payload.active_grants);
     payload.history = normalizeConsentEntries(payload.history);
     payload.invites = normalizeConsentEntries(payload.invites);
-    payload.developer_requests = normalizeConsentEntries(payload.developer_requests);
+    payload.developer_requests = normalizeConsentEntries(
+      payload.developer_requests,
+    );
     payload.self_activity_summary = payload.self_activity_summary || null;
 
     cache.set(cacheKey, payload, CACHE_TTL.SHORT);
@@ -444,18 +509,20 @@ export class ConsentCenterService {
     mode?: ConsentCenterMode;
     force?: boolean;
   }): Promise<ConsentCenterPageSummary> {
-    const actor = options.actor || "investor";
+    const actor = options.actor;
+    const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
     const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(
       options.userId,
-      `${actor}:${mode}`,
+      `${cacheActor}:${mode}`,
     );
     const cache = CacheService.getInstance();
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageSummary>(cacheKey);
       if (cached) return cached;
     }
-    const query = new URLSearchParams({ actor, mode });
+    const query = new URLSearchParams({ mode });
+    if (actor) query.set("actor", actor);
     const response = await ApiService.apiFetch(
       `/api/consent/center/summary?${query.toString()}`,
       {
@@ -489,7 +556,8 @@ export class ConsentCenterService {
     top?: number;
     force?: boolean;
   }): Promise<ConsentCenterPageListResponse> {
-    const actor = options.actor || "investor";
+    const actor = options.actor;
+    const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
     const q = options.q || "";
     const previewTop =
@@ -501,13 +569,13 @@ export class ConsentCenterService {
     const cacheKey = previewTop
       ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
           options.userId,
-          `${actor}:${mode}`,
+          `${cacheActor}:${mode}`,
           options.surface,
           previewTop,
         )
       : CACHE_KEYS.CONSENT_CENTER_LIST(
           options.userId,
-          `${actor}:${mode}`,
+          `${cacheActor}:${mode}`,
           options.surface,
           q,
           page,
@@ -519,10 +587,10 @@ export class ConsentCenterService {
       if (cached) return cached;
     }
     const query = new URLSearchParams({
-      actor,
       mode,
       surface: options.surface,
     });
+    if (actor) query.set("actor", actor);
     if (previewTop) {
       query.set("top", String(previewTop));
     } else {

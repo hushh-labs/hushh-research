@@ -1,108 +1,224 @@
 "use client";
 
-import { useMemo } from "react";
-import { TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
+import { TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { cn } from "@/lib/utils";
 import type { KaiHomeRenaissanceItem } from "@/lib/services/api-service";
 
-// =============================================================================
-// CONFIGURATION
-// =============================================================================
-
 export type RenaissanceSignal = "CONSTRUCTIVE" | "WATCHLIST" | "CAUTION";
 
-const SIGNAL_CONFIG = {
-  CONSTRUCTIVE: {
-    label: "Constructive signal",
-    border: "border-l-4 border-emerald-500",
-    container: "bg-emerald-500/[0.03]",
-    badge: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    icon: TrendingUp,
-    iconColor: "text-emerald-600",
-  },
-  CAUTION: {
-    label: "Caution signal",
-    border: "border-l-4 border-rose-500",
-    container: "bg-rose-500/[0.03]",
-    badge: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-    icon: TrendingDown,
-    iconColor: "text-rose-600",
-  },
-  WATCHLIST: {
-    label: "Watchlist signal",
-    border: "border-l-4 border-amber-500",
-    container: "bg-amber-500/[0.03]",
+function toRenaissanceSignal(bias: string | null | undefined): RenaissanceSignal {
+  const text = String(bias || "").trim().toUpperCase();
+  if (
+    text === "BUY" ||
+    text === "STRONG_BUY" ||
+    text === "BULLISH" ||
+    text === "HOLD_TO_BUY"
+  ) return "CONSTRUCTIVE";
+  if (
+    text === "REDUCE" ||
+    text === "SELL" ||
+    text === "BEARISH"
+  ) return "CAUTION";
+  return "WATCHLIST";
+}
+
+function signalLabel(signal: RenaissanceSignal): string {
+  if (signal === "CONSTRUCTIVE") return "Constructive signal";
+  if (signal === "CAUTION") return "Caution signal";
+  return "Watchlist signal";
+}
+
+function signalSummary(
+  signal: RenaissanceSignal,
+  row: KaiHomeRenaissanceItem
+): string {
+  const company = String(row.company_name || row.symbol || "This name").trim();
+  const sector = String(row.sector || "").trim();
+  const fcf =
+    typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
+      ? `$${row.fcf_billions.toFixed(row.fcf_billions >= 10 ? 0 : 1)}B FCF`
+      : null;
+  const tier = String(row.tier || "").trim();
+  const dataQuality = row.degraded
+    ? "Data quality is delayed, so Kai treats this as lower-confidence context."
+    : null;
+
+  if (signal === "CONSTRUCTIVE") {
+    const parts = [
+      `${company} currently shows a constructive Renaissance bias.`,
+      tier ? `Conviction tier: ${tier}.` : null,
+      fcf ? `Free cash flow stands at ${fcf}.` : null,
+      sector ? `Sector: ${sector}.` : null,
+      dataQuality,
+    ].filter(Boolean);
+    return parts.join(" ");
+  }
+
+  if (signal === "CAUTION") {
+    const parts = [
+      `${company} currently shows a caution Renaissance bias.`,
+      tier ? `Conviction tier: ${tier}.` : null,
+      sector ? `Sector: ${sector}.` : null,
+      "Review the thesis and data quality before acting on the signal.",
+      dataQuality,
+    ].filter(Boolean);
+    return parts.join(" ");
+  }
+
+  const parts = [
+    `${company} currently sits in watchlist territory on the Renaissance list.`,
+    tier ? `Conviction tier: ${tier}.` : null,
+    fcf ? `Free cash flow stands at ${fcf}.` : null,
+    "Kai has no high-conviction directional signal from this list alone.",
+    dataQuality,
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
+function signalTone(signal: RenaissanceSignal): {
+  container: string;
+  badge: string;
+  icon: string;
+  label: string;
+} {
+  if (signal === "CONSTRUCTIVE") {
+    return {
+      container: "border-emerald-500/20 bg-emerald-500/8",
+      badge: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+      icon: "text-emerald-600 dark:text-emerald-400",
+      label: "text-emerald-700 dark:text-emerald-300",
+    };
+  }
+  if (signal === "CAUTION") {
+    return {
+      container: "border-rose-500/20 bg-rose-500/8",
+      badge: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      icon: "text-rose-600 dark:text-rose-400",
+      label: "text-rose-700 dark:text-rose-300",
+    };
+  }
+  return {
+    container: "border-amber-500/20 bg-amber-500/8",
     badge: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    icon: Minus,
-    iconColor: "text-amber-600",
-  },
-} as const;
+    icon: "text-amber-600 dark:text-amber-400",
+    label: "text-amber-700 dark:text-amber-300",
+  };
+}
 
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
+function VerdictIcon({
+  signal,
+  className,
+}: {
+  signal: RenaissanceSignal;
+  className?: string;
+}) {
+  if (signal === "CONSTRUCTIVE") {
+    return <TrendingUp className={cn("h-5 w-5", className)} />;
+  }
+  if (signal === "CAUTION") {
+    return <TrendingDown className={cn("h-5 w-5", className)} />;
+  }
+  return <Minus className={cn("h-5 w-5", className)} />;
+}
 
-export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem }) {
-  const signalType = useMemo<RenaissanceSignal>(() => {
-    const bias = String(row.recommendation_bias || "").trim().toUpperCase();
-    if (["BUY", "STRONG_BUY", "BULLISH", "HOLD_TO_BUY"].includes(bias)) return "CONSTRUCTIVE";
-    if (["REDUCE", "SELL", "BEARISH"].includes(bias)) return "CAUTION";
-    return "WATCHLIST";
-  }, [row.recommendation_bias]);
-
-  const config = SIGNAL_CONFIG[signalType];
-
-  const summary = useMemo(() => {
-    const company = row.company_name || row.symbol || "This company";
-    const fcf = typeof row.fcf_billions === "number" ? `$${row.fcf_billions.toFixed(row.fcf_billions >= 10 ? 0 : 1)}B` : null;
-
-    let text = `${company} currently shows a ${signalType.toLowerCase()} Renaissance bias.${fcf ? ` With ${fcf} in free cash flow.` : ""}`;
-    if (signalType === "CAUTION") {
-      text += " Review the thesis and data quality before acting on the signal.";
-    }
-    return text;
-  }, [row, signalType]);
+export function RenaissanceVerdictCard({
+  row,
+}: {
+  row: KaiHomeRenaissanceItem;
+}) {
+  const signal = toRenaissanceSignal(row.recommendation_bias);
+  const tone = signalTone(signal);
+  const label = signalLabel(signal);
+  const summary = signalSummary(signal, row);
+  const hasThesis = Boolean(
+    String(row.investment_thesis || "").trim()
+  );
 
   return (
-    <SurfaceInset className={cn("space-y-4 p-5 transition-all duration-300", config.border, config.container)}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <config.icon className={cn("h-5 w-5", config.iconColor)} aria-hidden="true" />
-          <h4 className={cn("font-bold", config.iconColor)}>{config.label}</h4>
+    <SurfaceInset
+      className={cn(
+        "space-y-4 border p-4",
+        tone.container
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Renaissance signal
+          </p>
+          <div className="flex items-center gap-2">
+            <VerdictIcon signal={signal} className={tone.icon} />
+            <p className={cn("text-base font-medium leading-tight tracking-normal", tone.label)}>
+              {label}
+            </p>
+          </div>
         </div>
-        <Badge variant="outline" className={cn("text-[10px] font-semibold uppercase", config.badge)}>
-          {signalType}
+        <Badge
+          variant="outline"
+          className={cn("shrink-0 text-[10px] font-semibold uppercase tracking-wide", tone.badge)}
+        >
+          {signal}
         </Badge>
       </div>
 
-      {/* Main Body */}
-      <p className="text-sm text-foreground/80 leading-relaxed">{summary}</p>
+      <p className="text-sm leading-6 text-foreground/80">
+        {summary}
+      </p>
 
-      {/* Thesis */}
-      {row.investment_thesis && (
+      {hasThesis ? (
         <div className="space-y-1.5 border-t border-current/10 pt-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Investment thesis</p>
-          <blockquote className="text-sm text-foreground/75 italic border-l-2 border-current/20 pl-3">
-            "{row.investment_thesis}"
-          </blockquote>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Investment thesis
+          </p>
+          <p className="text-sm leading-6 text-foreground/75">
+            {row.investment_thesis}
+          </p>
         </div>
-      )}
+      ) : null}
 
-      {/* Footer Meta */}
-      <div className="flex flex-wrap gap-2 pt-2">
-        {row.tier && <Badge variant="secondary" className="text-[10px]">Tier {row.tier}</Badge>}
-        {row.sector && <Badge variant="secondary" className="text-[10px]">{row.sector}</Badge>}
-        {row.degraded && (
-          <Badge variant="outline" className="border-amber-500/30 text-amber-700 text-[10px]">
-            <AlertCircle className="mr-1 h-3 w-3" /> Lower confidence
+      <div className="flex flex-wrap gap-2 border-t border-current/10 pt-3">
+        <p className="w-full text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Key signals
+        </p>
+        {row.tier ? (
+          <Badge
+            variant="outline"
+            className="border-[color:var(--app-card-border-standard)] bg-background/60 text-xs text-foreground/70"
+          >
+            Tier {row.tier}
           </Badge>
-        )}
+        ) : null}
+        {row.sector ? (
+          <Badge
+            variant="outline"
+            className="border-[color:var(--app-card-border-standard)] bg-background/60 text-xs text-foreground/70"
+          >
+            {row.sector}
+          </Badge>
+        ) : null}
+        {typeof row.fcf_billions === "number" &&
+        Number.isFinite(row.fcf_billions) ? (
+          <Badge
+            variant="outline"
+            className="border-[color:var(--app-card-border-standard)] bg-background/60 text-xs text-foreground/70"
+          >
+            ${row.fcf_billions.toFixed(
+              row.fcf_billions >= 10 ? 0 : 1
+            )}B FCF
+          </Badge>
+        ) : null}
+        {row.degraded ? (
+          <Badge
+            variant="outline"
+            className="border-amber-500/20 bg-amber-500/8 text-xs text-amber-700 dark:text-amber-300"
+          >
+            Lower confidence
+          </Badge>
+        ) : null}
       </div>
 
-      {/* Footer disclaimer */}
       <p className="border-t border-current/10 pt-3 text-[11px] leading-5 text-muted-foreground">
         Kai presents this as market context, not a personalized instruction.
       </p>

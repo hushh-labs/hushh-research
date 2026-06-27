@@ -14,9 +14,9 @@ vi.mock("@/lib/services/cache-service", () => ({
     getInstance: vi.fn(() => ({ get: vi.fn(() => undefined), set: vi.fn() })),
   },
   CACHE_KEYS: {
-    CONSENT_CENTER_LIST:    (...a: unknown[]) => `list:${a.join(":")}`,
+    CONSENT_CENTER_LIST: (...a: unknown[]) => `list:${a.join(":")}`,
     CONSENT_CENTER_PREVIEW: (...a: unknown[]) => `preview:${a.join(":")}`,
-    CONSENT_CENTER:         (...a: unknown[]) => `center:${a.join(":")}`,
+    CONSENT_CENTER: (...a: unknown[]) => `center:${a.join(":")}`,
     CONSENT_CENTER_SUMMARY: (...a: unknown[]) => `summary:${a.join(":")}`,
   },
   CACHE_TTL: { SHORT: 60_000 },
@@ -34,6 +34,161 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: { "content-type": "application/json" },
   });
 }
+
+describe("ConsentCenterService actorless One routes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("loads One summary without emitting actor=investor", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse({
+        user_id: "u-1",
+        actor: "investor",
+        mode: "consents",
+        counts: {
+          pending: 0,
+          active: 0,
+          previous: 0,
+          relationships: 0,
+          self_activity: 0,
+        },
+        generated_at: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+
+    await ConsentCenterService.getSummary({
+      idToken: "tok",
+      userId: "u-1",
+      mode: "consents",
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      "/api/consent/center/summary?mode=consents",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          Authorization: "Bearer tok",
+        },
+      }),
+    );
+  });
+
+  it("loads One lists without emitting actor=investor", async () => {
+    mockApiFetch.mockResolvedValueOnce(listResponse([]));
+
+    await ConsentCenterService.listEntries({
+      idToken: "tok",
+      userId: "u-1",
+      mode: "consents",
+      surface: "pending",
+      page: 1,
+      limit: 20,
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      "/api/consent/center/list?mode=consents&surface=pending&page=1&limit=20",
+      expect.objectContaining({
+        method: "GET",
+        headers: {
+          Authorization: "Bearer tok",
+        },
+      }),
+    );
+  });
+
+  it("preserves grouped consent history trails from the paged list", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse({
+        user_id: "u-1",
+        actor: "investor",
+        mode: "consents",
+        surface: "previous",
+        query: "",
+        page: 1,
+        limit: 20,
+        total: 1,
+        has_more: false,
+        items: [
+          {
+            id: "identifier:developer|developer:google_ads|user_123",
+            kind: "history",
+            status: "approved",
+            action: "CONSENT_GRANTED",
+            counterpart_type: "developer",
+            counterpart_id: "developer:google_ads",
+            identifier_key: "developer|developer:google_ads|user_123",
+            trail_count: 2,
+            event_count: 3,
+            consent_trails: [
+              {
+                id: "trail:shopping",
+                scope: "attr.shopping.receipts_memory.*",
+                event_count: 2,
+                events: [
+                  {
+                    id: "evt_latest",
+                    request_id: "req_latest",
+                    status: "approved",
+                    action: "CONSENT_GRANTED",
+                    scope: "attr.shopping.receipts_memory.*",
+                    issued_at: 300,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const { items } = await ConsentCenterService.listEntries({
+      idToken: "tok",
+      userId: "u-1",
+      mode: "consents",
+      surface: "previous",
+      page: 1,
+      limit: 20,
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]!.trail_count).toBe(2);
+    expect(items[0]!.event_count).toBe(3);
+    expect(items[0]!.consent_trails?.[0]?.events?.[0]?.request_id).toBe(
+      "req_latest",
+    );
+  });
+
+  it("keeps RIA summary explicitly actor-scoped", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse({
+        user_id: "u-1",
+        actor: "ria",
+        mode: "consents",
+        counts: {
+          pending: 0,
+          active: 0,
+          previous: 0,
+          relationships: 0,
+          self_activity: 0,
+        },
+        generated_at: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+
+    await ConsentCenterService.getSummary({
+      idToken: "tok",
+      userId: "u-1",
+      actor: "ria",
+      mode: "consents",
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      "/api/consent/center/summary?mode=consents&actor=ria",
+      expect.any(Object),
+    );
+  });
+});
 
 describe("ConsentCenterService.lookupPendingRequests", () => {
   beforeEach(() => {
@@ -95,63 +250,94 @@ describe("ConsentCenterService.lookupPendingRequests", () => {
 
 function listResponse(items: unknown[]): Response {
   return jsonResponse({
-    user_id: "u-1", actor: "investor", mode: "consents",
-    surface: "active", query: "", page: 1, limit: 20,
-    total: items.length, has_more: false, items,
+    user_id: "u-1",
+    actor: "investor",
+    mode: "consents",
+    surface: "active",
+    query: "",
+    page: 1,
+    limit: 20,
+    total: items.length,
+    has_more: false,
+    items,
   });
 }
 
 describe("normalizeConsentEntry — local-override precedence matrix", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("active: false overrides granted: true — system path never promotes status", async () => {
     // Without the override matrix normalizeConsentResponse({ active: false,
     // granted: true }) returns { isGranted: true }, which promotes status to
     // "approved".  The override matrix must short-circuit that path.
     mockApiFetch.mockResolvedValueOnce(
-      listResponse([{
-        id: "e1", kind: "incoming_request", status: "pending",
-        active: false, granted: true,   // explicit revocation vs system grant
-        action: "deny", counterpart_type: "ria",
-      }]),
+      listResponse([
+        {
+          id: "e1",
+          kind: "incoming_request",
+          status: "pending",
+          active: false,
+          granted: true, // explicit revocation vs system grant
+          action: "deny",
+          counterpart_type: "ria",
+        },
+      ]),
     );
 
     const { items } = await ConsentCenterService.listEntries({
-      idToken: "tok", userId: "u-1", surface: "active",
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
     });
 
     expect(items[0]!.active).toBe(false);
-    expect(items[0]!.status).toBe("pending");   // NOT promoted to "approved"
+    expect(items[0]!.status).toBe("pending"); // NOT promoted to "approved"
   });
 
   it("active: true on active_grant promotes status to 'active' immediately", async () => {
     mockApiFetch.mockResolvedValueOnce(
-      listResponse([{
-        id: "e2", kind: "active_grant", status: "pending",
-        active: true,
-        action: "approve", counterpart_type: "ria",
-      }]),
+      listResponse([
+        {
+          id: "e2",
+          kind: "active_grant",
+          status: "pending",
+          active: true,
+          action: "approve",
+          counterpart_type: "ria",
+        },
+      ]),
     );
 
     const { items } = await ConsentCenterService.listEntries({
-      idToken: "tok", userId: "u-1", surface: "active",
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
     });
 
     expect(items[0]!.active).toBe(true);
-    expect(items[0]!.status).toBe("active");    // promoted via override, not normalization
+    expect(items[0]!.status).toBe("active"); // promoted via override, not normalization
   });
 
   it("active: true on non-grant entry promotes status to 'approved'", async () => {
     mockApiFetch.mockResolvedValueOnce(
-      listResponse([{
-        id: "e3", kind: "incoming_request", status: "pending",
-        active: true,
-        action: "approve", counterpart_type: "ria",
-      }]),
+      listResponse([
+        {
+          id: "e3",
+          kind: "incoming_request",
+          status: "pending",
+          active: true,
+          action: "approve",
+          counterpart_type: "ria",
+        },
+      ]),
     );
 
     const { items } = await ConsentCenterService.listEntries({
-      idToken: "tok", userId: "u-1", surface: "active",
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
     });
 
     expect(items[0]!.status).toBe("approved");
@@ -159,18 +345,25 @@ describe("normalizeConsentEntry — local-override precedence matrix", () => {
 
   it("active: true preserves already-canonical status unchanged", async () => {
     mockApiFetch.mockResolvedValueOnce(
-      listResponse([{
-        id: "e4", kind: "active_grant", status: "granted",
-        active: true,
-        action: "approve", counterpart_type: "ria",
-      }]),
+      listResponse([
+        {
+          id: "e4",
+          kind: "active_grant",
+          status: "granted",
+          active: true,
+          action: "approve",
+          counterpart_type: "ria",
+        },
+      ]),
     );
 
     const { items } = await ConsentCenterService.listEntries({
-      idToken: "tok", userId: "u-1", surface: "active",
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
     });
 
-    expect(items[0]!.status).toBe("granted");   // already canonical — unchanged
+    expect(items[0]!.status).toBe("granted"); // already canonical — unchanged
   });
 
   it("active: undefined falls through to existing normalizeConsentResponse path without promotion", async () => {
@@ -182,15 +375,22 @@ describe("normalizeConsentEntry — local-override precedence matrix", () => {
     // evaluates to true, returning DENY_STATE (isGranted: false).
     // The entry is returned unchanged — status stays "pending".
     mockApiFetch.mockResolvedValueOnce(
-      listResponse([{
-        id: "e5", kind: "active_grant", status: "pending",
-        granted: true,                // no active field — falls through
-        action: "approve", counterpart_type: "ria",
-      }]),
+      listResponse([
+        {
+          id: "e5",
+          kind: "active_grant",
+          status: "pending",
+          granted: true, // no active field — falls through
+          action: "approve",
+          counterpart_type: "ria",
+        },
+      ]),
     );
 
     const { items } = await ConsentCenterService.listEntries({
-      idToken: "tok", userId: "u-1", surface: "active",
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
     });
 
     // The integrity guard in normalizeConsentResponse rejects the

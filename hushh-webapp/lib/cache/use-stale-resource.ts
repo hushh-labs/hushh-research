@@ -62,6 +62,12 @@ export function useStaleResource<T>({
         });
         setLoading(false);
         setRefreshing(false);
+        // A fresh value landed in the cache (e.g. a background refresh that
+        // resolved through another hook instance). Clear any stale error so the
+        // UI doesn't keep showing "Failed to refresh" on top of good data.
+        if (nextSnapshot?.data != null) {
+          setError(null);
+        }
         return;
       }
 

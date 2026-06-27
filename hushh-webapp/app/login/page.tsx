@@ -10,7 +10,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 function LoginContent() {
   const searchParams = useSearchParams();
-  const redirectPath = searchParams.get("redirect") || ROUTES.KAI_HOME;
+  const redirectPath = searchParams.get("redirect") || ROUTES.HOME;
 
   return (
     <>

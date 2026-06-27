@@ -1,0 +1,54 @@
+{
+  "id": "generic-pdf-artifact-generation",
+  "title": "Generic PDF Artifact Generation",
+  "goal": "Create or polish a shareable PDF-style artifact while preserving docs-home, founder-language, and link-hygiene rules.",
+  "owner_skill": "docs-governance",
+  "default_spoke": "founder-brief-curation",
+  "task_type": "generic-pdf-artifact-generation",
+  "affected_surfaces": [
+    "docs",
+    "tmp",
+    ".codex/skills/founder-brief-curation"
+  ],
+  "required_reads": [
+    ".codex/skills/founder-brief-curation/references/pdf-artifact-generation.md",
+    ".codex/skills/founder-brief-curation/references/brief-curation-rules.md",
+    "docs/reference/operations/documentation-architecture-map.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+  ],
+  "verification_bundle": {
+    "id": "generic-pdf-artifact-generation",
+    "commands": [
+      "./bin/hushh docs verify",
+      "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+    ],
+    "tests": [
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "shareable artifact source",
+    "rendered PDF or render-ready output when requested",
+    "link and diagram verification note"
+  ],
+  "impact_fields": [
+    "Artifact paths updated",
+    "Rendered output verified",
+    "Canonical references linked",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "docs-governance",
+    "founder-brief-curation",
+    "frontend",
+    "backend"
+  ],
+  "common_failures": [
+    "leaving local filesystem paths in exported artifacts",
+    "overstating future-state architecture as current truth",
+    "publishing crowded or unverified diagrams"
+  ]
+}

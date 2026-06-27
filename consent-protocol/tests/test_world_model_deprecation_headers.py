@@ -32,16 +32,11 @@ def test_world_model_routes_include_deprecation_headers():
     ):
         client = TestClient(_make_app())
 
-        response = client.get(
-            "/api/world-model/domains/test-user"
-        )
+        response = client.get("/api/world-model/domains/test-user")
 
     assert response.status_code == 200
 
     assert response.headers["Deprecation"] == "true"
     assert response.headers["Sunset"] == "2026-06-30T00:00:00Z"
 
-    assert (
-        response.headers["X-Migrate-To"]
-        == "/api/pkm/domains/test-user"
-    )
+    assert response.headers["X-Migrate-To"] == "/api/pkm/domains/test-user"

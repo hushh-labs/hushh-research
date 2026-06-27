@@ -13,7 +13,8 @@ const PROBE_ID = "app-safe-area-probe";
 
 /**
  * measureSafeAreaInsetTop
- * Maintains a persistent CSS variable on the document root for the safe area height.
+ *
+ * Optimized to use a persistent probe element to avoid DOM thrashing.
  */
 function measureSafeAreaInsetTop() {
   if (typeof document === "undefined") return;
@@ -28,17 +29,23 @@ function measureSafeAreaInsetTop() {
     document.body.appendChild(probe);
   }
 
-  // Force a re-layout to ensure the browser has computed the env() value
+  // Force layout so the browser resolves env().
   const px = probe.offsetHeight;
+
+  // Keep the previous non-zero probe if we get a transient 0 during relayout.
   const rootStyle = document.documentElement.style;
   const previousProbe = parseFloat(rootStyle.getPropertyValue("--app-safe-area-top-probe")) || 0;
 
-  // Only update if we have a valid measurement to avoid layout flicker
+  // Only update if we found a positive value to prevent flickering back to 0
   if (px > 0 || previousProbe === 0) {
     rootStyle.setProperty("--app-safe-area-top-probe", `${px}px`);
   }
 }
 
+/**
+ * StatusBarManager - Native-only runtime bridge.
+ * Synchronizes SystemBars with the app theme and solves WebKit inset bugs.
+ */
 export function StatusBarManager() {
   const { resolvedTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -49,61 +56,79 @@ export function StatusBarManager() {
     setMounted(true);
   }, []);
 
-  // 1. Safe Area Measurement Logic
+  // ── Measure env(safe-area-inset-top) ──
   useEffect(() => {
     if (!mounted) return;
 
-    // Run checks at intervals to handle late-committing WebKit insets
+    // Use an array of delays to catch the WKWebView when it finally commits insets
     const checkTicks = [0, 120, 500, 1000];
     const timers = checkTicks.map((delay) =>
-      window.setTimeout(measureSafeAreaInsetTop, delay)
+      window.setTimeout(() => measureSafeAreaInsetTop(), delay)
     );
 
+    // Optimized resize handler
+    let resizeTimer: number;
     const onResize = () => {
-      window.setTimeout(measureSafeAreaInsetTop, 100);
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => measureSafeAreaInsetTop(), 100);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") measureSafeAreaInsetTop();
     };
 
     window.addEventListener("resize", onResize, { passive: true });
     window.addEventListener("orientationchange", onResize, { passive: true });
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") measureSafeAreaInsetTop();
-    }, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility, { passive: true });
 
     return () => {
       timers.forEach(window.clearTimeout);
+      window.clearTimeout(resizeTimer);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [mounted]);
 
-  // 2. Native System Bar Theme Synchronization
+  // ── Sync Native System Bars with Theme ──
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || !mounted) return;
 
     async function updateSystemBars() {
       const effectiveTheme = resolvedTheme || theme || "dark";
-      const nextStyle = effectiveTheme === "dark" ? SystemBarsStyle.Dark : SystemBarsStyle.Light;
-
-      if (pendingStyleRef.current === nextStyle) return;
-      pendingStyleRef.current = nextStyle;
+      pendingStyleRef.current = effectiveTheme === "dark"
+        ? SystemBarsStyle.Dark
+        : SystemBarsStyle.Light;
 
       if (isUpdating.current) return;
       isUpdating.current = true;
 
       try {
-        await SystemBars.show({});
-        await Promise.all([
-          SystemBars.setStyle({ bar: SystemBarType.StatusBar, style: nextStyle }),
-          SystemBars.setStyle({ bar: SystemBarType.NavigationBar, style: nextStyle }),
-        ]);
+        while (pendingStyleRef.current) {
+          const nextStyle = pendingStyleRef.current;
+          pendingStyleRef.current = null;
+
+          // Ensure bars are visible
+          await SystemBars.show({});
+
+          // Set styles in parallel for better performance
+          await Promise.all([
+            SystemBars.setStyle({
+              bar: SystemBarType.StatusBar,
+              style: nextStyle,
+            }),
+            SystemBars.setStyle({
+              bar: SystemBarType.NavigationBar,
+              style: nextStyle,
+            })
+          ]);
+        }
       } catch (err) {
-        console.warn("[StatusBarManager] Native bar sync failed:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[StatusBarManager] Failed to update system bars:", err);
+        }
       } finally {
         isUpdating.current = false;
-        // Re-run if theme changed while we were awaiting
-        if (pendingStyleRef.current !== nextStyle) {
-          void updateSystemBars();
-        }
       }
     }
 

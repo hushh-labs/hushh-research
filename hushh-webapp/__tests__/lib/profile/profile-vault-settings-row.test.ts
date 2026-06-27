@@ -65,7 +65,7 @@ describe("resolveProfileVaultSettingsRow", () => {
       }),
     ).toMatchObject({
       action: "manage",
-      title: "Manage vault",
+      title: "Vault security",
       disabled: false,
       chevron: true,
     });

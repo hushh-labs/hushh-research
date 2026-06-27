@@ -1,6 +1,7 @@
 "use client";
 
 import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
@@ -44,8 +45,13 @@ export function isLocalKaiPreviewRequest({
   if (!isAllowedLocalPreviewRuntime(hostname)) return false;
   const path = String(pathname || "").trim();
   const preview = localPreviewKind(searchParams);
-  if (path === "/kai" && preview) return true;
-  if (path === "/kai/analysis" && preview === "analysis") return true;
+  if ((path === ROUTES.KAI_HOME || path === ROUTES.LEGACY_KAI_HOME) && preview) return true;
+  if (
+    (path === ROUTES.KAI_ANALYSIS || path === ROUTES.LEGACY_KAI_ANALYSIS) &&
+    preview === "analysis"
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -60,7 +66,8 @@ export function isLocalMarketPreviewRequest({
 }): boolean {
   return (
     isAllowedLocalPreviewRuntime(hostname) &&
-    String(pathname || "").trim() === "/kai" &&
+    (String(pathname || "").trim() === ROUTES.KAI_HOME ||
+      String(pathname || "").trim() === ROUTES.LEGACY_KAI_HOME) &&
     searchParams?.get("preview") === "market"
   );
 }
@@ -78,7 +85,10 @@ export function isLocalAnalysisPreviewRequest({
   const path = String(pathname || "").trim();
   return (
     searchParams?.get("preview") === "analysis" &&
-    (path === "/kai" || path === "/kai/analysis")
+    (path === ROUTES.KAI_HOME ||
+      path === ROUTES.LEGACY_KAI_HOME ||
+      path === ROUTES.KAI_ANALYSIS ||
+      path === ROUTES.LEGACY_KAI_ANALYSIS)
   );
 }
 
@@ -426,7 +436,7 @@ export function getLocalMarketPreviewPayload(): KaiHomeInsightsV2 {
           "Strong semiconductor leadership keeps NVIDIA at the center of the current market read.",
         confidence: 0.84,
         headline: "AI infrastructure names lead the session",
-        headline_url: "/kai/analysis?symbol=NVDA",
+        headline_url: `${ROUTES.KAI_ANALYSIS}?symbol=NVDA`,
         headline_source: "Preview coverage",
         source_tags: sourceTags,
         as_of: now,
@@ -445,7 +455,7 @@ export function getLocalMarketPreviewPayload(): KaiHomeInsightsV2 {
           "Apple remains a core quality name with a steadier setup than the high-beta leaders.",
         confidence: 0.76,
         headline: "Quality tech stays bid as market breadth improves",
-        headline_url: "/kai/analysis?symbol=AAPL",
+        headline_url: `${ROUTES.KAI_ANALYSIS}?symbol=AAPL`,
         headline_source: "Preview coverage",
         source_tags: sourceTags,
         as_of: now,
@@ -485,7 +495,7 @@ export function getLocalMarketPreviewPayload(): KaiHomeInsightsV2 {
       {
         symbol: "YHOO",
         title: "IBM Thinks Your Data Is Too Stubborn to Move (and AI Can Fix That)",
-        url: "/kai/analysis?symbol=IBM",
+        url: `${ROUTES.KAI_ANALYSIS}?symbol=IBM`,
         published_at: now,
         source_name: "Yahoo Finance",
         provider: "local-preview",
@@ -495,7 +505,7 @@ export function getLocalMarketPreviewPayload(): KaiHomeInsightsV2 {
       {
         symbol: "BUD",
         title: "Anheuser-Busch Inbev SA Stock (BUD) Closed Up on Defensive Rotation",
-        url: "/kai/analysis?symbol=BUD",
+        url: `${ROUTES.KAI_ANALYSIS}?symbol=BUD`,
         published_at: now,
         source_name: "TradingKey",
         provider: "local-preview",
@@ -505,7 +515,7 @@ export function getLocalMarketPreviewPayload(): KaiHomeInsightsV2 {
       {
         symbol: "KAI",
         title: "Defensives lead as indices slip - what it means for your portfolio",
-        url: "/kai/analysis",
+        url: ROUTES.KAI_ANALYSIS,
         published_at: now,
         source_name: "Kai Wrap",
         provider: "local-preview",

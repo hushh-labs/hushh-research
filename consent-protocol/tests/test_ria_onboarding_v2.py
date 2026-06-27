@@ -46,6 +46,9 @@ from hushh_mcp.services.ria_iam_service import (  # noqa: E402
     _firm_location_from_text,
     _official_location_from_text,
 )
+from hushh_mcp.services.ria_verification import (  # noqa: E402
+    RIAIntelligenceStage1LookupAdapter,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,6 +87,40 @@ class _FakePool:
 
     def acquire(self):
         return _FakeAcquire(self._conn)
+
+
+def test_stage1_http_404_is_not_verified_not_provider_unavailable(monkeypatch) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={"detail": "No confident FINRA or SEC match was found for the query."},
+        )
+
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_URL", "https://ria.example/stage1")
+    adapter = RIAIntelligenceStage1LookupAdapter(
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = asyncio.run(adapter.verify_name(query="Fake Advisor", crd_number="999999"))
+
+    assert result.status == "not_verified"
+    assert result.reason_code == "no_confident_match"
+    assert result.metadata["status_code"] == 404
+
+
+def test_stage1_http_5xx_stays_provider_unavailable(monkeypatch) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"detail": "upstream unavailable"})
+
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_URL", "https://ria.example/stage1")
+    adapter = RIAIntelligenceStage1LookupAdapter(
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = asyncio.run(adapter.verify_name(query="Jane Advisor", crd_number="7413463"))
+
+    assert result.status == "provider_unavailable"
+    assert result.metadata["status_code"] == 503
 
 
 # ===================================================================

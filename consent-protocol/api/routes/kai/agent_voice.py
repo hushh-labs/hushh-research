@@ -28,9 +28,9 @@ _DISABLED_FLAG_VALUES = {"0", "false", "off", "disabled", "no"}
 
 
 class AgentVoiceTranscriptionResponse(BaseModel):
-    transcript: str
+    transcript: str = Field(..., max_length=16384)
     uncertain: bool
-    reason: str | None = None
+    reason: str | None = Field(default=None, max_length=512)
 
 
 class AgentVoiceTTSRequest(BaseModel):

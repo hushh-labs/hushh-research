@@ -154,7 +154,6 @@ export class PreVaultUserStateService {
 
   static isOnboardingResolved(state: PreVaultUserState | null | undefined): boolean {
     if (!state) return false;
-    if (state.preOnboardingCompletedAt !== null) return true;
     return state.preOnboardingCompleted === true;
   }
 

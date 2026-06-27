@@ -246,23 +246,17 @@ class TestStructureDecisionPayload:
     def test_json_paths_list_max_length(self):
         """JSON paths list bounded to 1000 items."""
         with pytest.raises(ValidationError):
-            StructureDecisionPayload(
-                json_paths=["$.path" for _ in range(1001)]
-            )
+            StructureDecisionPayload(json_paths=["$.path" for _ in range(1001)])
 
     def test_top_level_scope_paths_max_length(self):
         """Top level scope paths list bounded to 1000 items."""
         with pytest.raises(ValidationError):
-            StructureDecisionPayload(
-                top_level_scope_paths=["scope" for _ in range(1001)]
-            )
+            StructureDecisionPayload(top_level_scope_paths=["scope" for _ in range(1001)])
 
     def test_externalizable_paths_max_length(self):
         """Externalizable paths list bounded to 1000 items."""
         with pytest.raises(ValidationError):
-            StructureDecisionPayload(
-                externalizable_paths=["path" for _ in range(1001)]
-            )
+            StructureDecisionPayload(externalizable_paths=["path" for _ in range(1001)])
 
     def test_confidence_bounds(self):
         """Confidence must be 0.0-1.0."""
@@ -415,10 +409,57 @@ class TestStoreDomainRequest:
                 encrypted_blob=self._valid_blob(),
                 summary={},
                 write_projections=[
-                    WriteProjectionPayload(projection_type="proj")
-                    for _ in range(101)
+                    WriteProjectionPayload(projection_type="proj") for _ in range(101)
                 ],
             )
+
+
+class TestEncryptedBlobSegments:
+    """EncryptedBlob.segments must be flat and bounded (CWE-400).
+
+    segments is intentionally typed as dict[str, SegmentBlob], not
+    dict[str, EncryptedBlob], so a caller cannot nest EncryptedBlob payloads
+    arbitrarily deep and force unbounded recursive Pydantic validation.
+    """
+
+    def test_segment_cannot_itself_carry_nested_segments(self):
+        """SegmentBlob has no segments field, so a nested 'segments' key is
+        dropped rather than recursively validated -- nesting is structurally
+        impossible, not just disallowed by convention."""
+        blob = EncryptedBlob(
+            ciphertext="valid" * 1000,
+            iv="iv" * 100,
+            tag="tag" * 100,
+            segments={
+                "seg1": {
+                    "ciphertext": "x",
+                    "iv": "y",
+                    "tag": "z",
+                    "segments": {"nested": {"ciphertext": "x", "iv": "y", "tag": "z"}},
+                }
+            },
+        )
+        assert not hasattr(blob.segments["seg1"], "segments")
+
+    def test_segments_dict_over_50_raises(self):
+        with pytest.raises(ValidationError):
+            EncryptedBlob(
+                ciphertext="valid" * 1000,
+                iv="iv" * 100,
+                tag="tag" * 100,
+                segments={
+                    f"seg{i}": {"ciphertext": "x", "iv": "y", "tag": "z"} for i in range(51)
+                },
+            )
+
+    def test_segments_dict_at_max_accepted(self):
+        blob = EncryptedBlob(
+            ciphertext="valid" * 1000,
+            iv="iv" * 100,
+            tag="tag" * 100,
+            segments={f"seg{i}": {"ciphertext": "x", "iv": "y", "tag": "z"} for i in range(50)},
+        )
+        assert len(blob.segments) == 50
 
 
 class TestStoreDomainResponse:

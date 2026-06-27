@@ -56,10 +56,9 @@ def test_oversized_scope_item_raises_validation_error():
             scopes=["a" * 129],
         )
     errors = exc_info.value.errors()
-    assert any(
-        "string_too_long" in e.get("type", "") or "max_length" in str(e)
-        for e in errors
-    ), f"Expected max_length error, got: {errors}"
+    assert any("string_too_long" in e.get("type", "") or "max_length" in str(e) for e in errors), (
+        f"Expected max_length error, got: {errors}"
+    )
 
 
 def test_empty_scope_item_raises_validation_error():
@@ -70,10 +69,9 @@ def test_empty_scope_item_raises_validation_error():
             scopes=[""],
         )
     errors = exc_info.value.errors()
-    assert any(
-        "string_too_short" in e.get("type", "") or "min_length" in str(e)
-        for e in errors
-    ), f"Expected min_length error, got: {errors}"
+    assert any("string_too_short" in e.get("type", "") or "min_length" in str(e) for e in errors), (
+        f"Expected min_length error, got: {errors}"
+    )
 
 
 def test_valid_scope_item_passes():
@@ -137,9 +135,7 @@ def test_http_oversized_scope_item_returns_422(client):
         json={"user_id": "user_abc", "scopes": ["a" * 129]},
         headers={"Authorization": "Bearer stub"},
     )
-    assert resp.status_code == 422, (
-        f"Expected 422 for oversized scope item, got {resp.status_code}"
-    )
+    assert resp.status_code == 422, f"Expected 422 for oversized scope item, got {resp.status_code}"
 
 
 def test_http_empty_scope_item_returns_422(client):
@@ -149,9 +145,7 @@ def test_http_empty_scope_item_returns_422(client):
         json={"user_id": "user_abc", "scopes": [""]},
         headers={"Authorization": "Bearer stub"},
     )
-    assert resp.status_code == 422, (
-        f"Expected 422 for empty scope string, got {resp.status_code}"
-    )
+    assert resp.status_code == 422, f"Expected 422 for empty scope string, got {resp.status_code}"
 
 
 def test_http_valid_payload_not_rejected_by_validation(client):
@@ -162,9 +156,7 @@ def test_http_valid_payload_not_rejected_by_validation(client):
         headers={"Authorization": "Bearer stub"},
     )
     # Should NOT be 422 — may fail for other business reasons
-    assert resp.status_code != 422, (
-        f"Valid payload incorrectly rejected with 422: {resp.json()}"
-    )
+    assert resp.status_code != 422, f"Valid payload incorrectly rejected with 422: {resp.json()}"
 
 
 def test_error_detail_does_not_echo_scope_string(client):

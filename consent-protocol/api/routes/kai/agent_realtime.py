@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 
@@ -39,21 +39,21 @@ _AGENT_REALTIME_INSTRUCTIONS = (
 
 
 class AgentRealtimeSessionRequest(BaseModel):
-    user_id: str
-    voice: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    voice: str | None = Field(default=None, max_length=128)
 
 
 class AgentRealtimeSessionResponse(BaseModel):
-    session_id: str | None = None
-    client_secret: str
-    client_secret_expires_at: int | None = None
-    model: str
-    voice: str
-    transcription_model: str
-    transcription_language: str
-    transcription_prompt: str
+    session_id: str | None = Field(default=None, max_length=256)
+    client_secret: str = Field(..., max_length=2048)
+    client_secret_expires_at: int | None = Field(default=None, ge=0)
+    model: str = Field(..., max_length=128)
+    voice: str = Field(..., max_length=128)
+    transcription_model: str = Field(..., max_length=128)
+    transcription_language: str = Field(..., max_length=64)
+    transcription_prompt: str = Field(..., max_length=2048)
     server_vad_enabled: bool = True
-    silence_duration_ms: int
+    silence_duration_ms: int = Field(..., ge=0, le=10000)
 
 
 def _safe_user_ref(user_id: str) -> str:

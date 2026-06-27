@@ -64,13 +64,13 @@ Core invariants:
 
 - `/` -> public marketing onboarding (intro + preview)
 - `/login` -> auth-only surface (Google/Apple + disabled phone)
-- `/kai/onboarding` -> onboarding questionnaire + persona
-- `/kai/import` -> import/connect flow + vault introduction
-- `/kai` -> signed-in info home + first-time bottom-nav tour
-- `/kai/portfolio` -> portfolio analytics/dashboard
+- `/one/onboarding` -> optional setup hub, questionnaire, and persona
+- `/one/kai/import` -> import/connect flow + vault introduction
+- `/one/kai` -> signed-in info home + first-time bottom-nav tour
+- `/one/kai/portfolio` -> portfolio analytics/dashboard
 
 Guard flow:
-- `KaiOnboardingGuard` blocks non-onboarding `/kai/*` when onboarding is incomplete.
+- `KaiOnboardingGuard` blocks non-onboarding `/one/kai/*` when onboarding is incomplete.
 - `VaultLockGuard` enforces unlock only when vault exists and protected access is needed.
 
 ## Vault Security Model
@@ -91,7 +91,7 @@ Rules:
 - Dashboard v2 composition:
   - `components/kai/views/dashboard-master-view.tsx`
   - `components/kai/cards/*`
-- First-time nav tour on `/kai`:
+- First-time nav tour on `/one/kai`:
   - `components/kai/onboarding/kai-nav-tour.tsx`
   - `lib/services/kai-nav-tour-local-service.ts`
   - `lib/services/kai-nav-tour-sync-service.ts`

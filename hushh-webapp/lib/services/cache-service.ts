@@ -173,6 +173,7 @@ class CacheService {
       CACHE_KEYS.PENDING_CONSENTS(userId),
       CACHE_KEYS.CONSENT_AUDIT_LOG(userId),
       CACHE_KEYS.CONSENT_CENTER(userId, "all"),
+      CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "one:consents"),
       CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"),
       CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"),
       CACHE_KEYS.PORTFOLIO_DATA(userId),
@@ -203,6 +204,7 @@ class CacheService {
         key.startsWith(`ria_clients_${userId}_`) ||
         key.startsWith(`ria_client_detail_${userId}_`) ||
         key.startsWith(`ria_workspace_${userId}_`) ||
+        key.startsWith(`agent_welcome_suggestions_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
         key.startsWith(`marketplace_investors_`)
       ) {
@@ -322,6 +324,8 @@ export const CACHE_KEYS = {
     `kai_dashboard_profile_picks_${userId}_${symbolsKey}_${limit}`,
   MARKETPLACE_RIAS_SEARCH: (queryKey: string) => `marketplace_rias_${queryKey}`,
   MARKETPLACE_INVESTORS_SEARCH: (queryKey: string) => `marketplace_investors_${queryKey}`,
+  AGENT_WELCOME_SUGGESTIONS: (userId: string, routeKey: string, persona: string) =>
+    `agent_welcome_suggestions_${userId}_${routeKey}_${persona}`,
 } as const;
 
 // TTL constants

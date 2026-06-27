@@ -175,12 +175,12 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
     <main
       ref={mountRef}
       className={cn(
-        "min-h-[100dvh] w-full bg-transparent flex flex-col overflow-x-hidden"
+        "min-h-[100dvh] w-full overflow-hidden bg-transparent"
       )}
     >
-      <div className="w-full min-h-[100dvh] px-4 pt-[calc(16px+var(--app-safe-area-top-effective,0px))] pb-[var(--app-screen-footer-pad)]">
-        <div className="relative mx-auto flex h-full w-full flex-col">
-          <div className="z-10 flex h-10 items-center justify-between px-0 sm:px-1">
+      <div className="grid min-h-[100dvh] w-full grid-rows-[auto_minmax(0,1fr)_auto] px-4 pb-[var(--app-screen-footer-pad)] pt-[calc(12px+var(--app-safe-area-top-effective,0px))]">
+        <div className="relative mx-auto grid h-full w-full grid-rows-[auto_minmax(0,1fr)_auto]">
+          <div className="relative z-10 flex h-10 items-center justify-start px-0 sm:px-1">
             <button
               type="button"
               aria-label="Back"
@@ -198,7 +198,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             </button>
             <button
               type="button"
-              className="type-subhead min-h-10 rounded-full px-4 text-muted-foreground transition-colors hover:text-foreground"
+              className="absolute left-1/2 top-1/2 min-h-10 -translate-x-1/2 -translate-y-1/2 rounded-full px-4 text-[15px] font-medium tracking-normal text-muted-foreground transition-colors hover:text-foreground"
               onClick={completeAndContinue}
             >
               Skip
@@ -210,11 +210,11 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             className={cn(
               "w-full mx-auto text-center flex flex-col justify-end gap-2",
               // Keep copy + spacing responsive without clipping on larger screens.
-              "min-h-[clamp(132px,18vh,190px)] pt-5",
+              "min-h-[clamp(94px,14dvh,140px)] pt-3",
               "sm:max-w-lg"
             )}
           >
-            <h2 className="type-title1 text-[#1d1d1f] dark:text-[#f5f5f7]">
+            <h2 className="text-[clamp(24px,7vw,34px)] font-medium tracking-normal leading-[1.08] text-[#1d1d1f] dark:text-[#f5f5f7]">
               {slides[displayIndex]?.title}{" "}
               <br />
               <span>{slides[displayIndex]?.accent}</span>
@@ -224,7 +224,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             </p>
           </div>
 
-          <div className="min-h-0 flex-1 flex items-center">
+          <div className="flex min-h-0 items-center py-3">
             <Carousel
               opts={{ align: "center", containScroll: "trimSnaps" }}
               setApi={setApi}
@@ -239,10 +239,10 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                     aria-current={idx === selectedIndex ? "step" : undefined}
                     className="basis-full pl-0 flex items-center justify-center"
                   >
-                    <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
+                    <div className="flex w-full items-center justify-center px-4 py-1 sm:px-6 md:px-8">
                       <div
                         aria-hidden="true"
-                        className="h-[clamp(31rem,58vh,35rem)] w-full max-w-[22rem] sm:max-w-[24rem] md:max-w-[25rem] lg:max-w-[26rem] xl:max-w-[27rem]"
+                        className="h-[clamp(18rem,42dvh,26rem)] w-full max-w-[21rem] sm:max-w-[23rem] md:max-w-[24rem] lg:max-w-[25rem]"
                       >
                         {slide.preview}
                       </div>
@@ -253,13 +253,13 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             </Carousel>
           </div>
 
-          <div className="mt-4 flex flex-col justify-end gap-4">
+          <div className="mt-2 flex flex-col justify-end gap-3 pb-[calc(8px+var(--app-safe-area-bottom-effective,0px))]">
             <Dots count={slides.length} activeIndex={selectedIndex} />
 
             <Button
               size="lg"
               fullWidth
-              className="type-headline mx-auto h-[52px] w-full max-w-md rounded-full bg-[#0066cc] text-white shadow-none hover:bg-[#0071e3]"
+              className="mx-auto h-[52px] w-full max-w-[22rem] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
               onClick={handlePrimary}
               showRipple
             >

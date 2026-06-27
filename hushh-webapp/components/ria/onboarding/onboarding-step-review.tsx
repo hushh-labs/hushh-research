@@ -21,6 +21,7 @@ interface OnboardingStepReviewProps {
   fullStreetAddress: string;
   advisoryAccessReady: boolean;
   onEditSection: (section: "license" | "services") => void;
+  onAskKaiUpdateAnything: () => void;
 }
 
 function SectionCard({
@@ -66,11 +67,13 @@ function ReviewRow({
   const hasValue = Boolean(value?.trim());
   return (
     <div className="flex min-h-[44px] items-center gap-4 px-4 py-2 sm:px-5">
-      <span className="shrink-0 text-[15px] text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-[15px] text-muted-foreground">
+        {label}
+      </span>
       <span
         className={cn(
           "ml-auto min-w-0 max-w-[68%] break-words text-right text-[15px] leading-6",
-          hasValue ? "text-foreground" : "text-muted-foreground/50"
+          hasValue ? "text-foreground" : "text-muted-foreground/50",
         )}
       >
         {hasValue ? value : "Not provided"}
@@ -81,7 +84,9 @@ function ReviewRow({
 
 function ChipList({ items }: { items: string[] }) {
   if (items.length === 0) {
-    return <span className="text-[15px] text-muted-foreground/50">Not provided</span>;
+    return (
+      <span className="text-[15px] text-muted-foreground/50">Not provided</span>
+    );
   }
   return (
     <div className="flex flex-wrap justify-end gap-1.5">
@@ -100,7 +105,9 @@ function ChipList({ items }: { items: string[] }) {
 function ChipRow({ label, items }: { label: string; items: string[] }) {
   return (
     <div className="flex min-h-[44px] items-start gap-4 px-4 py-3 sm:px-5">
-      <span className="shrink-0 text-[15px] text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-[15px] text-muted-foreground">
+        {label}
+      </span>
       <div className="ml-auto min-w-0 max-w-[68%]">
         <ChipList items={items} />
       </div>
@@ -125,6 +132,7 @@ export function OnboardingStepReview({
   fullStreetAddress,
   advisoryAccessReady,
   onEditSection,
+  onAskKaiUpdateAnything,
 }: OnboardingStepReviewProps) {
   return (
     <div className="space-y-4">
@@ -138,9 +146,7 @@ export function OnboardingStepReview({
         <ReviewRow
           label="Regulator"
           value={
-            regulator
-              ? `${regulator} - ${regulatorStatus || "Unknown"}`
-              : null
+            regulator ? `${regulator} - ${regulatorStatus || "Unknown"}` : null
           }
         />
         <Divider />
@@ -204,6 +210,7 @@ export function OnboardingStepReview({
 
       <button
         type="button"
+        onClick={onAskKaiUpdateAnything}
         className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
       >
         <Sparkles className="h-3.5 w-3.5" />

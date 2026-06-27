@@ -9,7 +9,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Mic, Search, X } from "lucide-react";
+import { Bot, Mic, Search, X } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -20,6 +20,7 @@ import {
 } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
@@ -88,6 +89,7 @@ interface KaiSearchBarProps {
   onTtsPlayingChange?: (playing: boolean) => void;
   voiceContext?: Record<string, unknown>;
   surfaceVariant?: SearchSurfaceVariant;
+  showAgent?: boolean;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -309,9 +311,11 @@ export function KaiSearchBar({
   onTtsPlayingChange,
   voiceContext,
   surfaceVariant = "kai",
+  showAgent = false,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
+  const agentPopover = useOptionalAgentPopover();
   const [open, setOpen] = useState(false);
   const [voiceDebugOpen, setVoiceDebugOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
@@ -1659,6 +1663,11 @@ export function KaiSearchBar({
       stableMicDisabledReason,
     ],
   );
+  const handleAgentClick = useCallback(() => {
+    if (!showAgent) return;
+    if (!agentPopover) return;
+    agentPopover.openAgent();
+  }, [agentPopover, showAgent]);
 
   return (
     <>
@@ -1682,59 +1691,86 @@ export function KaiSearchBar({
             "pointer-events-none w-full",
             isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[548px]"
           )}
+          style={
+            isRiaSurface
+              ? undefined
+              : {
+                  width:
+                    "var(--app-bottom-route-group-width, min(calc(100vw - 2rem), 560px))",
+                }
+          }
         >
           {isRiaSurface ? (
-            <div
-              className="grid grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
-              data-testid="ria-action-bar"
-            >
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
-                contentClassName="gap-1.5"
-                aria-label="Search RIA workspace"
-                aria-expanded={open}
-                aria-haspopup="dialog"
-                onClick={() => setOpen(true)}
+            <div className="relative flex w-full items-end justify-end">
+              <div
+                className="grid w-full grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
+                data-testid="ria-action-bar"
               >
-                <Search className="h-4 w-4 shrink-0" />
-                <span className="truncate">Search</span>
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                contentClassName="gap-1.5"
-                aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
-                aria-disabled={riaVoiceDisabled}
-                className={cn(
-                  "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
-                  riaVoiceDisabled && "opacity-60"
-                )}
-                onClick={handleRiaVoiceClick}
-              >
-                {riaVoiceActive ? (
-                  <X className="h-4 w-4 shrink-0" />
-                ) : (
-                  <Mic className="h-4 w-4 shrink-0" />
-                )}
-                <span className="truncate">Voice</span>
-              </ShellActionSurface>
+                <ShellActionSurface
+                  variant="pill"
+                  wrapperClassName="w-full"
+                  className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
+                  contentClassName="gap-1.5"
+                  aria-label="Search RIA workspace"
+                  aria-expanded={open}
+                  aria-haspopup="dialog"
+                  onClick={() => setOpen(true)}
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Search</span>
+                </ShellActionSurface>
+                <ShellActionSurface
+                  variant="pill"
+                  wrapperClassName="w-full"
+                  contentClassName="gap-1.5"
+                  aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
+                  aria-disabled={riaVoiceDisabled}
+                  className={cn(
+                    "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
+                    riaVoiceDisabled && "opacity-60"
+                  )}
+                  onClick={handleRiaVoiceClick}
+                >
+                  {riaVoiceActive ? (
+                    <X className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <Mic className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="truncate">Voice</span>
+                </ShellActionSurface>
+              </div>
             </div>
           ) : (
-            <div className="relative flex h-[58px] w-full items-end justify-end">
+            <div
+              className={cn(
+                "relative ml-auto flex w-[58px] items-end justify-end",
+                showAgent ? "h-[112px]" : "h-[58px]"
+              )}
+            >
+              {showAgent ? (
+                <button
+                  type="button"
+                  aria-label="Open Agent"
+                  onClick={handleAgentClick}
+                  className="kai-bottom-agent-action pointer-events-auto absolute right-[7px] top-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30"
+                >
+                  <Bot className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                </button>
+              ) : null}
               <div
                 className={cn(
                   "ml-auto flex items-end justify-end transition-[width] duration-200 ease-out",
                   compactDockExpanded
                     ? "w-[min(15.5rem,calc(100vw-2rem))]"
-                    : "w-[58px]"
+                    : "w-[58px]",
                 )}
               >
                 <div
                   className={cn(
                     "pointer-events-auto grid rounded-full kai-bottom-search-action p-[5px]",
-                    compactDockExpanded ? "w-full grid-cols-2 gap-1" : "w-[58px] grid-cols-1"
+                    compactDockExpanded
+                      ? "w-full grid-cols-2 gap-1"
+                      : "w-[58px] grid-cols-1",
                   )}
                   data-testid="kai-compact-search-surface"
                   data-mode={ambientMode}
@@ -1770,7 +1806,7 @@ export function KaiSearchBar({
                         riaVoiceActive
                           ? "bg-primary text-primary-foreground hover:bg-primary/90"
                           : "text-muted-foreground hover:text-foreground",
-                        riaVoiceDisabled && "opacity-60"
+                        riaVoiceDisabled && "opacity-60",
                       )}
                     >
                       {riaVoiceActive ? (
@@ -1798,6 +1834,10 @@ export function KaiSearchBar({
         onOpenChange={setOpen}
         onSelectAction={onSelectAction}
         appRuntimeState={appRuntimeState}
+        onVoiceClick={handleRiaVoiceClick}
+        voiceActive={riaVoiceActive}
+        voiceDisabled={riaVoiceDisabled}
+        voiceHidden={voiceVisibilityMode === "hidden"}
         portfolioTickers={portfolioTickers}
       />
 

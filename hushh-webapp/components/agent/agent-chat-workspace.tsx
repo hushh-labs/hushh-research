@@ -14,19 +14,20 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
+  ChevronDown,
   Check,
   Copy,
   KeyRound,
   LogIn,
   Menu,
   Mic,
-  Minus,
   RotateCcw,
   Send,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
   UserRound,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,6 +38,10 @@ import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  resolveAgentWelcomeSuggestions,
+  type AgentWelcomeSuggestion,
+} from "@/lib/agent/agent-welcome-suggestions";
 import {
   executeAgentGatewayAction,
   type AgentActionRuntimeResult,
@@ -51,6 +56,8 @@ import {
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
+  previewAgentPkmUpdate,
+  saveAgentPkmUpdate,
   type AgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
@@ -116,6 +123,12 @@ type AgentPkmReview = {
   sourceMessage: string;
   cards: AgentPkmPreviewCard[];
   saving: boolean;
+  updateContext?: {
+    domain: string;
+    fieldPath: string;
+    currentValue: string;
+    proposedValue: string;
+  };
 };
 
 type AgentPkmActivity = {
@@ -142,6 +155,7 @@ type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
   windowControls?: ReactNode;
+  freshOpenKey?: number;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
 };
@@ -149,11 +163,6 @@ type AgentChatWorkspaceProps = {
 const AGENT_GREETING =
   "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
-const AGENT_WELCOME_PROMPTS = [
-  "Review my portfolio",
-  "Save a PKM memory",
-  "Explain consent flows",
-] as const;
 
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
@@ -274,17 +283,19 @@ async function copyTextToClipboard(text: string): Promise<void> {
 
 function AgentWelcomePanel({
   name,
+  suggestions,
   disabled,
   onPromptSelect,
 }: {
   name: string;
+  suggestions: AgentWelcomeSuggestion[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
-        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
           Kai workspace
         </div>
@@ -295,15 +306,18 @@ function AgentWelcomePanel({
           Ask Agent about your markets, portfolio, memories, or Hushh workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+          {suggestions.map((suggestion) => (
             <button
-              key={prompt}
+              key={suggestion.id}
               type="button"
               disabled={disabled}
-              onClick={() => onPromptSelect(prompt)}
+              onClick={() => onPromptSelect(suggestion.prompt)}
               className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
-              <span className="block leading-5">{prompt}</span>
+              <span className="block leading-5">{suggestion.label}</span>
+              <span className="mt-2 block line-clamp-2 text-[11px] font-normal leading-4 text-muted-foreground">
+                {suggestion.prompt}
+              </span>
               <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
             </button>
           ))}
@@ -529,7 +543,7 @@ function AgentBubble({
       )}
     >
       {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.58)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
           <Bot className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -545,7 +559,7 @@ function AgentBubble({
             "text-sm leading-6",
             isUser
               ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
-              : "px-0 py-1 text-[#1d1d1f] dark:text-zinc-200",
+              : "px-0 py-1 text-foreground",
             isError &&
               "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
           )}
@@ -568,7 +582,7 @@ function AgentBubble({
         </div>
         <div
           className={cn(
-            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
+            "mt-1 flex items-center gap-2 text-[11px] text-muted-foreground",
             isUser && "justify-end text-right"
           )}
         >
@@ -578,11 +592,15 @@ function AgentBubble({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                 aria-label={copied ? "Response copied" : "Copy response"}
                 title={copied ? "Copied" : "Copy response"}
               >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? (
+                  <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+                )}
               </button>
               <button
                 type="button"
@@ -594,8 +612,8 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
                 )}
                 aria-label="Like response"
                 aria-pressed={liked}
@@ -613,8 +631,8 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
                 )}
                 aria-label="Dislike response"
                 aria-pressed={disliked}
@@ -627,7 +645,7 @@ function AgentBubble({
                   type="button"
                   onClick={onRetry}
                   disabled={retryDisabled}
-                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45"
                   aria-label="Try again"
                   title="Try again"
                 >
@@ -640,7 +658,7 @@ function AgentBubble({
         </div>
       </div>
       {isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.56)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
           <UserRound className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -698,6 +716,7 @@ export function AgentChatWorkspace({
   variant = "page",
   className,
   windowControls,
+  freshOpenKey = 0,
   onMinimize,
   onNavigationActionComplete,
 }: AgentChatWorkspaceProps) {
@@ -763,6 +782,7 @@ export function AgentChatWorkspace({
   const voiceTtsSpeakingRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
+  const typedSubmitInFlightRef = useRef(false);
 
   const voiceActive = voiceState !== "idle";
   const voiceMuted = voiceState === "muted";
@@ -1382,6 +1402,43 @@ export function AgentChatWorkspace({
       });
 
       try {
+        if (review.updateContext) {
+          // UPDATE PATH (per D-07, D-10) — write the proposed field value via saveAgentPkmUpdate.
+          // saveAgentPkmUpdate uses the coordinator's fresh read, not the LLM current_value
+          // (T-03-02), and calls AgentPkmContextStore.invalidateUser internally.
+          const updateContext = review.updateContext;
+          const updateResult = await saveAgentPkmUpdate({
+            userId: user.uid,
+            domain: updateContext.domain,
+            fieldPath: updateContext.fieldPath,
+            proposedValue: updateContext.proposedValue,
+            vaultKey,
+            vaultOwnerToken: token,
+          });
+          appendDebugEvent(review.turnId, "pkm_review_save_result", updateResult);
+          if (!updateResult.success) {
+            throw new Error(updateResult.message || "Failed to update PKM memory.");
+          }
+          setPkmActivity((current) => [
+            ...current.slice(-4),
+            {
+              id: `pkm-review-saved-${Date.now()}`,
+              text: `Updated ${updateContext.domain} - ${updateContext.fieldPath}.`,
+              status: "done",
+            },
+          ]);
+          setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+          void loadAgentPkmContext({
+            userId: user.uid,
+            vaultOwnerToken: token,
+            vaultKey,
+            forceRefresh: true,
+          }).catch(() => undefined);
+          toast.success("Saved to PKM.");
+          return;
+        }
+
+        // ADD PATH — unchanged (per D-11)
         const result = await addToPKM({
           userId: user.uid,
           cards: review.cards,
@@ -1486,7 +1543,7 @@ export function AgentChatWorkspace({
           }
           if (!voiceTtsFailureReported) {
             voiceTtsFailureReported = true;
-            toast.error("Agent voice audio failed. Falling back to browser speech.");
+            toast.error("Agent voice audio failed. The text response is still available.");
           }
         },
       });
@@ -1763,6 +1820,93 @@ export function AgentChatWorkspace({
       }
     };
 
+    const executePkmUpdateTool = async (toolEvent: AgentChatToolEvent) => {
+      if (!vaultKey || !token) {
+        appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
+          reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
+          tool: toolEvent,
+        });
+        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        return;
+      }
+
+      // D-07 slot reads — all four slots type-guarded before use (T-03-01 mitigation)
+      const domain =
+        typeof toolEvent.slots.domain === "string" ? toolEvent.slots.domain.trim() : "";
+      const fieldPath =
+        typeof toolEvent.slots.field_path === "string" ? toolEvent.slots.field_path.trim() : "";
+      const proposedValue =
+        typeof toolEvent.slots.proposed_value === "string"
+          ? toolEvent.slots.proposed_value.trim()
+          : "";
+      const currentValue =
+        typeof toolEvent.slots.current_value === "string"
+          ? toolEvent.slots.current_value.trim()
+          : "";
+
+      setActivePkmToolCount((count) => count + 1);
+      appendDebugEvent(debugTurnId, "pkm_tool_preview_start", {
+        tool: "pkm.update",
+        current_domains: turnPkmContext.domains,
+        domain,
+        fieldPath,
+        proposedValue,
+        currentValue,
+      });
+      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+
+      try {
+        const preview = await previewAgentPkmUpdate({
+          userId,
+          domain,
+          fieldPath,
+          currentValue,
+          proposedValue,
+          currentDomains: turnPkmContext.domains,
+          vaultOwnerToken: token,
+        });
+        appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
+          tool: "pkm.update",
+          preview,
+        });
+
+        const reviewCards = getReviewRequiredPkmCards(preview.cards ?? []);
+
+        if (reviewCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+          setPkmReviews((current) => [
+            ...current.filter((review) => review.turnId !== debugTurnId),
+            {
+              id: `${debugTurnId}-pkm-review`,
+              turnId: debugTurnId,
+              sourceMessage: `Update ${domain} - ${fieldPath}`,
+              cards: reviewCards,
+              saving: false,
+              updateContext: { domain, fieldPath, currentValue, proposedValue },
+            },
+          ]);
+          appendDebugEvent(debugTurnId, "pkm_tool_review_required", {
+            tool: "pkm.update",
+            candidate_count: reviewCards.length,
+            cards: reviewCards,
+          });
+        } else {
+          upsertPkmStatusMessage("PKM update reviewed — no write needed.", "done");
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent could not save that PKM memory.";
+        appendDebugEvent(debugTurnId, "pkm_tool_failed", {
+          message,
+          tool: "pkm.update",
+        });
+        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+      } finally {
+        setActivePkmToolCount((count) => Math.max(0, count - 1));
+      }
+    };
+
     const executeFrontendTool = async (toolEvent: AgentChatToolEvent) => {
       if (!toolEvent.actionId) return;
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
@@ -1770,6 +1914,11 @@ export function AgentChatWorkspace({
       if (toolEvent.actionId === "pkm.add") {
         pkmAddToolHandled = true;
         await executePkmAddTool(toolEvent);
+        return;
+      }
+
+      if (toolEvent.actionId === "pkm.update") {
+        await executePkmUpdateTool(toolEvent);
         return;
       }
 
@@ -2270,7 +2419,14 @@ export function AgentChatWorkspace({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await runAgentTurn(input, { source: "typed" });
+    if (!canSend || typedSubmitInFlightRef.current) return;
+
+    typedSubmitInFlightRef.current = true;
+    try {
+      await runAgentTurn(input, { source: "typed" });
+    } finally {
+      typedSubmitInFlightRef.current = false;
+    }
   };
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
@@ -2556,6 +2712,23 @@ export function AgentChatWorkspace({
   );
   const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
   const visibleMessages = messages.filter((message) => message.id !== "agent-greeting");
+  const welcomeSuggestionSeed = useMemo(
+    () => Date.now() + Math.floor(Math.random() * 100_000),
+    // Intentionally reseed when any of these change so welcome suggestions
+    // refresh on persona/conversation/route/user transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activePersona, conversationId, freshOpenKey, hasStartedConversation, pathname, user?.uid],
+  );
+  const welcomeSuggestions = useMemo(
+    () =>
+      resolveAgentWelcomeSuggestions({
+        userId: user?.uid,
+        pathname,
+        persona: activePersona,
+        randomSeed: welcomeSuggestionSeed,
+      }),
+    [activePersona, pathname, user?.uid, welcomeSuggestionSeed],
+  );
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -2587,9 +2760,13 @@ export function AgentChatWorkspace({
     });
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
-    setInput(prompt);
-    window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
-  }, []);
+    if (isChatLoading || isStreaming) return;
+    setInput("");
+    void runAgentTurn(prompt, { source: "typed" });
+    // runAgentTurn is a stable closure invoked imperatively; excluding it keeps
+    // this callback from re-creating on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChatLoading, isStreaming]);
   const swipeStartYRef = useRef<number | null>(null);
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMinimize || event.pointerType === "mouse") return;
@@ -2687,7 +2864,7 @@ export function AgentChatWorkspace({
         </div>
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
+            "fixed inset-0 z-[520] bg-foreground/25 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
             isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
           )}
           aria-hidden="true"
@@ -2706,7 +2883,7 @@ export function AgentChatWorkspace({
           inert={!isHistoryDrawerOpen}
           onKeyDown={handleHistoryDrawerKeyDown}
         >
-          {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
+          {renderHistorySidebar("h-full w-full shadow-2xl shadow-foreground/20", () =>
             setIsHistoryDrawerOpen(false)
           )}
         </div>
@@ -2732,13 +2909,14 @@ export function AgentChatWorkspace({
               swipeStartYRef.current = null;
             }}
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 border-b border-border/70" />
+            <div className="relative z-10 flex min-w-0 items-center gap-3">
               {!isPopover ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -2746,7 +2924,7 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary dark:border-white/10 dark:bg-white/[0.04]">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-background text-primary shadow-sm">
                 <Bot className="h-4 w-4" />
               </div>
               <div className="min-w-0">
@@ -2759,8 +2937,8 @@ export function AgentChatWorkspace({
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="hidden rounded-md border border-black/10 bg-black/[0.035] px-2.5 py-1 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 sm:inline-flex">
+            <div className="relative z-10 flex shrink-0 items-center gap-2">
+              <span className="hidden rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
                 {statusText}
               </span>
               {!isPopover ? (
@@ -2768,12 +2946,51 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={handlePageMinimize}
-                  aria-label="Minimize Agent"
-                  title="Minimize Agent"
+                  aria-label="Close Agent"
+                  title="Close Agent"
                 >
-                  <Minus className="h-4 w-4" />
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
                 </Button>
               ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
@@ -2782,8 +2999,8 @@ export function AgentChatWorkspace({
 
           <div
             className={cn(
-              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              isPopover ? "pb-4" : "pb-6 lg:px-8"
+              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+              isPopover ? "pb-4 pt-5" : "pb-6 pt-8 sm:pt-10 lg:px-8 lg:pt-6"
             )}
           >
             <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
@@ -2807,6 +3024,7 @@ export function AgentChatWorkspace({
               {!accessMessage && !hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
+                  suggestions={welcomeSuggestions}
                   disabled={!hasChatAccess || isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />
@@ -2834,6 +3052,8 @@ export function AgentChatWorkspace({
                   key={review.id}
                   cards={review.cards}
                   saving={review.saving}
+                  mode={review.updateContext ? "update" : "add"}
+                  updateContext={review.updateContext}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
@@ -2843,10 +3063,10 @@ export function AgentChatWorkspace({
           </div>
 
           {voiceTranscriptReview ? (
-            <div className="absolute inset-0 z-20 grid place-items-end bg-black/25 p-4 backdrop-blur-[2px] dark:bg-black/40 sm:place-items-center">
+            <div className="absolute inset-0 z-20 grid place-items-end bg-foreground/20 p-4 backdrop-blur-[2px] sm:place-items-center">
               <div
                 ref={voiceTranscriptDialogRef}
-                className="w-full max-w-sm rounded-xl border border-black/10 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#15171c]"
+                className="agent-themed-popover-surface w-full max-w-sm rounded-xl border border-border p-4 shadow-xl"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Confirm voice transcript"
@@ -2896,7 +3116,7 @@ export function AgentChatWorkspace({
           >
             <div className="mx-auto w-full max-w-3xl">
               {voiceActive ? (
-                <div className="rounded-2xl border border-black/10 bg-[#f5f5f7] p-2 shadow-lg shadow-black/[0.06] dark:border-white/10 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="rounded-xl bg-[#f5f5f7] p-1 shadow-sm shadow-black/[0.04] dark:bg-[#0f1116] dark:shadow-black/10">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
@@ -2909,7 +3129,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message Agent"
@@ -2927,14 +3147,14 @@ export function AgentChatWorkspace({
                     disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
                     placeholder="Message Agent..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   />
                   {agentVoiceEnabled ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
+                      className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
                       disabled={!canToggleVoice}
                       onClick={handleToggleVoice}
                       aria-label="Start voice mode"
@@ -2946,7 +3166,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
                     disabled={!canSend}
                     aria-label="Send message"
                   >

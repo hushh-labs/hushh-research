@@ -60,6 +60,14 @@ def _registry_choices():
             "description": "Work preferences, professional context, and goals",
             "scope_paths": ["work_preferences", "goals", "profile"],
         },
+        {
+            "domain_key": "identity",
+            "display_name": "Identity",
+            "description": (
+                "Legal name, contact, and verified identity attributes for KYC/compliance"
+            ),
+            "scope_paths": ["profile"],
+        },
     ]
 
 
@@ -1549,3 +1557,505 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
     assert first["structure_decision"]["target_domain"] == "travel"
     assert second["structure_decision"]["target_domain"] == "travel"
     assert preview_stub.await_count == 1
+
+
+# ---------------------------------------------------------------------------
+# _strip_pii_from_payload_keys — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_strip_pii_from_payload_keys_removes_dollar_amount_keys():
+    payload = {
+        "account_$50000": True,
+        "view_$1000": "confirmed",
+        "preferences": {"food": "Chinese"},
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "account_$50000" not in result
+    assert "view_$1000" not in result
+    assert result["preferences"] == {"food": "Chinese"}
+
+
+def test_strip_pii_from_payload_keys_removes_large_numeric_keys():
+    payload = {
+        "100000_balance": True,
+        "transaction_75000": 3,
+        "status": "active",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "100000_balance" not in result
+    assert "transaction_75000" not in result
+    assert result["status"] == "active"
+
+
+def test_strip_pii_from_payload_keys_removes_ssn_keys():
+    payload = {
+        "ssn_123-45-6789": True,
+        "id_987_65_4321_record": True,
+        "entity_id": "mem_abc",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "ssn_123-45-6789" not in result
+    assert "id_987_65_4321_record" not in result
+    assert result["entity_id"] == "mem_abc"
+
+
+def test_strip_pii_from_payload_keys_removes_phone_number_keys():
+    payload = {
+        "9876543210_contact": "primary",
+        "phone_14155552671": True,
+        "summary": "User contact info",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "9876543210_contact" not in result
+    assert "phone_14155552671" not in result
+    assert result["summary"] == "User contact info"
+
+
+def test_strip_pii_from_payload_keys_removes_email_keys():
+    payload = {
+        "user@example.com_prefs": {"notify": True},
+        "john.doe@gmail.com": True,
+        "kind": "preference",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "user@example.com_prefs" not in result
+    assert "john.doe@gmail.com" not in result
+    assert result["kind"] == "preference"
+
+
+def test_strip_pii_from_payload_keys_preserves_safe_keys():
+    payload = {
+        "preferences": {"statements": [{"value": "I like hiking"}]},
+        "entity_id": "mem_travel_001",
+        "status": "active",
+        "kind": "routine",
+        "confidence": 0.92,
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert result == payload
+
+
+def test_strip_pii_from_payload_keys_handles_nested_dicts():
+    payload = {
+        "financial": {
+            "account_$75000": True,
+            "risk_profile": "moderate",
+            "nested": {
+                "ssn_123-45-6789": "leaked",
+                "label": "safe",
+            },
+        }
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "account_$75000" not in result["financial"]
+    assert result["financial"]["risk_profile"] == "moderate"
+    assert "ssn_123-45-6789" not in result["financial"]["nested"]
+    assert result["financial"]["nested"]["label"] == "safe"
+
+
+def test_strip_pii_from_payload_keys_handles_lists_of_dicts():
+    payload = {
+        "items": [
+            {"account_$5000": True, "name": "savings"},
+            {"name": "checking", "balance_99999": True},
+        ]
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert "account_$5000" not in result["items"][0]
+    assert result["items"][0]["name"] == "savings"
+    assert "balance_99999" not in result["items"][1]
+    assert result["items"][1]["name"] == "checking"
+
+
+def test_strip_pii_from_payload_keys_values_are_never_modified():
+    payload = {
+        "observations": ["My account has $50000", "SSN: 123-45-6789"],
+        "summary": "Balance is $75000",
+    }
+    result = PKMAgentLabService._strip_pii_from_payload_keys(payload)
+    assert result["observations"] == ["My account has $50000", "SSN: 123-45-6789"]
+    assert result["summary"] == "Balance is $75000"
+
+
+def test_sanitize_candidate_payload_applies_key_sanitization():
+    raw_llm_output = {
+        "account_$50000": True,
+        "preferences": {"food": "Chinese"},
+        "phone_9876543210": "primary",
+    }
+    result = PKMAgentLabService._sanitize_candidate_payload(
+        raw_llm_output,
+        message="I have 50000 in savings",
+        intent_frame={
+            "intent_class": "financial_event",
+            "mutation_intent": "create",
+            "save_class": "durable",
+        },
+        merge_decision={
+            "merge_mode": "create_entity",
+            "target_domain": "financial",
+            "target_entity_id": "",
+            "target_entity_path": "",
+        },
+        target_domain="financial",
+    )
+    assert "account_$50000" not in result
+    assert "phone_9876543210" not in result
+    assert result.get("preferences") == {"food": "Chinese"}
+
+
+# ---------------------------------------------------------------------------
+# Phase 02-01 Task 2: identity classifier routing (hint set + intent defaults)
+# ---------------------------------------------------------------------------
+
+
+def test_keyword_ranked_domains_address_ranks_identity_first():
+    ranked = PKMAgentLabService._keyword_ranked_domains(
+        message="update my address",
+        current_domains=[],
+    )
+    assert ranked, "expected at least one ranked domain"
+    assert ranked[0] == "identity"
+
+
+def test_keyword_ranked_domains_name_includes_identity():
+    ranked = PKMAgentLabService._keyword_ranked_domains(
+        message="my name is now Jane Doe",
+        current_domains=[],
+    )
+    assert "identity" in ranked
+
+
+def test_keyword_ranked_domains_email_includes_identity():
+    ranked = PKMAgentLabService._keyword_ranked_domains(
+        message="change my email to jane@example.com",
+        current_domains=[],
+    )
+    assert "identity" in ranked
+
+
+def test_intent_domain_defaults_profile_fact_identity_first():
+    from hushh_mcp.services.pkm_agent_lab_service import _INTENT_DOMAIN_DEFAULTS
+
+    assert _INTENT_DOMAIN_DEFAULTS["profile_fact"][0] == "identity"
+
+
+def test_identity_hints_contain_no_ssn_tokens():
+    from hushh_mcp.services.pkm_agent_lab_service import _IDENTITY_HINTS
+
+    blob = " ".join(_IDENTITY_HINTS).lower()
+    assert "ssn" not in blob
+    assert "social_security" not in blob
+    assert "social security" not in blob
+
+
+# ---------------------------------------------------------------------------
+# Phase 02-01 Task 4: identity routing + confirm_first regression (UAT)
+# ---------------------------------------------------------------------------
+
+
+# Mirrors the phase-01 reality: the user already has identity attributes stored,
+# so an "update my address" correction has a stable target to correct.
+IDENTITY_SIMULATED_STATE = {
+    "domains": ["identity", "financial"],
+    "memories": [
+        {
+            "domain": "identity",
+            "entity_id": "identity_profile_001",
+            "entity_scope": "profile",
+            "intent_class": "profile_fact",
+            "message": "My address is 1 Old Street, Seattle.",
+            "active": True,
+        }
+    ],
+}
+
+
+def _identity_agent_calls(
+    message: str,
+    *,
+    save_class: str = "durable",
+    mutation_intent: str = "update",
+    structure_write_mode: str = "can_save",
+    merge_mode: str = "correct_entity",
+):
+    """Build the 5-call _run_agent_contract side_effect for an identity message."""
+    return [
+        _single_segment(message),
+        {
+            "routing_decision": "non_financial_or_ephemeral",
+            "confidence": 0.95,
+            "reason": "Identity PII, not finance.",
+            "source_agent": "financial_guard_agent",
+            "contract_version": 1,
+        },
+        {
+            "save_class": save_class,
+            "intent_class": "profile_fact",
+            "mutation_intent": mutation_intent,
+            "requires_confirmation": False,
+            "confirmation_reason": "",
+            "candidate_domain_choices": [
+                {"domain_key": "identity", "recommended": True},
+            ],
+            "confidence": 0.92,
+            "source_agent": "memory_intent_agent",
+            "contract_version": 1,
+        },
+        {
+            "merge_mode": merge_mode,
+            "target_domain": "identity",
+            "target_entity_id": "identity_profile_001",
+            "target_entity_path": "profile.entities.identity_profile_001",
+            "match_confidence": 0.9,
+            "match_reason": "Identity profile attribute.",
+            "source_agent": "memory_merge_agent",
+            "contract_version": 1,
+        },
+        {
+            "candidate_payload": {"profile": {"value": message}},
+            "structure_decision": {
+                "action": "create_domain",
+                "target_domain": "identity",
+                "json_paths": ["profile", "profile.value"],
+                "top_level_scope_paths": ["profile"],
+                "externalizable_paths": ["profile.value"],
+                "summary_projection": {},
+                "sensitivity_labels": {},
+                "confidence": 0.88,
+                "source_agent": "pkm_structure_agent",
+                "contract_version": 1,
+            },
+            "write_mode": structure_write_mode,
+            "target_entity_scope": "profile",
+            "validation_hints": [],
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_routes_update_address_to_identity(monkeypatch):
+    """Exact phase-01 UAT regression: 'update my address' -> identity + confirm_first."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls("update my address to 500 Market St, San Francisco")
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="update my address to 500 Market St, San Francisco",
+        current_domains=["identity", "financial"],
+        simulated_state=IDENTITY_SIMULATED_STATE,
+    )
+
+    assert result["structure_decision"]["target_domain"] == "identity"
+    assert result["structure_decision"]["target_domain"] != "financial"
+    assert result["write_mode"] == "confirm_first"
+    assert "identity_domain_requires_confirmation" in result["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_routes_name_to_identity(monkeypatch):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                "my name is now Jane Doe",
+                mutation_intent="create",
+                merge_mode="create_entity",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="my name is now Jane Doe",
+        current_domains=["identity"],
+    )
+
+    assert result["structure_decision"]["target_domain"] == "identity"
+    assert result["write_mode"] == "confirm_first"
+
+
+@pytest.mark.asyncio
+async def test_identity_write_mode_never_can_save(monkeypatch):
+    """An LLM-emitted can_save for an identity target is force-escalated to confirm_first."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    # Fresh create (no correction cue): the structure agent emits can_save and the
+    # normalizer must still force confirm_first purely because target is identity.
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                "my email address is jane@example.com",
+                mutation_intent="create",
+                merge_mode="create_entity",
+                structure_write_mode="can_save",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="my email address is jane@example.com",
+        current_domains=["identity"],
+    )
+
+    assert result["write_mode"] == "confirm_first"
+    assert "identity_domain_requires_confirmation" in result["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_identity_read_only_query_stays_do_not_save(monkeypatch):
+    """Read-only/ephemeral identity flow ('what's my address?') stays do_not_save."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                "what's my address?",
+                save_class="ephemeral",
+                mutation_intent="no_op",
+                merge_mode="no_op",
+                structure_write_mode="do_not_save",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message="what's my address?",
+        current_domains=["identity"],
+    )
+
+    assert result["write_mode"] == "do_not_save"
+    assert "identity_domain_requires_confirmation" not in result["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_identity_update_intent_forces_confirm_first(monkeypatch):
+    """Deterministic confirm for explicit field updates (GAP 1 fix).
+
+    Reproduces the live UAT failure: the frontend update flow re-classifies a
+    machine-synthesized sentence ('Update identity - address: change from "" to
+    "..."') with the LLM. For the address phrasing the classifier resolves it to
+    no_op/do_not_save, so the identity force-confirm guard (which only fires on
+    can_save) never triggers, zero confirm cards survive, and no review panel
+    renders. When the caller supplies an explicit `update_intent` (domain +
+    field_path + proposed_value), routing and the confirm decision must be
+    derived deterministically from those structured slots, NOT re-derived by the
+    LLM from synthetic text: an explicit identity update is always confirm_first.
+    """
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    # Simulate the failing live path: synthetic update sentence -> LLM reads it as
+    # a no-op / do_not_save (the exact failure mode the investigation identified).
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_identity_agent_calls(
+                'Update identity - address: change from "" to "221B Baker Street, London"',
+                mutation_intent="no_op",
+                merge_mode="no_op",
+                structure_write_mode="do_not_save",
+            )
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="uat-user",
+        message='Update identity - address: change from "" to "221B Baker Street, London"',
+        current_domains=["identity", "financial"],
+        simulated_state=IDENTITY_SIMULATED_STATE,
+        update_intent={
+            "domain": "identity",
+            "field_path": "address",
+            "current_value": "",
+            "proposed_value": "221B Baker Street, London",
+        },
+    )
+
+    assert result["structure_decision"]["target_domain"] == "identity"
+    assert result["write_mode"] == "confirm_first"
+    assert "identity_domain_requires_confirmation" in result["validation_hints"]
+    assert "explicit_update_confirmation" in result["validation_hints"]
+
+
+# ---------------------------------------------------------------------------
+# Identity PII sensitivity classification (Wave 2 / D-09)
+# ---------------------------------------------------------------------------
+
+
+class TestInferSensitivityIdentityPII:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "identity.passport_number",
+            "identity.national_id",
+            "identity.ssn",
+            "identity.social_security",
+        ],
+    )
+    def test_restricted_identity_tokens(self, path: str):
+        assert PKMAgentLabService._infer_sensitivity(path) == "restricted"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "identity.full_name",
+            "identity.first_name",
+            "identity.last_name",
+            "identity.address.line1",
+            "identity.date_of_birth",
+            "identity.dob",
+            "identity.phone_number",
+            "identity.nationality",
+        ],
+    )
+    def test_confidential_identity_tokens(self, path: str):
+        assert PKMAgentLabService._infer_sensitivity(path) == "confidential"
+
+    def test_existing_restricted_tokens_preserved(self):
+        assert PKMAgentLabService._infer_sensitivity("financial.tax_id") == "restricted"
+        assert PKMAgentLabService._infer_sensitivity("financial.account_number") == "restricted"
+
+    def test_existing_confidential_tokens_preserved(self):
+        assert PKMAgentLabService._infer_sensitivity("financial.portfolio") == "confidential"
+        assert PKMAgentLabService._infer_sensitivity("health.allergy") == "confidential"
+
+    def test_non_pii_path_unclassified(self):
+        assert PKMAgentLabService._infer_sensitivity("food.favorite_cuisine") is None

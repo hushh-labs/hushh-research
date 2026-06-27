@@ -35,7 +35,7 @@ import pathlib
 import pytest
 from pydantic import ValidationError
 
-from api.routes.consent import ConsentApprovalPayload
+from api.routes.consent import ConsentApprovalPayload, _resolve_approval_expiry_hours
 
 # ---------------------------------------------------------------------------
 # Model-level tests
@@ -94,6 +94,25 @@ def test_valid_full_payload_accepted():
     assert payload.userId == "user_abc"
     assert payload.version == 2
     assert payload.durationHours == 24
+
+
+def test_developer_approval_duration_cannot_exceed_requested_expiry():
+    assert (
+        _resolve_approval_expiry_hours(
+            metadata={"expiry_hours": 24},
+            requested_duration_hours=8760,
+            is_developer_request=True,
+        )
+        == 24
+    )
+    assert (
+        _resolve_approval_expiry_hours(
+            metadata={"expiry_hours": 2160},
+            requested_duration_hours=168,
+            is_developer_request=True,
+        )
+        == 168
+    )
 
 
 def test_extra_field_not_in_model_dump():

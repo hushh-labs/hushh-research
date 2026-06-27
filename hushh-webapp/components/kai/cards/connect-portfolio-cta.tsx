@@ -8,6 +8,7 @@ import { SurfaceCard, SurfaceCardContent, type SurfaceAccent } from "@/component
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 
 interface ConnectPortfolioCtaProps {
   className?: string;
@@ -33,15 +34,28 @@ export function ConnectPortfolioCta({ className, accent = "emerald" }: ConnectPo
         </div>
 
         <div className="space-y-2">
-          <Button size="lg" fullWidth asChild showRipple aria-label="Connect your financial portfolio">
-            <Link href="/kai/import">
+          <Button
+            size="lg"
+            fullWidth
+            asChild
+            showRipple
+            aria-label="Connect your financial portfolio"
+          >
+            <Link href={ROUTES.KAI_IMPORT}>
               Connect Portfolio
               <Icon icon={ArrowRight} size="md" className="ml-2" />
             </Link>
           </Button>
 
-          <Button variant="link" effect="fill" size="sm" fullWidth asChild showRipple={false}>
-            <Link href="/kai">Or continue exploring</Link>
+          <Button
+            variant="link"
+            effect="fill"
+            size="sm"
+            fullWidth
+            asChild
+            showRipple={false}
+          >
+            <Link href={ROUTES.KAI_HOME}>Or continue exploring</Link>
           </Button>
         </div>
       </SurfaceCardContent>

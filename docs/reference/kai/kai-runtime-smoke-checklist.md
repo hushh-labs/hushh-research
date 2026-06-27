@@ -33,12 +33,12 @@ Runtime truth note:
    - manually visit the key Kai routes below
  2. Verify required Kai API routes/methods are present in OpenAPI.
  3. Verify frontend route probes pass for:
-   - `/kai/import`
-   - `/kai`
-   - `/kai/plaid/oauth/return`
-   - `/kai/portfolio`
-   - `/kai/analysis`
-   - `/kai/optimize`
+   - `/one/kai/import`
+   - `/one/kai`
+   - `/one/kai/plaid/oauth/return`
+   - `/one/kai/portfolio`
+   - `/one/kai/analysis`
+   - `/one/kai/optimize`
  4. Verify required voice routes are present and reachable in the protected API surface:
    - `/api/kai/voice/capability`
    - `/api/kai/voice/realtime/session`
@@ -90,8 +90,8 @@ Runtime truth note:
    - locked state does not render a false `0 domains / 0 items` view when manifest-backed PKM exists,
    - only decrypted or mutation-sensitive detail stays gated behind unlock.
 
-## 3) /kai Cache + UX
-1. Open `/kai` and note initial load time.
+## 3) `/one/kai` Cache + UX
+1. Open `/one/kai` and note initial load time.
 2. Navigate away and back within 60s.
 3. Confirm no unnecessary full re-fetch (screen should be fast and stable).
 4. Confirm hero reads as holdings-led context and buttons have expected styles:

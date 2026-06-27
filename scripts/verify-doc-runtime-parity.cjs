@@ -79,12 +79,12 @@ const REQUIRED_CANONICAL_ROUTES = {
   RIA_CLIENTS: "/ria/clients",
   RIA_REQUESTS: "/ria/requests",
   RIA_SETTINGS: "/ria/settings",
-  KAI_HOME: "/kai",
-  KAI_ONBOARDING: "/kai/onboarding",
-  KAI_IMPORT: "/kai/import",
-  KAI_DASHBOARD: "/kai/portfolio",
-  KAI_ANALYSIS: "/kai/analysis",
-  KAI_OPTIMIZE: "/kai/optimize",
+  KAI_HOME: "/one/kai",
+  KAI_ONBOARDING: "/one/onboarding",
+  KAI_IMPORT: "/one/kai/import",
+  KAI_DASHBOARD: "/one/kai/portfolio",
+  KAI_ANALYSIS: "/one/kai/analysis",
+  KAI_OPTIMIZE: "/one/kai/optimize",
 };
 
 const REQUIRED_OPERATIONAL_MARKERS = [

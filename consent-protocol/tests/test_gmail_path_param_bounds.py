@@ -34,6 +34,7 @@ def _make_app() -> FastAPI:
 # GET /gmail/status/{user_id}  -- unbounded user_id
 # ---------------------------------------------------------------------------
 
+
 def test_status_user_id_too_long_returns_422():
     app = _make_app()
     client = TestClient(app, raise_server_exceptions=False)
@@ -60,6 +61,7 @@ def test_status_valid_user_id_reaches_handler():
 # ---------------------------------------------------------------------------
 # GET /gmail/receipts/{user_id}  -- unbounded user_id + page cap
 # ---------------------------------------------------------------------------
+
 
 def test_receipts_user_id_too_long_returns_422():
     app = _make_app()

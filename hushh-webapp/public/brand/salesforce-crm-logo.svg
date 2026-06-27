@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 152" role="img" aria-labelledby="title desc">
+  <title id="title">Salesforce CRM</title>
+  <desc id="desc">Blue cloud-shaped Salesforce CRM integration mark.</desc>
+  <defs>
+    <linearGradient id="sf-cloud" x1="42" y1="20" x2="196" y2="136" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#35A8E0"/>
+      <stop offset="0.52" stop-color="#189AD6"/>
+      <stop offset="1" stop-color="#0B6FB3"/>
+    </linearGradient>
+    <filter id="sf-shadow" x="4" y="8" width="232" height="138" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0067A8" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <path
+    fill="url(#sf-cloud)"
+    filter="url(#sf-shadow)"
+    d="M87.6 126.5c-20.4 0-37.3-13.6-37.3-31.6 0-15.4 12.4-28.6 28.7-31.1 5.2-24.4 25.3-41.8 49.6-41.8 18.6 0 34.7 10.1 43.7 25.2 5.7-2.6 12-4.1 18.8-4.1 23.3 0 42.2 17.7 42.2 39.6 0 21.9-18.9 39.6-42.2 39.6h-7.5c-8.2 4.9-18.5 7.7-29.5 7.7-13.2 0-25.1-4-34-10.6-8 4.5-19.2 7.1-32.5 7.1Z"
+    transform="translate(-22 -1)"
+  />
+  <text
+    x="118"
+    y="82"
+    fill="#fff"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="30"
+    font-weight="700"
+    letter-spacing="-1.9"
+    text-anchor="middle"
+  >salesforce</text>
+  <text
+    x="118"
+    y="104"
+    fill="#EAF8FF"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="13"
+    font-weight="700"
+    letter-spacing="2.4"
+    text-anchor="middle"
+  >CRM</text>
+</svg>

@@ -7,11 +7,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { TrendingUp } from "lucide-react";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const domains = [
   {
     name: "Kai",
-    href: "/kai/portfolio",
+    href: ROUTES.KAI_PORTFOLIO,
     icon: TrendingUp,
     status: "active" as const,
     color: "text-primary",
@@ -39,7 +40,12 @@ export function DomainNav() {
             )}
           >
             <div className="flex items-center gap-3">
-              <Icon icon={Lucide} size="md" className={domain.color} />
+              <Icon
+                icon={Lucide}
+                size="md"
+                className={domain.color}
+                aria-hidden="true"
+              />
               <span>{domain.name}</span>
             </div>
           </Link>
