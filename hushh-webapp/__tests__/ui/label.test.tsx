@@ -20,4 +20,9 @@ describe("Label", () => {
     expect(label?.tagName).toBe("LABEL");
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Label className="custom-label">Text</Label>);
+    expect(container.querySelector('[data-slot="label"]')?.className).toContain("custom-label");
+  });
+
 });
