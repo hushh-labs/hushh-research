@@ -79,7 +79,7 @@ function FlowRow({ label, value, type = "neutral", highlight, icon }: FlowRowPro
 export function CashFlowCard({ cashFlow, className }: CashFlowCardProps) {
   const [showDetails, setShowDetails] = useState(false);
 
-  if (!cashFlow) return null;
+  if (!cashFlow || Object.keys(cashFlow).length === 0) return null;
 
   const {
     opening_balance = 0,

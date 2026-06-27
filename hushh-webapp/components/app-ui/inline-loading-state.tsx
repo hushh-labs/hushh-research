@@ -32,6 +32,7 @@ export function InlineLoadingState({
     <div
       role="status"
       aria-live="polite"
+      aria-label={label}
       className={cn(
         "flex items-center justify-center text-muted-foreground animate-in fade-in duration-500",
         sizeStyles[size],

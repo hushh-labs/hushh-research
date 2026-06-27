@@ -9,7 +9,7 @@ vi.mock("@/hooks/use-network-status", () => ({
 }));
 
 describe("NetworkStatusBanner", () => {
-  it("renders offline status with status role", () => {
+  it("renders offline status with status role", async () => {
     vi.mocked(useNetworkStatus).mockReturnValue({
       online: false,
       offline: true,
@@ -17,10 +17,10 @@ describe("NetworkStatusBanner", () => {
 
     render(<NetworkStatusBanner />);
 
-    const status = screen.getByRole("status");
+    const status = await screen.findByRole("status");
 
-    expect(status.getAttribute("aria-live")).toBe("polite");
-    expect(status.textContent).toContain("You are offline.");
+    expect(status.getAttribute("aria-live")).toBe("assertive");
+    expect(status.textContent).toContain("You are currently offline.");
     expect(status.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
       "true",
     );

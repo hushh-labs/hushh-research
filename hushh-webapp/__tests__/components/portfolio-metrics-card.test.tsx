@@ -19,7 +19,7 @@ describe("PortfolioMetricsCard", () => {
       />,
     );
 
-    expect(screen.getByText("Cost Basis")).toBeTruthy();
+    expect(screen.getByText("Total Cost Basis")).toBeTruthy();
     expect(screen.getByText("$0")).toBeTruthy();
   });
 });
