@@ -10,6 +10,11 @@ describe("Checkbox", () => {
     expect(container.querySelector('[data-slot="checkbox"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Checkbox className="custom-class" />);
+    expect(container.querySelector('[data-slot="checkbox"]')?.className).toContain("custom-class");
+  });
+
   it("renders indicator with data-slot='checkbox-indicator'", () => {
     const { container } = render(<Checkbox checked />);
 
