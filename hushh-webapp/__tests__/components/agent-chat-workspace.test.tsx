@@ -12,9 +12,13 @@ function read(relativePath: string) {
 }
 
 describe("AgentChatWorkspace", () => {
-  it("covers streaming message live region", () => {
+  it("covers streaming message live region", async () => {
+    const { AgentChatWorkspace } = await import(
+      "@/components/agent/agent-chat-workspace"
+    );
     const source = read("components/agent/agent-chat-workspace.tsx");
 
+    expect(AgentChatWorkspace).toEqual(expect.any(Function));
     expect(source).toContain('const isUser = message.role === "user";');
     expect(source).toContain('const isStreaming = message.status === "streaming";');
     expect(source).toContain(
