@@ -12,4 +12,13 @@ describe("Button", () => {
     expect(button).not.toBeNull();
     expect(button?.hasAttribute("disabled")).toBe(true);
   });
+
+  it("defaults to type='button' to prevent accidental form submission", () => {
+    const { container } = render(<Button>Save</Button>);
+
+    const button = container.querySelector("button");
+
+    expect(button?.getAttribute("type")).toBe("button");
+  });
+
 });
