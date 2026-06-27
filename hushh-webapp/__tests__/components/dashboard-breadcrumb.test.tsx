@@ -15,7 +15,7 @@ describe("DashboardBreadcrumb", () => {
     expect(screen.getByRole("link", { name: "Kai" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeTruthy();
 
-    const currentPage = screen.getByRole("link", { name: "Analysis" });
+    const currentPage = screen.getByText("Analysis");
 
     expect(currentPage.getAttribute("aria-current")).toBe("page");
     expect(currentPage.getAttribute("aria-disabled")).toBe("true");
