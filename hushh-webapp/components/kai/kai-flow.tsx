@@ -2640,7 +2640,9 @@ export function KaiFlow({
           return;
         }
 
-        console.error("[KaiFlow] Import error:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[KaiFlow] Import error:", err);
+        }
         const rawErrorMessage =
           err instanceof Error ? String(err.message || "") : String(err || "");
         const isTransientNetworkLoss =
