@@ -61,4 +61,13 @@ describe("Alert", () => {
     expect(alert?.getAttribute("role")).toBe("alert");
     expect(slots).toEqual(["alert", "alert-title", "alert-description"]);
   });
+
+  it("merges a custom className onto the alert root element", () => {
+    const { container } = render(<Alert className="test-class" />);
+
+    const alert = container.querySelector('[data-slot="alert"]');
+
+    expect(alert?.classList.contains("test-class")).toBe(true);
+  });
+
 });
