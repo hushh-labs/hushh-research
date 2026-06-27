@@ -69,4 +69,20 @@ describe("RadioGroup", () => {
     expect(item?.getAttribute("role")).toBe("radio");
   });
 
+  it("merges custom className with default classes on the root", () => {
+    const { container } = render(
+      <RadioGroup
+        defaultValue="a"
+        className="custom-radio-class"
+      >
+        <RadioGroupItem value="a" />
+      </RadioGroup>,
+    );
+
+    const root = container.querySelector('[data-slot="radio-group"]');
+
+    expect(root?.classList.contains("custom-radio-class")).toBe(true);
+    expect(root?.classList.contains("grid")).toBe(true);
+  });
+
 });
