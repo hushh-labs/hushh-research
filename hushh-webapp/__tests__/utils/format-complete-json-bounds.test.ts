@@ -123,4 +123,22 @@ describe("formatCompleteJson — array bounds with null and mixed primitives", (
     expect(out).toContain("--- Legal Disclosures (2 items) ---");
     expect(out).toContain("2 disclosure(s) extracted");
   });
+
+  it("renders a well-formed asset_allocation entry with category, percentage, and market value", () => {
+    // Happy path for the specialized asset_allocation branch.
+    // Existing coverage only documents the null-element TypeError boundary.
+    // percentage uses toFixed(1); market_value uses formatCurrency.
+    const out = formatCompleteJson({
+      asset_allocation: [
+        {
+          category: "Equity",
+          percentage: 65.3,
+          market_value: 100000,
+        },
+      ],
+    });
+
+    expect(out).toContain("--- Asset Allocation (1 items) ---");
+    expect(out).toContain("• Equity: 65.3% ($100,000.00)");
+  });
 });
