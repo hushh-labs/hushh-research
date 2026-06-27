@@ -35,4 +35,12 @@ describe("Switch", () => {
         ?.getAttribute("data-slot"),
     ).toBe("switch-thumb");
   });
+
+  it("propagates className to the underlying element", () => {
+    const { container } = render(<Switch className="test-class" />);
+
+    const el = container.querySelector('[data-slot="switch"]');
+    
+    expect(el?.classList.contains("test-class")).toBe(true);
+  });
 });
