@@ -16,6 +16,11 @@ describe("Progress", () => {
     ).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Progress className="custom-progress" />);
+    expect(container.querySelector('[data-slot="progress"]')?.className).toContain("custom-progress");
+  });
+
   it("uses provided value when within range", () => {
     const { container } = render(<Progress value={50} />);
 
