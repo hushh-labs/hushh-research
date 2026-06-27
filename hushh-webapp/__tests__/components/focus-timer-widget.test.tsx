@@ -25,9 +25,8 @@ describe("FocusTimerWidget", () => {
 
     render(<FocusTimerWidget />);
 
-    expect(screen.getByRole("button", { name: "Start" })).toHaveAttribute(
-      "type",
-      "button",
-    );
+    expect(
+      screen.getByRole("button", { name: "Start" }).getAttribute("type"),
+    ).toBe("button");
   });
 });
