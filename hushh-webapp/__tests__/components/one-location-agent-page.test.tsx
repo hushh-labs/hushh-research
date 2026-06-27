@@ -772,6 +772,10 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: /Invite trusted person/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
+    // People tab exposes a search bar to filter ready people, and no longer
+    // renders a separate "Pending invites" list.
+    expect(screen.getByPlaceholderText("Search trusted people")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Pending invites" })).toBeNull();
     await switchLocationTab("Links", "Links");
     expect(screen.getByRole("button", { name: /Create public location link/i })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Active public location link" })).toBeTruthy();

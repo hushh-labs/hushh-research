@@ -476,8 +476,10 @@ function PeopleHub({
   onInvite: () => void;
   onStartShare: () => void;
 }) {
-  const ready = vm.recipients.filter((r) => vm.isRecipientShareReady(r));
-  const pending = vm.recipients.filter((r) => !vm.isRecipientShareReady(r));
+  const ready = vm.visibleRecipients.filter((r) =>
+    vm.isRecipientShareReady(r),
+  );
+  const hasSearchQuery = vm.recipientSearch.trim().length > 0;
 
   return (
     <div className="space-y-5">
@@ -515,8 +517,12 @@ function PeopleHub({
       </SectionCard>
 
       <SectionCard title="Ready people">
+        <PersonSearchInput
+          value={vm.recipientSearch}
+          onChange={vm.setRecipientSearch}
+        />
         {ready.length ? (
-          <div className={PEOPLE_LIST_SCROLL_CLASS}>
+          <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
             {ready.map((r) => (
               <TrustedPersonCard
                 key={r.userId}
@@ -534,29 +540,18 @@ function PeopleHub({
             ))}
           </div>
         ) : (
-          <EmptyState
-            title="No ready people yet"
-            description="Invite someone to your Circle to start private sharing."
-          />
+          <div className="mt-3">
+            <EmptyState
+              title={hasSearchQuery ? "No matching people" : "No ready people yet"}
+              description={
+                hasSearchQuery
+                  ? "Try a different name."
+                  : "Invite someone to your Circle to start private sharing."
+              }
+            />
+          </div>
         )}
       </SectionCard>
-
-      {pending.length ? (
-        <SectionCard title="Pending invites">
-          <div className={PEOPLE_LIST_SCROLL_CLASS}>
-            {pending.map((r) => (
-              <TrustedPersonCard
-                key={r.userId}
-                name={vm.recipientLabel(r)}
-                subtitle="Invite pending"
-                tone="pending"
-                statusLabel="Pending"
-              />
-            ))}
-          </div>
-        </SectionCard>
-      ) : null}
-
 
       <TrustNoteCard
         title="Private sharing starts after approval"
