@@ -12,9 +12,13 @@ function read(relativePath: string) {
 }
 
 describe("ConsentNotificationProvider", () => {
-  it("covers push fallback delivery mode", () => {
+  it("covers push fallback delivery mode", async () => {
+    const { ConsentNotificationProvider } = await import(
+      "@/components/consent/notification-provider"
+    );
     const source = read("components/consent/notification-provider.tsx");
 
+    expect(ConsentNotificationProvider).toEqual(expect.any(Function));
     expect(source).toContain('| "push_failed_fallback_active"');
     expect(source).toContain("function deliveryModeFromInitStatus");
     expect(source).toContain('if (status === "push_active") return "push_active";');
