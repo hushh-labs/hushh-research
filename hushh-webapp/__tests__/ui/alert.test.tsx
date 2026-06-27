@@ -10,6 +10,11 @@ describe("Alert", () => {
     expect(container.querySelector('[data-slot="alert"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Alert className="custom-alert-class" />);
+    expect(container.querySelector('[data-slot="alert"]')?.className).toContain("custom-alert-class");
+  });
+
   it("renders root with role='alert'", () => {
     const { container } = render(<Alert />);
 
