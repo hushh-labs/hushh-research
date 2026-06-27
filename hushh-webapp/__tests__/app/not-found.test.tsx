@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import AppNotFoundPage from "@/app/not-found";
 import * as BrowserNavigation from "@/lib/utils/browser-navigation";
@@ -9,18 +9,20 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
 }));
 
 describe("AppNotFoundPage", () => {
-  it("renders a visible recovery state instead of redirecting silently", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should render expected content and navigation actions", () => {
     render(<AppNotFoundPage />);
 
-    expect(screen.getByText("Page not found")).toBeTruthy();
-    expect(
-      screen.getByText("The content you're looking for is unavailable or has been moved."),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /page not found/i })).toBeTruthy();
+    expect(screen.getByText(/content you're looking for is unavailable/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /back/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /home/i })).toBeTruthy();
   });
 
-  it("routes home through canonical internal navigation", () => {
+  it("should trigger canonical internal navigation when home is clicked", () => {
     render(<AppNotFoundPage />);
 
     fireEvent.click(screen.getByRole("button", { name: /home/i }));
@@ -32,10 +34,10 @@ describe("AppNotFoundPage", () => {
     });
   });
 
-  it("keeps browser back recovery available", () => {
-    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
-    render(<AppNotFoundPage />);
+  it("should attempt browser back recovery", () => {
+    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => { });
 
+    render(<AppNotFoundPage />);
     fireEvent.click(screen.getByRole("button", { name: /back/i }));
 
     expect(backSpy).toHaveBeenCalled();
