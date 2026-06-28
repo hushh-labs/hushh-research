@@ -123,4 +123,14 @@ describe("formatCompleteJson — array bounds with null and mixed primitives", (
     expect(out).toContain("--- Legal Disclosures (2 items) ---");
     expect(out).toContain("2 disclosure(s) extracted");
   });
+    
+  it("emits a data-point count line for the historical_values array", () => {
+    // Specialized branch: skips per-item rendering and emits only the count line.
+    const out = formatCompleteJson({
+      historical_values: [{}, {}, {}],
+    });
+
+    expect(out).toContain("--- Historical Values (3 items) ---");
+    expect(out).toContain("3 data point(s) for portfolio history chart");
+  });
 });
