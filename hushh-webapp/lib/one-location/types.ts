@@ -327,3 +327,10 @@ export type OneLocationEncryptedEnvelope = {
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
 };
+
+export interface LocationChatResponse {
+  conversationId: string;
+  response: string;
+  isComplete: boolean;
+  stateChanged: boolean;
+}

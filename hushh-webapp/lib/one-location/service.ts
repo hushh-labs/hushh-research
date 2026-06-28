@@ -1,6 +1,7 @@
 import { HushhLocation } from "@/lib/capacitor";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import type {
+  LocationChatResponse,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -138,6 +139,21 @@ export class OneLocationService {
   static async getState(vaultOwnerToken: string): Promise<OneLocationState> {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+  }
+
+  static async chat(params: {
+    vaultOwnerToken: string;
+    message: string;
+    conversationId?: string | null;
+  }): Promise<LocationChatResponse> {
+    return apiJson<LocationChatResponse>("/api/one/location/chat", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        message: params.message,
+        conversationId: params.conversationId ?? null,
+      }),
     });
   }
 
