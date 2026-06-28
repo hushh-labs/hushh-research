@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import sys
 import os
+import sys
+
 # Ensure root directory is in sys.path before importing api/routes/etc
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -29,7 +30,7 @@ def test_verify_firebase_bearer_audience_mismatch(monkeypatch):
         return {
             "uid": "user_abc",
             "aud": "wrong-project-456",
-            "iss": f"https://securetoken.google.com/{project_id}"
+            "iss": f"https://securetoken.google.com/{project_id}",
         }
 
     monkeypatch.setattr(firebase_auth, "verify_id_token", mock_verify_id_token)
@@ -58,7 +59,7 @@ def test_verify_firebase_bearer_issuer_mismatch(monkeypatch):
         return {
             "uid": "user_abc",
             "aud": project_id,
-            "iss": "https://securetoken.google.com/wrong-project-456"
+            "iss": "https://securetoken.google.com/wrong-project-456",
         }
 
     monkeypatch.setattr(firebase_auth, "verify_id_token", mock_verify_id_token)
@@ -87,7 +88,7 @@ def test_verify_firebase_bearer_valid_audience_and_issuer(monkeypatch):
         return {
             "uid": "user_abc",
             "aud": project_id,
-            "iss": f"https://securetoken.google.com/{project_id}"
+            "iss": f"https://securetoken.google.com/{project_id}",
         }
 
     monkeypatch.setattr(firebase_auth, "verify_id_token", mock_verify_id_token)
