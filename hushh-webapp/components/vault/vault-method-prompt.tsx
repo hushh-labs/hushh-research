@@ -187,7 +187,9 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
       toast.success(`Vault unlock updated to ${readableMethod(result.method)}.`);
       setOpen(false);
     } catch (error) {
-      console.error("[VaultMethodPrompt] Failed to switch method:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[VaultMethodPrompt] Failed to switch method:", error);
+      }
       toast.error(
         error instanceof Error
           ? error.message
