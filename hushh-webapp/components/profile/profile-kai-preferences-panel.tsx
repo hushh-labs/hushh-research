@@ -44,7 +44,9 @@ export function ProfileKaiPreferencesPanel({
           setProfile(nextProfile);
         }
       } catch (error) {
-        console.warn("[ProfileKaiPreferencesPanel] Failed to load profile:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[ProfileKaiPreferencesPanel] Failed to load profile:", error);
+        }
         if (!cancelled) {
           setProfile(null);
         }
@@ -140,7 +142,9 @@ export function ProfileKaiPreferencesPanel({
             setProfile(refreshed);
             toast.success("Preferences updated");
           } catch (error) {
-            console.error("[ProfileKaiPreferencesPanel] Save failed:", error);
+            if (process.env.NODE_ENV !== "production") {
+              console.error("[ProfileKaiPreferencesPanel] Save failed:", error);
+            }
             toast.error("Couldn't save preferences. Please retry.");
           } finally {
             setLoading(false);
