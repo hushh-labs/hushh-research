@@ -863,7 +863,30 @@ def _run(cmd: list[str], timeout: int | None = None) -> str:
             or "abuse detection" in low
             or "429" in last_message
         )
-        retryable = gateway or rate_limited
+        # Transient transport/network failures: a single TLS or connection blip
+        # to api.github.com must NOT surface as a hard scan error, otherwise one
+        # network hiccup blocks the entire PR-train drain (every PR fails with the
+        # same error and the run merges nothing). These are safe to retry — the
+        # request never reached a decision, so re-issuing it cannot double-act.
+        transient_network = any(
+            marker in low
+            for marker in (
+                "tls handshake timeout",
+                "connection reset",
+                "connection refused",
+                "client.timeout",
+                "timeout awaiting response headers",
+                "i/o timeout",
+                "eof",
+                "no such host",
+                "server misbehaving",
+                "temporary failure in name resolution",
+                "network is unreachable",
+                "broken pipe",
+                "unexpected eof",
+            )
+        )
+        retryable = gateway or rate_limited or transient_network
         if not retryable or attempt == attempts - 1:
             break
         if rate_limited:
@@ -872,6 +895,7 @@ def _run(cmd: list[str], timeout: int | None = None) -> str:
             wait_s = _graphql_seconds_to_reset() or (10 * (attempt + 1))
             time.sleep(wait_s)
         else:
+            # Exponential-ish backoff for gateway + transport blips.
             time.sleep(1.5 * (attempt + 1))
     raise RuntimeError(f"{' '.join(cmd)}: {last_message}")
 

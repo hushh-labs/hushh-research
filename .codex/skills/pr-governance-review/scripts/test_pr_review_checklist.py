@@ -950,6 +950,56 @@ def test_current_maintainer_harvest_comment_blocks_merge_repass() -> None:
     _assert(meta["dormant_current_count"] == 1, "current harvest comment should become dormant-current")
 
 
+def test_transient_tls_timeout_is_retried_not_hard_error() -> None:
+    """A single TLS/transport blip to api.github.com must be retried, not turned
+    into a hard scan error that blocks the entire PR-train drain.
+
+    Regression: the 2026-06-28 run failed all ~1000 PRs with identical
+    `net/http: TLS handshake timeout` because `_run` only treated 504/rate-limit
+    as retryable; a transport-layer TLS timeout raised on the first attempt.
+    """
+    import subprocess as _sp
+    from unittest import mock as _mock
+
+    class _Fake:
+        def __init__(self, rc: int, out: str, err: str) -> None:
+            self.returncode = rc
+            self.stdout = out
+            self.stderr = err
+
+    # 3 transient TLS failures, then success → must return the success body.
+    state = {"n": 0}
+
+    def _flaky(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        state["n"] += 1
+        if state["n"] < 4:
+            return _Fake(1, "", 'Post "https://api.github.com/graphql": net/http: TLS handshake timeout')
+        return _Fake(0, '{"ok":true}', "")
+
+    with _mock.patch.object(checklist.subprocess, "run", side_effect=_flaky), \
+         _mock.patch.object(checklist.time, "sleep", lambda *_: None):
+        out = checklist._run(["gh", "pr", "view", "4070"])
+    _assert(out.strip() == '{"ok":true}', "transient TLS timeout must be retried to success")
+    _assert(state["n"] == 4, "should retry up to 4 attempts before succeeding")
+
+    # Persistent transport failure must still bound out (no infinite loop).
+    state2 = {"n": 0}
+
+    def _always_fail(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        state2["n"] += 1
+        return _Fake(1, "", "net/http: TLS handshake timeout")
+
+    raised = False
+    with _mock.patch.object(checklist.subprocess, "run", side_effect=_always_fail), \
+         _mock.patch.object(checklist.time, "sleep", lambda *_: None):
+        try:
+            checklist._run(["gh", "pr", "view", "4070"])
+        except RuntimeError:
+            raised = True
+    _assert(raised, "persistent transport failure must raise after exhausting retries")
+    _assert(state2["n"] == 4, "persistent failure must stop after exactly 4 attempts")
+
+
 def main() -> int:
     test_same_file_collision()
     test_transitive_collision_only_waits_for_direct_edge()
@@ -987,6 +1037,7 @@ def main() -> int:
     test_decision_wave_excludes_current_changes_requested_without_fresh_repass()
     test_approved_review_counts_as_current_maintainer_record()
     test_current_maintainer_harvest_comment_blocks_merge_repass()
+    test_transient_tls_timeout_is_retried_not_hard_error()
     print("pr_review_checklist unit tests passed")
     return 0
 
