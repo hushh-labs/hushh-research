@@ -162,7 +162,9 @@ export function VaultFlow({
       onSuccess({ mode: vaultMode });
       return true;
     } catch (tokenError) {
-      console.error("Failed to issue VAULT_OWNER token:", tokenError);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Failed to issue VAULT_OWNER token:", tokenError);
+      }
       toast.error("Vault opened, but we could not complete access setup. Please try again.");
       return false;
     }
@@ -231,7 +233,9 @@ export function VaultFlow({
             setUnlockWithPassphraseFallback(false);
           }
         } catch (metadataError) {
-          console.warn("Vault mode detection failed, defaulting to passphrase:", metadataError);
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("Vault mode detection failed, defaulting to passphrase:", metadataError);
+          }
           setVaultMode("passphrase");
           setAvailableGeneratedMethod(null);
           setUnlockWithPassphraseFallback(false);
@@ -239,7 +243,9 @@ export function VaultFlow({
         }
         setStep("unlock");
       } catch (err) {
-        console.error("Vault status check failed:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("Vault status check failed:", err);
+        }
         const errorCode =
           typeof (err as { code?: unknown } | null | undefined)?.code === "string"
             ? (err as { code: string }).code
