@@ -115,10 +115,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
                   });
                   onboardingIncomplete = false;
                 } catch (bridgeError) {
-                  console.warn(
-                    "[KaiOnboardingGuard] Failed local->remote pre-vault bridge:",
-                    bridgeError
-                  );
+                  if (process.env.NODE_ENV !== "production") {
+                    console.warn(
+                      "[KaiOnboardingGuard] Failed local->remote pre-vault bridge:",
+                      bridgeError
+                    );
+                  }
                 }
               }
             }
@@ -201,10 +203,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
               vaultKey,
               vaultOwnerToken,
             }).catch((syncError) => {
-              console.warn(
-                "[KaiOnboardingGuard] Deferred onboarding sync failed, retrying later:",
-                syncError
-              );
+              if (process.env.NODE_ENV !== "production") {
+                console.warn(
+                  "[KaiOnboardingGuard] Deferred onboarding sync failed, retrying later:",
+                  syncError
+                );
+              }
             });
           }
         }
@@ -221,10 +225,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
               skipped: completion.skippedPreferences,
               completedAt: completion.completedAt,
             }).catch((syncError) => {
-              console.warn(
-                "[KaiOnboardingGuard] Failed vault->remote onboarding bridge:",
-                syncError
-              );
+              if (process.env.NODE_ENV !== "production") {
+                console.warn(
+                  "[KaiOnboardingGuard] Failed vault->remote onboarding bridge:",
+                  syncError
+                );
+              }
             });
           }
         }
@@ -249,7 +255,9 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           }
         }
       } catch (error) {
-        console.warn("[KaiOnboardingGuard] Failed to check onboarding state:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[KaiOnboardingGuard] Failed to check onboarding state:", error);
+        }
         if (!cancelled) {
           setGuardError("Unable to load onboarding state. Please retry.");
         }
