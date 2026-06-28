@@ -247,3 +247,37 @@ is memory-only (never persisted).
 3. **superpowers:writing-plans** — implementation plan.
 4. **superpowers:test-driven-development** + **superpowers:executing-plans** —
    build on `feat/one-location-agent-chat`.
+
+## 11. Addendum (2026-06-28) — execution path correction
+
+Manual testing surfaced that the consent-gated **ADK execution path does not
+work** with the pinned `google-adk==1.28.1`. `hushh_adk/core.py`'s `HushhAgent`
+was written against an incompatible ADK API: it imports `google.adk.model`
+(does not exist), calls `super().run(input=...)` (ADK `LlmAgent` has no sync
+`run()` — only `run_async(InvocationContext)` via a `Runner`), and passes
+`system_instruction` (the pydantic field is `instruction`). The `try/except`
+around the import silently flips `_ADK_AVAILABLE` to `False`, so a **stub** runs
+whose `.run()` raises — `LocationAgent.handle_message` therefore always returned
+its safe fallback. This path had never executed (KAI's working chat uses the
+Gemini-direct path, not ADK).
+
+**Decision (user):** keep v1 scope/contract identical, but **bypass the dead ADK
+wrapper**. `LocationChatService` now runs a **Gemini function-calling loop**
+using the backend's server-side client (`operons.kai.llm`), executed **inside a
+`HushhContext`**. The 5 control-plane `@hushh_tool` callables remain the
+function implementations, so they still enforce DB-backed scope validation —
+`vault.owner` satisfies `cap.location.*` via `scope_matches` (master key).
+Consent guarantees and coordinate-safety are unchanged.
+
+Supersedes where they conflict:
+- §4 "Response mode … consent-gated **ADK** path" → consent-gated **direct-Gemini**
+  path (still non-streaming, still inside `HushhContext`).
+- §4 turn path no longer calls `LocationAgent.handle_message`; it calls the
+  Gemini client directly and dispatches tools itself.
+- §4 `stateChanged` is now **precise**: `true` only when a mutating (non-query)
+  tool actually ran successfully (the runner observes the tool calls).
+- Adds a graceful "assistant unavailable" reply (errored, `stateChanged:false`)
+  when the Gemini client is not configured.
+
+Unchanged: endpoint, request/response shape, 5-tool allow-list, multi-turn
+persistence via `AgentChatService`, frontend, and all privacy/consent invariants.
