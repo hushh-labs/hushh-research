@@ -13,7 +13,10 @@ describe("copyToClipboard", () => {
       configurable: true,
       value: undefined,
     });
-    vi.spyOn(document, "execCommand").mockReturnValue(false);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
 
     await expect(copyToClipboard("copy me")).resolves.toBe(false);
 
