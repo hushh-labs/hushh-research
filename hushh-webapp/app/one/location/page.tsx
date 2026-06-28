@@ -132,7 +132,11 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  CONSENT_STATE_CHANGED_EVENT,
+  dispatchConsentStateChanged,
+} from "@/lib/consent/consent-events";
+import { LocationChatPanel } from "@/components/one-location/redesign/location-chat-panel";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
@@ -4220,6 +4224,15 @@ function OneLocationAgentPageContent() {
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
+          {vaultOwnerToken ? (
+            <LocationChatPanel
+              vaultOwnerToken={vaultOwnerToken}
+              onStateChanged={() => {
+                void refresh();
+                dispatchConsentStateChanged({ source: "one_location_chat" });
+              }}
+            />
+          ) : null}
         </AppPageContentRegion>
       </AppPageShell>
     );
