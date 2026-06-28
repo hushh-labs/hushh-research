@@ -2640,7 +2640,9 @@ export function KaiFlow({
           return;
         }
 
-        console.error("[KaiFlow] Import error:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[KaiFlow] Import error:", err);
+        }
         const rawErrorMessage =
           err instanceof Error ? String(err.message || "") : String(err || "");
         const isTransientNetworkLoss =
@@ -3119,7 +3121,9 @@ export function KaiFlow({
       setError(null);
       toast.success("Sample brokerage data loaded. Review and save to Vault.");
     } catch (preloadError) {
-      console.error("[KaiFlow] Failed to preload schema data:", preloadError);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[KaiFlow] Failed to preload schema data:", preloadError);
+      }
       toast.error("Could not load sample data. Please try again.");
     } finally {
       setPendingSchemaPreload(false);
