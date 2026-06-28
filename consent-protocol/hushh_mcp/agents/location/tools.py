@@ -139,3 +139,15 @@ LOCATION_AGENT_TOOLS = [
     deny_location_request,
     refer_location_recipient,
 ]
+
+
+# v1 control-plane subset: tools the agent can fully complete server-side with no
+# client-side encryption handoff. Excludes create/publish/view/approve, which
+# require the client to capture, encrypt, and upload a coordinate envelope.
+CONTROL_PLANE_LOCATION_TOOLS = [
+    list_location_recipients,
+    revoke_location_share,
+    request_location_access,
+    deny_location_request,
+    refer_location_recipient,
+]
