@@ -3,38 +3,48 @@ import { describe, expect, it } from "vitest";
 import { formatCompleteJson } from "@/lib/utils/json-to-human";
 
 // Characterization tests for formatCompleteJson
-// (hushh-webapp/lib/utils/json-to-human.ts) focused on native JavaScript
-// `Proxy` wrappers placed around the evaluation object graph.
+// (hushh-webapp/lib/utils/json-to-human.ts) for native JavaScript `Proxy`
+// wrappers around the evaluation object graph.
 //
-// Real implementation walks the input purely with standard reflection:
-//   for (const [sectionKey, sectionValue] of Object.entries(json)) { ... }
-//   typeof sectionValue === "number" | "string" | "object"
-//   Array.isArray(sectionValue)
-//   nested: Object.entries(sectionValue as Record<string, unknown>)
+// TRUTH-FIRST / NON-OVERLAP SCOPE NOTE:
+//   The generic "Object.entries enumerable-own" traversal contract is ALREADY
+//   pinned by sibling files — notably `format-json-enumerable.test.ts` (which
+//   proves non-enumerable keys and non-enumerable getters are invisible) plus
+//   `format-json-poisoning.test.ts`, `format-json-inheritance.test.ts`, and
+//   `format-constructor-overrides.test.ts`. A Proxy whose traps merely forward
+//   (or omit) is just a transparent re-expression of that SAME contract, so
+//   identical-passthrough / ownKeys-hiding / generic-object-branch cases would
+//   duplicate existing coverage and are intentionally NOT re-added here.
 //
-// KEY INVARIANT: A Proxy is transparent to `Object.entries`, `typeof`, and
-// `Array.isArray` when its target is a plain object/array and the traps simply
-// forward (or are omitted). So the formatter does NOT special-case proxies — it
-// traverses them exactly like their underlying targets, and any `get`/
-// `ownKeys`/`getOwnPropertyDescriptor` traps WILL fire during formatting.
+//   This file is narrowed to the two behaviors a Proxy can express that plain
+//   objects and `Object.defineProperty` CANNOT, and that no existing test
+//   covers:
+//     1. `Array.isArray` transparency over an array-TARGET proxy (the formatter
+//        routes it through the array branch, not the object branch).
+//     2. A LIVE, enumerable trap that actually fires during traversal and whose
+//        thrown error is NOT swallowed — the exact complement of the enumerable
+//        file's "a non-enumerable getter is never invoked" boundary.
 
-describe("formatCompleteJson — Proxy-wrapped evaluation fields", () => {
-  it("serializes a Proxy-wrapped top-level object identically to its plain target", () => {
-    const plainTarget = {
-      account_metadata: {
-        institution_name: "Acme Bank",
-        account_number: "12345",
-      },
-    };
-    const proxied = new Proxy(plainTarget, {});
+describe("formatCompleteJson — Proxy-unique behaviors (non-overlapping)", () => {
+  it("treats a Proxy whose target is an array as an array section (Array.isArray transparency)", () => {
+    const arrayTarget = [
+      { symbol_cusip: "AAPL", market_value: 1000, unrealized_gain_loss: 50 },
+    ];
+    const proxiedArray = new Proxy(arrayTarget, {});
 
-    expect(formatCompleteJson(proxied)).toBe(formatCompleteJson(plainTarget));
+    const output = formatCompleteJson({ holdings: proxiedArray });
+
+    // Array.isArray sees through the proxy → Holdings (array) branch fires,
+    // NOT the generic object branch. This is unique to a proxy target; a plain
+    // object can never satisfy Array.isArray.
+    expect(output).toContain("--- Holdings (1 items) ---");
+    expect(output).toContain("• AAPL");
   });
 
-  it("fires a forwarding get trap while reading nested fields", () => {
+  it("invokes a live enumerable get trap during traversal (complement of the non-enumerable-getter boundary)", () => {
     const reads: string[] = [];
-    const nested = new Proxy(
-      { institution_name: "Trapped Bank", account_number: "999" },
+    const live = new Proxy(
+      { institution_name: "Trapped Bank" },
       {
         get(target, prop, receiver) {
           if (typeof prop === "string") reads.push(prop);
@@ -43,46 +53,15 @@ describe("formatCompleteJson — Proxy-wrapped evaluation fields", () => {
       }
     );
 
-    const output = formatCompleteJson({ account_metadata: nested });
+    const output = formatCompleteJson({ account_metadata: live });
 
-    // The trap observed real key access during traversal.
+    // Unlike a NON-enumerable getter (which Object.entries never reaches), a
+    // proxy over an enumerable key IS traversed, so the trap fires for real.
     expect(reads).toContain("institution_name");
     expect(output).toContain("Institution: Trapped Bank");
   });
 
-  it("treats a Proxy whose target is an array as an array section", () => {
-    const arrayTarget = [
-      { symbol_cusip: "AAPL", market_value: 1000, unrealized_gain_loss: 50 },
-    ];
-    const proxiedArray = new Proxy(arrayTarget, {});
-
-    const output = formatCompleteJson({ holdings: proxiedArray });
-
-    // Array.isArray sees through the proxy → array branch, not object branch.
-    expect(output).toContain("--- Holdings (1 items) ---");
-    expect(output).toContain("• AAPL");
-  });
-
-  it("honors an ownKeys/getOwnPropertyDescriptor trap that hides a field from Object.entries", () => {
-    const target = { institution_name: "Visible", account_number: "SECRET" };
-    const hidden = new Proxy(target, {
-      ownKeys(t) {
-        return Reflect.ownKeys(t).filter((k) => k !== "account_number");
-      },
-      getOwnPropertyDescriptor(t, prop) {
-        if (prop === "account_number") return undefined;
-        return Reflect.getOwnPropertyDescriptor(t, prop);
-      },
-    });
-
-    const output = formatCompleteJson({ account_metadata: hidden });
-
-    // Object.entries respects ownKeys → hidden key never reaches the formatter.
-    expect(output).toContain("Institution: Visible");
-    expect(output).not.toContain("SECRET");
-  });
-
-  it("propagates a throwing get trap (formatter does not swallow proxy errors)", () => {
+  it("does NOT swallow an error thrown by a trap fired mid-traversal", () => {
     const exploding = new Proxy(
       { institution_name: "Boom" },
       {
@@ -92,21 +71,10 @@ describe("formatCompleteJson — Proxy-wrapped evaluation fields", () => {
       }
     );
 
+    // formatCompleteJson has no try/catch around section traversal, so a
+    // throwing live trap propagates to the caller verbatim.
     expect(() => formatCompleteJson({ account_metadata: exploding })).toThrow(
       "trap exploded"
     );
-  });
-
-  it("formats a Proxy-wrapped scalar-bearing object via the generic object branch", () => {
-    const proxied = new Proxy(
-      { custom_field: "kept", another_field: 42 },
-      {}
-    );
-
-    const output = formatCompleteJson({ misc_section: proxied });
-
-    expect(output).toContain("--- Misc Section ---");
-    expect(output).toContain("Custom Field: kept");
-    expect(output).toContain("Another Field: 42");
   });
 });
