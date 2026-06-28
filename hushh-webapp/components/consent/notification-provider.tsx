@@ -1193,7 +1193,9 @@ export function ConsentNotificationProvider({
       } catch (err) {
         if (cancelled) return;
         const detail = err instanceof Error ? err.message : "fcm_init_failed";
-        console.error("[NotificationProvider] FCM initialization failed:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[NotificationProvider] FCM initialization failed:", err);
+        }
         persistDeliveryState(user.uid, {
           status: "push_failed",
           detail,
