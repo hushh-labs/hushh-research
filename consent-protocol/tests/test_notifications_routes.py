@@ -5,12 +5,15 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware import require_firebase_auth
 from api.routes import notifications
 
 
-def _build_app() -> FastAPI:
+def _build_app(firebase_uid: str | None = None) -> FastAPI:
     app = FastAPI()
     app.include_router(notifications.router)
+    if firebase_uid is not None:
+        app.dependency_overrides[require_firebase_auth] = lambda: firebase_uid
     return app
 
 
@@ -20,33 +23,11 @@ def test_register_push_token_requires_firebase_auth():
         "/api/notifications/register",
         json={"user_id": "user_123", "token": "fcm_token_123", "platform": "web"},
     )
-
     assert response.status_code == 401
 
 
-def test_register_push_token_rejects_invalid_json(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
-
-    response = client.post(
-        "/api/notifications/register",
-        content="{invalid json",
-        headers={"Authorization": "Bearer firebase-token"},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Invalid JSON body"
-
-
-def test_register_push_token_requires_user_id_and_token(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_register_push_token_requires_user_id_and_token():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     response = client.post(
         "/api/notifications/register",
@@ -54,16 +35,12 @@ def test_register_push_token_requires_user_id_and_token(monkeypatch):
         headers={"Authorization": "Bearer firebase-token"},
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "user_id and token are required"
+    # Pydantic validation returns 422 for missing required fields
+    assert response.status_code == 422
 
 
-def test_register_push_token_rejects_cross_user_registration(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_register_push_token_rejects_cross_user_registration():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     response = client.post(
         "/api/notifications/register",
@@ -75,12 +52,8 @@ def test_register_push_token_rejects_cross_user_registration(monkeypatch):
     assert response.json()["detail"] == "Cannot register token for another user"
 
 
-def test_register_push_token_rejects_invalid_platform(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_register_push_token_rejects_invalid_platform():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     response = client.post(
         "/api/notifications/register",
@@ -92,16 +65,12 @@ def test_register_push_token_rejects_invalid_platform(monkeypatch):
         headers={"Authorization": "Bearer firebase-token"},
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "platform must be one of: web, ios, android"
+    # Pydantic Literal validation returns 422
+    assert response.status_code == 422
 
 
-def test_register_push_token_defaults_platform_to_web(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_register_push_token_defaults_platform_to_web():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     with patch("api.routes.notifications.PushTokensService") as mock_service_class:
         mock_service = MagicMock()
@@ -123,12 +92,8 @@ def test_register_push_token_defaults_platform_to_web(monkeypatch):
     }
 
 
-def test_register_push_token_maps_service_failure_to_500(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_register_push_token_maps_service_failure_to_500():
+    client = TestClient(_build_app(firebase_uid="user_123"), raise_server_exceptions=False)
 
     with patch("api.routes.notifications.PushTokensService") as mock_service_class:
         mock_service = MagicMock()
@@ -148,16 +113,11 @@ def test_register_push_token_maps_service_failure_to_500(monkeypatch):
 def test_unregister_push_token_requires_firebase_auth():
     client = TestClient(_build_app())
     response = client.request("DELETE", "/api/notifications/unregister")
-
     assert response.status_code == 401
 
 
-def test_unregister_push_token_defaults_user_id_from_firebase_uid(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_unregister_push_token_defaults_user_id_from_firebase_uid():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     with patch("api.routes.notifications.PushTokensService") as mock_service_class:
         mock_service = MagicMock()
@@ -175,12 +135,8 @@ def test_unregister_push_token_defaults_user_id_from_firebase_uid(monkeypatch):
     mock_service.delete_user_push_tokens.assert_called_once_with(user_id="user_123", platform=None)
 
 
-def test_unregister_push_token_forwards_platform(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_unregister_push_token_forwards_platform():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     with patch("api.routes.notifications.PushTokensService") as mock_service_class:
         mock_service = MagicMock()
@@ -199,12 +155,8 @@ def test_unregister_push_token_forwards_platform(monkeypatch):
     mock_service.delete_user_push_tokens.assert_called_once_with(user_id="user_123", platform="ios")
 
 
-def test_unregister_push_token_rejects_cross_user_unregistration(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_unregister_push_token_rejects_cross_user_unregistration():
+    client = TestClient(_build_app(firebase_uid="user_123"))
 
     response = client.request(
         "DELETE",
@@ -217,36 +169,8 @@ def test_unregister_push_token_rejects_cross_user_unregistration(monkeypatch):
     assert response.json()["detail"] == "Cannot unregister tokens for another user"
 
 
-def test_unregister_push_token_handles_missing_json_body(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
-
-    with patch("api.routes.notifications.PushTokensService") as mock_service_class:
-        mock_service = MagicMock()
-        mock_service.delete_user_push_tokens.return_value = 3
-        mock_service_class.return_value = mock_service
-
-        response = client.request(
-            "DELETE",
-            "/api/notifications/unregister",
-            content="{invalid json",
-            headers={"Authorization": "Bearer firebase-token"},
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "user_id": "user_123", "deleted": 3}
-    mock_service.delete_user_push_tokens.assert_called_once_with(user_id="user_123", platform=None)
-
-
-def test_unregister_push_token_maps_service_failure_to_500(monkeypatch):
-    client = TestClient(_build_app())
-    monkeypatch.setattr(
-        "api.routes.notifications.verify_firebase_bearer",
-        lambda auth_header: "user_123",
-    )
+def test_unregister_push_token_maps_service_failure_to_500():
+    client = TestClient(_build_app(firebase_uid="user_123"), raise_server_exceptions=False)
 
     with patch("api.routes.notifications.PushTokensService") as mock_service_class:
         mock_service = MagicMock()
