@@ -5,6 +5,7 @@ import {
   Combobox,
   ComboboxChip,
   ComboboxChips,
+  ComboboxTrigger,
 } from "@/components/ui/combobox";
 
 describe("ComboboxChip", () => {
@@ -20,5 +21,16 @@ describe("ComboboxChip", () => {
     expect(
       container.querySelector('[data-slot="combobox-chip-remove"]'),
     ).toBeTruthy();
+  });
+});
+
+describe("ComboboxTrigger", () => {
+  it("propagates custom class names", () => {
+    const { container } = render(
+      <Combobox>
+        <ComboboxTrigger className="custom-combobox-trigger" />
+      </Combobox>,
+    );
+    expect(container.querySelector('[data-slot="combobox-trigger"]')?.className).toContain("custom-combobox-trigger");
   });
 });
