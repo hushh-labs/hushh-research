@@ -7,6 +7,7 @@ OneLocationAgentService and scope checks inside @hushh_tool.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
@@ -23,6 +24,23 @@ def _ctx() -> HushhContext:
 
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
+
+
+def _require_uuid(value: str, label: str) -> str:
+    """Validate a UUID-typed identifier before it reaches the database.
+
+    The LLM can hallucinate ids; without this guard a bad value reaches Postgres
+    and raises an opaque InvalidTextRepresentation. Raising a clear ValueError
+    instead gives the model actionable feedback to look the id up first.
+    """
+    try:
+        UUID(str(value))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError(
+            f"{label} '{value}' is not a valid id. "
+            "Call list_active_location_shares to get real ids first."
+        ) from exc
+    return str(value)
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="list_location_recipients")
@@ -80,6 +98,7 @@ async def view_location_envelope(grant_id: str) -> dict[str, Any]:
 async def revoke_location_share(grant_id: str) -> dict[str, Any]:
     """Revoke an active live-location grant owned by the current user."""
     context = _ctx()
+    grant_id = _require_uuid(grant_id, "grant_id")
     return _service().revoke_grant(owner_user_id=context.user_id, grant_id=grant_id)
 
 
@@ -109,6 +128,7 @@ async def approve_location_request(request_id: str, duration_hours: float) -> di
 async def deny_location_request(request_id: str) -> dict[str, Any]:
     """Deny a pending request without creating access."""
     context = _ctx()
+    request_id = _require_uuid(request_id, "request_id")
     return _service().deny_request(owner_user_id=context.user_id, request_id=request_id)
 
 
@@ -120,6 +140,7 @@ async def refer_location_recipient(
 ) -> dict[str, Any]:
     """Refer another verified user into an owner approval request."""
     context = _ctx()
+    grant_id = _require_uuid(grant_id, "grant_id")
     return _service().refer_recipient(
         referring_user_id=context.user_id,
         grant_id=grant_id,
@@ -128,8 +149,31 @@ async def refer_location_recipient(
     )
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="list_active_location_shares")
+async def list_active_location_shares() -> dict[str, Any]:
+    """List the user's active outgoing live-location shares.
+
+    Returns each active share's grant id and recipient so the agent can revoke or
+    refer by a real id instead of guessing. Coordinate-free (no lat/lng).
+    """
+    context = _ctx()
+    state = _service().list_state(user_id=context.user_id)
+    shares = [
+        {
+            "grantId": grant.get("id"),
+            "recipientUserId": grant.get("recipientUserId"),
+            "recipientDisplayName": grant.get("recipientDisplayName"),
+            "expiresAt": grant.get("expiresAt"),
+        }
+        for grant in state.get("ownerGrants", [])
+        if grant.get("status") == "active"
+    ]
+    return {"activeShares": shares}
+
+
 LOCATION_AGENT_TOOLS = [
     list_location_recipients,
+    list_active_location_shares,
     create_location_share,
     publish_location_envelope,
     view_location_envelope,
@@ -146,6 +190,7 @@ LOCATION_AGENT_TOOLS = [
 # require the client to capture, encrypt, and upload a coordinate envelope.
 CONTROL_PLANE_LOCATION_TOOLS = [
     list_location_recipients,
+    list_active_location_shares,
     revoke_location_share,
     request_location_access,
     deny_location_request,

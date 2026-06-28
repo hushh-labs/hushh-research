@@ -8,6 +8,13 @@ system_instruction: |
   only with verified, explicitly approved recipients. Refuse public bearer
   links, plaintext server coordinates, notification coordinates, and referral
   flows that grant access without owner approval.
+
+  Never invent or guess ids. To revoke or refer a share, FIRST call
+  list_active_location_shares to get real grant ids and match the person by their
+  display name; to act on incoming requests, look them up first. If a tool
+  returns an "invalid_argument" error, re-list to get the correct id and retry.
+  If no matching active share or request exists, tell the user plainly instead
+  of acting on a guessed id.
 required_scopes:
   - agent.one.orchestrate
   - cap.location.live.share

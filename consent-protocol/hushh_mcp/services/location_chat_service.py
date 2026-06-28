@@ -36,7 +36,7 @@ _LLM_TIMEOUT_S = 30.0
 _HISTORY_CHARS = 2000
 
 # Tools that only read state — invoking them should NOT trigger a UI refresh.
-_QUERY_TOOL_NAMES = {"list_location_recipients"}
+_QUERY_TOOL_NAMES = {"list_location_recipients", "list_active_location_shares"}
 
 _UNAVAILABLE_MESSAGE = (
     "The location assistant is temporarily unavailable. Please try again, or use "
@@ -71,10 +71,19 @@ def _function_declarations(types: Any) -> list:
             ),
         ),
         types.FunctionDeclaration(
+            name="list_active_location_shares",
+            description=(
+                "List the user's active outgoing live-location shares with their grant "
+                "ids and recipient names. Call this FIRST to get a real grant_id before "
+                "revoking or referring — never guess an id. Read-only."
+            ),
+            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+        ),
+        types.FunctionDeclaration(
             name="revoke_location_share",
             description=(
                 "Stop sharing the user's live location for one active share. "
-                "grant_id is the id of the active share to revoke."
+                "grant_id MUST come from list_active_location_shares — never invent it."
             ),
             parameters=schema(
                 type=kind.OBJECT,
@@ -266,6 +275,10 @@ class LocationChatService:
             result = await tool(**args)
         except PermissionError:
             return {"error": "consent_denied"}, False
+        except ValueError as exc:
+            # Invalid/guessed argument (e.g. a non-UUID id). Surface the guidance to
+            # the model so it can look the id up and retry within the turn.
+            return {"error": "invalid_argument", "message": str(exc)}, False
         except Exception as exc:
             logger.warning("Location tool %s failed: %s", name, exc)
             return {"error": "tool_failed"}, False
