@@ -161,7 +161,9 @@ export function KaiNavTour() {
             return;
           }
         } catch (error) {
-          console.warn("[KaiNavTour] Failed to read vault-backed tour state:", error);
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[KaiNavTour] Failed to read vault-backed tour state:", error);
+          }
         }
       }
 
@@ -305,7 +307,9 @@ export function KaiNavTour() {
         });
         await KaiNavTourLocalService.markSynced(user.uid);
       } catch (error) {
-        console.warn("[KaiNavTour] Failed to sync nav tour state:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[KaiNavTour] Failed to sync nav tour state:", error);
+        }
       }
       return;
     }
@@ -322,7 +326,9 @@ export function KaiNavTour() {
       });
       await KaiNavTourLocalService.markSynced(user.uid);
     } catch (error) {
-      console.warn("[KaiNavTour] Failed to sync pre-vault nav tour state:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[KaiNavTour] Failed to sync pre-vault nav tour state:", error);
+      }
     }
   }
 
@@ -336,7 +342,9 @@ export function KaiNavTour() {
         skippedAt: local.skipped_at,
       });
     } catch (error) {
-      console.warn("[KaiNavTour] Failed to mark skipped:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[KaiNavTour] Failed to mark skipped:", error);
+      }
     }
   }
 
@@ -350,7 +358,9 @@ export function KaiNavTour() {
         skippedAt: null,
       });
     } catch (error) {
-      console.warn("[KaiNavTour] Failed to mark completed:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[KaiNavTour] Failed to mark completed:", error);
+      }
     }
   }
 
