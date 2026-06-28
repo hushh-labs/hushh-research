@@ -9,6 +9,16 @@ import {
 } from "@/components/ui/drawer";
 
 describe("DrawerContent", () => {
+  it("propagates custom class names", () => {
+    const { baseElement } = render(
+      <Drawer open>
+        <DrawerContent className="custom-drawer">
+          <DrawerTitle>Test drawer</DrawerTitle>
+        </DrawerContent>
+      </Drawer>
+    );
+    expect(baseElement.querySelector('[data-slot="drawer-content"]')?.className).toContain("custom-drawer");
+  });
   it("renders the close button when showCloseButton is true", () => {
     render(
       <Drawer open>
