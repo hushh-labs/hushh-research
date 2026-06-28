@@ -9,7 +9,7 @@ from typing import Any
 from hushh_mcp.hushh_adk.core import HushhAgent
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 
-from .tools import LOCATION_AGENT_TOOLS
+from .tools import CONTROL_PLANE_LOCATION_TOOLS, LOCATION_AGENT_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -17,15 +17,18 @@ logger = logging.getLogger(__name__)
 class LocationAgent(HushhAgent):
     """Trusted-people live-location workflow agent under One."""
 
-    def __init__(self) -> None:
+    def __init__(self, tools: list[Any] | None = None) -> None:
         manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
         self.manifest = ManifestLoader.load(manifest_path)
+
+        selected_tools = tools if tools is not None else LOCATION_AGENT_TOOLS
+        self.hushh_tools = selected_tools
 
         super().__init__(
             name=self.manifest.name,
             model=self.manifest.model,
             system_prompt=self.manifest.system_instruction,
-            tools=LOCATION_AGENT_TOOLS,
+            tools=selected_tools,
             required_scopes=self.manifest.required_scopes,
         )
 
@@ -57,3 +60,14 @@ def get_location_agent() -> LocationAgent:
     if _location_agent is None:
         _location_agent = LocationAgent()
     return _location_agent
+
+
+_location_chat_agent: LocationAgent | None = None
+
+
+def get_location_chat_agent() -> LocationAgent:
+    """Singleton LocationAgent restricted to v1 control-plane tools (no crypto handoff)."""
+    global _location_chat_agent
+    if _location_chat_agent is None:
+        _location_chat_agent = LocationAgent(tools=CONTROL_PLANE_LOCATION_TOOLS)
+    return _location_chat_agent
