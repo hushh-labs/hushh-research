@@ -810,11 +810,15 @@ export function ConsentNotificationProvider({
         setFcmInitStatus(result.status);
         setDeliveryDetail(result.detail ?? null);
         setDeliveryMode(deliveryModeFromInitStatus(result.status));
-        console.info("[NotificationProvider] Delivery init:", result);
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[NotificationProvider] Delivery init:", result);
+        }
       } catch (err) {
         if (cancelled) return;
         const detail = err instanceof Error ? err.message : "fcm_init_failed";
-        console.error("[NotificationProvider] FCM initialization failed:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[NotificationProvider] FCM initialization failed:", err);
+        }
         persistDeliveryState(user.uid, {
           status: "push_failed",
           detail,
@@ -1198,10 +1202,12 @@ export function ConsentNotificationProvider({
         }
       } catch (err) {
         if (cancelled) return;
-        if (isTransientFetchFailure(err)) {
-          console.warn("[NotificationProvider] Initial fetch error:", err);
-        } else {
-          console.error("[NotificationProvider] Initial fetch error:", err);
+        if (process.env.NODE_ENV !== "production") {
+          if (isTransientFetchFailure(err)) {
+            console.warn("[NotificationProvider] Initial fetch error:", err);
+          } else {
+            console.error("[NotificationProvider] Initial fetch error:", err);
+          }
         }
         if (queuedPending.length > 0) {
           clearQueuedPendingConsents(uid);
