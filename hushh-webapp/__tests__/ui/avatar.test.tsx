@@ -20,6 +20,17 @@ describe("Avatar", () => {
     expect(container.querySelector('[data-slot="avatar"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(
+      <Avatar className="custom-avatar-class">
+        <AvatarFallback>JD</AvatarFallback>
+      </Avatar>,
+    );
+
+    const avatar = container.querySelector('[data-slot="avatar"]');
+    expect(avatar?.className).toContain("custom-avatar-class");
+  });
+
   it("defaults root to data-size='default'", () => {
     const { container } = render(
       <Avatar>

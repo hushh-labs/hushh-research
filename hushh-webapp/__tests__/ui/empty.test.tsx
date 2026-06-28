@@ -17,6 +17,11 @@ describe("Empty", () => {
     expect(container.querySelector('[data-slot="empty"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Empty className="custom-empty-class" />);
+    expect(container.querySelector('[data-slot="empty"]')?.className).toContain("custom-empty-class");
+  });
+
   it("renders root with role='status'", () => {
     const { container } = render(<Empty />);
 
@@ -109,6 +114,20 @@ describe("Empty", () => {
     const media = container.querySelector('[data-slot="empty-icon"]');
 
     expect(media?.getAttribute("data-variant")).toBe("default");
+  });
+
+  it("renders EmptyDescription as a p element", () => {
+    const { container } = render(
+      <Empty>
+        <EmptyDescription>Try again later</EmptyDescription>
+      </Empty>,
+    );
+
+    const description = container.querySelector(
+      '[data-slot="empty-description"]',
+    );
+
+    expect(description?.tagName).toBe("P");
   });
 
 });

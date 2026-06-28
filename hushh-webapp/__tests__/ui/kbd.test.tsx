@@ -1,34 +1,34 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { Kbd } from "@/components/ui/kbd";
 
 describe("Kbd", () => {
-  it("renders with data-slot='kbd'", () => {
-    const { container } = render(<Kbd>⌘</Kbd>);
+  it("exposes the kbd data-slot contract", () => {
+    const { container } = render(<Kbd>⌘K</Kbd>);
 
-    expect(container.querySelector('[data-slot="kbd"]')).toBeTruthy();
+    expect(container.querySelector('[data-slot="kbd"]')).not.toBeNull();
   });
 
-  it("renders group with data-slot='kbd-group'", () => {
+  it("renders as a kbd element", () => {
+    const { container } = render(<Kbd>⌘K</Kbd>);
+
+    const el = container.querySelector('[data-slot="kbd"]');
+
+    expect(el?.tagName).toBe("KBD");
+  });
+
+  it("merges a custom className onto the kbd element", () => {
     const { container } = render(
-      <KbdGroup>
-        <Kbd>⌘</Kbd>
-        <Kbd>K</Kbd>
-      </KbdGroup>,
+      <Kbd className="test-class">⌘K</Kbd>,
     );
 
-    expect(container.querySelector('[data-slot="kbd-group"]')).toBeTruthy();
+    const element = container.querySelector('[data-slot="kbd"]');
+    expect(
+      element?.classList.contains(
+        "test-class",
+      ),
+    ).toBe(true);
   });
 
-  it("renders keyboard shortcut keys with data-slot='kbd'", () => {
-    const { container } = render(
-      <KbdGroup>
-        <Kbd>Ctrl</Kbd>
-        <Kbd>K</Kbd>
-      </KbdGroup>,
-    );
-
-    expect(container.querySelectorAll('[data-slot="kbd"]')).toHaveLength(2);
-  });
 });

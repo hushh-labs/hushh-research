@@ -12,6 +12,21 @@ describe("Badge", () => {
     ).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Badge className="custom-badge">Label</Badge>);
+    expect(container.querySelector('[data-slot="badge"]')?.className).toContain("custom-badge");
+  });
+
+  it("preserves the badge data-slot when rendered asChild", () => {
+    const { container } = render(
+      <Badge asChild>
+        <a href="/profile">Profile</a>
+      </Badge>,
+    );
+
+    expect(container.querySelector("a")?.getAttribute("data-slot")).toBe("badge");
+  });
+
   it("defaults to data-variant='default'", () => {
     const { container } = render(<Badge>Label</Badge>);
 
@@ -47,4 +62,13 @@ describe("Badge", () => {
       ).toBe(variant);
     });
   });
+
+  it("renders Badge as a span element", () => {
+    const { container } = render(<Badge>Label</Badge>);
+
+    const badge = container.querySelector('[data-slot="badge"]');
+
+    expect(badge?.tagName).toBe("SPAN");
+  });
+
 });

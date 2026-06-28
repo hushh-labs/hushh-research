@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   resolveRuntimeBackendUrl,
   resolveVoiceDirectBackendPreference,
+  resolveVoiceFailFastPolicy,
 } from "@/lib/runtime/settings";
 
 describe("runtime settings", () => {
@@ -46,5 +47,15 @@ describe("runtime settings", () => {
   process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "enabled";
 
   expect(resolveVoiceDirectBackendPreference()).toBe(true);
+  });
+
+  it("treats false as disabled for direct backend preference", () => {
+    process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND = "false";
+
+    expect(resolveVoiceDirectBackendPreference()).toBe(false);
+  });
+
+  it("resolves voice fail-fast policy as false unconditionally", () => {
+    expect(resolveVoiceFailFastPolicy()).toBe(false);
   });
 });

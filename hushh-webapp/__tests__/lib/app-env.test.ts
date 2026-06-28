@@ -78,4 +78,13 @@ describe("resolveAppEnvironment", () => {
 
     expect(resolveFreshAppEnvironment()).toBe("uat");
   });
+
+  it("normalizes staging to uat via the legacy environment mode fallback", () => {
+    delete process.env.NEXT_PUBLIC_APP_ENV;
+    delete process.env.NEXT_PUBLIC_OBSERVABILITY_ENV;
+    process.env.NEXT_PUBLIC_ENVIRONMENT_MODE = "staging";
+
+    expect(resolveAppEnvironment()).toBe("uat");
+  });
+
 });

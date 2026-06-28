@@ -53,4 +53,16 @@ describe("DrawerFooter", () => {
       "env(safe-area-inset-bottom)",
     );
   });
+
+  it("renders with role='dialog'", () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerTitle>Test drawer</DrawerTitle>
+        </DrawerContent>
+      </Drawer>,
+    );
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
 });

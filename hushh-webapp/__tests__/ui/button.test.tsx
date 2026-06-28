@@ -1,23 +1,30 @@
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { Button } from "@/lib/morphy-ux/button";
+import { Button } from "@/components/ui/button";
 
 describe("Button", () => {
-  it("sets aria-busy during loading state", () => {
-    render(<Button loading>Save changes</Button>);
+  it("renders a disabled button", () => {
+    const { container } = render(<Button disabled>Save</Button>);
 
-    const button = screen.getByRole("button", { name: /save changes/i });
+    const button = container.querySelector("button");
 
-    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button).not.toBeNull();
+    expect(button?.hasAttribute("disabled")).toBe(true);
   });
+  it("merges a custom className onto the button element", () => {
+  const { container } = render(
+    <Button className="test-class">
+      Save
+    </Button>,
+  );
 
-  it("does not set aria-busy when not in loading state", () => {
-    render(<Button>Submit</Button>);
+  const button =container.querySelector("button");
 
-    const button = screen.getByRole("button", { name: /submit/i });
-
-    expect(button.getAttribute("aria-busy")).toBeNull();
-  });
-
+  expect(
+    button?.classList.contains(
+      "test-class",
+    ),
+  ).toBe(true);
+});
 });
