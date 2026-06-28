@@ -435,6 +435,7 @@ export function RiaPicksList({
                       <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
+                        aria-label="Search symbol, company, sector, or thesis"
                         placeholder="Search symbol, company, sector, or thesis"
                         autoComplete="off"
                         autoCorrect="off"
@@ -605,6 +606,7 @@ export function RiaPicksList({
                     <Input
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
+                      aria-label="Search symbol, company, sector, or thesis"
                       placeholder="Search symbol, company, sector, or thesis"
                       autoComplete="off"
                       autoCorrect="off"
