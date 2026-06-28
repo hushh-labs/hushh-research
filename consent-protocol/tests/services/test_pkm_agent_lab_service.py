@@ -72,6 +72,14 @@ def _registry_choices():
             "description": "Work preferences, professional context, and goals",
             "scope_paths": ["work_preferences", "goals", "profile"],
         },
+        {
+            "domain_key": "identity",
+            "display_name": "Identity",
+            "description": (
+                "Legal name, contact, and verified identity attributes for KYC/compliance"
+            ),
+            "scope_paths": ["profile"],
+        },
     ]
 
 

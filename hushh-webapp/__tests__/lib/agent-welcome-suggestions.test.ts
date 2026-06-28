@@ -47,4 +47,16 @@ describe("agent welcome suggestions", () => {
     expect(rotated).toHaveLength(3);
     expect(rotated).not.toEqual(first);
   });
+
+  it("matches route suggestions when pathname contains query parameters", () => {
+  const suggestions = resolveAgentWelcomeSuggestions({
+    userId: "user-query",
+    pathname: "/marketplace?tab=connect",
+    randomSeed: 7,
+  });
+
+  expect(
+    suggestions.some((item) => item.id === "connect-request")
+  ).toBe(true);
+  });
 });

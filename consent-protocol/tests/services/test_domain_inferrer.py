@@ -332,3 +332,43 @@ class TestDomainInferrerCanonicalServiceProof:
         for key in ("", "   ", "abc", "portfolio", "xyzzy_unknown_9999"):
             result = di.infer(key)
             assert isinstance(result, str), f"infer({key!r}) did not return a string"
+
+
+# ---------------------------------------------------------------------------
+# Phase 02-01: identity domain routing (RED -> GREEN)
+# ---------------------------------------------------------------------------
+
+
+class TestIdentityDomainRouting:
+    """identity-PII keys route to the identity domain, out-scoring location."""
+
+    def test_full_name_routes_to_identity(self, inferrer: DomainInferrer) -> None:
+        assert inferrer.infer("full_name") == "identity"
+
+    def test_date_of_birth_routes_to_identity(self, inferrer: DomainInferrer) -> None:
+        assert inferrer.infer("date_of_birth") == "identity"
+
+    def test_address_routes_to_identity_not_location(self, inferrer: DomainInferrer) -> None:
+        # location lists "address" too; identity carries the more-specific
+        # .*address.* pattern and must out-score location.
+        assert inferrer.infer("address") == "identity"
+
+    def test_email_routes_to_identity(self, inferrer: DomainInferrer) -> None:
+        assert inferrer.infer("email") == "identity"
+
+    def test_identity_rule_registered(self, inferrer: DomainInferrer) -> None:
+        assert "identity" in inferrer.list_domains()
+
+    def test_identity_metadata(self, inferrer: DomainInferrer) -> None:
+        meta = inferrer.get_domain_metadata("identity")
+        assert meta["icon"] == "user-round"
+        assert meta["color"] == "#0EA5E9"
+
+    def test_no_ssn_keyword_in_identity_rule(self) -> None:
+        from hushh_mcp.services.domain_inferrer import DOMAIN_RULES
+
+        identity = DOMAIN_RULES["identity"]
+        blob = " ".join(identity.get("keywords", []) + identity.get("patterns", [])).lower()
+        assert "ssn" not in blob
+        assert "social_security" not in blob
+        assert "social security" not in blob

@@ -22,6 +22,21 @@ describe("Select", () => {
     ).toBeTruthy();
   });
 
+  it("preserves trigger data-slot when className is provided", () => {
+    const { container } = render(
+      <Select>
+        <SelectTrigger className="custom-select-trigger">
+          <SelectValue placeholder="Pick one" />
+        </SelectTrigger>
+      </Select>,
+    );
+
+    const trigger = container.querySelector('[data-slot="select-trigger"]');
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.classList.contains("custom-select-trigger")).toBe(true);
+  });
+
   it("defaults trigger to data-size='default'", () => {
     const { container } = render(
       <Select>
@@ -48,5 +63,21 @@ describe("Select", () => {
     const trigger = container.querySelector('[data-slot="select-trigger"]');
 
     expect(trigger?.getAttribute("data-size")).toBe("sm");
+  });
+
+  it("renders the decorative trigger icon with aria-hidden='true'", () => {
+    const { container } = render(
+      <Select>
+        <SelectTrigger>
+          <SelectValue placeholder="Pick one" />
+        </SelectTrigger>
+      </Select>,
+    );
+
+    const icon = container.querySelector(
+      '[data-slot="select-trigger"] [aria-hidden="true"]',
+    );
+
+    expect(icon).toBeTruthy();
   });
 });
