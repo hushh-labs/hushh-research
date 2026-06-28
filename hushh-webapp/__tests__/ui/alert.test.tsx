@@ -10,6 +10,11 @@ describe("Alert", () => {
     expect(container.querySelector('[data-slot="alert"]')).toBeTruthy();
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Alert className="custom-alert-class" />);
+    expect(container.querySelector('[data-slot="alert"]')?.className).toContain("custom-alert-class");
+  });
+
   it("renders root with role='alert'", () => {
     const { container } = render(<Alert />);
 
@@ -38,5 +43,22 @@ describe("Alert", () => {
     expect(
       container.querySelector('[data-slot="alert-description"]'),
     ).toBeTruthy();
+  });
+
+  it("preserves alert data-slot contracts in a composed alert", () => {
+    const { container } = render(
+      <Alert>
+        <AlertTitle>Account notice</AlertTitle>
+        <AlertDescription>Review your account details.</AlertDescription>
+      </Alert>,
+    );
+
+    const alert = container.querySelector('[data-slot="alert"]');
+    const slots = Array.from(container.querySelectorAll("[data-slot]")).map(
+      (element) => element.getAttribute("data-slot"),
+    );
+
+    expect(alert?.getAttribute("role")).toBe("alert");
+    expect(slots).toEqual(["alert", "alert-title", "alert-description"]);
   });
 });
