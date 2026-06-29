@@ -6,7 +6,7 @@
 
 **Architecture:** Reuse infra already present on this branch (client ZK redact/re-fill pipeline, LLM renderer, `operons/kai/llm.py` Gemini client, `validate_token_with_db`, `vault.owner` master-key scope). Port six wiring pieces: a consent scope, a backend service method + route, a client API method, a pure client-side orchestrator, and the page wiring. The regex `/redraft` path stays but is no longer called from the UI.
 
-**Tech Stack:** Python (FastAPI, pytest, `consent-protocol/.venv`), TypeScript/React (Next.js, vitest).
+**Tech Stack:** Python (FastAPI, pytest, uv-managed `consent-protocol` environment), TypeScript/React (Next.js, vitest).
 
 ## Visual Map
 

@@ -17,6 +17,7 @@ export const ROUTES = {
   PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
+  KAI_ONBOARDING: "/one/onboarding",
   ONE_ONBOARDING: "/one/onboarding",
   ONE_SETUP: "/one/setup",
   ONE_SETUP_KAI: "/one/setup/kai",
