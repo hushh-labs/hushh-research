@@ -38,6 +38,10 @@ const MAX_VALUE_CHARS = 260;
 const MAX_ARRAY_ITEMS = 8;
 const MAX_DEPTH = 5;
 
+const EXCLUDED_PROMPT_DOMAINS = new Set([
+  "runtime_secrets",
+]);
+
 const workingSets = new Map<string, AgentPkmWorkingSet>();
 
 function compactWhitespace(value: unknown): string {
@@ -184,7 +188,7 @@ function scoreLine(
 function domainSummaryLines(metadata: PersonalKnowledgeModelMetadata | null): string[] {
   if (!metadata?.domains?.length) return [];
   return metadata.domains
-    .filter((domain) => domain.attributeCount > 0 || domain.readableSummary)
+    .filter((domain) => !EXCLUDED_PROMPT_DOMAINS.has(domain.key) && (domain.attributeCount > 0 || domain.readableSummary))
     .map((domain) => {
       const summary =
         clip(domain.readableSummary, 220) ||
@@ -209,7 +213,7 @@ function memoryDomainSummaryLines(workingSet: AgentPkmWorkingSet): string[] {
     return domainSummaryLines(workingSet.metadata);
   }
   return workingSet.memorySnapshot.domainInsights
-    .filter((domain) => domain.cardCount > 0 || domain.summary)
+    .filter((domain) => !EXCLUDED_PROMPT_DOMAINS.has(domain.domain) && (domain.cardCount > 0 || domain.summary))
     .map((domain) =>
       [
         `- ${domain.title} (${domain.domain})`,
@@ -224,7 +228,7 @@ function memoryDomainSummaryLines(workingSet: AgentPkmWorkingSet): string[] {
     );
 }
 
-function buildContextText(params: {
+export function buildContextText(params: {
   workingSet: AgentPkmWorkingSet;
   message: string;
   maxChars: number;
@@ -240,15 +244,18 @@ function buildContextText(params: {
       ...(workingSet.metadata?.domains.map((domain) => domain.key).filter(Boolean) || []),
       ...Object.keys(workingSet.fullBlob || {}),
     ])
-  );
+  ).filter((domain) => !EXCLUDED_PROMPT_DOMAINS.has(domain));
 
   const allLines = domainKeys.flatMap((domain) =>
     flattenDomain(domain, (workingSet.fullBlob || {})[domain], promptTokens)
   );
+  const safeCards = workingSet.memorySnapshot.cards.filter(
+    (card) => !EXCLUDED_PROMPT_DOMAINS.has(card.domain)
+  );
   const relevantMemoryCards =
     mode === "broad"
-      ? workingSet.memorySnapshot.cards.slice(0, 42)
-      : selectRelevantPkmMemoryCards(workingSet.memorySnapshot.cards, params.message, 24);
+      ? safeCards.slice(0, 42)
+      : selectRelevantPkmMemoryCards(safeCards, params.message, 24);
   const selectedLines =
     mode === "broad"
       ? allLines.slice(0, MAX_DETAIL_LINES)
