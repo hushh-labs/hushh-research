@@ -136,7 +136,13 @@ export function AssetAllocationDonut({
 
   return (
     <div className={cn("w-full min-w-0 overflow-hidden", className)}>
-      <ChartContainer config={chartConfig} className="mx-auto w-full min-w-0" style={{ height }}>
+      <ChartContainer
+        aria-label="Asset allocation chart"
+        config={chartConfig}
+        role="img"
+        className="mx-auto w-full min-w-0"
+        style={{ height }}
+      >
         <PieChart>
           <ChartTooltip
             cursor={false}
