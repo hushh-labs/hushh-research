@@ -1202,7 +1202,9 @@ export function DeveloperDocsHub({
       await checkAuth();
       await refreshAccess(authResult.user);
     } catch (error) {
-      console.error(`[developers] ${provider} sign-in failed`, error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error(`[developers] ${provider} sign-in failed`, error);
+      }
     }
   }
 
