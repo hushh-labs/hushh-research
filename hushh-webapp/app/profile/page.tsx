@@ -214,6 +214,8 @@ type ProfileDetail =
   | "vault"
   | "session"
   | "danger"
+  | "gmail-connection"
+  | "gmail-actions"
   | "support-routing"
   | `support-compose:${SupportMessageKind}`;
 
@@ -401,10 +403,7 @@ function normalizeProfileDetail(
   ) {
     return detail;
   }
-  if (
-    panel === "security" &&
-    (detail === "vault" || detail === "session" || detail === "danger")
-  ) {
+  if (panel === "security" && (detail === "vault" || detail === "session")) {
     return detail;
   }
   if (
@@ -1502,8 +1501,11 @@ function ProfilePageContent() {
         }
       ).unwrap();
 
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await signOut();
+      // No artificial delay: the success toast already conveyed completion, and
+      // FCM cleanup is skipped because the backend has already destroyed the
+      // account and its push tokens. Redirect as fast as the session teardown
+      // allows.
+      await signOut({ skipFcmCleanup: true });
     } catch (error) {
       console.error("Delete account error:", error);
     } finally {
@@ -1593,7 +1595,7 @@ function ProfilePageContent() {
       ).unwrap();
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
-      router.replace(ROUTES.ONE_ONBOARDING);
+      router.replace(ROUTES.ONE_SETUP);
     } catch (error) {
       console.error("Reset account error:", error);
     } finally {
@@ -3305,7 +3307,7 @@ function ProfilePageContent() {
           icon={Monitor}
           title="Appearance"
           description="Light, dark, or system."
-          trailing={<ThemeToggleLean className="w-full min-w-0 sm:w-[244px]" />}
+          trailing={<ThemeToggleLean size="expanded" className="w-full min-w-0" />}
           stackTrailingOnMobile
         />
         <SettingsRow
@@ -3382,16 +3384,6 @@ function ProfilePageContent() {
           chevron
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
-          }
-        />
-        <SettingsRow
-          icon={Trash2}
-          title="Danger zone"
-          description="Reset your data or delete your One account."
-          chevron
-          tone="destructive"
-          onClick={() =>
-            updateProfileView({ panel: "security", detail: "danger" }, "push")
           }
         />
       </SettingsGroup>
@@ -3979,7 +3971,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:security",
       title: "Security",
-      description: "Vault methods, session controls, and account deletion.",
+      description: "Vault methods and session controls.",
       content: securityContent,
     });
     if (activeDetail === "vault") {
@@ -4001,32 +3993,6 @@ function ProfilePageContent() {
               title="Sign out"
               description="End this session on the current device."
               onClick={() => void handleSignOut()}
-              chevron
-            />
-          </SettingsGroup>
-        ),
-      });
-    } else if (activeDetail === "danger") {
-      profileStackEntries.push({
-        key: "detail:danger",
-        title: "Danger zone",
-        description: "Reset your data or delete your account.",
-        content: (
-          <SettingsGroup title="Danger zone">
-            <SettingsRow
-              icon={RefreshCw}
-              title="Reset account"
-              description={resetRowDescription}
-              tone="destructive"
-              onClick={() => void handleResetClick()}
-              chevron
-            />
-            <SettingsRow
-              icon={Trash2}
-              title={deleteButtonLabel}
-              description={deleteRowDescription}
-              tone="destructive"
-              onClick={() => void handleDeleteClick()}
               chevron
             />
           </SettingsGroup>

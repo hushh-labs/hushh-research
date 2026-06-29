@@ -14,7 +14,7 @@ const KYC_ITEMS: KycDisplayItem[] = [
   {
     label: "Identity",
     icon: User,
-    iconTone: "text-[#0071e3] bg-[#0071e3]/10 dark:text-[#2997ff] dark:bg-[#2997ff]/16",
+    iconTone: "text-[#b8894d] bg-[#d4a574]/10 dark:text-[#d4a574] dark:bg-[#d4a574]/16",
   },
   {
     label: "Address",
@@ -79,7 +79,7 @@ export function KycPreviewCompact() {
           </div>
 
           <div className="flex items-center gap-[13px] border-t border-border/70 pt-4">
-            <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[11px] bg-[#0071e3]/10 text-[#0071e3] dark:bg-[#2997ff]/16 dark:text-[#2997ff]">
+            <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[11px] bg-[#d4a574]/10 text-[#b8894d] dark:bg-[#d4a574]/16 dark:text-[#d4a574]">
               <Icon icon={Zap} size="md" />
             </span>
             <div>

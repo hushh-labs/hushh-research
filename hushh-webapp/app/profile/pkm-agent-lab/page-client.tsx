@@ -1235,7 +1235,7 @@ export default function PkmAgentLabPageClient() {
               <SettingsRow
                 title="No pending preview"
                 description="Describe one new preference or memory below. Kai will draft the PKM capture before anything is encrypted or saved."
-                leading={<Sparkles className="h-4 w-4 text-sky-500" />}
+                leading={<Sparkles className="h-4 w-4 text-accent-strong" />}
               />
             ) : (
               previewCards.map((card) => (

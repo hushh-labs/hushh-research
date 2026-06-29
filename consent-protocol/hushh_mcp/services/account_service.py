@@ -683,19 +683,19 @@ class AccountService:
                 )
                 results["runtime_persona_state"] = True
 
-                # Reset onboarding progress so the user re-runs onboarding. Keeps the
+                # Reset setup progress so the user re-runs setup. Keeps the
                 # vault row (identity + unlock methods) intact; only clears the
-                # onboarding/tour flags carried on it.
+                # setup/tour flags carried on it.
                 conn.execute(
                     text(
                         """
                         UPDATE vault_keys
-                        SET pre_onboarding_completed = NULL,
-                            pre_onboarding_skipped = NULL,
-                            pre_onboarding_completed_at = NULL,
-                            pre_nav_tour_completed_at = NULL,
-                            pre_nav_tour_skipped_at = NULL,
-                            pre_state_updated_at = :now_ms,
+                        SET setup_completed = NULL,
+                            setup_skipped = NULL,
+                            setup_completed_at = NULL,
+                            nav_setup_completed_at = NULL,
+                            nav_setup_skipped_at = NULL,
+                            setup_state_updated_at = :now_ms,
                             updated_at = :now_ms
                         WHERE user_id = :user_id
                         """

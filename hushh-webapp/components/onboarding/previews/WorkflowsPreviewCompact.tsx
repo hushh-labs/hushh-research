@@ -32,7 +32,7 @@ export function WorkflowsPreviewCompact() {
       <div className="morphy-theme-content relative flex flex-col gap-2 p-4">
         <div className="flex items-center justify-between gap-4">
           <span className="type-caption text-muted-foreground">What One can do</span>
-          <span className="type-caption inline-flex items-center rounded-full bg-[#0071e3]/12 px-2.5 py-0.5 text-[#0071e3] dark:text-[#2997ff]">
+          <span className="type-caption inline-flex items-center rounded-full bg-[#d4a574]/12 px-2.5 py-0.5 text-[#b8894d] dark:text-[#d4a574]">
             Your apps
           </span>
         </div>

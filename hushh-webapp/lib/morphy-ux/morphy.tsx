@@ -117,11 +117,11 @@ export const typography = {
 // ============================================================================
 
 export const colorTokens = {
-  // Primary brand colors - Hussh Blue→Purple gradient (light mode)
-  // In dark mode, CSS variables switch to yellow→orange automatically
+  // Primary brand color - Foundation gold (deep→accent). Dark mode flips via
+  // CSS variables in globals.css.
   primary: {
-    start: "#0071e3", // Hussh Blue
-    end: "#bb62fc", // Hussh Purple
+    start: "#b8894d", // Foundation gold deep
+    end: "#d4a574", // Foundation gold accent
   },
   // Secondary colors - Silver for subtle backgrounds (FAQ style)
   secondary: {

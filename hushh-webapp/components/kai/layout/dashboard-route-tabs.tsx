@@ -81,7 +81,7 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
   const router = useRouter();
   const pathname = usePathname();
   const hideTabsForPath =
-    pathname.startsWith(ROUTES.ONE_ONBOARDING) || pathname.startsWith(ROUTES.KAI_IMPORT);
+    pathname.startsWith(ROUTES.ONE_SETUP) || pathname.startsWith(ROUTES.KAI_IMPORT);
   const [mounted, setMounted] = useState(false);
   const tabsRootRef = useRef<HTMLDivElement | null>(null);
   const [dragOffsetTabs, setDragOffsetTabs] = useState(0);
@@ -384,7 +384,7 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
           data-testid="kai-route-tabs-indicator"
           aria-hidden
           className={cn(
-            "pointer-events-none absolute bottom-0 left-0 h-[3px] rounded-full bg-linear-to-r from-sky-500 via-primary to-sky-400 shadow-[0_0_0_1px_rgba(56,189,248,0.35),0_0_22px_rgba(56,189,248,0.62)]",
+            "pointer-events-none absolute bottom-0 left-0 h-[3px] rounded-full bg-linear-to-r from-[var(--morphy-primary-start)] via-primary to-[var(--morphy-primary-end)] shadow-[0_0_0_1px_rgba(212,165,116,0.35),0_0_22px_rgba(212,165,116,0.62)]",
             isDraggingIndicator ? "transition-none" : "transition-transform duration-250 ease-out"
           )}
           style={{

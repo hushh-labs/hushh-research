@@ -32,6 +32,7 @@ import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metri
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { TopAppBar } from "@/components/app-ui/top-app-bar";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
+import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
@@ -321,6 +322,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     <CacheProvider>
       <PersonaProvider>
         <VaultProvider>
+          <AgentRuntimeStateProvider>
           <AgentPopoverProvider>
             <NativeTestRouter />
             <NativeTestBootstrap />
@@ -492,6 +494,7 @@ function AppShellFrame({ children }: ProvidersProps) {
               </ConsentNotificationProvider>
             </Suspense>
           </AgentPopoverProvider>
+          </AgentRuntimeStateProvider>
         </VaultProvider>
       </PersonaProvider>
     </CacheProvider>

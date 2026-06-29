@@ -1289,7 +1289,7 @@ function KaiAnalysisPageContent() {
           ) : null}
           {activeRunTask ? (
             <SurfaceCard accent="sky" className="w-full">
-              <SurfaceCardContent className="px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+              <SurfaceCardContent className="px-3 py-2 text-xs text-accent-strong">
               Analysis for <span className="font-semibold">{activeRunTask.ticker}</span> is still
               running in the background.
               <MorphyButton

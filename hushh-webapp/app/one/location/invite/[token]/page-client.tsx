@@ -203,7 +203,7 @@ export default function OneLocationCircleInvitePageClient() {
       <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-5 py-10">
         <div className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-700 dark:text-blue-200">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent-surface text-accent-strong">
               {error ? (
                 <AlertTriangle className="h-5 w-5" aria-hidden="true" />
               ) : claimed ? (
@@ -213,7 +213,7 @@ export default function OneLocationCircleInvitePageClient() {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600 dark:text-blue-300">
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-accent-strong">
                 One Location
               </div>
               <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
@@ -256,7 +256,7 @@ export default function OneLocationCircleInvitePageClient() {
                 </div>
               ) : null}
 
-              <div className="rounded-[var(--app-card-radius-standard)] border border-blue-500/25 bg-blue-500/10 p-4 text-sm leading-6 text-blue-900 dark:text-blue-100">
+              <div className="rounded-[var(--app-card-radius-standard)] border border-accent-border bg-accent-surface p-4 text-sm leading-6 text-foreground">
                 Accepting connects both of you on One. Live location still starts only
                 when someone taps Share Location, confirms permission, and sends an
                 encrypted share from One Location.

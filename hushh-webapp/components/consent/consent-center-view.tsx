@@ -89,7 +89,7 @@ function statusTone(status: string) {
     case "expired":
       return "bg-zinc-500/10 text-zinc-600 border-zinc-500/20";
     case "sent":
-      return "bg-sky-500/10 text-sky-600 border-sky-500/20";
+      return "bg-accent-surface text-accent-strong border-accent-border";
     default:
       return "bg-muted text-muted-foreground border-border";
   }
@@ -618,7 +618,7 @@ export function ConsentCenterView({
         key={`bundle-${bundle.bundleId}`}
         className={cn(
           "space-y-4 px-5 py-5",
-          isFocused ? "ring-2 ring-sky-500/50 bg-sky-500/5" : undefined
+          isFocused ? "ring-2 ring-accent bg-accent-surface" : undefined
         )}
       >
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -894,7 +894,7 @@ export function ConsentCenterView({
         key={`${entry.kind}-${entry.id}`}
         className={cn(
           "space-y-4 rounded-[24px] border px-5 py-5 transition-colors",
-          isFocused ? "border-sky-500/50 bg-sky-500/5" : "border-border/40"
+          isFocused ? "border-accent-border bg-accent-surface" : "border-border/40"
         )}
       >
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 // carry the muted eyebrow tone on the stroke and warm to full foreground on
 // hover; pill controls add horizontal padding + label text.
 const shellActionSurfaceVariants = cva(
-  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full bg-black/[0.05] transition-[color,background-color,transform] duration-200 hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]",
+  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full bg-black/[0.05] transition-[color,background-color,transform] duration-200 hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]",
   {
     variants: {
       variant: {

@@ -1,4 +1,6 @@
 import { NetworkStatusBanner } from "@/components/system/network-status-banner";
+import { JsonLd } from "@/components/seo/json-ld";
+import { buildOrganizationGraph } from "@/lib/seo/structured-data";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
@@ -84,6 +86,7 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
+        <JsonLd data={buildOrganizationGraph()} />
         <style>{`
           html.dark body,
           html.dark .morphy-app-bg {

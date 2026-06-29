@@ -5,7 +5,7 @@
  *
  * Figma source of truth: one_location_final_fixed_clean_navigation (node 10:1054),
  * 16 mobile screens organised as four hub tabs (Now | People | Links | Inbox)
- * plus focused, full-screen task flows (Share / Ask / Invite / Temporary link).
+ * plus focused, full-screen task flows (Share / Ask / Invite / Public location link).
  *
  * STRICTLY PRESENTATION + LOCAL VIEW-ROUTING.
  * - All data and every action handler are passed in via `vm` from the existing
@@ -262,7 +262,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       : tab === "people"
         ? "Circle, contacts and invites"
         : tab === "links"
-          ? "Temporary and invite links"
+          ? "Public location and invite links"
           : "Requests and shared locations";
 
   return (
@@ -390,7 +390,7 @@ function NowHub({
 
         <Button
           onClick={onStartShare}
-          className="h-12 whitespace-normal rounded-2xl bg-[#0a84ff] px-2 text-center text-[13px] font-semibold leading-tight text-white hover:bg-[#0a84ff]/90 sm:text-base"
+          className="h-12 whitespace-normal rounded-2xl bg-[#d4a574] px-2 text-center text-[13px] font-semibold leading-tight text-white hover:bg-[#d4a574]/90 sm:text-base"
         >
           <MapPin className="mr-1.5 h-4 w-4 shrink-0" />
           Share my location
@@ -447,7 +447,7 @@ function NowHub({
           <QuickPathRow
             icon={<LinkIcon className="h-4 w-4" />}
             title="Links"
-            description="Temporary public sharing"
+            description="Public location sharing"
             onClick={() => onGoTab("links")}
           />
           <QuickPathRow
@@ -476,8 +476,10 @@ function PeopleHub({
   onInvite: () => void;
   onStartShare: () => void;
 }) {
-  const ready = vm.recipients.filter((r) => vm.isRecipientShareReady(r));
-  const pending = vm.recipients.filter((r) => !vm.isRecipientShareReady(r));
+  const ready = vm.visibleRecipients.filter((r) =>
+    vm.isRecipientShareReady(r),
+  );
+  const hasSearchQuery = vm.recipientSearch.trim().length > 0;
 
   return (
     <div className="space-y-5">
@@ -488,7 +490,7 @@ function PeopleHub({
         <div className="grid grid-cols-1 gap-2">
           <Button
             onClick={onInvite}
-            className="h-11 rounded-full bg-[#0a84ff] text-sm font-semibold text-white hover:bg-[#0a84ff]/90"
+            className="h-11 rounded-full bg-[#d4a574] text-sm font-semibold text-white hover:bg-[#d4a574]/90"
           >
             <UserPlus className="mr-2 h-4 w-4" />
             Invite trusted person
@@ -515,8 +517,12 @@ function PeopleHub({
       </SectionCard>
 
       <SectionCard title="Ready people">
+        <PersonSearchInput
+          value={vm.recipientSearch}
+          onChange={vm.setRecipientSearch}
+        />
         {ready.length ? (
-          <div className={PEOPLE_LIST_SCROLL_CLASS}>
+          <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
             {ready.map((r) => (
               <TrustedPersonCard
                 key={r.userId}
@@ -534,29 +540,18 @@ function PeopleHub({
             ))}
           </div>
         ) : (
-          <EmptyState
-            title="No ready people yet"
-            description="Invite someone to your Circle to start private sharing."
-          />
+          <div className="mt-3">
+            <EmptyState
+              title={hasSearchQuery ? "No matching people" : "No ready people yet"}
+              description={
+                hasSearchQuery
+                  ? "Try a different name."
+                  : "Invite someone to your Circle to start private sharing."
+              }
+            />
+          </div>
         )}
       </SectionCard>
-
-      {pending.length ? (
-        <SectionCard title="Pending invites">
-          <div className={PEOPLE_LIST_SCROLL_CLASS}>
-            {pending.map((r) => (
-              <TrustedPersonCard
-                key={r.userId}
-                name={vm.recipientLabel(r)}
-                subtitle="Invite pending"
-                tone="pending"
-                statusLabel="Pending"
-              />
-            ))}
-          </div>
-        </SectionCard>
-      ) : null}
-
 
       <TrustNoteCard
         title="Private sharing starts after approval"
@@ -588,20 +583,20 @@ function LinksHub({
       >
         <Button
           onClick={onCreateTempLink}
-          className="h-11 w-full rounded-full bg-[#0a84ff] text-sm font-semibold text-white hover:bg-[#0a84ff]/90"
+          className="h-11 w-full rounded-full bg-[#d4a574] text-sm font-semibold text-white hover:bg-[#d4a574]/90"
         >
           <Plus className="mr-2 h-4 w-4" />
-          Create temporary link
+          Create public location link
         </Button>
         <p className="mt-2 text-xs text-muted-foreground">
           Anyone with the link can view until expiry.
         </p>
       </SectionCard>
 
-      <SectionCard title="Active temporary link">
+      <SectionCard title="Active public location link">
         {temp ? (
           <TemporaryLinkCard
-            title="Temporary link active"
+            title="Public location link active"
             statusLine="Anyone with this link can view you"
             expiryLabel={vm.expiresCountdownLabel(temp.expiresAt)}
             onCopy={vm.onCopyPublicInvite}
@@ -611,7 +606,7 @@ function LinksHub({
           />
         ) : (
           <EmptyState
-            title="No active temporary link"
+            title="No active public location link"
             description="Create one above when you need to share outside your Circle."
           />
         )}
@@ -815,7 +810,7 @@ function ShareFlow({
           <Button
             onClick={vm.onConfirmShare}
             isLoading={vm.busy === "share"}
-            className="h-12 w-full rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90"
+            className="h-12 w-full rounded-2xl bg-[#d4a574] text-base font-semibold text-white hover:bg-[#d4a574]/90"
           >
             Start sharing
           </Button>
@@ -856,7 +851,7 @@ function ShareFlow({
                 rows={2}
                 maxLength={80}
                 placeholder="On my way to the meeting"
-                className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#0a84ff]/25"
+                className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#d4a574]/25"
               />
             </div>
           </div>
@@ -869,7 +864,7 @@ function ShareFlow({
           onClick={vm.onOpenShareReview}
           disabled={!vm.canShare}
           isLoading={vm.busy === "share"}
-          className="h-12 w-full rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90 disabled:opacity-50"
+          className="h-12 w-full rounded-2xl bg-[#d4a574] text-base font-semibold text-white hover:bg-[#d4a574]/90 disabled:opacity-50"
         >
           Review share
         </Button>
@@ -932,7 +927,7 @@ function ShareFlow({
       <Button
         onClick={() => setStep("details")}
         disabled={!selectedReady.length}
-        className="h-12 w-full rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90 disabled:opacity-50"
+        className="h-12 w-full rounded-2xl bg-[#d4a574] text-base font-semibold text-white hover:bg-[#d4a574]/90 disabled:opacity-50"
       >
         Continue
       </Button>
@@ -1045,7 +1040,7 @@ function AskFlow({
           onChange={(e) => vm.setRequestMessage(e.target.value)}
           rows={2}
           placeholder="Hey, can you share your location until we meet?"
-          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#0a84ff]/25"
+          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#d4a574]/25"
         />
       </SectionCard>
 
@@ -1061,7 +1056,7 @@ function AskFlow({
         }}
         disabled={!vm.selectedRequestOwnerIds.length}
         isLoading={vm.busy === "request"}
-        className="h-12 w-full rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90 disabled:opacity-50"
+        className="h-12 w-full rounded-2xl bg-[#d4a574] text-base font-semibold text-white hover:bg-[#d4a574]/90 disabled:opacity-50"
       >
         Send request
       </Button>
@@ -1094,7 +1089,7 @@ function InviteFlow({
         />
         <SectionCard>
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0a84ff]/12 text-[#0a84ff]">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#d4a574]/12 text-[#d4a574]">
               <UserPlus className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
@@ -1115,7 +1110,7 @@ function InviteFlow({
         <div className="grid grid-cols-2 gap-2">
           <Button
             onClick={vm.onShareCircleInvite}
-            className="h-11 rounded-full bg-[#0a84ff] text-sm font-semibold text-white hover:bg-[#0a84ff]/90"
+            className="h-11 rounded-full bg-[#d4a574] text-sm font-semibold text-white hover:bg-[#d4a574]/90"
           >
             <Send className="mr-1.5 h-4 w-4" />
             Share invite
@@ -1182,7 +1177,7 @@ function InviteFlow({
       <Button
         onClick={vm.onCreateCircleInvite}
         isLoading={vm.busy === "circleInvite"}
-        className="h-12 w-full rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90"
+        className="h-12 w-full rounded-2xl bg-[#d4a574] text-base font-semibold text-white hover:bg-[#d4a574]/90"
       >
         Create invite
       </Button>
@@ -1213,7 +1208,7 @@ function TemporaryLinkFlow({
       <div className="space-y-5">
         <TaskFlowHeader
           eyebrow="Copy, share or revoke"
-          title="Temporary link active"
+          title="Public location link active"
           onBack={onClose}
         />
         <WarningCard
@@ -1222,7 +1217,7 @@ function TemporaryLinkFlow({
         />
         {invite ? (
           <TemporaryLinkCard
-            title="Temporary link active"
+            title="Public location link active"
             statusLine="Anyone with this link can view you"
             expiryLabel={vm.expiresCountdownLabel(invite.expiresAt)}
             onCopy={vm.onCopyPublicInvite}
@@ -1275,14 +1270,14 @@ function TemporaryLinkFlow({
       </SectionCard>
       <TrustNoteCard
         title="Expires automatically"
-        description="Temporary links are safer when they expire quickly."
+        description="Public location links are safer when they expire quickly."
       />
       <Button
         onClick={vm.onCreatePublicInvite}
         isLoading={vm.busy === "publicInvite"}
-        className="h-12 w-full rounded-2xl bg-[#0a84ff] text-base font-semibold text-white hover:bg-[#0a84ff]/90"
+        className="h-12 w-full rounded-2xl bg-[#d4a574] text-base font-semibold text-white hover:bg-[#d4a574]/90"
       >
-        Review temporary link
+        Review public location link
       </Button>
     </div>
   );

@@ -46,8 +46,6 @@ interface VaultLockGuardProps {
   children: React.ReactNode;
 }
 
-const vaultPresenceCache = new Map<string, boolean>();
-
 // ============================================================================
 // Component
 // ============================================================================
@@ -83,11 +81,10 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       setHasVault(true);
       return;
     }
-    if (vaultPresenceCache.has(userId)) {
-      setHasVault(vaultPresenceCache.get(userId) ?? null);
-      return;
-    }
-    setHasVault(null);
+    // Hydrate first paint from the shared VaultService cache (memory ->
+    // session -> bootstrap) so re-mounts do not flash a loader.
+    const cached = VaultService.peekVaultPresence(userId);
+    setHasVault(cached);
   }, [isVaultUnlocked, userId]);
 
   // Redirect unauthenticated users (side-effect outside render)
@@ -146,21 +143,20 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     async function checkVaultPresence() {
       if (authLoading || !userId || isVaultUnlocked) return;
-      if (vaultPresenceCache.has(userId)) return;
+      // Already resolved from the shared cache during the hydrate effect.
+      if (VaultService.peekVaultPresence(userId) !== null) return;
 
       vaultStepDoneRef.current = false;
       setHasVault(null);
       try {
         const exists = await VaultService.checkVault(userId);
         if (!cancelled) {
-          vaultPresenceCache.set(userId, exists);
           setHasVault(exists);
         }
       } catch (error) {
         console.warn("[VaultLockGuard] Failed to check vault existence:", error);
         if (!cancelled) {
           // Fail closed on transient check failures to preserve existing secure behavior.
-          vaultPresenceCache.set(userId, true);
           setHasVault(true);
         }
       }

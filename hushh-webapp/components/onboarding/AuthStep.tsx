@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { getRedirectResult, type User } from "firebase/auth";
+import { getRedirectResult } from "firebase/auth";
 import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
@@ -18,7 +18,6 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
-import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
   kaiAppHeroBodyClassName,
@@ -40,6 +39,41 @@ import {
 } from "@/lib/observability/growth";
 import { getNativeTestConfig, useNativeTestConfig } from "@/lib/testing/native-test";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
+
+// Firebase error codes that mean the user deliberately dismissed the provider
+// popup. These are not real failures, so we stay silent for them and only toast
+// on genuine errors (network, account-exists, blocked popup, etc.).
+const AUTH_CANCEL_CODES = new Set([
+  "auth/popup-closed-by-user",
+  "auth/cancelled-popup-request",
+  "auth/user-cancelled",
+]);
+
+function isAuthCancel(error: unknown): boolean {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
+  return AUTH_CANCEL_CODES.has(code);
+}
+
+function authErrorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = String((error as { code?: unknown }).code ?? "");
+    if (code === "auth/account-exists-with-different-credential") {
+      return "An account already exists with this email using a different sign-in method.";
+    }
+    if (code === "auth/network-request-failed") {
+      return "Network error. Check your connection and try again.";
+    }
+    if (code === "auth/popup-blocked") {
+      return "Your browser blocked the sign-in popup. Allow popups for this site and try again.";
+    }
+  }
+  return error instanceof Error && error.message
+    ? error.message
+    : "Sign-in failed. Please try again.";
+}
 
 export function AuthStep({
   redirectPath,
@@ -64,6 +98,11 @@ export function AuthStep({
     "loading" | "loaded" | "error"
   >(nativeTestConfig.autoReviewerLogin ? "loading" : "loaded");
   const [nativeErrorCode, setNativeErrorCode] = useState<string | null>(null);
+  // Which social provider sign-in is in flight, so the buttons disable while a
+  // popup is open and a second tap cannot trigger overlapping popups.
+  const [pendingProvider, setPendingProvider] = useState<"google" | "apple" | null>(
+    null
+  );
 
   const [reviewModeConfig, setReviewModeConfig] = useState<{ enabled: boolean }>(
     { enabled: false }
@@ -75,15 +114,8 @@ export function AuthStep({
     Boolean(nativeTestConfig.vaultPassphrase);
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
-    nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING &&
-    redirectPath === ROUTES.ONE_ONBOARDING;
-  const isLocationPhoneVerificationReturn = useMemo(
-    () =>
-      redirectPath === ROUTES.ONE_LOCATION ||
-      redirectPath.startsWith(`${ROUTES.ONE_LOCATION}?`) ||
-      redirectPath.startsWith(`${ROUTES.ONE_LOCATION}/`),
-    [redirectPath],
-  );
+    nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_KAI &&
+    redirectPath === ROUTES.ONE_SETUP_KAI;
   const growthJourney = useMemo(() => resolveGrowthJourneyForPath(redirectPath), [redirectPath]);
   const growthEntrySurface = useMemo(
     () => resolveGrowthEntrySurface(redirectPath),
@@ -126,12 +158,7 @@ export function AuthStep({
   }, [router]);
 
   const resolveAndNavigate = useCallback(
-    async (
-      userId: string,
-      idToken?: string,
-      phoneNumber?: string | null,
-      authenticatedUser?: User | null
-    ) => {
+    async (userId: string, idToken?: string, phoneNumber?: string | null) => {
       const navigationKey = `${userId}:${redirectPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return;
@@ -142,31 +169,16 @@ export function AuthStep({
         if (preserveOnboardingAuditRoute) {
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
-          router.push(ROUTES.ONE_ONBOARDING);
+          router.push(ROUTES.ONE_SETUP_KAI);
           return;
         }
         const resolvedIdToken =
           idToken || (user ? await user.getIdToken().catch(() => undefined) : undefined);
-        const routeUser = authenticatedUser ?? user;
-        const identity =
-          routeUser?.uid === userId
-            ? await AccountIdentityService.syncCurrentUser(routeUser).catch((error) => {
-                console.warn("[AuthStep] Failed to sync account identity:", error);
-                return null;
-              })
-            : null;
-        const backendPhoneVerified = identity
-          ? AccountIdentityService.hasVerifiedPhone(identity)
-          : isLocationPhoneVerificationReturn
-            ? false
-            : null;
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
           redirectPath,
           idToken: resolvedIdToken,
           phoneNumber,
-          phoneVerified: backendPhoneVerified,
-          hostname: typeof window === "undefined" ? null : window.location.hostname,
           enableFirstRunSetupGate: true,
         });
 
@@ -174,22 +186,22 @@ export function AuthStep({
           resolvedPath === ROUTES.KAI_HOME && isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
-        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_ONBOARDING);
+        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
         router.push(nextPath);
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
         const fallbackPath = redirectPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
-          fallbackPath === ROUTES.ONE_ONBOARDING || fallbackPath === ROUTES.KAI_IMPORT
+          fallbackPath === ROUTES.ONE_SETUP || fallbackPath === ROUTES.ONE_SETUP_KAI || fallbackPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
             : fallbackPath;
-        setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_ONBOARDING);
+        setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
         router.push(safeFallbackPath);
       }
     },
-    [isLocationPhoneVerificationReturn, preserveOnboardingAuditRoute, redirectPath, router, user]
+    [preserveOnboardingAuditRoute, redirectPath, router, user]
   );
 
   const debugLog = (...args: unknown[]) => {
@@ -248,8 +260,7 @@ export function AuthStep({
           void resolveAndNavigate(
             result.user.uid,
             await result.user.getIdToken(),
-            result.user.phoneNumber,
-            result.user
+            result.user.phoneNumber
           );
         }
       })
@@ -269,7 +280,7 @@ export function AuthStep({
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined, user.phoneNumber, user);
+      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
     }
   }, [
     redirectPath,
@@ -347,8 +358,7 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber,
-          authenticatedUser
+          authenticatedUser.phoneNumber
         );
       } else {
         trackEvent("auth_failed", {
@@ -432,6 +442,8 @@ export function AuthStep({
   }
 
   const handleGoogleLogin = async () => {
+    if (pendingProvider) return;
+    setPendingProvider("google");
     trackEvent("auth_started", {
       action: "google",
     });
@@ -460,8 +472,7 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber,
-          authenticatedUser
+          authenticatedUser.phoneNumber
         );
       } else {
         debugError("[AuthStep] No user returned from signInWithGoogle");
@@ -481,10 +492,19 @@ export function AuthStep({
         result: "error",
         error_class: "auth_failed",
       });
+      if (!isAuthCancel(err)) {
+        morphyToast.error("Could not sign in with Google.", {
+          description: authErrorMessage(err),
+        });
+      }
+    } finally {
+      setPendingProvider(null);
     }
   };
 
   const handleAppleLogin = async () => {
+    if (pendingProvider) return;
+    setPendingProvider("apple");
     trackEvent("auth_started", {
       action: "apple",
     });
@@ -513,8 +533,7 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber,
-          authenticatedUser
+          authenticatedUser.phoneNumber
         );
       } else {
         debugError("[AuthStep] No user returned from signInWithApple");
@@ -534,6 +553,13 @@ export function AuthStep({
         result: "error",
         error_class: "auth_failed",
       });
+      if (!isAuthCancel(err)) {
+        morphyToast.error("Could not sign in with Apple.", {
+          description: authErrorMessage(err),
+        });
+      }
+    } finally {
+      setPendingProvider(null);
     }
   };
 
@@ -649,6 +675,7 @@ export function AuthStep({
                 label={option.label}
                 icon={option.icon}
                 onClick={option.onClick}
+                disabled={pendingProvider !== null}
               />
             ))}
 
@@ -675,7 +702,7 @@ export function AuthStep({
             <button
               type="button"
               onClick={() => openLegalDoc("terms")}
-              className="font-semibold text-[#0066cc] transition-opacity hover:opacity-70 dark:text-[#2997ff]"
+              className="font-semibold text-[#b8894d] transition-opacity hover:opacity-70 dark:text-[#d4a574]"
             >
               Terms
             </button>{" "}
@@ -683,7 +710,7 @@ export function AuthStep({
             <button
               type="button"
               onClick={() => openLegalDoc("privacy")}
-              className="font-semibold text-[#0066cc] transition-opacity hover:opacity-70 dark:text-[#2997ff]"
+              className="font-semibold text-[#b8894d] transition-opacity hover:opacity-70 dark:text-[#d4a574]"
             >
               Privacy Policy
             </button>

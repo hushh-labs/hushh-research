@@ -36,7 +36,7 @@ export const ROUTE_ID_VALUES = [
   "ria_settings",
   "ria_workspace",
   "kai_home",
-  "kai_onboarding",
+  "one_setup",
   "kai_import",
   "kai_plaid_oauth_return",
   "kai_alpaca_oauth_return",
@@ -116,11 +116,12 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME) return "kai_home";
   if (
-    pathname === ROUTES.ONE_ONBOARDING ||
+    pathname === ROUTES.ONE_SETUP ||
+    pathname.startsWith(`${ROUTES.ONE_SETUP}/`) ||
     pathname === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
     pathname === ROUTES.LEGACY_KAI_ONBOARDING
   ) {
-    return "kai_onboarding";
+    return "one_setup";
   }
   if (pathname === ROUTES.KAI_IMPORT || pathname === ROUTES.LEGACY_KAI_IMPORT) {
     return "kai_import";

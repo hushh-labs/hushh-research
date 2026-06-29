@@ -2,6 +2,16 @@
 
 These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
 
+## Project-Wide Runtime Telemetry Default
+
+When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
+
+- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local`, then `./bin/hushh backend --mode local --reload`, then `./bin/hushh web --mode local`. Run each as a background/async terminal so the agent keeps working while tailing per-component telemetry.
+- Native restart: rely on backend `--reload` hot-restart first; for a full restart, stop only the affected agent-managed terminal, confirm its port is free (`lsof -ti :6543` proxy / `:8000` backend / `:3000` frontend empty), relaunch that in-session command, and verify health (`./bin/hushh doctor --mode local`, web origin, backend `/docs`) before claiming success.
+- Use the visible-OS-terminal wrapper only when the developer explicitly wants to watch logs themselves, or for a detached session the agent does not need to read.
+
+Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md` ("Runtime Terminals" / "Native restart playbook").
+
 ## Project-Wide Premise Verification Gate
 
 Before accepting a premise, drafting a reply, proposing a plan, patching code, reviewing a PR, or merging work, run a quick repo-backed premise check.
@@ -124,3 +134,16 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
+
+## Project-Wide Branch Discipline Gate (HARD RULE)
+
+This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+
+1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
+2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.
+3. NEVER end a task with the developer parked on a different branch than where they started, unless they explicitly asked for that final state. If branch switching happened during the task, switch back to the developer's branch before handoff and state that you did.
+4. ALWAYS delete temporary branches you created (local AND remote) once the work is safely preserved on the kept branches. Before deleting, verify every unique piece (commits/files) is represented on a branch you are keeping; only then delete. Close any throwaway PR opened from that temp branch.
+5. After cleanup, leave the tree clean: developer on their branch, no stray local temp branches, no stray remote temp branches, no dangling throwaway PRs. State the final branch and what was cleaned.
+6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
+
+This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.

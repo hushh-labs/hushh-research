@@ -10,7 +10,7 @@ interface ComingSoonCardProps {
   color?: string;
 }
 
-export function ComingSoonCard({ title, description, icon: Icon, color = 'text-blue-500' }: ComingSoonCardProps) {
+export function ComingSoonCard({ title, description, icon: Icon, color = 'text-accent-strong' }: ComingSoonCardProps) {
   return (
     <Card className="glass">
       <CardHeader>

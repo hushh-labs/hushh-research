@@ -169,14 +169,22 @@ Typical outcomes:
 
 The default contributor path does not require it.
 
-When you do need the full local stack:
+When you do need the full local runtime, use three separate terminals (one
+component each — the Cloud SQL proxy, the backend, and the frontend):
 
 ```bash
-./bin/hushh terminal backend --mode local --reload
-./bin/hushh terminal web --mode local
+# terminal 1
+./bin/hushh proxy --mode local
+# terminal 2
+./bin/hushh backend --mode local --reload
+# terminal 3
+./bin/hushh web --mode local
 ```
 
-That separate-terminal backend + frontend flow is the preferred maintainer path. Use `./bin/hushh terminal stack --mode local` only if you deliberately want one visible terminal window to own both processes.
+That three-terminal flow is the canonical local runtime; there is no combined
+`stack` command. The `./bin/hushh terminal proxy|backend|web` wrappers open
+visible OS terminal windows for the same commands if you prefer separate windows
+over in-session terminals.
 
 ### Optional Container Backend Support
 

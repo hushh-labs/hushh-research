@@ -2690,6 +2690,96 @@ export class ApiService {
     });
   }
 
+  /**
+   * Pre-vault informational/navigation-only One chat.
+   *
+   * This is the lower-privilege sibling of {@link streamAgentChat}. It powers
+   * the single agent bar before the vault is unlocked, including anonymous
+   * onboarding visitors. It never sends PKM or vault data, is not persisted,
+   * and the backend only forwards pure navigation actions. Firebase auth is
+   * attached when available (for per-user rate limiting); anonymous callers
+   * send no Authorization header, which the backend accepts on this route only.
+   */
+  static async streamAgentIntro(data: {
+    message: string;
+    screenContext?: Record<string, unknown> | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return ApiService.apiFetchStream("/api/kai/agent/chat/intro/stream", {
+      method: "POST",
+      headers: firebaseIdToken
+        ? { Authorization: `Bearer ${firebaseIdToken}` }
+        : {},
+      body: JSON.stringify({
+        message: data.message,
+        screen_context: data.screenContext || undefined,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  /**
+   * Mint a short-lived, constrained Gemini Live ephemeral token for in-bar
+   * full-duplex voice. The browser connects directly to the Gemini Live API
+   * with this token, so the managed Gemini key never leaves the backend.
+   *
+   * Firebase auth is attached when available so the backend can pick the full
+   * (signed-in) vs. intro (pre-vault / onboarding) persona; anonymous callers
+   * send no Authorization header, which this route accepts.
+   */
+  static async fetchGeminiLiveToken(data?: {
+    voice?: string | null;
+    screen?: string | null;
+    persona?: string | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return ApiService.apiFetch("/api/kai/agent/realtime/gemini/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({
+        voice: data?.voice || undefined,
+        screen: data?.screen || undefined,
+        persona: data?.persona || undefined,
+      }),
+      signal: data?.signal,
+    });
+  }
+
+  /**
+   * Build the WebSocket URL for the server-side Gemini Live relay.
+   *
+   * Unlike the ephemeral-token path (browser connects straight to Google), this
+   * relay runs Gemini Live over Vertex AI on the backend via ADC, so it works
+   * on projects where the Developer API is restricted. The browser opens a
+   * WebSocket to our backend; the backend bridges audio to/from Vertex.
+   *
+   * WebSockets cannot carry an Authorization header from the browser and do not
+   * pass through the Next.js middleware proxy, so we connect directly to the
+   * backend host and ride the Firebase bearer (when present) in a query param.
+   * Anonymous callers omit it and get the navigation-only intro persona.
+   */
+  static async getGeminiLiveRelayUrl(data?: {
+    voice?: string | null;
+    screen?: string | null;
+    persona?: string | null;
+  }): Promise<string> {
+    const backend = resolveRuntimeBackendUrl();
+    const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
+    const wsBase = base.replace(/^http/i, "ws");
+    const url = new URL(`${wsBase}/api/kai/agent/realtime/gemini/live`);
+    const firebaseIdToken = await this.getFirebaseToken();
+    if (firebaseIdToken) url.searchParams.set("authorization", firebaseIdToken);
+    if (data?.voice) url.searchParams.set("voice", data.voice);
+    if (data?.screen) url.searchParams.set("screen", data.screen);
+    if (data?.persona) url.searchParams.set("persona", data.persona);
+    return url.toString();
+  }
+
   static async transcribeAgentVoice(data: {
     userId: string;
     vaultOwnerToken: string;

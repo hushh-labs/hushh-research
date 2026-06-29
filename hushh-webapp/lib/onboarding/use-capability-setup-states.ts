@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -17,6 +17,7 @@ import {
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 
 /**
  * useCapabilitySetupStates — the single hook that feeds the resolver from live
@@ -49,6 +50,12 @@ export interface UseCapabilitySetupStatesResult {
   isLoading: boolean;
   /** True while opted-in enrichment (vault/oauth) is still in flight. */
   isEnriching: boolean;
+  /**
+   * Record that the user has explored an explore-only capability. Updates the
+   * local store, optimistically flips the in-memory status to "Explored", and
+   * best-effort mirrors the full set to the durable backend for cross-device.
+   */
+  markExplored: (capabilityId: string) => Promise<void>;
 }
 
 export function useCapabilitySetupStates(
@@ -68,6 +75,9 @@ export function useCapabilitySetupStates(
   >({});
   const [enrichingVault, setEnrichingVault] = useState(false);
   const [enrichingOauth, setEnrichingOauth] = useState(false);
+  const [exploredIds, setExploredIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>()
+  );
 
   const userId = user?.uid ?? null;
 
@@ -95,6 +105,51 @@ export function useCapabilitySetupStates(
       cancelled = true;
     };
   }, [userId]);
+
+  // ---- ALWAYS: explore-only tour set (local-first, cheap) -----------------
+  // Local store is the source of truth; load it immediately so explore-only
+  // tiles resolve correctly on first paint. Cost is a single Preferences read.
+  useEffect(() => {
+    if (!userId) {
+      setExploredIds(new Set<string>());
+      return;
+    }
+    let cancelled = false;
+    CapabilityTourService.loadExploredIds(userId)
+      .then((ids) => {
+        if (!cancelled) setExploredIds(new Set(ids));
+      })
+      .catch(() => {
+        // Read failure → treat as nothing explored (tiles stay "Explore"),
+        // never crash the resolver.
+        if (!cancelled) setExploredIds(new Set<string>());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // ---- ALWAYS: fold the durable backend mirror into the explored set ------
+  // Once the bootstrap mirror resolves, union any server-recorded explored ids
+  // (cross-device) into the local set so a capability explored on another
+  // device shows as "Explored" here too. Union semantics: never drop a locally
+  // explored id because of a stale server snapshot.
+  useEffect(() => {
+    if (!userId) return;
+    const serverIds = preVaultState?.setupCapabilityIds;
+    if (!serverIds || serverIds.length === 0) return;
+    let cancelled = false;
+    CapabilityTourService.mergeFromServer(userId, serverIds)
+      .then((state) => {
+        if (!cancelled) setExploredIds(new Set(state.exploredIds));
+      })
+      .catch(() => {
+        // Local set remains authoritative on this device.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, preVaultState?.setupCapabilityIds]);
 
   // ---- OPT-IN: decrypted Kai profile (vault-backed) -----------------------
   useEffect(() => {
@@ -158,6 +213,32 @@ export function useCapabilitySetupStates(
     };
   }, [enrichOauth, userId]);
 
+  const markExplored = useCallback(
+    async (capabilityId: string) => {
+      const id = capabilityId.trim();
+      if (!userId || id.length === 0) return;
+      // Optimistic: flip the in-memory status immediately so the tile reads
+      // "Explored" without waiting on storage.
+      setExploredIds((prev) => {
+        if (prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      // Local store is the source of truth; persist there first.
+      const state = await CapabilityTourService.markExplored(userId, id).catch(
+        () => null
+      );
+      const nextIds = state?.exploredIds ?? [id];
+      // Best-effort durable mirror for cross-device. A failure leaves the local
+      // copy authoritative on this device.
+      PreVaultUserStateService.syncSetupCapabilities(userId, nextIds).catch(() => {
+        // swallow — local copy already recorded the exploration.
+      });
+    },
+    [userId]
+  );
+
   const inputs = useMemo<CapabilitySetupInputs>(
     () => ({
       isAuthenticated: Boolean(userId),
@@ -166,8 +247,17 @@ export function useCapabilitySetupStates(
       kaiProfile,
       pendingConsents,
       oauthConnections,
+      exploredCapabilityIds: exploredIds,
     }),
-    [userId, isVaultUnlocked, preVaultState, kaiProfile, pendingConsents, oauthConnections]
+    [
+      userId,
+      isVaultUnlocked,
+      preVaultState,
+      kaiProfile,
+      pendingConsents,
+      oauthConnections,
+      exploredIds,
+    ]
   );
 
   const statuses = useMemo(() => resolveAllCapabilitySetupStates(inputs), [inputs]);
@@ -183,5 +273,6 @@ export function useCapabilitySetupStates(
     byId,
     isLoading: Boolean(userId) && !bootstrapResolved,
     isEnriching: enrichingVault || enrichingOauth,
+    markExplored,
   };
 }

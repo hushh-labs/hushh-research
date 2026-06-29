@@ -246,7 +246,7 @@ export function PreviewCarouselStep({
           <Button
             size="lg"
             fullWidth
-            className="h-[52px] w-full max-w-[22rem] rounded-full bg-[#0066cc] text-[17px] font-medium !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
+            className="h-[52px] w-full max-w-[22rem] rounded-full bg-[#d4a574] text-[17px] font-medium !text-white shadow-none hover:opacity-90 dark:!text-white"
             onClick={handlePrimary}
             showRipple
           >
@@ -277,7 +277,7 @@ function Dots(props: { count: number; activeIndex: number }) {
           className={cn(
             "h-[7px] rounded-full transition-[width,background-color]",
             i === props.activeIndex
-              ? "w-6 bg-[#0071e3]"
+              ? "w-6 bg-[#d4a574]"
               : "w-[7px] bg-black/10 dark:bg-white/15"
           )}
           aria-hidden

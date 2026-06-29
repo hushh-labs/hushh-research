@@ -31,6 +31,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import {
@@ -603,7 +604,7 @@ function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
       className={cn(
         "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border",
         kind === "ria"
-          ? "border-sky-500/15 bg-sky-500/6 text-sky-700"
+          ? "border-accent-border bg-accent-surface text-accent-strong"
           : kind === "developer"
             ? "border-violet-500/15 bg-violet-500/6 text-violet-700"
             : "border-emerald-500/15 bg-emerald-500/6 text-emerald-700",
@@ -637,7 +638,7 @@ function ConsentEntryRow({
       className={cn(
         "relative w-full overflow-hidden rounded-[var(--app-card-radius-compact)] border px-4 py-3 text-left transition-colors",
         selected
-          ? "border-sky-500/24 bg-sky-500/7"
+          ? "border-accent-border bg-accent-surface"
           : "border-[color:var(--app-card-border-standard)]/50 bg-[color:var(--app-card-surface-compact)]/55 hover:bg-[color:var(--app-card-surface-compact)]",
       )}
     >
@@ -1977,6 +1978,7 @@ export function ConsentCenterPage() {
 
   return (
     <AppPageShell as="main" width="expanded" className="pb-24 sm:pb-28">
+      <CapabilityExploreCard capabilityId="consent" />
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}

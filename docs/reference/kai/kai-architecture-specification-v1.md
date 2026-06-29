@@ -7,7 +7,7 @@ Status: canonical current-state architecture specification for Kai as implemente
 ```mermaid
 flowchart TB
   subgraph surfaces["Kai product surfaces"]
-    onboarding["/one/onboarding"]
+    onboarding["/one/setup/kai"]
     import["/one/kai/import"]
     home["/one/kai"]
     portfolio["/one/kai/portfolio"]
@@ -115,7 +115,7 @@ The repo is moving toward the Hussh / One / Kai / Nav ontology: Hussh as platfor
 
 The current Kai route map is intentional and stable unless route governance changes:
 
-- `/one/onboarding`: canonical setup and persona capture
+- `/one/setup/kai`: canonical Kai setup and persona capture (hub at `/one/setup`)
 - `/one/kai/import`: statement upload, brokerage connect, and first portfolio setup
 - `/one/kai/plaid/oauth/return`: Plaid OAuth resume surface
 - `/one/kai`: signed-in live market home

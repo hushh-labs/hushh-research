@@ -63,7 +63,7 @@ Founder-language lens:
 
 | Step | Route/UI | Web Service Layer | Backend Route | Persistence | Cache / Sync |
 | --- | --- | --- | --- | --- | --- |
-| Persona/preferences capture | `/one/onboarding`, `/profile` | `KaiProfileService`, `PersonalKnowledgeModelService` | `/api/pkm/store-domain` | `pkm_blobs(financial/profile)` + `pkm_index.summary_projection.financial` | `CacheSyncService.onPkmDomainStored(...)` patches PKM metadata and the encrypted domain cache |
+| Persona/preferences capture | `/one/setup/kai`, `/profile` | `KaiProfileService`, `PersonalKnowledgeModelService` | `/api/pkm/store-domain` | `pkm_blobs(financial/profile)` + `pkm_index.summary_projection.financial` | `CacheSyncService.onPkmDomainStored(...)` patches PKM metadata and the encrypted domain cache |
 | Completion + nav tour state | onboarding components + nav tour | `KaiNavTourSyncService` / profile sync | `/api/pkm/store-domain` | encrypted `financial.profile` fields | cache write-through + metadata reconciliation |
 
 Notes:

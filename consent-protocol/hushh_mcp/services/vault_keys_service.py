@@ -12,6 +12,7 @@ The backend never sees plaintext vault key material.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -197,23 +198,51 @@ class VaultKeysService:
             "firstLoginAt": cls._normalize_int_ms_or_none(row.get("first_login_at")),
             "lastLoginAt": cls._normalize_int_ms_or_none(row.get("last_login_at")),
             "loginCount": int(row.get("login_count") or 0),
-            "preOnboardingCompleted": cls._normalize_bool_or_none(
-                row.get("pre_onboarding_completed")
+            "setupCompleted": cls._normalize_bool_or_none(row.get("setup_completed")),
+            "setupSkipped": cls._normalize_bool_or_none(row.get("setup_skipped")),
+            "setupCompletedAt": cls._normalize_int_ms_or_none(row.get("setup_completed_at")),
+            "navSetupCompletedAt": cls._normalize_int_ms_or_none(row.get("nav_setup_completed_at")),
+            "navSetupSkippedAt": cls._normalize_int_ms_or_none(row.get("nav_setup_skipped_at")),
+            "setupCapabilityIds": cls._normalize_explored_ids(row.get("setup_capability_ids")),
+            "setupCapabilitiesUpdatedAt": cls._normalize_int_ms_or_none(
+                row.get("setup_capabilities_updated_at")
             ),
-            "preOnboardingSkipped": cls._normalize_bool_or_none(row.get("pre_onboarding_skipped")),
-            "preOnboardingCompletedAt": cls._normalize_int_ms_or_none(
-                row.get("pre_onboarding_completed_at")
-            ),
-            "preNavTourCompletedAt": cls._normalize_int_ms_or_none(
-                row.get("pre_nav_tour_completed_at")
-            ),
-            "preNavTourSkippedAt": cls._normalize_int_ms_or_none(
-                row.get("pre_nav_tour_skipped_at")
-            ),
-            "preStateUpdatedAt": cls._normalize_int_ms_or_none(row.get("pre_state_updated_at")),
+            "setupStateUpdatedAt": cls._normalize_int_ms_or_none(row.get("setup_state_updated_at")),
             "createdAt": cls._normalize_int_ms_or_none(row.get("created_at")),
             "updatedAt": cls._normalize_int_ms_or_none(row.get("updated_at")),
         }
+
+    @staticmethod
+    def _normalize_explored_ids(raw: Any) -> list[str]:
+        """
+        Parse the JSON-encoded explore-only capability id list stored as TEXT.
+
+        Tolerant of NULL, empty strings, malformed JSON, and non-string members
+        so a corrupt row never breaks bootstrap; returns a de-duped, sorted list.
+        """
+        if raw is None:
+            return []
+        if isinstance(raw, list):
+            decoded: Any = raw
+        elif isinstance(raw, str):
+            trimmed = raw.strip()
+            if not trimmed:
+                return []
+            try:
+                decoded = json.loads(trimmed)
+            except (TypeError, ValueError):
+                return []
+        else:
+            return []
+        if not isinstance(decoded, list):
+            return []
+        seen: set[str] = set()
+        for entry in decoded:
+            if isinstance(entry, str):
+                cleaned = entry.strip()
+                if cleaned:
+                    seen.add(cleaned)
+        return sorted(seen)
 
     async def ensure_user_entry(self, user_id: str) -> Dict[str, Any]:
         return await run_in_threadpool(self._ensure_user_entry_sync, user_id)
@@ -235,8 +264,9 @@ class VaultKeysService:
             supabase.table("vault_keys")
             .select(
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
-                "pre_onboarding_completed,pre_onboarding_skipped,pre_onboarding_completed_at,"
-                "pre_nav_tour_completed_at,pre_nav_tour_skipped_at,pre_state_updated_at,"
+                "setup_completed,setup_skipped,setup_completed_at,"
+                "nav_setup_completed_at,nav_setup_skipped_at,"
+                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
                 "created_at,updated_at"
             )
             .eq("user_id", user_id_clean)
@@ -267,8 +297,9 @@ class VaultKeysService:
                     supabase.table("vault_keys")
                     .select(
                         "user_id,vault_status,first_login_at,last_login_at,login_count,"
-                        "pre_onboarding_completed,pre_onboarding_skipped,pre_onboarding_completed_at,"
-                        "pre_nav_tour_completed_at,pre_nav_tour_skipped_at,pre_state_updated_at,"
+                        "setup_completed,setup_skipped,setup_completed_at,"
+                        "nav_setup_completed_at,nav_setup_skipped_at,"
+                        "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
                         "created_at,updated_at"
                     )
                     .eq("user_id", user_id_clean)
@@ -306,8 +337,9 @@ class VaultKeysService:
             supabase.table("vault_keys")
             .select(
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
-                "pre_onboarding_completed,pre_onboarding_skipped,pre_onboarding_completed_at,"
-                "pre_nav_tour_completed_at,pre_nav_tour_skipped_at,pre_state_updated_at,"
+                "setup_completed,setup_skipped,setup_completed_at,"
+                "nav_setup_completed_at,nav_setup_skipped_at,"
+                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
                 "created_at,updated_at"
             )
             .eq("user_id", user_id_clean)
@@ -333,45 +365,51 @@ class VaultKeysService:
             "firstLoginAt": state["firstLoginAt"],
             "lastLoginAt": state["lastLoginAt"],
             "loginCount": state["loginCount"],
-            "preOnboardingCompleted": state["preOnboardingCompleted"],
-            "preOnboardingSkipped": state["preOnboardingSkipped"],
-            "preOnboardingCompletedAt": state["preOnboardingCompletedAt"],
-            "preNavTourCompletedAt": state["preNavTourCompletedAt"],
-            "preNavTourSkippedAt": state["preNavTourSkippedAt"],
-            "preStateUpdatedAt": state["preStateUpdatedAt"],
+            "setupCompleted": state["setupCompleted"],
+            "setupSkipped": state["setupSkipped"],
+            "setupCompletedAt": state["setupCompletedAt"],
+            "navSetupCompletedAt": state["navSetupCompletedAt"],
+            "navSetupSkippedAt": state["navSetupSkippedAt"],
+            "setupCapabilityIds": state["setupCapabilityIds"],
+            "setupCapabilitiesUpdatedAt": state["setupCapabilitiesUpdatedAt"],
+            "setupStateUpdatedAt": state["setupStateUpdatedAt"],
         }
 
     async def update_pre_vault_state(
         self,
         *,
         user_id: str,
-        pre_onboarding_completed: Optional[bool] = None,
-        pre_onboarding_skipped: Optional[bool] = None,
-        pre_onboarding_completed_at: Optional[int] = None,
-        pre_nav_tour_completed_at: Optional[int] = None,
-        pre_nav_tour_skipped_at: Optional[int] = None,
+        setup_completed: Optional[bool] = None,
+        setup_skipped: Optional[bool] = None,
+        setup_completed_at: Optional[int] = None,
+        nav_setup_completed_at: Optional[int] = None,
+        nav_setup_skipped_at: Optional[int] = None,
+        setup_capability_ids: Optional[list[str]] = None,
     ) -> Dict[str, Any]:
         return await run_in_threadpool(
             self._update_pre_vault_state_sync,
             user_id,
-            pre_onboarding_completed,
-            pre_onboarding_skipped,
-            pre_onboarding_completed_at,
-            pre_nav_tour_completed_at,
-            pre_nav_tour_skipped_at,
+            setup_completed,
+            setup_skipped,
+            setup_completed_at,
+            nav_setup_completed_at,
+            nav_setup_skipped_at,
+            setup_capability_ids,
         )
 
     def _update_pre_vault_state_sync(
         self,
         user_id: str,
-        pre_onboarding_completed: Optional[bool] = None,
-        pre_onboarding_skipped: Optional[bool] = None,
-        pre_onboarding_completed_at: Optional[int] = None,
-        pre_nav_tour_completed_at: Optional[int] = None,
-        pre_nav_tour_skipped_at: Optional[int] = None,
+        setup_completed: Optional[bool] = None,
+        setup_skipped: Optional[bool] = None,
+        setup_completed_at: Optional[int] = None,
+        nav_setup_completed_at: Optional[int] = None,
+        nav_setup_skipped_at: Optional[int] = None,
+        setup_capability_ids: Optional[list[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Persist DB-first pre-vault onboarding/tour markers with basic consistency checks.
+        Persist DB-first setup markers (capability setup + nav tour) with basic
+        consistency checks.
         """
         current = self._ensure_user_entry_sync(user_id)
         user_id_clean = (user_id or "").strip()
@@ -379,51 +417,51 @@ class VaultKeysService:
             raise ValueError("userId is required")
 
         next_completed = (
-            pre_onboarding_completed
-            if pre_onboarding_completed is not None
-            else current["preOnboardingCompleted"]
+            setup_completed if setup_completed is not None else current["setupCompleted"]
         )
-        next_skipped = (
-            pre_onboarding_skipped
-            if pre_onboarding_skipped is not None
-            else current["preOnboardingSkipped"]
-        )
+        next_skipped = setup_skipped if setup_skipped is not None else current["setupSkipped"]
         next_completed_at = (
-            pre_onboarding_completed_at
-            if pre_onboarding_completed_at is not None
-            else current["preOnboardingCompletedAt"]
+            setup_completed_at if setup_completed_at is not None else current["setupCompletedAt"]
         )
         next_tour_completed_at = (
-            pre_nav_tour_completed_at
-            if pre_nav_tour_completed_at is not None
-            else current["preNavTourCompletedAt"]
+            nav_setup_completed_at
+            if nav_setup_completed_at is not None
+            else current["navSetupCompletedAt"]
         )
         next_tour_skipped_at = (
-            pre_nav_tour_skipped_at
-            if pre_nav_tour_skipped_at is not None
-            else current["preNavTourSkippedAt"]
+            nav_setup_skipped_at
+            if nav_setup_skipped_at is not None
+            else current["navSetupSkippedAt"]
         )
 
         if next_skipped is True and next_completed is not True:
-            raise ValueError("pre_onboarding_skipped requires pre_onboarding_completed")
+            raise ValueError("setup_skipped requires setup_completed")
         if next_completed_at is not None and next_completed is not True:
-            raise ValueError("pre_onboarding_completed_at requires pre_onboarding_completed=true")
+            raise ValueError("setup_completed_at requires setup_completed=true")
         if next_tour_completed_at is not None and next_tour_skipped_at is not None:
             raise ValueError(
-                "pre_nav_tour_completed_at and pre_nav_tour_skipped_at are mutually exclusive"
+                "nav_setup_completed_at and nav_setup_skipped_at are mutually exclusive"
             )
 
         now_ms = self._now_ms()
         supabase = self._get_supabase()
         update_payload = {
-            "pre_onboarding_completed": next_completed,
-            "pre_onboarding_skipped": next_skipped,
-            "pre_onboarding_completed_at": next_completed_at,
-            "pre_nav_tour_completed_at": next_tour_completed_at,
-            "pre_nav_tour_skipped_at": next_tour_skipped_at,
-            "pre_state_updated_at": now_ms,
+            "setup_completed": next_completed,
+            "setup_skipped": next_skipped,
+            "setup_completed_at": next_completed_at,
+            "nav_setup_completed_at": next_tour_completed_at,
+            "nav_setup_skipped_at": next_tour_skipped_at,
+            "setup_state_updated_at": now_ms,
             "updated_at": now_ms,
         }
+        # Persist the setup capability set only when the caller supplies one
+        # (None leaves the existing value untouched). Normalize to a de-duped,
+        # sorted JSON array so the stored shape is stable and tamper-resistant.
+        if setup_capability_ids is not None:
+            update_payload["setup_capability_ids"] = json.dumps(
+                self._normalize_explored_ids(setup_capability_ids)
+            )
+            update_payload["setup_capabilities_updated_at"] = now_ms
         updated = (
             supabase.table("vault_keys")
             .update(update_payload)

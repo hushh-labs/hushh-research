@@ -68,7 +68,7 @@ export function TrustedPersonCard({
       className={cn(
         SUBCARD_SURFACE,
         "flex items-center gap-3 p-3.5",
-        selected && "border-[#0a84ff]/50 ring-1 ring-[#0a84ff]/30",
+        selected && "border-[#d4a574]/50 ring-1 ring-[#d4a574]/30",
       )}
     >
       <Avatar initials={initialsFrom(name)} />
@@ -322,7 +322,7 @@ export function TemporaryLinkCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
       <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0a84ff]/12 text-[#0a84ff]">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#d4a574]/12 text-[#d4a574]">
           <ExternalLink className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
@@ -402,7 +402,7 @@ export function DeviceReadinessCard({
         ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
         : tone === "blocked"
           ? "bg-red-500/15 text-red-600 dark:text-red-300"
-          : "bg-[#0a84ff]/12 text-[#0a84ff]";
+          : "bg-[#d4a574]/12 text-[#d4a574]";
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -430,7 +430,7 @@ export function DeviceReadinessCard({
             size="sm"
             onClick={onRefresh}
             isLoading={refreshBusy}
-            className="h-10 w-full rounded-full bg-[#0a84ff] text-sm font-semibold text-white hover:bg-[#0a84ff]/90"
+            className="h-10 w-full rounded-full bg-[#d4a574] text-sm font-semibold text-white hover:bg-[#d4a574]/90"
           >
             {!refreshBusy ? <RefreshCw className="mr-2 h-4 w-4" /> : null}
             {refreshLabel}

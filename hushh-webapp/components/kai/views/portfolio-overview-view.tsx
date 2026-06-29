@@ -119,7 +119,7 @@ export function PortfolioOverviewView({
           <SurfaceCardContent className="p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className={kpiIconClassName}>
-                <Icon icon={PieChart} size="sm" className="text-blue-600 dark:text-blue-300" />
+                <Icon icon={PieChart} size="sm" className="text-accent-strong" />
               </span>
               <span className={kpiLabelClassName}>Holdings</span>
             </div>

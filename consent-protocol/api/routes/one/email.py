@@ -69,6 +69,11 @@ class DraftRedraftRequest(WorkflowUserRequest):
     source: str = Field(default="text", pattern="^(text|voice)$")
 
 
+class LlmRedraftRequest(WorkflowUserRequest):
+    tokenized_template: str = Field(min_length=1, max_length=20000)
+    instruction: str = Field(min_length=1, max_length=1000)
+
+
 class RecentMailboxSyncRequest(WorkflowUserRequest):
     max_results: int = Field(default=12, ge=1, le=25)
 
@@ -551,6 +556,34 @@ async def one_kyc_redraft(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="redraft") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/redraft-llm")
+async def one_kyc_redraft_llm(
+    workflow_id: str,
+    payload: LlmRedraftRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        # The PII-free tokenized template and instruction transit to server-side
+        # Gemini Vertex. The body is never persisted or logged here; only the
+        # workflow_id and user_id are logged, and the service logs the instruction
+        # hash (no template body). draft_body stays NULL.
+        return await _service().redraft_llm(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            tokenized_template=payload.tokenized_template,
+            instruction=payload.instruction,
+            consent_token=token_data.get("token", ""),
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.redraft_llm_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="redraft_llm") from exc
 
 
 @router.post("/kyc/retention/purge")

@@ -230,17 +230,25 @@
   {
     "route": "/kai/onboarding",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/onboarding flow."
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/kai flow."
   },
   {
     "route": "/one/kai/onboarding",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/onboarding flow."
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/kai flow."
   },
   {
-    "route": "/one/onboarding",
+    "route": "/one/setup/kai",
     "mode": "flow",
-    "exemptionReason": "Fullscreen onboarding flow owns its own shell and safe-area spacing."
+    "exemptionReason": "Fullscreen setup wizard owns its own shell and safe-area spacing."
+  },
+  {
+    "route": "/one/setup/[capability]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/onboarding/setup/onboarding-capability-step.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
   },
   {
     "route": "/kai/optimize",

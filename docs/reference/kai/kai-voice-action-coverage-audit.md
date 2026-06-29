@@ -167,7 +167,7 @@ The app currently has 39 `page.tsx`/`page.ts` routes under `hushh-webapp/app`, w
 
 Examples without matching action-contract coverage or explicit voice-ignore contracts:
 
-- `/one/onboarding`
+- `/one/setup/kai`
 - `/one/kai/funding-trade`
 - `/one/kai/dashboard`
 - `/one/kai/dashboard/analysis`

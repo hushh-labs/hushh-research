@@ -7,7 +7,7 @@ export type GrowthJourney = "investor" | "ria";
 export type GrowthEntrySurface =
   | "login"
   | "kai_home"
-  | "kai_onboarding"
+  | "one_setup"
   | "kai_import"
   | "marketplace"
   | "ria_home"

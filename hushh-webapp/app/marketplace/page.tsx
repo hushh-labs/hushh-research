@@ -122,13 +122,13 @@ function ProfileAvatar({
       className={cn(
         "flex h-14 w-14 items-center justify-center rounded-[20px] border shadow-[0_20px_50px_-34px_rgba(15,23,42,0.28)]",
         kind === "ria"
-          ? "border-sky-500/15 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]"
+          ? "border-accent-border bg-[radial-gradient(circle_at_top,rgba(212,165,116,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]"
           : "border-emerald-500/15 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]",
         className
       )}
     >
       <div className="flex flex-col items-center justify-center gap-1">
-        <Icon className={cn("h-4 w-4", kind === "ria" ? "text-sky-700" : "text-emerald-700")} />
+        <Icon className={cn("h-4 w-4", kind === "ria" ? "text-accent-strong" : "text-emerald-700")} />
         <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/72">
           {initials || (kind === "ria" ? "RIA" : "INV")}
         </span>
@@ -1435,7 +1435,7 @@ export default function MarketplacePage() {
                         </span>
                       ) : null}
                       {isPublicSecInvestor ? (
-                        <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700">
+                        <span className="rounded-full border border-accent-border bg-accent-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-strong">
                           Public SEC
                         </span>
                       ) : null}
@@ -1607,7 +1607,7 @@ export default function MarketplacePage() {
                     </span>
                   ) : null}
                   {isPublicSecMarketplaceInvestor(selectedInvestor) ? (
-                    <span className="inline-flex rounded-full border border-sky-500/20 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">
+                    <span className="inline-flex rounded-full border border-accent-border bg-accent-surface px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-strong">
                       Public SEC profile
                     </span>
                   ) : null}

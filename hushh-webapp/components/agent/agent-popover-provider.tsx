@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -20,7 +21,6 @@ import { Grip, Maximize2, Minimize2, Minus, X } from "lucide-react";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/use-auth";
 import {
   AGENT_POPOVER_DEFAULT_SIZE_MODE,
   AGENT_POPOVER_PRESET_SIZES,
@@ -31,7 +31,6 @@ import {
   type AgentPopoverSize,
   type AgentPopoverSizeMode,
 } from "@/lib/agent/agent-popover-layout";
-import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
@@ -255,7 +254,6 @@ function AgentPopoverSurface({
   customSize,
   setCustomSize,
 }: AgentPopoverSurfaceProps) {
-  const { isAuthenticated } = useAuth();
   const pathname = usePathname();
   const {
     expanded,
@@ -266,14 +264,26 @@ function AgentPopoverSurface({
     openAgent,
     minimizeAgent,
   } = useAgentPopover();
-  const chromeState = getKaiChromeState(pathname);
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
-  const canShowAgent =
-    isAuthenticated &&
-    !isLegacyAgentRoute &&
-    !isPhoneMandateRoute &&
-    !chromeState.hideCommandBar;
+  // The agent is a SINGLE surface present everywhere, including onboarding and
+  // for anonymous (pre-sign-in) users. It degrades gracefully by auth/vault
+  // level rather than unmounting, so it intentionally does NOT gate on
+  // isAuthenticated or on the Kai command-bar's hideCommandBar (which is a
+  // different surface). We only suppress it where an agent window must not exist
+  // at all: the legacy dedicated agent route, phone mandate, the appearance lab,
+  // the developers page, and the auth/landing transitions where the app shell
+  // itself is not the right host.
+  const path = pathname ?? "";
+  const isAgentSuppressedRoute =
+    isLegacyAgentRoute ||
+    isPhoneMandateRoute ||
+    path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
+    path === ROUTES.DEVELOPERS ||
+    path === ROUTES.HOME ||
+    path.startsWith(ROUTES.LOGIN) ||
+    path.startsWith(ROUTES.LOGOUT);
+  const canShowAgent = !isAgentSuppressedRoute;
   const isCollapsing = motionState === "closing";
   const surfaceVisible = expanded || motionState !== "idle";
   const isFullscreen = sizeMode === "fullscreen";
@@ -364,10 +374,6 @@ function AgentPopoverSurface({
     [],
   );
 
-  if (!isAuthenticated) {
-    return null;
-  }
-
   if (!canShowAgent) {
     return null;
   }
@@ -429,19 +435,21 @@ function AgentPopoverSurface({
                 <Grip className="h-3.5 w-3.5" />
               </Button>
             ) : null}
-            <AgentChatWorkspace
-              variant="popover"
-              windowControls={
-                <AgentPopoverWindowControls
-                  sizeMode={sizeMode}
-                  setSizeMode={setSizeMode}
-                  onMinimize={minimizeAgent}
-                  onClose={minimizeAgent}
-                />
-              }
-              onMinimize={minimizeAgent}
-              onNavigationActionComplete={handleNavigationActionComplete}
-            />
+            <Suspense fallback={null}>
+              <AgentChatWorkspace
+                variant="popover"
+                windowControls={
+                  <AgentPopoverWindowControls
+                    sizeMode={sizeMode}
+                    setSizeMode={setSizeMode}
+                    onMinimize={minimizeAgent}
+                    onClose={minimizeAgent}
+                  />
+                }
+                onMinimize={minimizeAgent}
+                onNavigationActionComplete={handleNavigationActionComplete}
+              />
+            </Suspense>
           </section>
         </div>
       ) : null}

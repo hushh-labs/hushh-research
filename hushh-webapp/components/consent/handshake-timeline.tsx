@@ -58,9 +58,9 @@ function actionIcon(action: string) {
     case "TIMEOUT":
       return <Timer className="h-4 w-4 text-amber-500" />;
     case "REQUESTED":
-      return <Clock className="h-4 w-4 text-sky-500" />;
+      return <Clock className="h-4 w-4 text-accent-strong" />;
     case "INVITE_SENT":
-      return <Mail className="h-4 w-4 text-indigo-500" />;
+      return <Mail className="h-4 w-4 text-slate-500" />;
     default:
       return <Clock className="h-4 w-4 text-muted-foreground" />;
   }

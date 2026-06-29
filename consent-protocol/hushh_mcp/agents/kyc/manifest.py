@@ -24,6 +24,7 @@ MANIFEST = {
     "optional_scopes": [
         ConsentScope.AGENT_KYC_DRAFT,
         ConsentScope.AGENT_KYC_WRITEBACK,
+        ConsentScope.AGENT_KYC_REDRAFT_LLM,
         ConsentScope.PKM_WRITE,
     ],
     "workflow_states": KYC_WORKFLOW_STATES,

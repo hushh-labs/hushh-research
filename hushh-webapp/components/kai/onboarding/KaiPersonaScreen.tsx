@@ -37,7 +37,7 @@ const PERSONA_CONFIG: Record<
     headline: "You can accept some movement when the long-term path is clear.",
     support: "Kai will balance opportunity, concentration, and timing before suggesting action.",
     footerTagline: "Progress without overexposure.",
-    accent: "text-primary bg-primary/10 dark:text-blue-300 dark:bg-blue-400/12",
+    accent: "text-primary bg-primary/10 dark:text-primary dark:bg-primary/12",
     icon: Target,
   },
   aggressive: {

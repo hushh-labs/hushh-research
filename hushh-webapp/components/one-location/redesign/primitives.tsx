@@ -194,7 +194,7 @@ export function PrivacyStatusCard({
             "flex h-11 w-11 items-center justify-center rounded-full",
             isSharing
               ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
-              : "bg-[#0a84ff]/12 text-[#0a84ff]",
+              : "bg-[#d4a574]/12 text-[#d4a574]",
           )}
         >
           <ShieldCheck className="h-6 w-6" />
@@ -299,10 +299,10 @@ export function QuickPathRow({
       onClick={onClick}
       className={cn(
         SUBCARD_SURFACE,
-        "flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:border-[#0a84ff]/40",
+        "flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:border-[#d4a574]/40",
       )}
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0a84ff]/12 text-[#0a84ff]">
+      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#d4a574]/12 text-[#d4a574]">
         {icon}
       </span>
       <span className="min-w-0 flex-1">

@@ -6,6 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { JsonLd } from "@/components/seo/json-ld";
+import { buildFaqGraph } from "@/lib/seo/structured-data";
+import { HOME_FAQ } from "@/lib/seo/faq-data";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
@@ -116,6 +119,7 @@ function HomeContent() {
 export default function Home() {
   return (
     <>
+      <JsonLd data={buildFaqGraph(HOME_FAQ)} />
       <NativeRouteMarker
         routeId="/"
         marker="native-route-home"

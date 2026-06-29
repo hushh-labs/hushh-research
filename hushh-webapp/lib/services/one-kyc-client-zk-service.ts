@@ -10,11 +10,16 @@ import {
   buildApprovedDisclosureHtml,
   buildApprovedDisclosurePlainText,
   redraftTransformFromInstructions,
+  renderLlmRedraftHtml,
   type ApprovedDisclosureRenderModel,
   type RedraftTransform,
   type RenderFact,
   type RenderSection,
 } from "@/lib/services/one-kyc-approved-disclosure-renderer";
+import {
+  consolidateFinancialPortfolio,
+  type AllocationSlice,
+} from "@/lib/services/one-kyc-financial-consolidation";
 import { bytesToBase64 } from "@/lib/vault/base64";
 
 export { APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID };
@@ -446,53 +451,101 @@ function formatApprovedValue(value: unknown): string | null {
   return null;
 }
 
-function formatPortfolioApprovedValue(value: unknown): string | null {
-  const portfolio = Array.isArray(value) ? { holdings: value } : isRecord(value) ? value : null;
-  if (!portfolio) return formatApprovedValue(value);
+function humanizeAllocationBucket(bucket: string): string {
+  return bucket.replaceAll("_", " ");
+}
 
+function formatAllocationSummary(allocation: AllocationSlice[]): string | null {
+  if (!allocation.length) return null;
+  return allocation
+    .map((slice) => `${Math.round(slice.pct)}% ${humanizeAllocationBucket(slice.bucket)}`)
+    .join(", ");
+}
+
+function formatPortfolioApprovedValue(value: unknown): string | null {
+  const consolidated = consolidateFinancialPortfolio(value);
+  if (!consolidated) return formatApprovedValue(value);
+
+  const portfolio = Array.isArray(value) ? { holdings: value } : isRecord(value) ? value : {};
   const accountInfo = isRecord(portfolio.account_info)
     ? portfolio.account_info
     : isRecord(portfolio.accountInfo)
       ? portfolio.accountInfo
       : {};
-  const accountSummary = isRecord(portfolio.account_summary)
-    ? portfolio.account_summary
-    : {};
-  const holderName = truncate(getRecordValue(accountInfo, ["holder_name", "account_holder_name"]), 120);
-  const beginningValue = formatCurrencyValue(getRecordValue(accountSummary, ["beginning_value"]));
-  const totalValue =
-    formatCurrencyValue(getRecordValue(portfolio, ["total_value", "market_value"])) ||
-    formatCurrencyValue(getRecordValue(accountSummary, ["ending_value", "total_value"]));
-  const cashBalance =
-    formatCurrencyValue(getRecordValue(portfolio, ["cash_balance"])) ||
-    formatCurrencyValue(getRecordValue(accountSummary, ["cash_balance"]));
-  const changeInValue = formatCurrencyValue(getRecordValue(accountSummary, ["change_in_value"]));
-  const netDepositsWithdrawals = formatCurrencyValue(
-    getRecordValue(accountSummary, ["net_deposits_withdrawals"])
-  );
-  const investmentGainLoss = formatCurrencyValue(
-    getRecordValue(accountSummary, ["investment_gain_loss", "gain_loss", "change_in_value"])
-  );
-  const totalFees = formatCurrencyValue(getRecordValue(accountSummary, ["total_fees", "fees"]));
-  const totalIncomePeriod = formatCurrencyValue(getRecordValue(accountSummary, ["total_income_period"]));
-  const totalIncomeYtd = formatCurrencyValue(getRecordValue(accountSummary, ["total_income_ytd"]));
+  const accountSummary = isRecord(portfolio.account_summary) ? portfolio.account_summary : {};
+  const multiAccount = consolidated.accounts.length > 1;
 
   const summaryLines: string[] = [];
-  if (holderName) summaryLines.push(`- Account name: ${holderName}`);
-  if (beginningValue) summaryLines.push(`- Beginning value: ${beginningValue}`);
-  if (totalValue) summaryLines.push(`- Total value: ${totalValue}`);
-  if (cashBalance) summaryLines.push(`- Cash balance: ${cashBalance}`);
-  if (changeInValue) summaryLines.push(`- Change in value: ${changeInValue}`);
-  if (netDepositsWithdrawals) {
-    summaryLines.push(`- Net deposits/withdrawals: ${netDepositsWithdrawals}`);
-  }
-  if (investmentGainLoss) summaryLines.push(`- Investment gain/loss: ${investmentGainLoss}`);
-  if (totalFees) summaryLines.push(`- Fees: ${totalFees}`);
-  if (totalIncomePeriod) summaryLines.push(`- Income this period: ${totalIncomePeriod}`);
-  if (totalIncomeYtd) summaryLines.push(`- Income year to date: ${totalIncomeYtd}`);
 
-  const holdings = Array.isArray(portfolio.holdings) ? portfolio.holdings : [];
+  if (multiAccount) {
+    summaryLines.push(`- Accounts: ${consolidated.accounts.length}`);
+    const totalValue = formatCurrencyValue(consolidated.totalValue);
+    if (totalValue) summaryLines.push(`- Total value: ${totalValue}`);
+    for (const account of consolidated.accounts) {
+      const label = account.label || "Account";
+      const accountValue = formatCurrencyValue(account.endingValue);
+      if (accountValue) summaryLines.push(`- ${label}: ${accountValue}`);
+    }
+    const cashBalance = formatCurrencyValue(consolidated.cashBalance);
+    if (cashBalance) summaryLines.push(`- Cash balance: ${cashBalance}`);
+  } else {
+    // Single-account: preserve the existing rich statement summary verbatim.
+    const holderName = truncate(
+      getRecordValue(accountInfo, ["holder_name", "account_holder_name"]),
+      120
+    );
+    const beginningValue = formatCurrencyValue(getRecordValue(accountSummary, ["beginning_value"]));
+    const totalValue =
+      formatCurrencyValue(consolidated.totalValue) ||
+      formatCurrencyValue(getRecordValue(portfolio, ["total_value", "market_value"]));
+    const cashBalance =
+      formatCurrencyValue(consolidated.cashBalance) ||
+      formatCurrencyValue(getRecordValue(accountSummary, ["cash_balance"]));
+    const changeInValue = formatCurrencyValue(getRecordValue(accountSummary, ["change_in_value"]));
+    const netDepositsWithdrawals = formatCurrencyValue(
+      getRecordValue(accountSummary, ["net_deposits_withdrawals"])
+    );
+    const investmentGainLoss = formatCurrencyValue(
+      getRecordValue(accountSummary, ["investment_gain_loss", "gain_loss", "change_in_value"])
+    );
+    const totalFees = formatCurrencyValue(getRecordValue(accountSummary, ["total_fees", "fees"]));
+    const totalIncomePeriod = formatCurrencyValue(
+      getRecordValue(accountSummary, ["total_income_period"])
+    );
+    const totalIncomeYtd = formatCurrencyValue(getRecordValue(accountSummary, ["total_income_ytd"]));
+
+    if (holderName) summaryLines.push(`- Account name: ${holderName}`);
+    if (beginningValue) summaryLines.push(`- Beginning value: ${beginningValue}`);
+    if (totalValue) summaryLines.push(`- Total value: ${totalValue}`);
+    if (cashBalance) summaryLines.push(`- Cash balance: ${cashBalance}`);
+    if (changeInValue) summaryLines.push(`- Change in value: ${changeInValue}`);
+    if (netDepositsWithdrawals) {
+      summaryLines.push(`- Net deposits/withdrawals: ${netDepositsWithdrawals}`);
+    }
+    if (investmentGainLoss) summaryLines.push(`- Investment gain/loss: ${investmentGainLoss}`);
+    if (totalFees) summaryLines.push(`- Fees: ${totalFees}`);
+    if (totalIncomePeriod) summaryLines.push(`- Income this period: ${totalIncomePeriod}`);
+    if (totalIncomeYtd) summaryLines.push(`- Income year to date: ${totalIncomeYtd}`);
+  }
+
+  // Shared aggregate lines (both single- and multi-account).
+  const netUnrealized = formatCurrencyValue(consolidated.netUnrealizedGainLoss);
+  if (netUnrealized) summaryLines.push(`- Net unrealized gain/loss: ${netUnrealized}`);
+  const allocationSummary = formatAllocationSummary(consolidated.allocation);
+  if (allocationSummary) summaryLines.push(`- Asset allocation: ${allocationSummary}`);
+
+  const holdings = consolidated.holdings;
   if (holdings.length) summaryLines.push(`- Holdings: ${holdings.length}`);
+
+  if (consolidated.reconciliationMismatch) {
+    const holdingsTotal = formatCurrencyValue(consolidated.holdingsSum);
+    if (holdingsTotal) {
+      summaryLines.push(
+        `- Totals as reported on statements; itemized holdings total ${holdingsTotal}.`
+      );
+    }
+  }
+
   const holdingLines = holdings.map(formatHoldingLine).filter(Boolean);
   const sections: string[] = [];
   if (summaryLines.length) sections.push(["Portfolio summary", ...summaryLines].join("\n"));
@@ -1432,4 +1485,294 @@ export class OneKycClientZkService {
       draftHash: await sha256Hex(body),
     };
   }
+}
+
+/**
+ * Injectable LLM rewrite interface (D-G forward-compat). The default implementation
+ * is `OneKycService.redraftWithLlm` (server Gemini Vertex via the Wave 2 proxy), but
+ * an on-device model can be swapped in without touching the redact/refill pipeline.
+ */
+export type KycLlmRewriteCallable = (
+  tokenizedTemplate: string,
+  instruction: string
+) => Promise<string>;
+
+/**
+ * Returns true when `instruction` is a pure keyword/formatting instruction that the
+ * existing regex path (`redraftTransformFromInstructions`) can handle locally — i.e.
+ * it matches at least one keyword regex AND contains no semantic-intent phrasing.
+ *
+ * Routing rule (D-F):
+ *  - keyword-only ("make it shorter", "bullet list") -> regex path (return true)
+ *  - free-form / semantic ("rephrase the intro", "shorter and warmer") -> LLM path (return false)
+ *
+ * The keyword regexes are reused verbatim from `redraftTransformFromInstructions`.
+ */
+export function isKeywordOnlyInstruction(instruction: string): boolean {
+  const text = String(instruction || "").toLowerCase().trim();
+  if (!text) return false;
+  // Keyword regexes reused EXACTLY from redraftTransformFromInstructions (renderer).
+  const keywordPatterns: RegExp[] = [
+    /\b(human|natural|plain english|readable|less programmatic|rewrite|polish|polished|email)\b/,
+    /\b(format|formatted|structure|structured|headings|sections|sectioned|readable|clean|beautiful)\b/,
+    /\b(table|tabular|columns|spreadsheet)\b/,
+    /\b(shorter|short|concise|summary|brief|direct|tighten)\b/,
+    /\b(formal|professional|polished)\b/,
+    /\b(bullet|bullets|list)\b/,
+    /\b(full detail|all details|complete|everything|full)\b/,
+    /\b(double headers?|duplicate headers?|remove headers?|clean headers?|headings?)\b/,
+  ];
+  const matchesKeyword = keywordPatterns.some((pattern) => pattern.test(text));
+  if (!matchesKeyword) return false;
+  // Semantic-intent phrases route to the LLM even if a keyword also matched.
+  const semanticIntent =
+    /\b(rephrase|rewrite|reword|warmer|friendlier|colder|intro|opening|paragraph|sentence|tone|voice|style|explain|describe)\b/i;
+  if (semanticIntent.test(text)) return false;
+  return true;
+}
+
+/**
+ * Deterministically redact every PII value from `body` (D-B). Iterates `approvedValues`
+ * (map-driven, not scan-driven) assigning each value an opaque placeholder `{{F0}}..{{FN}}`,
+ * keeping the token->value map for client-side re-substitution. Throws (D-H guardrail 1) if
+ * any value of length >= 3 still appears verbatim in the tokenized template.
+ */
+export function redactDraftForLlm(params: {
+  body: string;
+  approvedValues: Record<string, string>;
+}): { tokenizedTemplate: string; tokenMap: Record<string, string> } {
+  const tokenMap: Record<string, string> = {};
+  // Preserve insertion order for token-index assignment.
+  const orderedEntries = Object.entries(params.approvedValues);
+  orderedEntries.forEach(([, value], index) => {
+    tokenMap[`F${index}`] = value;
+  });
+
+  // Substitute longest values first to avoid partial-match shadowing, but keep the
+  // original insertion-order index in the token name.
+  const substitutionOrder = orderedEntries
+    .map(([, value], index) => ({ index, value }))
+    .sort((a, b) => b.value.length - a.value.length);
+
+  let tokenizedTemplate = params.body;
+  for (const { index, value } of substitutionOrder) {
+    if (!value) continue;
+    tokenizedTemplate = tokenizedTemplate.replaceAll(value, `{{F${index}}}`);
+  }
+
+  // Completeness assertion (D-H guardrail 1): no real value of length >= 3 may remain.
+  for (const [key, value] of Object.entries(tokenMap)) {
+    if (value.length >= 3 && tokenizedTemplate.includes(value)) {
+      throw new Error(
+        `KYC redact incomplete: value for key "${key}" still present in tokenized template`
+      );
+    }
+  }
+
+  return { tokenizedTemplate, tokenMap };
+}
+
+/**
+ * Re-fill placeholders with their real values from `tokenMap` (client-side only, D-B).
+ * Unknown placeholders are left as-is — the integrity check rejects those upstream.
+ */
+export function resubstituteDraft(
+  tokenizedTemplate: string,
+  tokenMap: Record<string, string>
+): string {
+  let result = tokenizedTemplate;
+  for (const [key, value] of Object.entries(tokenMap)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  return result;
+}
+
+/**
+ * Hard token-integrity gate (D-H guardrail 2). Returns true only if EVERY token in
+ * `tokenMap` appears exactly once in `rewrittenTemplate` AND no token outside `tokenMap`
+ * is present. Returns false on any dropped, duplicated, or invented token — never throws.
+ */
+export function validateTokenIntegrity(
+  _tokenizedTemplate: string,
+  rewrittenTemplate: string,
+  tokenMap: Record<string, string>
+): boolean {
+  for (const key of Object.keys(tokenMap)) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matches = rewrittenTemplate.match(new RegExp(`\\{\\{${escapedKey}\\}\\}`, "g"));
+    if (!matches || matches.length !== 1) {
+      return false;
+    }
+  }
+  // Reject any token present in the output that is not in the map (invented token).
+  const tokenPattern = /\{\{([^}]+)\}\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(rewrittenTemplate)) !== null) {
+    const tokenKey = match[1];
+    if (tokenKey === undefined || !Object.prototype.hasOwnProperty.call(tokenMap, tokenKey)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The fixed signature the renderer appends to every approved-disclosure draft.
+ * Kept byte-identical to `buildApprovedDisclosurePlainText` (renderer) so that
+ * `splitDraftTemplate` can strip it deterministically.
+ */
+const DRAFT_SIGNATURE = "Best,\nhussh One";
+
+/**
+ * Recompute the EXACT opening line the renderer produced for `renderModel`.
+ * Must stay byte-identical to `buildApprovedDisclosurePlainText` (renderer).
+ */
+function computeDraftOpening(renderModel: KycDraftRenderModel): string {
+  return renderModel.style.formal
+    ? `I am replying on behalf of ${renderModel.accountHolder} with the approved information below.`
+    : `I am replying on behalf of ${renderModel.accountHolder}.`;
+}
+
+/**
+ * Deterministically split a draft `body` into its fixed template framing
+ * ({ opening, content, signature }) using `renderModel`.
+ *
+ * The renderer composes every draft body as:
+ *   `${opening}\n\n${content...}\n${signature}`  (and the compact single-entry
+ *   branch uses the same `${opening}` prefix + `${signature}` suffix).
+ *
+ * This recomputes the opening from `style.formal + accountHolder` and uses the
+ * constant signature, then strips the known prefix/suffix; the trimmed remainder
+ * is `content` — the ONLY part an LLM redraft may rewrite. The opening and
+ * signature are returned verbatim so the caller can reassemble a byte-identical
+ * template around the rewritten content.
+ *
+ * Defensive: if the body does not start with the expected opening or end with the
+ * expected signature, returns `matched: false` with the WHOLE body as `content`
+ * (opening/signature empty), so the caller falls back to sending the full body.
+ */
+export function splitDraftTemplate(params: {
+  body: string;
+  renderModel: KycDraftRenderModel;
+}): { opening: string; content: string; signature: string; matched: boolean } {
+  const body = params.body;
+  const opening = computeDraftOpening(params.renderModel);
+  const signature = DRAFT_SIGNATURE;
+
+  const openingPrefix = `${opening}\n\n`;
+  const signatureSuffix = signature;
+
+  const startsWithOpening = body.startsWith(openingPrefix);
+  const endsWithSignature = body.endsWith(signatureSuffix);
+
+  if (!startsWithOpening || !endsWithSignature) {
+    // Defensive fallback: framing did not match — send the whole body.
+    return { opening: "", content: body, signature: "", matched: false };
+  }
+
+  const middle = body.slice(openingPrefix.length, body.length - signatureSuffix.length);
+  // The renderer separates content from the signature with a trailing "\n" (or
+  // "\n\n" in the compact branch); strip surrounding newline whitespace so the
+  // content is the clean rewritable core. Reassembly re-adds the framing.
+  const content = middle.replace(/^\n+/, "").replace(/\n+$/, "");
+
+  return { opening, content, signature, matched: true };
+}
+
+/**
+ * Reassemble a draft body from its fixed framing and a (possibly rewritten)
+ * content core, byte-identical to the renderer's `${opening}\n\n...\n\n${signature}`
+ * shape. Used after an LLM rewrite of the content portion so the opening line and
+ * signature remain unchanged.
+ */
+export function reassembleDraftTemplate(params: {
+  opening: string;
+  content: string;
+  signature: string;
+}): string {
+  return `${params.opening}\n\n${params.content}\n\n${params.signature}`;
+}
+
+export type LlmRedraftResult =
+  | { ok: true; draft: KycDraftBuildResult }
+  | { ok: false; errorCode: "TOKEN_INTEGRITY" | "FIELD_SET_CHANGED" };
+
+/**
+ * LLM-only KYC redraft orchestrator (zero-knowledge).
+ *
+ * Pipeline: split off the fixed framing (opening + signature) so only the middle
+ * content is rewritten; redact every PII value to a token (map stays local);
+ * call the injected LLM rewrite; verify token integrity (guardrail 1); re-substitute
+ * real values and reassemble the framing; re-run buildDraft and confirm the
+ * consented field-key set is unchanged (guardrail 2); render the LLM output into
+ * the same themed email shell. Both guardrails fail closed — the caller keeps the
+ * prior draft. The PII map and real values never leave the browser.
+ */
+export async function runLlmRedraft(params: {
+  localDraft: KycDraftBuildResult;
+  instruction: string;
+  workflow: OneKycWorkflow;
+  exportPayloads: Parameters<typeof OneKycClientZkService.buildDraft>[0]["exportPayloads"];
+  llmRewrite: KycLlmRewriteCallable;
+}): Promise<LlmRedraftResult> {
+  const { localDraft, instruction, workflow, exportPayloads, llmRewrite } = params;
+
+  // 0. Preserve framing: rewrite only the middle content.
+  const templateSplit = splitDraftTemplate({
+    body: localDraft.body,
+    renderModel: localDraft.renderModel,
+  });
+
+  // 1. Redact: PII -> tokens; map stays in the browser.
+  const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+    body: templateSplit.content,
+    approvedValues: localDraft.approvedValues,
+  });
+
+  // 2. Rewrite through the injected callable (server Gemini proxy by default).
+  const rewrittenTemplate = await llmRewrite(tokenizedTemplate, instruction);
+
+  // 3. Token-integrity gate (guardrail 1) — fail closed.
+  if (!validateTokenIntegrity(tokenizedTemplate, rewrittenTemplate, tokenMap)) {
+    return { ok: false, errorCode: "TOKEN_INTEGRITY" };
+  }
+
+  // 4. Re-substitute real values locally, then reassemble around the framing.
+  const resubstitutedContent = resubstituteDraft(rewrittenTemplate, tokenMap);
+  const resubstitutedBody = templateSplit.matched
+    ? reassembleDraftTemplate({
+        opening: templateSplit.opening,
+        content: resubstitutedContent,
+        signature: templateSplit.signature,
+      })
+    : resubstitutedContent;
+
+  // 5. Field re-validation (guardrail 2): consented field set must be unchanged.
+  const revalidatedDraft = await OneKycClientZkService.buildDraft({
+    workflow,
+    exportPayloads,
+  });
+  const beforeKeys = new Set(Object.keys(localDraft.approvedValues));
+  const afterKeys = new Set(Object.keys(revalidatedDraft.approvedValues));
+  const keysMatch =
+    beforeKeys.size === afterKeys.size &&
+    [...beforeKeys].every((key) => afterKeys.has(key));
+  if (!keysMatch) {
+    return { ok: false, errorCode: "FIELD_SET_CHANGED" };
+  }
+
+  // 6. Build the LLM draft. body AND htmlBody both reflect the LLM output;
+  //    htmlBody is re-derived from the resubstituted plaintext via
+  //    renderLlmRedraftHtml so the preview/sent email stays visually consistent.
+  const llmHtmlBody = renderLlmRedraftHtml(resubstitutedBody);
+  const llmDraftHash = await sha256Hex(resubstitutedBody);
+  return {
+    ok: true,
+    draft: {
+      ...revalidatedDraft,
+      body: resubstitutedBody,
+      htmlBody: llmHtmlBody,
+      draftHash: llmDraftHash,
+    },
+  };
 }

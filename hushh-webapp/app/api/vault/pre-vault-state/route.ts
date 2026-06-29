@@ -10,11 +10,12 @@ const PYTHON_API_URL = getPythonApiUrl();
 
 type PreVaultStatePayload = {
   userId?: string;
-  preOnboardingCompleted?: boolean;
-  preOnboardingSkipped?: boolean;
-  preOnboardingCompletedAt?: number | null;
-  preNavTourCompletedAt?: number | null;
-  preNavTourSkippedAt?: number | null;
+  setupCompleted?: boolean;
+  setupSkipped?: boolean;
+  setupCompletedAt?: number | null;
+  navSetupCompletedAt?: number | null;
+  navSetupSkippedAt?: number | null;
+  setupCapabilityIds?: string[];
 };
 
 export async function POST(request: NextRequest) {

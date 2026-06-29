@@ -104,12 +104,14 @@ async def create_vault_keys(pool: asyncpg.Pool):
             first_login_at BIGINT,
             last_login_at BIGINT,
             login_count INTEGER NOT NULL DEFAULT 0,
-            pre_onboarding_completed BOOLEAN,
-            pre_onboarding_skipped BOOLEAN,
-            pre_onboarding_completed_at BIGINT,
-            pre_nav_tour_completed_at BIGINT,
-            pre_nav_tour_skipped_at BIGINT,
-            pre_state_updated_at BIGINT,
+            setup_completed BOOLEAN,
+            setup_skipped BOOLEAN,
+            setup_completed_at BIGINT,
+            nav_setup_completed_at BIGINT,
+            nav_setup_skipped_at BIGINT,
+            setup_capability_ids TEXT,
+            setup_capabilities_updated_at BIGINT,
+            setup_state_updated_at BIGINT,
             created_at BIGINT NOT NULL,
             updated_at BIGINT NOT NULL,
             CONSTRAINT vault_keys_placeholder_integrity_check CHECK (
@@ -127,6 +129,62 @@ async def create_vault_keys(pool: asyncpg.Pool):
             )
         )
     """)
+    # Rename legacy pre-vault onboarding/tour columns to the unified "setup"
+    # vocabulary. Setup is the umbrella for first-run capability setup AND the
+    # navigation tour, so the tour columns fold into the setup namespace. This
+    # runner has no version table, so the rename is guarded (only renames when
+    # the old column exists and the new one does not) and is safe to re-run.
+    await pool.execute(
+        """
+        DO $$
+        DECLARE
+          pairs TEXT[][] := ARRAY[
+            ARRAY['pre_onboarding_completed', 'setup_completed'],
+            ARRAY['pre_onboarding_skipped', 'setup_skipped'],
+            ARRAY['pre_onboarding_completed_at', 'setup_completed_at'],
+            ARRAY['pre_nav_tour_completed_at', 'nav_setup_completed_at'],
+            ARRAY['pre_nav_tour_skipped_at', 'nav_setup_skipped_at'],
+            ARRAY['pre_explored_capability_ids', 'setup_capability_ids'],
+            ARRAY['pre_explored_updated_at', 'setup_capabilities_updated_at'],
+            ARRAY['pre_state_updated_at', 'setup_state_updated_at']
+          ];
+          old_name TEXT;
+          new_name TEXT;
+          i INT;
+        BEGIN
+          FOR i IN 1 .. array_length(pairs, 1) LOOP
+            old_name := pairs[i][1];
+            new_name := pairs[i][2];
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'vault_keys' AND column_name = old_name
+            ) AND NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'vault_keys' AND column_name = new_name
+            ) THEN
+              EXECUTE format('ALTER TABLE vault_keys RENAME COLUMN %I TO %I', old_name, new_name);
+            END IF;
+          END LOOP;
+        END $$;
+        """
+    )
+    # Additive backstop for the unified setup columns. Existing tables predate
+    # some of these, so add them idempotently. setup_capability_ids stores a
+    # JSON-encoded TEXT array (e.g. '["email","location"]'); NULL/empty means
+    # nothing set up yet.
+    await pool.execute(
+        """
+        ALTER TABLE vault_keys
+          ADD COLUMN IF NOT EXISTS setup_completed BOOLEAN,
+          ADD COLUMN IF NOT EXISTS setup_skipped BOOLEAN,
+          ADD COLUMN IF NOT EXISTS setup_completed_at BIGINT,
+          ADD COLUMN IF NOT EXISTS nav_setup_completed_at BIGINT,
+          ADD COLUMN IF NOT EXISTS nav_setup_skipped_at BIGINT,
+          ADD COLUMN IF NOT EXISTS setup_capability_ids TEXT,
+          ADD COLUMN IF NOT EXISTS setup_capabilities_updated_at BIGINT,
+          ADD COLUMN IF NOT EXISTS setup_state_updated_at BIGINT
+        """
+    )
     print("✅ vault_keys ready!")
 
 

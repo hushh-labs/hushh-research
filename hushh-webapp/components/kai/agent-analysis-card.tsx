@@ -7,7 +7,7 @@ import type { AgentState } from "./debate-stream-view";
 interface AgentAnalysisCardProps {
   agentName: string;
   icon: ReactNode;
-  color: string; // Tailwind class e.g. "text-blue-500"
+  color: string; // Tailwind class e.g. "text-accent-strong"
   state: AgentState;
   disableStreaming?: boolean;
   compactMode?: boolean;
@@ -21,7 +21,7 @@ export function AgentAnalysisCard({
   disableStreaming = false,
   compactMode = false,
 }: AgentAnalysisCardProps) {
-  // Color is now passed as a tailwind class directly (text-blue-500, etc.)
+  // Color is now passed as a tailwind class directly (text-accent-strong, etc.)
   const accentClass = color.startsWith("text-") ? color : "text-primary";
 
   return (

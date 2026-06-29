@@ -33,9 +33,20 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => authValue,
 }));
 
+// Return the resolved hostname synchronously so the localhost bypass is
+// deterministic from the first render. Non-localhost environments are still
+// distinguished by NEXT_PUBLIC_APP_ENV (uat vs development), so this does not
+// affect the non-bypass test cases.
+vi.mock("@/lib/hooks/use-hostname", () => ({
+  useHostname: () => "localhost",
+}));
+
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: {
     checkVault: checkVaultMock,
+    // Cold cache by default so the guard falls through to the async checkVault
+    // mock, preserving the existing test expectations.
+    peekVaultPresence: () => null,
   },
 }));
 
@@ -44,6 +55,13 @@ vi.mock("@/lib/services/account-identity-service", () => ({
     refreshCurrentUserIdentity: refreshCurrentUserIdentityMock,
     hasVerifiedPhone: (identity: { phone_verified?: boolean } | null | undefined) =>
       identity?.phone_verified === true,
+    // Cold cache so the guard performs its async identity read via getIdentitySwr,
+    // which here resolves from the same refresh mock the tests drive.
+    peekCachedIdentity: () => null,
+    getIdentitySwr: async () => ({
+      identity: await refreshCurrentUserIdentityMock(),
+      isStale: false,
+    }),
   },
 }));
 

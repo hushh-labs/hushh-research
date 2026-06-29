@@ -44,6 +44,8 @@ export interface CapabilitySetupTileProps {
   icon: LucideIcon;
   tone: OneCapabilityTone;
   status: CapabilityStatus;
+  /** Explore-only capability — its badge reads "Explore"/"Explored". */
+  isExploreOnly?: boolean;
   /** Mark the tile active when it is the current step in a guided sequence. */
   isCurrent?: boolean;
   className?: string;
@@ -56,10 +58,11 @@ export function CapabilitySetupTile({
   icon: Icon,
   tone,
   status,
+  isExploreOnly = false,
   isCurrent = false,
   className,
 }: CapabilitySetupTileProps) {
-  const display = getCapabilityStatusDisplay(status);
+  const display = getCapabilityStatusDisplay(status, { isExploreOnly });
 
   return (
     <Link

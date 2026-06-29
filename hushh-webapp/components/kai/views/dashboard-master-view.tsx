@@ -146,7 +146,7 @@ const portfolioChipClassName =
   "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none shadow-[var(--shadow-xs)]";
 const portfolioChipTones = {
   blue:
-    "border-blue-500/12 bg-blue-500/[0.08] text-blue-700 dark:border-blue-400/16 dark:bg-blue-400/[0.10] dark:text-blue-200",
+    "border-accent-border bg-accent-surface text-accent-strong",
   orange:
     "border-orange-500/12 bg-orange-500/[0.08] text-orange-700 dark:border-orange-400/16 dark:bg-orange-400/[0.10] dark:text-orange-200",
   purple:
@@ -2997,7 +2997,7 @@ export function DashboardMasterView({
                   <p className={portfolioMetricLabelClassName}>
                     Debate Readiness
                   </p>
-                  <p className={cn(portfolioMetricValueClassName, "text-blue-600 dark:text-blue-300")}>
+                  <p className={cn(portfolioMetricValueClassName, "text-accent-strong")}>
                     {investorSnapshot.readinessScore}
                   </p>
                   <p className="text-xs text-muted-foreground">Context quality score (0-100)</p>
