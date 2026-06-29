@@ -611,7 +611,8 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
 
         return [TextContent(type="text", text=json.dumps(data))]
 
-    except httpx.ConnectError:
+    except httpx.ConnectError as e:
+        logger.error("Consent status check: backend unavailable at %s: %s", FASTAPI_URL, e)
         return [
             TextContent(
                 type="text",

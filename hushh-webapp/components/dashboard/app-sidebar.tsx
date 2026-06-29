@@ -56,7 +56,7 @@ export function AppSidebar() {
                   className="md:h-12 md:text-base font-semibold"
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <Icon icon={Home} size="sm" />
+                    <Icon icon={Home} size="sm" aria-hidden="true" />
                   </div>
                   <span className="ml-2">Kai</span>
                 </SidebarMenuButton>
@@ -79,7 +79,7 @@ export function AppSidebar() {
                 return (
                   <SidebarMenuItem key={domain.href}>
                     <SidebarMenuButton href={domain.href} isActive={isActive}>
-                      <Icon icon={DomainIcon} size="sm" />
+                      <Icon icon={DomainIcon} size="sm" aria-hidden="true" />
                       <span>{domain.name}</span>
                     </SidebarMenuButton>
                     {domain.status === "soon" && (
@@ -102,7 +102,7 @@ export function AppSidebar() {
                   href={buildConsentCenterHref("pending")}
                   isActive={pathname === "/consents"}
                 >
-                  <Icon icon={Shield} size="sm" />
+                  <Icon icon={Shield} size="sm" aria-hidden="true" />
                   <span>Consents</span>
                 </SidebarMenuButton>
                 {pendingCount > 0 && (

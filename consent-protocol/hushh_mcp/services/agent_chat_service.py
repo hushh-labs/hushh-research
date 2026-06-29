@@ -6,24 +6,20 @@ import asyncio
 import logging
 import os
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
+from typing import Any, AsyncGenerator, Literal
 from uuid import uuid4
 
 import yaml
+from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from db.db_client import get_db
 from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
-from hushh_mcp.runtime_providers import (
-    build_managed_runtime_client,
-    build_runtime_client,
-)
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 from hussh_sdk import (
@@ -36,18 +32,16 @@ from hussh_sdk import (
 logger = logging.getLogger(__name__)
 
 AGENT_CHAT_MODEL_ENV = "AGENT_GEMINI_MODEL"
-DEFAULT_AGENT_CHAT_MODEL = "gemini-3.5-flash"
+DEFAULT_AGENT_CHAT_MODEL = "gemini-2.5-pro"
 KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
-AGENT_SYSTEM_PROMPT = """You are One, the top personal agent inside Hussh.
-
-You hold the relationship layer with the user, clarify intent, and delegate specialist work (finance to Kai, privacy to Nav, identity/KYC to KYC). Until a specialist surface is engaged, answer directly within the capability boundary below.
+AGENT_SYSTEM_PROMPT = """You are Agent, the Kai-focused financial assistant inside Hussh.
 
 Current capability boundary:
 - Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
 - Use the provided PKM context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
 - The PKM context may contain decrypted session-only details supplied by the frontend after vault unlock. Treat it as user-authorized memory for this turn, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
-- If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim One cannot access PKM.
-- When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say One cannot save to PKM.
+- If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim Agent cannot access PKM.
+- When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say Agent cannot save to PKM.
 - Normal finance and app questions should be answered as streaming text. Use concise GitHub-flavored Markdown with headings, lists, links, code, or tables when structure makes the answer easier to scan.
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
 - For Connected Systems / Salesforce CRM, read/create/update requests are frontend tool proposals. Create and update execution requires explicit user approval in Profile > Connected Systems. Delete is blocked in v1.
@@ -55,16 +49,22 @@ Current capability boundary:
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
 
-AGENT_ACTION_PLANNER_PROMPT = """You are One's action router inside Hussh.
+AGENT_ACTION_PLANNER_PROMPT = """You are Agent's action router inside Hussh.
 
 Decide whether the latest user message needs a frontend app function.
 
-Call exactly one function only when the user clearly asks One to do one of these:
+Call exactly one function only when the user clearly asks Agent to do one of these:
 - start stock analysis for a ticker or public company
 - open a Hussh/Kai app surface
-- save, remember, or add durable personal context to the user's PKM
+- save, remember, or add NEW durable personal context to the user's PKM
+- update, change, correct, or fix an EXISTING value already stored in the user's PKM
 - read a Salesforce CRM record or propose a Salesforce CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
+
+Choosing add_to_pkm vs update_pkm:
+- Use update_pkm when the user references an existing record/attribute or asks to change/correct/fix it (e.g. "update my address", "change my name", "my email is now ...").
+- Use add_to_pkm only when introducing brand-new information not already tracked.
+- For update_pkm, set `domain` to one of the user's existing PKM domain keys listed in the PKM context provided for routing. Canonical domain keys include: identity, financial, subscriptions, health, travel, food, professional, ria, entertainment, shopping, social, location, general (plus financial subintents like financial.portfolio, financial.profile). Legal name, email, postal/home address, date of birth, and phone number route to the "identity" domain; money/portfolio facts belong in "financial"; location/mobility patterns (where the user travels or checks in) belong in "location". Prefer a domain key that already appears in the PKM context. Set `field_path` to the attribute being changed (dot notation if nested, e.g. "home_address" or "address.line1") and `proposed_value` to the new value. Include `current_value` only if the existing value is visible in the PKM context.
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
 When unsure, do not call a function.
@@ -226,18 +226,15 @@ _CRM_DELETE_PATTERNS = [
 _BLOCKED_ACTION_PATTERNS = [
     re.compile(r"\b(?:delete|erase|wipe)\b.*\b(?:account|vault|profile|data)\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:revoke|approve|deny|grant)\b.*\b(?:consent|permission|request)\b",
-        re.IGNORECASE,
+        r"\b(?:revoke|approve|deny|grant)\b.*\b(?:consent|permission|request)\b", re.IGNORECASE
     ),
     re.compile(
-        r"\b(?:disconnect|unlink)\b.*\b(?:account|bank|brokerage|gmail|google)\b",
-        re.IGNORECASE,
+        r"\b(?:disconnect|unlink)\b.*\b(?:account|bank|brokerage|gmail|google)\b", re.IGNORECASE
     ),
     re.compile(r"\b(?:sign out|log out|logout)\b", re.IGNORECASE),
     re.compile(r"\b(?:cancel|stop)\b.*\b(?:active\s+)?analysis\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:buy|sell|trade)\b.*\b(?:now|for me|on my behalf|in my account)\b",
-        re.IGNORECASE,
+        r"\b(?:buy|sell|trade)\b.*\b(?:now|for me|on my behalf|in my account)\b", re.IGNORECASE
     ),
     re.compile(r"\b(?:place|execute)\b.*\b(?:order|trade)\b", re.IGNORECASE),
 ]
@@ -297,12 +294,9 @@ class AgentChatActionPlan:
     slots: dict[str, Any]
     message: str
     reason: str | None = None
-    execution_policy: str | None = None
-    requires_confirmation: bool = False
-    reachable: bool | None = None
 
     def to_event_payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+        return {
             "call_id": self.call_id,
             "action_id": self.action_id,
             "label": self.label,
@@ -311,13 +305,6 @@ class AgentChatActionPlan:
             "message": self.message,
             "reason": self.reason,
         }
-        if self.execution_policy is not None:
-            payload["execution_policy"] = self.execution_policy
-        if self.requires_confirmation:
-            payload["requires_confirmation"] = True
-        if self.reachable is not None:
-            payload["reachable"] = self.reachable
-        return payload
 
 
 @dataclass(frozen=True)
@@ -428,15 +415,29 @@ def load_kai_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
 
 
 def create_runtime_client(runtime_provider: str, user_key: str):
-    """BYOK runtime client for the chosen provider (Gemini, Anthropic, OpenAI, Grok)."""
+    provider = runtime_provider.strip().lower()
+    key = user_key.strip()
 
-    return build_runtime_client(runtime_provider, user_key)
+    if not key:
+        raise ValueError("User BYOK runtime key is required")
+
+    if provider == "gemini":
+        return genai.Client(vertexai=False, api_key=key)
+
+    raise ValueError(f"Unsupported runtime provider: {provider}")
 
 
 def create_managed_runtime_client(runtime_provider: str, user_key: str):
-    """Hushh-managed runtime client for the chosen provider."""
+    provider = runtime_provider.strip().lower()
+    key = user_key.strip()
 
-    return build_managed_runtime_client(runtime_provider, user_key)
+    if not key:
+        raise RuntimeError("Managed Gemini API key is not configured")
+
+    if provider == "gemini":
+        return genai.Client(vertexai=True, api_key=key)
+
+    raise ValueError(f"Unsupported runtime provider: {provider}")
 
 
 def _redacted_runtime_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -514,17 +515,10 @@ def _classify_gemini_error(error: Exception) -> dict[str, Any]:
         detail["provider_service"] = str(service)
 
     normalized_reason = reason.upper()
-    if normalized_reason in {
-        "API_KEY_INVALID",
-        "API_KEY_EXPIRED",
-        "API_KEY_SERVICE_BLOCKED",
-    }:
+    if normalized_reason in {"API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_SERVICE_BLOCKED"}:
         detail["likely_issue"] = "invalid_or_unauthorized_api_key"
         detail["operator_hint"] = "Check the Gemini API key saved in encrypted PKM."
-    elif normalized_reason in {
-        "CREDENTIALS_MISSING",
-        "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
-    }:
+    elif normalized_reason in {"CREDENTIALS_MISSING", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}:
         detail["likely_issue"] = "managed_google_credentials_unavailable"
         detail["operator_hint"] = "Check Hushh managed Gemini credentials for this runtime."
     elif status_code in {401, 403}:
@@ -541,78 +535,6 @@ def _is_google_provider_runtime_error(error: Exception) -> bool:
     return module_name.startswith(("google.", "google_")) or error.__class__.__name__ in {
         "DefaultCredentialsError",
     }
-
-
-# Transient Gemini status codes worth a short, jittered retry: rate limit (429),
-# and the overloaded/unavailable family (500/503). Auth/quota-config errors
-# (401/403/404) are deliberately excluded - retrying those is pointless.
-_RETRYABLE_GEMINI_STATUS = {429, 500, 503}
-
-
-def _is_retryable_gemini_error(error: Exception) -> bool:
-    status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
-    if isinstance(status_code, int) and status_code in _RETRYABLE_GEMINI_STATUS:
-        return True
-    status_value = str(getattr(error, "status", "") or "").upper()
-    return status_value in {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"}
-
-
-def _jittered_backoff_seconds(
-    attempt: int, *, base_delay: float = 0.5, max_delay: float = 8.0
-) -> float:
-    """Decorrelated jittered exponential backoff to avoid retry thundering-herd."""
-    import random
-
-    exponent = max(0, attempt - 1)
-    ceiling = min(base_delay * (2**exponent), max_delay)
-    # Jitter here is for retry timing only, not security; pseudo-random is fine.
-    return (
-        random.uniform(base_delay, ceiling)  # noqa: S311
-        if ceiling > base_delay
-        else base_delay
-    )
-
-
-async def _retry_transient_gemini(
-    operation: "Callable[[], Awaitable[Any]]",
-    *,
-    max_attempts: int = 3,
-    phase: str,
-) -> Any:
-    """Run an idempotent Gemini call with jittered backoff on transient errors.
-
-    Only safe for non-streaming, idempotent operations (e.g. action planning).
-    Never use for the token stream, where a retry would duplicate output.
-    """
-    last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return await operation()
-        except genai_errors.APIError as error:
-            last_error = error
-            if attempt >= max_attempts or not _is_retryable_gemini_error(error):
-                raise
-        except Exception as error:  # noqa: BLE001 - bounded to provider errors below
-            last_error = error
-            if (
-                attempt >= max_attempts
-                or not _is_google_provider_runtime_error(error)
-                or not _is_retryable_gemini_error(error)
-            ):
-                raise
-        delay = _jittered_backoff_seconds(attempt)
-        logger.info(
-            "agent_chat_transient_retry phase=%s attempt=%d/%d delay=%.2fs error=%s",
-            phase,
-            attempt,
-            max_attempts,
-            delay,
-            last_error.__class__.__name__ if last_error else "unknown",
-        )
-        await asyncio.sleep(delay)
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("retry loop exited without result")
 
 
 def _runtime_provider_error_code(detail: dict[str, Any]) -> str:
@@ -639,9 +561,7 @@ def _runtime_provider_user_message(error_code: str) -> str:
     return "Kai could not reach the configured Gemini runtime."
 
 
-def _runtime_provider_error_from_exception(
-    error: Exception,
-) -> AgentRuntimeProviderError:
+def _runtime_provider_error_from_exception(error: Exception) -> AgentRuntimeProviderError:
     detail = _classify_gemini_error(error)
     error_code = _runtime_provider_error_code(detail)
     return AgentRuntimeProviderError(
@@ -668,61 +588,6 @@ def _trim_title(text: str) -> str:
 
 def _tool_call_id() -> str:
     return f"tool_{uuid4().hex[:12]}"
-
-
-def _current_screen_from_context(screen_context: dict[str, Any] | None) -> str | None:
-    """Extract the current screen id from a structured screen context.
-
-    Mirrors the shape the voice path already produces (route.screen /
-    surface.screen_id). Returns None when no screen is provided so callers can
-    treat reachability as unknown rather than failing closed on missing data.
-    """
-    if not isinstance(screen_context, dict):
-        return None
-    route = screen_context.get("route") if isinstance(screen_context.get("route"), dict) else {}
-    surface = (
-        screen_context.get("surface") if isinstance(screen_context.get("surface"), dict) else {}
-    )
-    candidate = route.get("screen") or surface.get("screen_id") or screen_context.get("screen")
-    screen = str(candidate or "").strip()
-    return screen or None
-
-
-def _enrich_plan_with_manifest(
-    plan: AgentChatActionPlan,
-    *,
-    current_screen: str | None,
-) -> AgentChatActionPlan:
-    """Make a frontend action plan screen-aware using the voice action manifest.
-
-    Attaches the manifest execution_policy, flags manual_only/confirm_required
-    actions as requiring confirmation, and computes reachability for the current
-    screen. Degrades gracefully: unknown actions or missing screen context leave
-    the plan unchanged (the frontend stays the source of truth for execution).
-    """
-    if plan.execution != "frontend" or not plan.action_id:
-        return plan
-    manifest_action = get_voice_manifest_action(plan.action_id)
-    if manifest_action is None:
-        return plan
-
-    risk = manifest_action.get("risk") if isinstance(manifest_action.get("risk"), dict) else {}
-    execution_policy = str(risk.get("execution_policy") or "allow_direct").strip() or "allow_direct"
-    requires_confirmation = execution_policy in {"manual_only", "confirm_required"}
-
-    scope = manifest_action.get("scope") if isinstance(manifest_action.get("scope"), dict) else {}
-    scoped_screens = {str(screen).strip() for screen in (scope.get("screens") or []) if screen}
-    if current_screen is None or not scoped_screens:
-        reachable: bool | None = None
-    else:
-        reachable = current_screen in scoped_screens
-
-    return replace(
-        plan,
-        execution_policy=execution_policy,
-        requires_confirmation=requires_confirmation,
-        reachable=reachable,
-    )
 
 
 def _sanitize_analysis_target(raw: str) -> str:
@@ -754,9 +619,7 @@ def _resolve_ticker(raw: str) -> str | None:
     if normalized in _STOCK_ALIAS_TO_TICKER:
         return _STOCK_ALIAS_TO_TICKER[normalized]
     normalized = re.sub(
-        r"\b(?:inc|corp|corporation|company|plc|ltd|limited|class\s+[ab])\b",
-        " ",
-        normalized,
+        r"\b(?:inc|corp|corporation|company|plc|ltd|limited|class\s+[ab])\b", " ", normalized
     )
     normalized = " ".join(normalized.split())
     if normalized in _STOCK_ALIAS_TO_TICKER:
@@ -828,7 +691,7 @@ def _agent_action_tool() -> genai_types.Tool:
                 parameters=_schema_object(
                     {
                         "reason": _schema_string(
-                            "Short safe reason explaining why One cannot perform the action."
+                            "Short safe reason explaining why Agent cannot perform the action."
                         )
                     }
                 ),
@@ -898,6 +761,41 @@ def _agent_action_tool() -> genai_types.Tool:
                         ),
                     },
                     required=["memory_text"],
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="update_pkm",
+                description=(
+                    "Update or correct an existing value already stored in the user's encrypted "
+                    "PKM through the frontend PKM writer. Use when the user asks to update, change, "
+                    "correct, or fix an existing personal record or attribute (for example "
+                    "'update my address', 'change my name', 'my email is now ...'). Prefer this over "
+                    "add_to_pkm whenever the user references something already tracked. The frontend "
+                    "shows the user a confirmation panel before any write happens."
+                ),
+                parameters=_schema_object(
+                    {
+                        "domain": _schema_string(
+                            "Target PKM domain key to update, chosen from the user's existing "
+                            "domains in the PKM routing context. Canonical keys: identity, "
+                            "financial, subscriptions, health, travel, food, professional, ria, "
+                            "entertainment, shopping, social, location, general. Name, email, "
+                            "postal/home address, date of birth, and phone number belong in the "
+                            "'identity' domain."
+                        ),
+                        "field_path": _schema_string(
+                            "Attribute being changed, dot notation if nested "
+                            "(for example 'address' or 'address.line1')."
+                        ),
+                        "proposed_value": _schema_string(
+                            "The new value the user wants stored for that attribute."
+                        ),
+                        "current_value": _schema_string(
+                            "The existing value, only if visible in the PKM context. "
+                            "Display-only; the write uses the authoritative stored value."
+                        ),
+                    },
+                    required=["domain", "field_path", "proposed_value"],
                 ),
             ),
         ]
@@ -1049,10 +947,7 @@ class AgentChatService:
                 ),
             )
 
-        logger.info(
-            "agent_chat_runtime_evidence=%s",
-            _redacted_runtime_evidence(bundle.evidence),
-        )
+        logger.info("agent_chat_runtime_evidence=%s", _redacted_runtime_evidence(bundle.evidence))
         return PreparedAgentRuntime(
             mode=contract.mode,
             provider=provider,
@@ -1432,49 +1327,40 @@ class AgentChatService:
         runtime_client: Any,
         runtime_model: str,
         pkm_context: str | None = None,
-        screen_context: dict[str, Any] | None = None,
     ) -> AgentChatActionPlan | None:
-        current_screen = _current_screen_from_context(screen_context)
-
         crm_action = self._plan_crm_action(user_message)
         if crm_action is not None:
-            return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
+            return crm_action
 
         deterministic_block = self._plan_blocked_action(user_message)
         if deterministic_block is not None:
             return deterministic_block
 
         try:
-            # Action planning is a non-streaming, idempotent call, so a short
-            # jittered retry on transient 429/503 is safe (unlike the token
-            # stream, where a retry would duplicate output).
-            response = await _retry_transient_gemini(
-                lambda: runtime_client.aio.models.generate_content(
-                    model=runtime_model,
-                    contents=self._build_action_planning_contents(
-                        user_message=user_message,
-                        history=history,
-                        pkm_context=pkm_context,
+            response = await runtime_client.aio.models.generate_content(
+                model=runtime_model,
+                contents=self._build_action_planning_contents(
+                    user_message=user_message,
+                    history=history,
+                    pkm_context=pkm_context,
+                ),
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=AGENT_ACTION_PLANNER_PROMPT,
+                    temperature=0.0,
+                    max_output_tokens=256,
+                    tools=[_agent_action_tool()],
+                    automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                        disable=True
                     ),
-                    config=genai_types.GenerateContentConfig(
-                        system_instruction=AGENT_ACTION_PLANNER_PROMPT,
-                        temperature=0.0,
-                        max_output_tokens=256,
-                        tools=[_agent_action_tool()],
-                        automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
-                            disable=True
-                        ),
-                        tool_config=genai_types.ToolConfig(
-                            function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
-                        ),
+                    tool_config=genai_types.ToolConfig(
+                        function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
                     ),
                 ),
-                phase="planner",
             )
             for function_call in self._function_calls_from_response(response):
                 action_plan = self._action_plan_from_function_call(function_call)
                 if action_plan is not None:
-                    return _enrich_plan_with_manifest(action_plan, current_screen=current_screen)
+                    return action_plan
         except genai_errors.APIError as error:
             provider_error = _runtime_provider_error_from_exception(error)
             logger.warning(
@@ -1498,10 +1384,7 @@ class AgentChatService:
                 raise provider_error from error
             logger.exception("agent_chat.function_planning_failed")
 
-        fallback_plan = self.plan_action(user_message)
-        if fallback_plan is None:
-            return None
-        return _enrich_plan_with_manifest(fallback_plan, current_screen=current_screen)
+        return self.plan_action(user_message)
 
     def plan_action(self, user_message: str) -> AgentChatActionPlan | None:
         message = " ".join(str(user_message or "").split())
@@ -1855,6 +1738,30 @@ class AgentChatService:
                 slots={},
                 message="Checking PKM and saving what fits.",
                 reason=reason[:160] if reason else None,
+            )
+
+        if name == "update_pkm":
+            domain = str(args.get("domain") or "").strip()
+            field_path = str(args.get("field_path") or "").strip()
+            proposed_value = str(args.get("proposed_value") or "").strip()
+            current_value = str(args.get("current_value") or "").strip()
+            # Without a domain, field, and new value the frontend cannot target an
+            # update; do not emit a broken pkm.update (it would fall through to a
+            # no-op review). The LLM receives PKM domain context to fill these.
+            if not domain or not field_path or not proposed_value:
+                return None
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="pkm.update",
+                label="Update PKM",
+                execution="frontend",
+                slots={
+                    "domain": domain,
+                    "field_path": field_path,
+                    "proposed_value": proposed_value,
+                    "current_value": current_value,
+                },
+                message="Reviewing your PKM update for your confirmation.",
             )
 
         return None

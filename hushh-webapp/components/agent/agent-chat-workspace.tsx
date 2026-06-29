@@ -14,13 +14,13 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
+  ChevronDown,
   Check,
   Copy,
   KeyRound,
   LogIn,
   Menu,
   Mic,
-  Minus,
   RotateCcw,
   Send,
   Sparkles,
@@ -39,6 +39,10 @@ import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  resolveAgentWelcomeSuggestions,
+  type AgentWelcomeSuggestion,
+} from "@/lib/agent/agent-welcome-suggestions";
+import {
   executeAgentGatewayAction,
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
@@ -52,6 +56,8 @@ import {
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
+  previewAgentPkmUpdate,
+  saveAgentPkmUpdate,
   type AgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
@@ -65,20 +71,14 @@ import {
   transcribeAgentVoice,
 } from "@/lib/services/agent-voice-client";
 import {
-  AgentRealtimeClient,
-  type AgentRealtimeVoiceState,
-} from "@/lib/services/agent-realtime-client";
-import {
   useAgentVoiceState,
   type AgentVoiceStatus,
 } from "@/lib/agent/agent-voice-state";
 import { handleAgentVoiceTranscriptTurn } from "@/lib/agent/agent-voice-turn";
 import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts";
 import {
-  AGENT_CONVERSATION_REQUEST_EVENT,
   AGENT_VOICE_SETTINGS_CHANGED_EVENT,
   isAgentGeminiVoiceEnabled,
-  isAgentRealtimeVoiceEnabled,
   readAgentVoiceSettings,
   type AgentGeminiTtsVoice,
 } from "@/lib/agent/agent-voice-settings";
@@ -88,7 +88,6 @@ import {
   listAgentChatConversations,
   renameAgentChatConversation,
   streamAgentChat,
-  streamAgentIntro,
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
@@ -97,12 +96,9 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
   id: string;
@@ -127,6 +123,12 @@ type AgentPkmReview = {
   sourceMessage: string;
   cards: AgentPkmPreviewCard[];
   saving: boolean;
+  updateContext?: {
+    domain: string;
+    fieldPath: string;
+    currentValue: string;
+    proposedValue: string;
+  };
 };
 
 type AgentPkmActivity = {
@@ -153,18 +155,14 @@ type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
   windowControls?: ReactNode;
+  freshOpenKey?: number;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
 };
 
 const AGENT_GREETING =
-  "Hi, I'm One \u2014 your personal agent. Ask me about your markets, portfolio, memories, or consent workflows.";
+  "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
-const AGENT_WELCOME_PROMPTS = [
-  "Review my portfolio",
-  "Save a memory",
-  "Explain consent flows",
-] as const;
 
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
@@ -285,36 +283,41 @@ async function copyTextToClipboard(text: string): Promise<void> {
 
 function AgentWelcomePanel({
   name,
+  suggestions,
   disabled,
   onPromptSelect,
 }: {
   name: string;
+  suggestions: AgentWelcomeSuggestion[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
-        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          One workspace
+          Kai workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
           Hi {name}
         </h2>
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
-          Ask One about your markets, portfolio, memories, or consent workflows.
+          Ask Agent about your markets, portfolio, memories, or Hushh workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+          {suggestions.map((suggestion) => (
             <button
-              key={prompt}
+              key={suggestion.id}
               type="button"
               disabled={disabled}
-              onClick={() => onPromptSelect(prompt)}
+              onClick={() => onPromptSelect(suggestion.prompt)}
               className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
-              <span className="block leading-5">{prompt}</span>
+              <span className="block leading-5">{suggestion.label}</span>
+              <span className="mt-2 block line-clamp-2 text-[11px] font-normal leading-4 text-muted-foreground">
+                {suggestion.prompt}
+              </span>
               <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
             </button>
           ))}
@@ -540,7 +543,7 @@ function AgentBubble({
       )}
     >
       {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.58)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
           <Bot className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -556,7 +559,7 @@ function AgentBubble({
             "text-sm leading-6",
             isUser
               ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
-              : "px-0 py-1 text-[#1d1d1f] dark:text-zinc-200",
+              : "px-0 py-1 text-foreground",
             isError &&
               "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
           )}
@@ -579,7 +582,7 @@ function AgentBubble({
         </div>
         <div
           className={cn(
-            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
+            "mt-1 flex items-center gap-2 text-[11px] text-muted-foreground",
             isUser && "justify-end text-right"
           )}
         >
@@ -589,11 +592,15 @@ function AgentBubble({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                 aria-label={copied ? "Response copied" : "Copy response"}
                 title={copied ? "Copied" : "Copy response"}
               >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? (
+                  <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+                )}
               </button>
               <button
                 type="button"
@@ -605,8 +612,8 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
                 )}
                 aria-label="Like response"
                 aria-pressed={liked}
@@ -624,8 +631,8 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
                 )}
                 aria-label="Dislike response"
                 aria-pressed={disliked}
@@ -638,7 +645,7 @@ function AgentBubble({
                   type="button"
                   onClick={onRetry}
                   disabled={retryDisabled}
-                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45"
                   aria-label="Try again"
                   title="Try again"
                 >
@@ -651,7 +658,7 @@ function AgentBubble({
         </div>
       </div>
       {isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.56)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
           <UserRound className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -709,6 +716,7 @@ export function AgentChatWorkspace({
   variant = "page",
   className,
   windowControls,
+  freshOpenKey = 0,
   onMinimize,
   onNavigationActionComplete,
 }: AgentChatWorkspaceProps) {
@@ -734,10 +742,6 @@ export function AgentChatWorkspace({
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
-  // Shared single source of truth for the agent runtime snapshot. The chat
-  // workspace consumes this base and overlays only the fields it uniquely owns
-  // (background-task tracking and its local voice state) below.
-  const sharedRuntime = useAgentRuntimeStateOptional();
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
@@ -749,11 +753,6 @@ export function AgentChatWorkspace({
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  // Just-in-time vault unlock: the agent prompts to unlock in place (the same
-  // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
-  // instead of bouncing the user to /profile. Opened only when a vault-gated
-  // operation is requested while the vault is locked.
-  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
@@ -769,10 +768,6 @@ export function AgentChatWorkspace({
     AppBackgroundTaskService.getState()
   );
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
-  const realtimeVoiceClientRef = useRef<AgentRealtimeClient | null>(null);
-  const realtimeVoiceActiveRef = useRef(false);
-  const realtimeUserTranscriptIdRef = useRef<string | null>(null);
-  const realtimeAssistantMessageIdRef = useRef<string | null>(null);
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -787,6 +782,7 @@ export function AgentChatWorkspace({
   const voiceTtsSpeakingRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
+  const typedSubmitInFlightRef = useRef(false);
 
   const voiceActive = voiceState !== "idle";
   const voiceMuted = voiceState === "muted";
@@ -799,7 +795,6 @@ export function AgentChatWorkspace({
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentGeminiVoiceEnabled();
-  const agentRealtimeVoiceEnabled = isAgentRealtimeVoiceEnabled();
   const abortAgentTurnWork = useCallback(() => {
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
@@ -860,11 +855,8 @@ export function AgentChatWorkspace({
     personas.add(primaryNavPersona);
     return Array.from(personas);
   }, [activePersona, primaryNavPersona, riaSwitchAvailable]);
-  const appRuntimeState = useMemo<AppRuntimeState>(() => {
-    // Base snapshot from the shared provider (auth/vault/route/persona). When
-    // the provider is unavailable (e.g. isolated test mounts) we fall back to
-    // computing the same shape locally.
-    const base: AppRuntimeState = sharedRuntime?.appRuntimeState ?? {
+  const appRuntimeState = useMemo<AppRuntimeState>(
+    () => ({
       auth: {
         signed_in: Boolean(user?.uid),
         user_id: user?.uid ?? null,
@@ -880,12 +872,16 @@ export function AgentChatWorkspace({
         subview: routeInfo.subview ?? null,
       },
       runtime: {
-        analysis_active: false,
-        analysis_ticker: null,
-        analysis_run_id: null,
-        import_active: false,
-        import_run_id: null,
-        busy_operations: [],
+        analysis_active:
+          Boolean(busyOperations["stock_analysis_active"]) ||
+          Boolean(busyOperations["stock_analysis_stream"]) ||
+          Boolean(activeAnalysisTask),
+        analysis_ticker: activeAnalysisTicker || analysisParams?.ticker || null,
+        analysis_run_id: activeAnalysisTask?.taskId || null,
+        import_active:
+          Boolean(busyOperations["portfolio_import_stream"]) || Boolean(runningImportTask),
+        import_run_id: runningImportTask?.taskId || null,
+        busy_operations: Object.keys(busyOperations).filter((key) => busyOperations[key]),
       },
       portfolio: {
         has_portfolio_data: hasPortfolioData,
@@ -899,63 +895,42 @@ export function AgentChatWorkspace({
         ria_setup_available: riaSetupAvailable,
       },
       voice: {
-        available: false,
-        tts_playing: false,
+        available: voiceActive,
+        tts_playing: voiceState === "speaking",
         last_tool_name: null,
         last_ticker: null,
       },
-    };
-    // Overlay the workspace-owned enrichment: background-task tracking and the
-    // local voice state, which only this component observes.
-    return {
-      ...base,
-      runtime: {
-        ...base.runtime,
-        analysis_active:
-          base.runtime.analysis_active || Boolean(activeAnalysisTask),
-        analysis_ticker:
-          base.runtime.analysis_ticker || activeAnalysisTicker || analysisParams?.ticker || null,
-        analysis_run_id: activeAnalysisTask?.taskId || base.runtime.analysis_run_id,
-        import_active: base.runtime.import_active || Boolean(runningImportTask),
-        import_run_id: runningImportTask?.taskId || base.runtime.import_run_id,
-      },
-      voice: {
-        ...base.voice,
-        available: voiceActive,
-        tts_playing: voiceState === "speaking",
-      },
-    };
-  }, [
-    sharedRuntime,
-    activePersona,
-    activeAnalysisTask,
-    activeAnalysisTicker,
-    analysisParams,
-    availablePersonas,
-    hasPortfolioData,
-    isVaultUnlocked,
-    pathnameWithQuery,
-    personaTransitionTarget,
-    primaryNavPersona,
-    riaSetupAvailable,
-    riaSwitchAvailable,
-    runningImportTask,
-    routeInfo.screen,
-    routeInfo.subview,
-    tokenIsFresh,
-    user?.uid,
-    vaultOwnerToken,
-    voiceActive,
-    voiceState,
-  ]);
+    }),
+    [
+      activePersona,
+      activeAnalysisTask,
+      activeAnalysisTicker,
+      analysisParams,
+      availablePersonas,
+      busyOperations,
+      hasPortfolioData,
+      isVaultUnlocked,
+      pathnameWithQuery,
+      personaTransitionTarget,
+      primaryNavPersona,
+      riaSetupAvailable,
+      riaSwitchAvailable,
+      runningImportTask,
+      routeInfo.screen,
+      routeInfo.subview,
+      tokenIsFresh,
+      user?.uid,
+      vaultOwnerToken,
+      voiceActive,
+      voiceState,
+    ]
+  );
   const appRuntimeStateRef = useRef(appRuntimeState);
   useEffect(() => {
     appRuntimeStateRef.current = appRuntimeState;
   }, [appRuntimeState]);
-  // The single agent bar can always send text: with vault access it runs the
-  // full agent, otherwise it runs the pre-vault informational tier. Voice and
-  // vault-backed tools stay gated separately by hasChatAccess.
   const canSend =
+    hasChatAccess &&
     !isChatLoading &&
     !isLoadingHistory &&
     !isVoiceConnecting &&
@@ -963,9 +938,7 @@ export function AgentChatWorkspace({
     !voiceActive &&
     input.trim().length > 0;
   const canToggleVoice =
-    (agentRealtimeVoiceEnabled || agentVoiceEnabled) &&
-    hasChatAccess &&
-    (!isVoiceConnecting || voiceActive);
+    agentVoiceEnabled && hasChatAccess && (!isVoiceConnecting || voiceActive);
   const historyInteractionDisabled =
     isLoadingHistory ||
     isChatLoading ||
@@ -1066,9 +1039,6 @@ export function AgentChatWorkspace({
       abortAgentTurnWork();
       void voiceClientRef.current?.stop();
       voiceClientRef.current = null;
-      realtimeVoiceActiveRef.current = false;
-      realtimeVoiceClientRef.current?.close();
-      realtimeVoiceClientRef.current = null;
       voiceTtsQueueRef.current?.cancel();
       voiceTtsQueueRef.current = null;
       resetGlobalVoiceState();
@@ -1432,6 +1402,43 @@ export function AgentChatWorkspace({
       });
 
       try {
+        if (review.updateContext) {
+          // UPDATE PATH (per D-07, D-10) — write the proposed field value via saveAgentPkmUpdate.
+          // saveAgentPkmUpdate uses the coordinator's fresh read, not the LLM current_value
+          // (T-03-02), and calls AgentPkmContextStore.invalidateUser internally.
+          const updateContext = review.updateContext;
+          const updateResult = await saveAgentPkmUpdate({
+            userId: user.uid,
+            domain: updateContext.domain,
+            fieldPath: updateContext.fieldPath,
+            proposedValue: updateContext.proposedValue,
+            vaultKey,
+            vaultOwnerToken: token,
+          });
+          appendDebugEvent(review.turnId, "pkm_review_save_result", updateResult);
+          if (!updateResult.success) {
+            throw new Error(updateResult.message || "Failed to update PKM memory.");
+          }
+          setPkmActivity((current) => [
+            ...current.slice(-4),
+            {
+              id: `pkm-review-saved-${Date.now()}`,
+              text: `Updated ${updateContext.domain} - ${updateContext.fieldPath}.`,
+              status: "done",
+            },
+          ]);
+          setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
+          void loadAgentPkmContext({
+            userId: user.uid,
+            vaultOwnerToken: token,
+            vaultKey,
+            forceRefresh: true,
+          }).catch(() => undefined);
+          toast.success("Saved to PKM.");
+          return;
+        }
+
+        // ADD PATH — unchanged (per D-11)
         const result = await addToPKM({
           userId: user.uid,
           cards: review.cards,
@@ -1536,7 +1543,7 @@ export function AgentChatWorkspace({
           }
           if (!voiceTtsFailureReported) {
             voiceTtsFailureReported = true;
-            toast.error("Agent voice audio failed. Falling back to browser speech.");
+            toast.error("Agent voice audio failed. The text response is still available.");
           }
         },
       });
@@ -1813,6 +1820,93 @@ export function AgentChatWorkspace({
       }
     };
 
+    const executePkmUpdateTool = async (toolEvent: AgentChatToolEvent) => {
+      if (!vaultKey || !token) {
+        appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
+          reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
+          tool: toolEvent,
+        });
+        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        return;
+      }
+
+      // D-07 slot reads — all four slots type-guarded before use (T-03-01 mitigation)
+      const domain =
+        typeof toolEvent.slots.domain === "string" ? toolEvent.slots.domain.trim() : "";
+      const fieldPath =
+        typeof toolEvent.slots.field_path === "string" ? toolEvent.slots.field_path.trim() : "";
+      const proposedValue =
+        typeof toolEvent.slots.proposed_value === "string"
+          ? toolEvent.slots.proposed_value.trim()
+          : "";
+      const currentValue =
+        typeof toolEvent.slots.current_value === "string"
+          ? toolEvent.slots.current_value.trim()
+          : "";
+
+      setActivePkmToolCount((count) => count + 1);
+      appendDebugEvent(debugTurnId, "pkm_tool_preview_start", {
+        tool: "pkm.update",
+        current_domains: turnPkmContext.domains,
+        domain,
+        fieldPath,
+        proposedValue,
+        currentValue,
+      });
+      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+
+      try {
+        const preview = await previewAgentPkmUpdate({
+          userId,
+          domain,
+          fieldPath,
+          currentValue,
+          proposedValue,
+          currentDomains: turnPkmContext.domains,
+          vaultOwnerToken: token,
+        });
+        appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
+          tool: "pkm.update",
+          preview,
+        });
+
+        const reviewCards = getReviewRequiredPkmCards(preview.cards ?? []);
+
+        if (reviewCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+          setPkmReviews((current) => [
+            ...current.filter((review) => review.turnId !== debugTurnId),
+            {
+              id: `${debugTurnId}-pkm-review`,
+              turnId: debugTurnId,
+              sourceMessage: `Update ${domain} - ${fieldPath}`,
+              cards: reviewCards,
+              saving: false,
+              updateContext: { domain, fieldPath, currentValue, proposedValue },
+            },
+          ]);
+          appendDebugEvent(debugTurnId, "pkm_tool_review_required", {
+            tool: "pkm.update",
+            candidate_count: reviewCards.length,
+            cards: reviewCards,
+          });
+        } else {
+          upsertPkmStatusMessage("PKM update reviewed — no write needed.", "done");
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent could not save that PKM memory.";
+        appendDebugEvent(debugTurnId, "pkm_tool_failed", {
+          message,
+          tool: "pkm.update",
+        });
+        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+      } finally {
+        setActivePkmToolCount((count) => Math.max(0, count - 1));
+      }
+    };
+
     const executeFrontendTool = async (toolEvent: AgentChatToolEvent) => {
       if (!toolEvent.actionId) return;
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
@@ -1820,6 +1914,11 @@ export function AgentChatWorkspace({
       if (toolEvent.actionId === "pkm.add") {
         pkmAddToolHandled = true;
         await executePkmAddTool(toolEvent);
+        return;
+      }
+
+      if (toolEvent.actionId === "pkm.update") {
+        await executePkmUpdateTool(toolEvent);
         return;
       }
 
@@ -2154,9 +2253,6 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
-        screenContext: buildStructuredScreenContext({
-          appRuntimeState: appRuntimeStateRef.current,
-        }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -2321,179 +2417,16 @@ export function AgentChatWorkspace({
     }
   };
 
-  /**
-   * Pre-vault informational turn for the single agent bar.
-   *
-   * Runs before the vault is unlocked (including anonymous onboarding
-   * visitors). It only talks to the lower-privilege informational backend
-   * tier, never sends PKM/vault data, is not persisted, and only executes
-   * pure navigation (route.*) actions. Anything that needs the vault prompts
-   * an in-place unlock instead.
-   */
-  const runIntroTurn = async (textInput: string) => {
-    const text = textInput.trim();
-    if (!text || isChatLoading || isStreaming) return;
-
-    const turnId = Date.now();
-    const assistantMessageId = `msg-${turnId}-assistant`;
-    const executedNavCalls = new Set<string>();
-    const timestamp = formatNow();
-    let assistantHasToken = false;
-
-    // rAF-coalesce streamed tokens so the pre-vault intro tier renders as
-    // smoothly as the full agent tier (one commit per frame, not per token).
-    let pendingAssistantDelta = "";
-    let assistantFlushFrame: number | null = null;
-    const flushAssistantDelta = () => {
-      assistantFlushFrame = null;
-      const delta = pendingAssistantDelta;
-      pendingAssistantDelta = "";
-      if (!delta) return;
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text: `${message.text}${delta}`,
-        status: "streaming",
-      }));
-    };
-    const queueAssistantDelta = (delta: string) => {
-      pendingAssistantDelta += delta;
-      if (assistantFlushFrame !== null) return;
-      assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
-    };
-    const cancelAssistantFlush = () => {
-      if (assistantFlushFrame !== null) {
-        window.cancelAnimationFrame(assistantFlushFrame);
-        assistantFlushFrame = null;
-      }
-      pendingAssistantDelta = "";
-    };
-
-    const userMessage: AgentMessage = {
-      id: `msg-${turnId}-user`,
-      role: "user",
-      text,
-      timestamp,
-    };
-    const assistantMessage: AgentMessage = {
-      id: assistantMessageId,
-      role: "assistant",
-      text: "",
-      timestamp,
-      status: "streaming",
-    };
-    setMessages((current) => [...current, userMessage, assistantMessage]);
-    setInput("");
-    setIsChatLoading(true);
-    setIsStreaming(true);
-
-    const streamAbortController = new AbortController();
-    streamAbortControllerRef.current?.abort();
-    streamAbortControllerRef.current = streamAbortController;
-
-    const runIntroNavigation = (toolEvent: AgentChatToolEvent) => {
-      if (toolEvent.execution !== "frontend" || !toolEvent.actionId) return;
-      // The informational tier only forwards route.* actions, but guard anyway.
-      if (!toolEvent.actionId.startsWith("route.")) return;
-      const callKey = toolEvent.callId || `${toolEvent.actionId}-${turnId}`;
-      if (executedNavCalls.has(callKey)) return;
-      executedNavCalls.add(callKey);
-      void executeAgentGatewayAction({
-        actionId: toolEvent.actionId,
-        slots: toolEvent.slots,
-        userId: user?.uid ?? "",
-        router,
-        appRuntimeState: appRuntimeStateRef.current,
-        surfaceMetadata: getVoiceSurfaceMetadata(),
-        hasPortfolioData,
-        busyOperations,
-        setAnalysisParams,
-      })
-        .then((result) => {
-          if (shouldMinimizeForNavigationResult(result)) {
-            onNavigationActionComplete?.(result);
-          }
-        })
-        .catch(() => undefined);
-    };
-
-    try {
-      await streamAgentIntro({
-        message: text,
-        screenContext: buildStructuredScreenContext({
-          appRuntimeState: appRuntimeStateRef.current,
-        }) as unknown as Record<string, unknown>,
-        signal: streamAbortController.signal,
-        handlers: {
-          onToken: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            assistantHasToken = true;
-            queueAssistantDelta(delta);
-          },
-          onToolWaiting: runIntroNavigation,
-          onComplete: () => {
-            if (streamAbortController.signal.aborted) return;
-            flushAssistantDelta();
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              text:
-                message.text ||
-                (assistantHasToken
-                  ? message.text
-                  : "I couldn't generate a response. Please try again."),
-              status: "done",
-            }));
-            setIsChatLoading(false);
-            setIsStreaming(false);
-          },
-          onError: (message) => {
-            if (streamAbortController.signal.aborted) return;
-            flushAssistantDelta();
-            updateMessage(assistantMessageId, (current) => ({
-              ...current,
-              text: current.text || message,
-              status: "error",
-            }));
-            setIsChatLoading(false);
-            setIsStreaming(false);
-          },
-        },
-      });
-    } catch (error) {
-      cancelAssistantFlush();
-      if (streamAbortController.signal.aborted) {
-        updateMessage(assistantMessageId, (message) => ({
-          ...message,
-          text: message.text || "Agent turn canceled.",
-          status: "done",
-        }));
-      } else {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Agent chat request failed.";
-        updateMessage(assistantMessageId, (current) => ({
-          ...current,
-          text: current.text || message,
-          status: "error",
-        }));
-      }
-      setIsChatLoading(false);
-      setIsStreaming(false);
-    } finally {
-      if (streamAbortControllerRef.current === streamAbortController) {
-        streamAbortControllerRef.current = null;
-      }
-    }
-  };
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (hasChatAccess) {
+    if (!canSend || typedSubmitInFlightRef.current) return;
+
+    typedSubmitInFlightRef.current = true;
+    try {
       await runAgentTurn(input, { source: "typed" });
-      return;
+    } finally {
+      typedSubmitInFlightRef.current = false;
     }
-    // Pre-vault / anonymous: single bar degrades to the informational tier.
-    await runIntroTurn(input);
   };
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
@@ -2735,171 +2668,14 @@ export function AgentChatWorkspace({
     }
   };
 
-  // Realtime full-duplex voice for One. Opt-in (NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED)
-  // and fail-closed: when the flag is off we never construct the realtime client and the
-  // conversational-mode control falls back to the turn-based path. Reuses the existing
-  // AgentRealtimeClient adapter over /agent/realtime/session (no new mic/STT/TTS code) and
-  // maps its voice state onto the shared agent voice store so the wave input renders as-is.
-  const mapRealtimeVoiceState = useCallback(
-    (state: AgentRealtimeVoiceState): AgentVoiceStatus => {
-      switch (state) {
-        case "connecting":
-          return "connecting";
-        case "listening":
-          return "listening";
-        case "thinking":
-          return "thinking";
-        case "speaking":
-          return "speaking";
-        case "idle":
-        default:
-          return "idle";
-      }
-    },
-    [],
-  );
-
-  const handleCancelRealtimeVoice = useCallback(async () => {
-    realtimeVoiceActiveRef.current = false;
-    realtimeUserTranscriptIdRef.current = null;
-    realtimeAssistantMessageIdRef.current = null;
-    realtimeVoiceClientRef.current?.close();
-    realtimeVoiceClientRef.current = null;
-    setIsVoiceConnecting(false);
-    setVoiceState("idle");
-    resetGlobalVoiceState();
-  }, [resetGlobalVoiceState]);
-
-  const handleToggleRealtimeVoice = async () => {
-    if (!agentRealtimeVoiceEnabled) {
-      addErrorMessage("Realtime voice is disabled for this environment.");
-      return;
-    }
-    if (!hasChatAccess || !user?.uid) return;
-
-    if (realtimeVoiceActiveRef.current) {
-      await handleCancelRealtimeVoice();
-      return;
-    }
-
-    const token = getVaultOwnerToken();
-    if (!token) {
-      addErrorMessage("Vault access expired. Unlock again to continue.");
-      return;
-    }
-
-    setIsVoiceConnecting(true);
-    setGlobalVoiceActive(true);
-    setAgentVoiceStatus("connecting");
-    realtimeVoiceActiveRef.current = true;
-
-    const client = new AgentRealtimeClient();
-    realtimeVoiceClientRef.current = client;
-
-    try {
-      await client.connect({ userId: user.uid, vaultOwnerToken: token });
-      await client.startMicrophone({
-        onVoiceState: (state) => {
-          if (!realtimeVoiceActiveRef.current) return;
-          if (state !== "connecting") {
-            setIsVoiceConnecting(false);
-          }
-          setAgentVoiceStatus(mapRealtimeVoiceState(state));
-        },
-        onInputTranscriptDelta: (delta) => {
-          if (!realtimeVoiceActiveRef.current || !delta) return;
-          const existingId = realtimeUserTranscriptIdRef.current;
-          if (existingId) {
-            updateMessage(existingId, (message) => ({
-              ...message,
-              text: `${message.text}${delta}`,
-            }));
-            return;
-          }
-          const id = `msg-${Date.now()}-user-voice`;
-          realtimeUserTranscriptIdRef.current = id;
-          appendMessage({
-            id,
-            role: "user",
-            text: delta,
-            timestamp: formatNow(),
-          });
-        },
-        onInputTranscriptDone: (text) => {
-          const existingId = realtimeUserTranscriptIdRef.current;
-          if (existingId && text.trim()) {
-            updateMessage(existingId, (message) => ({ ...message, text }));
-          }
-          realtimeUserTranscriptIdRef.current = null;
-        },
-        onResponseStart: () => {
-          if (!realtimeVoiceActiveRef.current) return;
-          const id = `msg-${Date.now()}-assistant-voice`;
-          realtimeAssistantMessageIdRef.current = id;
-          appendMessage({
-            id,
-            role: "assistant",
-            text: "",
-            timestamp: formatNow(),
-            status: "streaming",
-          });
-        },
-        onResponseDelta: (delta) => {
-          const existingId = realtimeAssistantMessageIdRef.current;
-          if (!existingId || !delta) return;
-          updateMessage(existingId, (message) => ({
-            ...message,
-            text: `${message.text}${delta}`,
-          }));
-        },
-        onResponseDone: (text) => {
-          const existingId = realtimeAssistantMessageIdRef.current;
-          if (existingId) {
-            updateMessage(existingId, (message) => ({
-              ...message,
-              text: text.trim() ? text : message.text,
-              status: "done",
-            }));
-          }
-          realtimeAssistantMessageIdRef.current = null;
-        },
-        onError: (message) => {
-          if (!realtimeVoiceActiveRef.current) return;
-          addErrorMessage(message);
-          setAgentVoiceStatus("error", message);
-          void handleCancelRealtimeVoice();
-        },
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Realtime voice session failed.";
-      addErrorMessage(message);
-      await handleCancelRealtimeVoice();
-    }
-  };
-
   useEffect(() => {
     if (!voiceActive) return;
-    if (
-      (agentVoiceEnabled || agentRealtimeVoiceEnabled) &&
-      user?.uid &&
-      isVaultUnlocked &&
-      vaultOwnerToken &&
-      tokenIsFresh
-    ) {
-      return;
-    }
-    if (realtimeVoiceActiveRef.current) {
-      void handleCancelRealtimeVoice();
+    if (agentVoiceEnabled && user?.uid && isVaultUnlocked && vaultOwnerToken && tokenIsFresh) {
       return;
     }
     void handleCancelVoice();
   }, [
     agentVoiceEnabled,
-    agentRealtimeVoiceEnabled,
-    handleCancelRealtimeVoice,
     handleCancelVoice,
     isVaultUnlocked,
     tokenIsFresh,
@@ -2908,73 +2684,12 @@ export function AgentChatWorkspace({
     voiceActive,
   ]);
 
-  // Keep a live reference to the latest voice toggle so the conversation-request
-  // listener (registered once) always invokes the current handler. When realtime
-  // voice is enabled the conversational-mode control prefers the realtime path;
-  // otherwise it falls back to the turn-based toggle (fail-closed default).
-  const startConversationalVoice = () =>
-    agentRealtimeVoiceEnabled ? handleToggleRealtimeVoice() : handleToggleVoice();
-  const handleToggleVoiceRef = useRef(startConversationalVoice);
-  handleToggleVoiceRef.current = startConversationalVoice;
-
-  // The agent bar's conversational-mode control dispatches a request event after
-  // opening the surface. Auto-start a voice turn once the workspace is ready and
-  // not already in a voice session. Honors the same access gates as the in-chat
-  // voice button (vault unlock, fresh token, voice feature flag).
-  const conversationVoiceEnabled = agentRealtimeVoiceEnabled || agentVoiceEnabled;
-  const conversationReady =
-    conversationVoiceEnabled && hasChatAccess && !voiceActive && !isVoiceConnecting;
-  const conversationReadyRef = useRef(conversationReady);
-  conversationReadyRef.current = conversationReady;
-  const pendingConversationRequestRef = useRef(false);
-
-  const tryStartPendingConversation = useCallback(() => {
-    if (!pendingConversationRequestRef.current) return;
-    if (!conversationReadyRef.current) return;
-    pendingConversationRequestRef.current = false;
-    void handleToggleVoiceRef.current();
-  }, []);
-
-  useEffect(() => {
-    const handleConversationRequest = () => {
-      pendingConversationRequestRef.current = true;
-      tryStartPendingConversation();
-    };
-    window.addEventListener(
-      AGENT_CONVERSATION_REQUEST_EVENT,
-      handleConversationRequest,
-    );
-    return () => {
-      window.removeEventListener(
-        AGENT_CONVERSATION_REQUEST_EVENT,
-        handleConversationRequest,
-      );
-      pendingConversationRequestRef.current = false;
-    };
-  }, [tryStartPendingConversation]);
-
-  // If the request arrived before the workspace was ready (e.g. vault still
-  // unlocking), retry once readiness flips true.
-  useEffect(() => {
-    if (conversationReady) {
-      tryStartPendingConversation();
-    }
-  }, [conversationReady, tryStartPendingConversation]);
-
-  // The single agent bar always works. Before the vault is unlocked it runs the
-  // informational tier (help + navigation), so the access banner is a soft,
-  // non-blocking affordance, not a wall. It only surfaces when the user is
-  // signed in but the vault is locked, offering an in-place unlock to upgrade
-  // to the full agent. Anonymous visitors get a quiet sign-in nudge instead.
-  const needsVaultUnlock = Boolean(
-    user?.uid && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
-  );
   const accessMessage = authLoading
-    ? null
+    ? "Checking access..."
     : !user?.uid
-      ? "You're chatting with One. Sign in and unlock your vault for personalized help."
-      : needsVaultUnlock
-        ? "You're chatting with One. Unlock your vault to work with your private information."
+      ? "Sign in to use Agent."
+      : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
+        ? "Unlock your vault to use Agent."
         : null;
   const accessAction = authLoading
     ? null
@@ -2984,13 +2699,11 @@ export function AgentChatWorkspace({
           icon: LogIn,
           onClick: () => router.push(ROUTES.LOGIN),
         }
-      : needsVaultUnlock
+      : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
         ? {
             label: "Unlock vault",
             icon: KeyRound,
-            // Just-in-time unlock in place via the shared dialog, instead of
-            // navigating away to /profile and losing the agent context.
-            onClick: () => setVaultDialogOpen(true),
+            onClick: () => router.push(ROUTES.PROFILE),
           }
         : null;
   const displayName = useMemo(
@@ -2999,6 +2712,25 @@ export function AgentChatWorkspace({
   );
   const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
   const visibleMessages = messages.filter((message) => message.id !== "agent-greeting");
+  const welcomeSuggestionSeed = useMemo(
+    () => Date.now() + Math.floor(Math.random() * 100_000),
+    // Intentionally reseed when any of these change so welcome suggestions
+    // refresh on persona/conversation/route/user transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activePersona, conversationId, freshOpenKey, hasStartedConversation, pathname, user?.uid],
+  );
+  const [welcomeSuggestions, setWelcomeSuggestions] = useState<AgentWelcomeSuggestion[]>([]);
+
+  useEffect(() => {
+    setWelcomeSuggestions(
+      resolveAgentWelcomeSuggestions({
+        userId: user?.uid,
+        pathname,
+        persona: activePersona,
+        randomSeed: welcomeSuggestionSeed,
+      })
+    );
+  }, [activePersona, pathname, user?.uid, welcomeSuggestionSeed]);
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -3023,13 +2755,6 @@ export function AgentChatWorkspace({
     }
     setPkmReviews([]);
     setPkmActivity([]);
-    // Pre-vault / anonymous turns go through the informational intro tier, which
-    // runAgentTurn early-returns on (no vault access). Route the retry to the
-    // same tier the original turn used so the button is not a no-op there.
-    if (!hasChatAccess) {
-      void runIntroTurn(retryText);
-      return;
-    }
     void runAgentTurn(retryText, {
       source: "typed",
       appendUserMessage: false,
@@ -3037,9 +2762,13 @@ export function AgentChatWorkspace({
     });
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
-    setInput(prompt);
-    window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
-  }, []);
+    if (isChatLoading || isStreaming) return;
+    setInput("");
+    void runAgentTurn(prompt, { source: "typed" });
+    // runAgentTurn is a stable closure invoked imperatively; excluding it keeps
+    // this callback from re-creating on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChatLoading, isStreaming]);
   const swipeStartYRef = useRef<number | null>(null);
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMinimize || event.pointerType === "mouse") return;
@@ -3129,10 +2858,7 @@ export function AgentChatWorkspace({
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          // On phones the popover is a full-bleed immersive sheet, so the inner
-          // content must reach every edge (no surrounding padding gap). The
-          // inset padding only applies to the floating windowed card at >=sm.
-          isPopover ? "overflow-hidden p-0 sm:p-3" : "overflow-hidden"
+          isPopover ? "overflow-hidden p-2 sm:p-3" : "overflow-hidden"
         )}
       >
         <div className="hidden h-full lg:flex">
@@ -3140,7 +2866,7 @@ export function AgentChatWorkspace({
         </div>
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
+            "fixed inset-0 z-[520] bg-foreground/25 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
             isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
           )}
           aria-hidden="true"
@@ -3159,7 +2885,7 @@ export function AgentChatWorkspace({
           inert={!isHistoryDrawerOpen}
           onKeyDown={handleHistoryDrawerKeyDown}
         >
-          {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
+          {renderHistorySidebar("h-full w-full shadow-2xl shadow-foreground/20", () =>
             setIsHistoryDrawerOpen(false)
           )}
         </div>
@@ -3167,10 +2893,7 @@ export function AgentChatWorkspace({
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            // Rounded card framing is only for the floating windowed popover at
-            // >=sm. On phones the sheet is edge-to-edge, so no rounding/border.
-            isPopover &&
-              "sm:rounded-lg sm:border sm:border-black/10 sm:shadow-sm sm:dark:border-white/10"
+            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
           )}
           inert={isHistoryDrawerOpen}
         >
@@ -3188,13 +2911,14 @@ export function AgentChatWorkspace({
               swipeStartYRef.current = null;
             }}
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 border-b border-border/70" />
+            <div className="relative z-10 flex min-w-0 items-center gap-3">
               {!isPopover ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -3202,21 +2926,21 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary dark:border-white/10 dark:bg-white/[0.04]">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-background text-primary shadow-sm">
                 <Bot className="h-4 w-4" />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
-                  One
+                  Agent
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                  Your personal agent
+                  Kai workspace
                 </p>
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="hidden rounded-md border border-black/10 bg-black/[0.035] px-2.5 py-1 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 sm:inline-flex">
+            <div className="relative z-10 flex shrink-0 items-center gap-2">
+              <span className="hidden rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
                 {statusText}
               </span>
               {!isPopover ? (
@@ -3224,12 +2948,38 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={handlePageMinimize}
-                  aria-label="Minimize Agent"
-                  title="Minimize Agent"
+                  aria-label="Close Agent"
+                  title="Close Agent"
                 >
-                  <Minus className="h-4 w-4" />
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
                 </Button>
               ) : null}
               {isPopover && onMinimize ? (
@@ -3251,8 +3001,8 @@ export function AgentChatWorkspace({
 
           <div
             className={cn(
-              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              isPopover ? "pb-4" : "pb-6 lg:px-8"
+              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+              isPopover ? "pb-4 pt-5" : "pb-6 pt-8 sm:pt-10 lg:px-8 lg:pt-6"
             )}
           >
             <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
@@ -3273,10 +3023,11 @@ export function AgentChatWorkspace({
                 </div>
               ) : null}
 
-              {!hasStartedConversation ? (
+              {!accessMessage && !hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
-                  disabled={isChatLoading || isStreaming}
+                  suggestions={welcomeSuggestions}
+                  disabled={!hasChatAccess || isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />
               ) : null}
@@ -3303,6 +3054,8 @@ export function AgentChatWorkspace({
                   key={review.id}
                   cards={review.cards}
                   saving={review.saving}
+                  mode={review.updateContext ? "update" : "add"}
+                  updateContext={review.updateContext}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
@@ -3312,10 +3065,10 @@ export function AgentChatWorkspace({
           </div>
 
           {voiceTranscriptReview ? (
-            <div className="absolute inset-0 z-20 grid place-items-end bg-black/25 p-4 backdrop-blur-[2px] dark:bg-black/40 sm:place-items-center">
+            <div className="absolute inset-0 z-20 grid place-items-end bg-foreground/20 p-4 backdrop-blur-[2px] sm:place-items-center">
               <div
                 ref={voiceTranscriptDialogRef}
-                className="w-full max-w-sm rounded-xl border border-black/10 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#15171c]"
+                className="agent-themed-popover-surface w-full max-w-sm rounded-xl border border-border p-4 shadow-xl"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Confirm voice transcript"
@@ -3365,33 +3118,23 @@ export function AgentChatWorkspace({
           >
             <div className="mx-auto w-full max-w-3xl">
               {voiceActive ? (
-                <div className="rounded-2xl border border-black/10 bg-[#f5f5f7] p-2 shadow-lg shadow-black/[0.06] dark:border-white/10 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="rounded-xl bg-[#f5f5f7] p-1 shadow-sm shadow-black/[0.04] dark:bg-[#0f1116] dark:shadow-black/10">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
                     muted={voiceMuted}
                     disabled={!hasChatAccess || isVoiceConnecting}
-                    onToggleMute={
-                      realtimeVoiceActiveRef.current
-                        ? () => {
-                            void handleCancelRealtimeVoice();
-                          }
-                        : handleToggleVoice
-                    }
+                    onToggleMute={handleToggleVoice}
                     onCancel={() => {
-                      if (realtimeVoiceActiveRef.current) {
-                        void handleCancelRealtimeVoice();
-                        return;
-                      }
                       void handleCancelVoice();
                     }}
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
                   <textarea
                     ref={composerTextareaRef}
-                    aria-label="Message One"
+                    aria-label="Message Agent"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => {
@@ -3403,21 +3146,19 @@ export function AgentChatWorkspace({
                         event.currentTarget.form?.requestSubmit();
                       }
                     }}
-                    disabled={isLoadingHistory || isVoiceConnecting}
-                    placeholder="Message One..."
+                    disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
+                    placeholder="Message Agent..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   />
-                  {agentRealtimeVoiceEnabled || agentVoiceEnabled ? (
+                  {agentVoiceEnabled ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
+                      className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
                       disabled={!canToggleVoice}
-                      onClick={() => {
-                        void startConversationalVoice();
-                      }}
+                      onClick={handleToggleVoice}
                       aria-label="Start voice mode"
                       title="Start voice mode"
                     >
@@ -3427,7 +3168,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
                     disabled={!canSend}
                     aria-label="Send message"
                   >
@@ -3439,16 +3180,6 @@ export function AgentChatWorkspace({
           </form>
         </section>
       </div>
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={vaultDialogOpen}
-          onOpenChange={setVaultDialogOpen}
-          title="Unlock Vault to use Agent"
-          description="Unlock your Vault so the agent can work with your private information."
-          onSuccess={() => setVaultDialogOpen(false)}
-        />
-      ) : null}
     </div>
   );
 }

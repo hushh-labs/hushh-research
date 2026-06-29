@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 59,
-  "native_required_routes": 56,
+  "total_routes": 56,
+  "native_required_routes": 53,
   "excluded_routes": 3,
   "routes": [
     {
@@ -22,30 +22,6 @@
       "initialRoute": "/login?redirect=%2Fone",
       "expectedMarker": "native-route-one-home",
       "expectedRoute": "/one",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
-    },
-    {
-      "route": "/one/setup",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup",
-      "expectedMarker": "native-route-one-setup",
-      "expectedRoute": "/one/setup",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
-    },
-    {
-      "route": "/one/setup/kai",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fkai",
-      "expectedMarker": "native-route-one-setup-kai",
-      "expectedRoute": "/one/setup/kai",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -221,8 +197,8 @@
       "route": "/kai/onboarding",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fkai%2Fonboarding",
-      "expectedMarker": "native-route-one-setup-kai",
-      "expectedRoute": "/one/setup/kai",
+      "expectedMarker": "native-route-kai-onboarding",
+      "expectedRoute": "/one/kai/onboarding",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -234,14 +210,13 @@
       "route": "/one/kai/onboarding",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fonboarding",
-      "expectedMarker": "native-route-one-setup-kai",
-      "expectedRoute": "/one/setup/kai",
+      "expectedMarker": "native-route-kai-onboarding",
+      "expectedRoute": "/one/kai/onboarding",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ],
-      "legacyAlias": true
+      ]
     },
     {
       "route": "/kai/optimize",
@@ -721,18 +696,6 @@
       "initialRoute": "/login",
       "expectedMarker": "native-route-login",
       "expectedRoute": "/login",
-      "autoReviewerLogin": false,
-      "expectedAuth": "anonymous",
-      "allowedDataStates": [
-        "loaded"
-      ]
-    },
-    {
-      "route": "/getting-started",
-      "classification": "native-required-functional",
-      "initialRoute": "/getting-started",
-      "expectedMarker": "native-route-getting-started",
-      "expectedRoute": "/getting-started",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
       "allowedDataStates": [

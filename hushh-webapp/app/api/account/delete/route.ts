@@ -28,23 +28,18 @@ export async function DELETE(request: NextRequest) {
       body: requestBody || undefined,
     });
 
-    const responseText = await response.text();
-    console.log(`[API] Backend response status: ${response.status}`);
-
     if (!response.ok) {
-      console.error("[API] Backend error:", responseText);
-      return NextResponse.json(
-        { error: responseText || "Failed to delete account" },
-        { status: response.status }
-      );
+      const errorPayload = await response
+        .json()
+        .catch(async () => ({
+          error: (await response.text().catch(() => "")) || "Failed to delete account",
+        }));
+      console.error("[API] Backend error:", response.status, errorPayload);
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
-    try {
-      const data = JSON.parse(responseText);
-      return NextResponse.json(data);
-    } catch {
-      return NextResponse.json({ success: true, raw: responseText });
-    }
+    const data = await response.json().catch(() => ({ success: true }));
+    return NextResponse.json(data);
   } catch (error) {
     console.error("[API] Delete account proxy error:", error);
     return NextResponse.json(

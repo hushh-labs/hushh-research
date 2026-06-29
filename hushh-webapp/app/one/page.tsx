@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
+import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
-import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 export default function OneHomePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  // Dashboard uses coarse states only (no vault/oauth enrichment) so it stays
-  // cheap; the /one/setup flow opts into full enrichment for skip-vs-continue.
-  const { byId } = useCapabilitySetupStates();
+  const pendingConsents = useConsentPendingSummaryCount();
+  const [oneSetupResolved, setOneSetupResolved] = useState<boolean | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!loading && !user) {
@@ -24,6 +26,32 @@ export default function OneHomePage() {
       );
     }
   }, [loading, router, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setOneSetupResolved(null);
+      return;
+    }
+
+    let cancelled = false;
+    PreVaultUserStateService.bootstrapState(user.uid)
+      .then((state) => {
+        if (!cancelled) {
+          setOneSetupResolved(
+            PreVaultUserStateService.isOnboardingResolved(state),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOneSetupResolved(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   if (loading || !user) {
     return <HushhLoader label="Opening One..." variant="fullscreen" />;
@@ -39,7 +67,8 @@ export default function OneHomePage() {
       />
       <OneDashboardPage
         displayName={user.displayName || user.email}
-        capabilityStatusById={byId}
+        pendingConsents={pendingConsents}
+        oneSetupResolved={oneSetupResolved}
       />
     </>
   );

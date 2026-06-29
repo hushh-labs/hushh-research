@@ -39,22 +39,6 @@ This reference preserves operator-directed lessons without bloating the compact
     comes before expensive merge work, budget is reserved for verify-to-zero,
     rate-limit assumptions are checked with `gh api rate_limit`, and repeated
     repass starvation changes wave ordering.
-12. `Repass detection must use head-drift, not timestamps alone.` A 2026-06
-    full reverification of all changes_requested PRs found 20+ PRs the
-    contributor had genuinely fixed (head moved past the reviewed commit) that
-    the timestamp-only detector missed — because a rebase keeps an old
-    `committedDate` and an edited review body keeps an old `submittedAt`. The
-    detector now flags a repass when EITHER (a) contributor activity is newer
-    than the latest maintainer CR review, OR (b) the current head SHA differs
-    from the `commit_id` that review was pinned to (head-drift, timestamp-
-    immune). Head-drift is the source of truth for "code changed after review".
-13. `Reverification is bounded by GraphQL quota.` The engine is GraphQL-heavy;
-    running 3 parallel engine lanes exhausted the 5000/hr GraphQL budget and
-    produced `review_scan_github_or_scan_error` false `block` verdicts. For any
-    full-backlog sweep: check `gh api rate_limit` first, cap parallelism so the
-    GraphQL budget lasts the run, and treat scan-error verdicts as
-    needs-refetch, never as real decisions. A `merge_now`/`block` verdict is
-    only trustworthy when the scan completed without a github/scan error.
 
 When operator direction changes the model again, update this file and the
 specific focused reference that owns the operational detail.

@@ -92,16 +92,6 @@ a, button, input, select, textarea {
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
-  /* Foundation accent utilities — auto-generate bg-accent-surface, text-foundation-*,
-     border-accent-border, etc. Underlying vars flip in .dark, so these are theme-aware. */
-  --color-foundation-ink: var(--foundation-ink);
-  --color-foundation-dim: var(--foundation-dim);
-  --color-foundation-gold: var(--foundation-gold-accent);
-  --color-foundation-gold-deep: var(--foundation-gold-deep);
-  --color-accent-strong: var(--foundation-gold-deep);
-  --color-accent-surface: var(--foundation-accent-surface);
-  --color-accent-surface-strong: var(--foundation-accent-surface-strong);
-  --color-accent-border: var(--foundation-accent-border);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -166,21 +156,6 @@ a, button, input, select, textarea {
   --foundation-micro-weight: 600;
   --foundation-micro-tracking: 0.2em;
   --foundation-gold: #B8894D;
-
-  /* Foundation color system (light) — adopted verbatim from hushh-search-console
-     (the design bible). Gold = emphasis/markers ONLY; ink/gray carry the reading
-     hierarchy. Deep gold (#b8894d) is the TEXT-legible gold on light. */
-  --foundation-ink: #1d1d1f;
-  --foundation-dim: #86868b;
-  --foundation-off: #f5f5f7;
-  --foundation-surface: #ffffff;
-  --foundation-hairline: #e5e5ea;
-  --foundation-gold-accent: #d4a574;        /* fills / markers */
-  --foundation-gold-deep: #b8894d;          /* TEXT / icons on light */
-  --foundation-accent-surface: #f7f1e8;     /* warm cream */
-  --foundation-accent-surface-strong: #efe4d2;
-  --foundation-accent-border: #e8d8bf;
-  --foundation-crimson: #9a1b1b;
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
   --anchor-width: 16rem;
@@ -343,94 +318,77 @@ a, button, input, select, textarea {
   --motion-page-enter-duration: var(--motion-duration-xl);
   --motion-deck-duration: var(--motion-duration-xl);
 
-  /* Overlay (dialog/popover/sheet/menu/tooltip) motion. Open uses a slightly
-   * longer, decelerating curve so surfaces settle in; close is a touch quicker
-   * with a gentle accelerate so dismissal feels responsive yet never snaps.
-   * Tuned for a uniform 60fps frame across every Radix overlay. */
-  --motion-overlay-enter-duration: var(--motion-duration-md); /* 240ms */
-  --motion-overlay-exit-duration: 200ms;
-  --motion-overlay-enter-ease: var(--motion-ease-decelerate);
-  --motion-overlay-exit-ease: var(--motion-ease-accelerate);
-
-  /* Route transition (full-page crossfade) motion. Deliberately longer and
-   * gentler than overlays so navigation feels graceful, not abrupt. The exit
-   * eases out softly and the enter glides in with a long decelerate. Keep the
-   * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 500ms;
-  --motion-route-enter-duration: 600ms;
-  --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
-  --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
-
   --motion-deck-scale-active: 1.14;
   --motion-deck-scale-adjacent: 0.9;
   --motion-deck-scale-other: 0.84;
-  /* Foundation (bible): light bg off-white #f5f5f7, ink text #1d1d1f, white cards */
-  --background: oklch(0.971 0.003 286.4);
-  --foreground: oklch(0.232 0.004 286.1);
-  --card: #ffffff;
-  --card-foreground: oklch(0.232 0.004 286.1);
-  --popover: #ffffff;
-  --popover-foreground: oklch(0.232 0.004 286.1);
-  --primary: oklch(0.232 0.004 286.1);
+  /* Apple HIG: light bg is off-white #f5f5f7, shared surfaces sit on a softer table-like card */
+  --background: oklch(0.968 0.002 264);
+  --foreground: oklch(0 0 0);
+  --card: #f7f7fa;
+  --card-foreground: oklch(0 0 0);
+  --popover: #f7f7fa;
+  --popover-foreground: oklch(0 0 0);
+  --primary: oklch(0.55 0.18 250);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.96 0.003 264);
   --secondary-foreground: oklch(0.2 0.01 264);
   --muted: oklch(0.96 0.003 264);
   --muted-foreground: oklch(0.6 0.005 264);
-  --accent: oklch(0.754 0.085 67.1);
-  --accent-foreground: oklch(0.232 0.004 286.1);
-  --destructive: oklch(0.446 0.162 26.9);
+  --accent: oklch(0.6 0.2 260);
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(1 0 0);
-  --critical-solid: oklch(0.446 0.162 26.9);
+  --critical-solid: oklch(0.58 0.22 27);
   --critical-foreground: oklch(0.98 0 0);
   --critical-soft-bg: oklch(0.95 0.03 26);
   --critical-soft-border: oklch(0.73 0.12 26);
   --critical-soft-text: oklch(0.48 0.16 26);
   --border: oklch(0.92 0.004 264);
   --input: oklch(0.87 0.006 264);
-  --ring: oklch(0.663 0.096 71.6);
-  --chart-1: oklch(0.663 0.096 71.6);
-  --chart-2: oklch(0.754 0.085 67.1);
+  --ring: oklch(0.55 0.18 250);
+  --chart-1: oklch(0.55 0.18 250);
+  --chart-2: oklch(0.6 0.2 260);
   --chart-3: oklch(0.62 0.19 155);
   --chart-4: oklch(0.75 0.15 80);
-  --chart-5: oklch(0.446 0.162 26.9);
+  --chart-5: oklch(0.58 0.22 27);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0.232 0.004 286.1);
+  --sidebar-primary: oklch(0.55 0.18 250);
   --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent: oklch(0.96 0.003 264);
   --sidebar-accent-foreground: oklch(0.2 0.01 264);
   --sidebar-border: oklch(0.92 0.004 264);
-  --sidebar-ring: oklch(0.663 0.096 71.6);
+  --sidebar-ring: oklch(0.55 0.18 250);
 
-  /* Primary Brand Theme — Foundation gold scale (was Apple Blue). Gold is the
-     brand accent; ink carries primary. Scale tuned around #d4a574 / #b8894d. */
-  --brand-primary: #b8894d;
-  --brand-secondary: #d4a574;
-  --brand-50: #faf6f0;
-  --brand-100: #f7f1e8;
-  --brand-200: #efe4d2;
-  --brand-300: #e8d8bf;
-  --brand-400: #d9b98a;
-  --brand-500: #d4a574;
-  --brand-600: #b8894d;
-  --brand-700: #9a7038;
-  --brand-800: #6f4f26;
-  --brand-900: #4a3418;
+  /* Primary Brand Theme - Apple Blue */
+  --brand-primary: #0071e3;
+  --brand-secondary: #3b82f6;
+  --brand-50: #eff6ff;
+  --brand-100: #dbeafe;
+  --brand-200: #bfdbfe;
+  --brand-300: #93c5fd;
+  --brand-400: #60a5fa;
+  --brand-500: #0071e3;
+  --brand-600: #005bb5;
+  --brand-700: #004587;
+  --brand-800: #002f5a;
+  --brand-900: #00192d;
 
-  /* Onboarding tri-tone chips / rail. Semantic category colors (vault / finance /
-     inbox). The blue tone is re-pointed to Foundation gold so the vault/consent
-     feature carries the signature gold marker; green/finance + orange/inbox stay
-     as warm secondary accents (Foundation-compatible, not Google-blue). */
-  --tone-blue: #b8894d;
+  /* Onboarding tri-tone chips / rail */
+  --tone-blue: #0063f7;
   --tone-green: #16a34a;
   --tone-orange: #f97316;
-  --tone-blue-bg: #f7f1e8;
+  --tone-blue-bg: #dbeafe;
   --tone-green-bg: #dcfce7;
   --tone-orange-bg: #ffedd5;
-  --tone-blue-glow: rgba(184, 137, 77, 0.3);
+  --tone-blue-glow: rgba(0, 99, 247, 0.3);
   --tone-green-glow: rgba(22, 163, 74, 0.26);
   --tone-orange-glow: rgba(249, 115, 22, 0.28);
+
+  /* Crystal Glass Effect */
+  --crystal-glass-bg: rgba(255, 255, 255, 0.12);
+  --crystal-glass-border: rgba(0, 113, 227, 0.2);
+  --crystal-glass-blur: 20px;
 
   /* App Background - Apple iCloud light: uniform off-white */
   --app-bg-start: #f5f5f7;
@@ -445,21 +403,21 @@ a, button, input, select, textarea {
   --activeShadowColor: var(--shadow1);
   --fadeGrey: #e5e7eb80;
 
-  /* Hussh Brand Color Tokens - Foundation gold (was Apple Blue) */
-  --morphy-primary-start: #b8894d;
-  --morphy-primary-mid: #c8995f;
-  --morphy-primary-end: #d4a574;
+  /* Hussh Brand Color Tokens - Apple Blue */
+  --morphy-primary-start: #0071e3;
+  --morphy-primary-mid: #2d86ff;
+  --morphy-primary-end: #3b82f6;
   --morphy-secondary-start: #c0c0c0;
   --morphy-secondary-end: #e8e8e8;
-  --morphy-glass-accent-a: rgba(184, 137, 77, 0.13);
-  --morphy-glass-accent-b: rgba(212, 165, 116, 0.11);
+  --morphy-glass-accent-a: rgba(55, 131, 255, 0.13);
+  --morphy-glass-accent-b: rgba(109, 175, 255, 0.11);
 
   /* CTA elevation (used by Morphy Button fill variants) */
-  --morphy-cta-shadow: rgba(184, 137, 77, 0.25);
+  --morphy-cta-shadow: rgba(0, 113, 227, 0.25);
 
   /* Accent gradient */
-  --morphy-accent-start: #b8894d;
-  --morphy-accent-end: #d4a574;
+  --morphy-accent-start: #0071e3;
+  --morphy-accent-end: #3b82f6;
 
   /* Pre-computed gradients */
   --morphy-primary-gradient: linear-gradient(
@@ -796,9 +754,9 @@ html.native-ios {
 .hushh-gradient-text {
   background-image: linear-gradient(
     98deg,
-    #9a7038 0%,
-    #b8894d 52%,
-    #d4a574 100%
+    #0063d9 0%,
+    #2d86ff 52%,
+    #67b0ff 100%
   );
   color: transparent;
   -webkit-background-clip: text;
@@ -808,9 +766,9 @@ html.native-ios {
 .dark .hushh-gradient-text {
   background-image: linear-gradient(
     98deg,
-    #c8995f 0%,
-    #d4a574 52%,
-    #e0bb8e 100%
+    #67a8ff 0%,
+    #8ec2ff 52%,
+    #b8dcff 100%
   );
 }
 
@@ -864,32 +822,22 @@ html.native-ios {
   isolation: isolate;
   color: var(--intro-feature-tone);
   background: var(--intro-feature-bg);
-  /* Persistent soft glow so the icon never reads as dull, plus a brighter
-     tone ring. The outer halo is amplified when the rail scan passes (below). */
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--intro-feature-tone) 26%, transparent),
-    0 10px 30px -16px var(--intro-feature-glow),
-    0 0 18px -2px color-mix(in srgb, var(--intro-feature-tone) 32%, transparent);
+    0 18px 34px -24px var(--intro-feature-glow),
+    inset 0 0 0 1px color-mix(in srgb, var(--intro-feature-tone) 18%, transparent);
 }
 
 .intro-feature-icon::after {
   content: "";
   position: absolute;
-  inset: -10px;
+  inset: -8px;
   z-index: 0;
   border-radius: inherit;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--intro-feature-tone) 70%, transparent),
-    var(--intro-feature-glow) 40%,
-    transparent 70%
-  );
+  background: radial-gradient(circle, var(--intro-feature-glow), transparent 66%);
   opacity: 0;
   transform: scale(0.72);
-  /* Timed to fire as the rail scan reaches each icon so the glow "lights up"
-     on pass-through; settles to a gentle resting bloom instead of fading out. */
-  animation: intro-feature-icon-pulse 1150ms var(--motion-ease-emphasized)
-    calc(var(--intro-feature-delay, 0ms) + 220ms) both;
+  animation: intro-feature-icon-pulse 820ms var(--motion-ease-emphasized)
+    calc(var(--intro-feature-delay, 0ms) + 180ms) both;
 }
 
 @keyframes intro-feature-enter {
@@ -906,17 +854,15 @@ html.native-ios {
 @keyframes intro-feature-icon-pulse {
   0% {
     opacity: 0;
-    transform: scale(0.7);
+    transform: scale(0.72);
   }
-  38% {
+  42% {
     opacity: 1;
-    transform: scale(1.06);
+    transform: scale(1);
   }
   100% {
-    /* Rests at a soft, steady bloom rather than fading to nothing, so the
-       icon keeps a living glow after the scan passes. */
-    opacity: 0.45;
-    transform: scale(1);
+    opacity: 0;
+    transform: scale(1.18);
   }
 }
 
@@ -941,72 +887,69 @@ html.native-ios {
     animation: none;
   }
 
+  .intro-feature-icon::after,
   .intro-feature-rail::after {
     animation: none;
-  }
-
-  /* Keep the gentle resting bloom without the pulse for reduced motion. */
-  .intro-feature-icon::after {
-    animation: none;
-    opacity: 0.45;
-    transform: scale(1);
   }
 }
 
 /* Hussh Brand Text */
 .text-hushh-brand {
-  background: linear-gradient(135deg, #b8894d 0%, #d4a574 100%);
+  background: linear-gradient(135deg, #0071e3 0%, #3b82f6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .dark {
-  /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
-     Gold tuned BRIGHT (#d4a574) for legibility on black; deep gold is too faint. */
-  --background: oklch(0.146 0.004 285.9);
-  --foreground: oklch(0.971 0.003 286.4);
-  --card: oklch(0.199 0.014 285.1);
-  --card-foreground: oklch(0.971 0.003 286.4);
-  --popover: oklch(0.199 0.014 285.1);
-  --popover-foreground: oklch(0.971 0.003 286.4);
-  --primary: oklch(0.971 0.003 286.4);
-  --primary-foreground: oklch(0.232 0.004 286.1);
+  /* Apple dark bg #1c1c1e, elevated card #2c2c2e */
+  --background: rgb(28 28 30);
+  --foreground: oklch(0.985 0 0);
+  --card: #2c2c2e;
+  --card-foreground: oklch(0.985 0 0);
+  --popover: #2c2c2e;
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.7 0.18 250);
+  --primary-foreground: oklch(0.15 0 0);
   --secondary: oklch(0.25 0.003 264);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.25 0.003 264);
-  --muted-foreground: oklch(0.879 0.012 286.1);
-  --accent: oklch(0.797 0.112 76.3);
-  --accent-foreground: oklch(0.232 0.004 286.1);
-  --destructive: oklch(0.636 0.172 26.8);
+  --muted-foreground: oklch(0.71 0.005 264);
+  --accent: oklch(0.7 0.2 260);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.7 0.19 22);
   --destructive-foreground: oklch(0.15 0 0);
-  --critical-solid: oklch(0.636 0.172 26.8);
+  --critical-solid: oklch(0.68 0.2 24);
   --critical-foreground: oklch(0.14 0 0);
   --critical-soft-bg: oklch(0.31 0.06 24);
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.797 0.112 76.3);
+  --ring: oklch(0.7 0.18 250);
   /* Chart colors - higher lightness for contrast on dark card */
-  --chart-1: oklch(0.797 0.112 76.3);
-  --chart-2: oklch(0.663 0.096 71.6);
+  --chart-1: oklch(0.7 0.18 250);
+  --chart-2: oklch(0.7 0.2 260);
   --chart-3: oklch(0.72 0.19 155);
   --chart-4: oklch(0.78 0.15 80);
   --chart-5: oklch(0.7 0.19 22);
-  --sidebar: oklch(0.146 0.004 285.9);
+  --sidebar: oklch(0.14 0.002 264);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.971 0.003 286.4);
-  --sidebar-primary-foreground: oklch(0.232 0.004 286.1);
-  --sidebar-accent: oklch(0.797 0.112 76.3);
-  --sidebar-accent-foreground: oklch(0.232 0.004 286.1);
+  --sidebar-primary: oklch(0.7 0.18 250);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.25 0.003 264);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.797 0.112 76.3);
+  --sidebar-ring: oklch(0.7 0.18 250);
 
-  /* App Background - Dark: PDF pitch-black surface */
-  --app-bg-start: oklch(0.146 0.004 285.9);
-  --app-bg-mid: oklch(0.146 0.004 285.9);
-  --app-bg-end: oklch(0.146 0.004 285.9);
+  /* Crystal Glass Effect - Dark Mode */
+  --crystal-glass-bg: rgba(0, 113, 227, 0.06);
+  --crystal-glass-border: rgba(0, 113, 227, 0.15);
+
+  /* App Background - Dark: seamless system dark surface */
+  --app-bg-start: rgb(28 28 30);
+  --app-bg-mid: rgb(28 28 30);
+  --app-bg-end: rgb(28 28 30);
 
   --glass1: #ffffff40 !important;
   --glass2: #6464643b !important;
@@ -1016,29 +959,28 @@ html.native-ios {
   --activeShadowColor: var(--shadow2);
   --fadeGrey: #e5e7eb80;
 
-  /* Morphy UI Color Tokens - Dark Mode (Foundation gold) */
-  --morphy-primary-start: #d4a574;
-  --morphy-primary-mid: #e0bb8e;
-  --morphy-primary-end: #c8995f;
-  --morphy-secondary-start: #d4a574;
-  --morphy-secondary-end: #b8894d;
-  --morphy-glass-accent-a: rgba(212, 165, 116, 0.16);
-  --morphy-glass-accent-b: rgba(224, 187, 142, 0.14);
+  /* Morphy UI Color Tokens - Dark Mode */
+  --morphy-primary-start: #5a9fff;
+  --morphy-primary-mid: #82bcff;
+  --morphy-primary-end: #4f93ff;
+  --morphy-secondary-start: #60a5fa;
+  --morphy-secondary-end: #3b82f6;
+  --morphy-glass-accent-a: rgba(90, 159, 255, 0.16);
+  --morphy-glass-accent-b: rgba(130, 188, 255, 0.14);
 
-  /* Onboarding tri-tone chips / rail (dark mode). Blue tone → Foundation gold
-     (vault/consent marker); green/orange stay warm semantic accents. */
-  --tone-blue: #d4a574;
+  /* Onboarding tri-tone chips / rail (dark mode) */
+  --tone-blue: #60a5fa;
   --tone-green: #4ade80;
   --tone-orange: #fb923c;
-  --tone-blue-bg: #2a2114;
+  --tone-blue-bg: #1a2638;
   --tone-green-bg: #182d24;
   --tone-orange-bg: #33241b;
-  --tone-blue-glow: rgba(212, 165, 116, 0.22);
+  --tone-blue-glow: rgba(96, 165, 250, 0.22);
   --tone-green-glow: rgba(74, 222, 128, 0.22);
   --tone-orange-glow: rgba(251, 146, 60, 0.24);
 
   /* CTA elevation (used by Morphy Button fill variants) */
-  --morphy-cta-shadow: rgba(212, 165, 116, 0.22);
+  --morphy-cta-shadow: rgba(96, 165, 250, 0.22);
 
   /* Ensure gradient colors are available immediately in dark mode */
   --morphy-secondary-gradient: linear-gradient(
@@ -1047,9 +989,9 @@ html.native-ios {
     var(--morphy-secondary-end)
   );
 
-  /* Material 3 Expressive Ripple Tokens - Foundation gold */
-  --md-ripple-hover-color: #d4a574;
-  --md-ripple-pressed-color: #b8894d;
+  /* Material 3 Expressive Ripple Tokens - Apple Blue */
+  --md-ripple-hover-color: #60a5fa;
+  --md-ripple-pressed-color: #3b82f6;
   --md-ripple-hover-opacity: 0.08;
   --md-ripple-pressed-opacity: 0.12;
 
@@ -1118,60 +1060,57 @@ html.native-ios {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
-/* Shared critical palette (use for delete/revoke/expire sections; avoids destructive variants).
- * NOTE: the --critical-* tokens are full oklch() colors, so they must be used
- * directly. Wrapping them in hsl() produces an invalid value that the browser
- * silently drops (which previously left .app-critical-action with no fill). */
+/* Shared critical palette (use for delete/revoke/expire sections; avoids destructive variants). */
 .app-critical-card {
-  border: 1px solid color-mix(in oklab, var(--critical-soft-border) 55%, transparent) !important;
+  border: 1px solid color-mix(in oklab, hsl(var(--critical-soft-border)) 55%, transparent) !important;
   background:
     linear-gradient(
       155deg,
-      color-mix(in oklab, var(--critical-soft-bg) 70%, transparent),
-      color-mix(in oklab, var(--critical-soft-bg) 28%, transparent)
+      color-mix(in oklab, hsl(var(--critical-soft-bg)) 70%, transparent),
+      color-mix(in oklab, hsl(var(--critical-soft-bg)) 28%, transparent)
     ) !important;
   box-shadow:
-    0 8px 26px color-mix(in oklab, var(--critical-solid) 16%, transparent),
-    inset 0 1px 0 color-mix(in oklab, var(--critical-foreground) 22%, transparent);
+    0 8px 26px color-mix(in oklab, hsl(var(--critical-solid)) 16%, transparent),
+    inset 0 1px 0 color-mix(in oklab, hsl(var(--critical-foreground)) 22%, transparent);
   backdrop-filter: blur(10px) saturate(140%);
   -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
 
 .app-critical-title {
-  color: var(--critical-soft-text);
+  color: hsl(var(--critical-soft-text));
 }
 
 .app-critical-alert {
-  border-color: color-mix(in oklab, var(--critical-soft-border) 62%, transparent);
-  background: color-mix(in oklab, var(--critical-soft-bg) 72%, transparent);
-  color: var(--critical-soft-text);
+  border-color: color-mix(in oklab, hsl(var(--critical-soft-border)) 62%, transparent);
+  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 72%, transparent);
+  color: hsl(var(--critical-soft-text));
 }
 
 .app-critical-badge {
-  border-color: color-mix(in oklab, var(--critical-soft-border) 62%, transparent);
-  background: color-mix(in oklab, var(--critical-soft-bg) 68%, transparent);
-  color: var(--critical-soft-text);
+  border-color: color-mix(in oklab, hsl(var(--critical-soft-border)) 62%, transparent);
+  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 68%, transparent);
+  color: hsl(var(--critical-soft-text));
 }
 
 .app-critical-action {
-  border-color: color-mix(in oklab, var(--critical-solid) 78%, transparent);
-  background: var(--critical-solid);
-  color: var(--critical-foreground);
-  box-shadow: 0 10px 24px color-mix(in oklab, var(--critical-solid) 28%, transparent);
+  border-color: color-mix(in oklab, hsl(var(--critical-solid)) 78%, transparent);
+  background: hsl(var(--critical-solid));
+  color: hsl(var(--critical-foreground));
+  box-shadow: 0 10px 24px color-mix(in oklab, hsl(var(--critical-solid)) 28%, transparent);
 }
 
 .app-critical-action:hover {
-  background: color-mix(in oklab, var(--critical-solid) 92%, black);
+  background: color-mix(in oklab, hsl(var(--critical-solid)) 92%, black);
 }
 
 .app-critical-action-outline {
-  border-color: color-mix(in oklab, var(--critical-soft-border) 68%, transparent);
-  background: color-mix(in oklab, var(--critical-soft-bg) 64%, transparent);
-  color: var(--critical-soft-text);
+  border-color: color-mix(in oklab, hsl(var(--critical-soft-border)) 68%, transparent);
+  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 64%, transparent);
+  color: hsl(var(--critical-soft-text));
 }
 
 .app-critical-action-outline:hover {
-  background: color-mix(in oklab, var(--critical-soft-bg) 84%, transparent);
+  background: color-mix(in oklab, hsl(var(--critical-soft-bg)) 84%, transparent);
 }
 
 @layer base {
@@ -1262,26 +1201,6 @@ html.native-ios {
     letter-spacing: var(--foundation-title3-tracking) !important;
   }
 
-  /*
-   * Shared SectionHeader titles (Workflows, Memory, Access, and every other
-   * body section heading) use a compact, quieter scale by design-system
-   * default: smaller than the title3 foundation heading, with a touch more
-   * breathing room handled by the SectionHeader padding.
-   */
-  .app-page-shell [data-slot="section-header-title"][role="heading"][aria-level="2"] {
-    font-family: var(--font-app-text);
-    font-size: 0.8125rem !important;
-    line-height: 1.2 !important;
-    font-weight: 500 !important;
-    letter-spacing: 0 !important;
-  }
-
-  @media (min-width: 640px) {
-    .app-page-shell [data-slot="section-header-title"][role="heading"][aria-level="2"] {
-      font-size: 0.875rem !important;
-    }
-  }
-
   .app-page-shell h3,
   .app-page-shell [role="heading"][aria-level="3"] {
     font-family: var(--font-app-display);
@@ -1340,7 +1259,7 @@ html.native-ios {
   }
   html.dark body,
   .dark body {
-    background-color: #0a0a0c !important;
+    background-color: rgb(28, 28, 30) !important;
   }
   html.native-ios body {
     padding-top: 0;
@@ -1519,75 +1438,119 @@ md-ripple.morphy-md-ripple {
 .bar-glass-bottom::after {
   inset: calc(-1 * var(--app-bar-mask-overscan)) 0 0 0;
   opacity: 1;
-  /* Mirror the top app bar fade exactly: same theme-accurate color-mix stops
-     and strengths as .bar-glass-top::after, flipped to fade upward. */
   background: linear-gradient(
     to top,
-    var(--app-bar-bottom-fade-strong, var(--app-bar-fade-top-strong)) 0%,
-    var(--app-bar-bottom-fade-medium, var(--app-bar-fade-top-medium)) 46%,
-    var(--app-bar-bottom-fade-soft, var(--app-bar-fade-top-soft)) 72%,
-    var(--app-bar-bottom-fade-trace, var(--app-bar-fade-top-trace)) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(245, 245, 247, 0.17)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(245, 245, 247, 0.13)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(245, 245, 247, 0.07)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(245, 245, 247, 0.024)) 90%,
     transparent 100%
   );
 }
 
 .dark .bar-glass-bottom::after {
-  /* Mirror the top app bar dark fade exactly, flipped to fade upward. */
   background: linear-gradient(
     to top,
     var(--app-bar-bottom-fade-strong, rgba(28, 28, 30, 0.18)) 0%,
-    var(--app-bar-bottom-fade-medium, rgba(28, 28, 30, 0.14)) 46%,
-    var(--app-bar-bottom-fade-soft, rgba(28, 28, 30, 0.08)) 72%,
+    var(--app-bar-bottom-fade-medium, rgba(28, 28, 30, 0.14)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(28, 28, 30, 0.08)) 70%,
     var(--app-bar-bottom-fade-trace, rgba(28, 28, 30, 0.03)) 90%,
     transparent 100%
   );
 }
 
-/* Shared frosted surface for persistent chrome (tabs / bottom nav / command bar). */
+/* Shared flat glass surface for persistent chrome (tabs / bottom nav / command bar). */
 .chrome-glass-surface {
-  background-color: rgba(245, 245, 247, 0.8);
+  background-color: rgba(245, 245, 247, 0.84);
   border: none;
-  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
-  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(150%);
-  backdrop-filter: blur(var(--blur-standard)) saturate(150%);
+  box-shadow: 0 10px 26px -18px rgb(0 0 0 / 0.28);
+  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(112%);
+  backdrop-filter: blur(var(--blur-standard)) saturate(112%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
 }
 
 .dark .chrome-glass-surface {
-  background-color: rgba(28, 28, 30, 0.8);
+  background-color: rgba(28, 28, 30, 0.82);
   border: none;
-  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
+  box-shadow: 0 10px 26px -18px rgb(0 0 0 / 0.58);
 }
 
-/* Flat bottom nav surface: matches the top app bar controls
-   (ShellActionSurface) - soft translucent track, no border/shadow/blur,
-   symmetric in light + dark. The segmented active indicator below keeps a
-   subtle highlight so the current route stays readable. */
 .kai-bottom-nav-pill {
-  color: #1d1d1f;
-  border: 0 !important;
-  background: rgb(0 0 0 / 0.05) !important;
-  box-shadow: none !important;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  color: rgb(29 29 31);
+  border: 1px solid rgb(255 255 255 / 0.62) !important;
+  background: rgb(245 245 247 / 0.82) !important;
+  box-shadow:
+    0 14px 30px -24px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.62) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+  backdrop-filter: blur(18px) saturate(112%);
 }
 
 .dark .kai-bottom-nav-pill {
-  color: #f5f5f7;
-  border: 0 !important;
-  background: rgb(255 255 255 / 0.07) !important;
-  box-shadow: none !important;
+  color: rgb(255 255 255);
+  border-color: rgb(255 255 255 / 0.13) !important;
+  background: rgb(28 28 30 / 0.78) !important;
+  box-shadow:
+    0 14px 30px -20px rgb(0 0 0 / 0.58),
+    inset 0 1px 0 rgb(255 255 255 / 0.1) !important;
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
-  background: rgb(0 0 0 / 0.06) !important;
-  box-shadow: none !important;
+  background: rgb(255 255 255 / 0.68) !important;
+  box-shadow:
+    0 6px 18px -15px rgb(0 0 0 / 0.42),
+    inset 0 1px 0 rgb(255 255 255 / 0.42) !important;
 }
 
 .dark .kai-bottom-nav-pill [data-segment-indicator] {
   background: rgb(255 255 255 / 0.1) !important;
-  box-shadow: none !important;
+  box-shadow:
+    0 8px 20px -17px rgb(0 0 0 / 0.64),
+    inset 0 1px 0 rgb(255 255 255 / 0.1) !important;
+}
+
+@keyframes segmented-pill-active-content-pop {
+  0% {
+    transform: translateY(1px) scale(0.965);
+  }
+  56% {
+    transform: translateY(-1px) scale(1.035);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes segmented-pill-active-pulse {
+  0% {
+    opacity: 0.32;
+    transform: scale(0.84);
+  }
+  54% {
+    opacity: 0.2;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.16);
+  }
+}
+
+.segmented-pill-active-choice {
+  animation: segmented-pill-active-content-pop 420ms
+    cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-segment-active-pulse] {
+  animation: segmented-pill-active-pulse 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented-pill-active-choice,
+  [data-segment-active-pulse] {
+    animation: none;
+  }
 }
 
 @keyframes segmented-pill-active-content-pop {
@@ -1659,6 +1622,7 @@ md-ripple.morphy-md-ripple {
   height: 18.5px;
   opacity: 0.9;
   stroke-width: 1.62;
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.6));
   transform: translateY(0);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1666,9 +1630,9 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 1.95;
-  filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.24));
-  transform: translateY(-0.5px);
+  stroke-width: 1.85;
+  filter: none;
+  transform: none;
 }
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
@@ -1687,19 +1651,73 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-search-action {
-  color: #1d1d1f !important;
-  border: 0 !important;
-  background: rgb(0 0 0 / 0.05) !important;
-  box-shadow: none !important;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  color: rgb(29 29 31) !important;
+  border-color: rgb(255 255 255 / 0.62) !important;
+  background: rgb(245 245 247 / 0.82) !important;
+  box-shadow:
+    0 14px 30px -24px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.62) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+  backdrop-filter: blur(18px) saturate(112%);
 }
 
 .dark .kai-bottom-search-action {
-  color: #f5f5f7 !important;
-  border: 0 !important;
-  background: rgb(255 255 255 / 0.07) !important;
-  box-shadow: none !important;
+  color: rgb(255 255 255) !important;
+  border-color: rgb(255 255 255 / 0.13) !important;
+  background: rgb(28 28 30 / 0.78) !important;
+  box-shadow:
+    0 14px 30px -20px rgb(0 0 0 / 0.58),
+    inset 0 1px 0 rgb(255 255 255 / 0.1) !important;
+}
+
+.kai-bottom-agent-action {
+  background: rgb(245 245 247 / 0.86) !important;
+  color: rgb(29 29 31);
+  box-shadow:
+    0 14px 30px -24px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.62);
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+  backdrop-filter: blur(18px) saturate(112%);
+}
+
+.dark .kai-bottom-agent-action {
+  background: rgb(28 28 30 / 0.82) !important;
+  color: rgb(255 255 255 / 0.9);
+  box-shadow:
+    0 14px 30px -20px rgb(0 0 0 / 0.58),
+    inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+
+body:has([data-one-market-surface="true"]) .bar-glass-top {
+  --app-bar-glass-bg-light: transparent !important;
+  --app-bar-glass-bg-dark: transparent !important;
+  --app-bar-shadow: none !important;
+  opacity: 0;
+  --app-bar-fade-top-strong: transparent !important;
+  --app-bar-fade-top-medium: transparent !important;
+  --app-bar-fade-top-soft: transparent !important;
+  --app-bar-fade-top-trace: transparent !important;
+}
+
+body:has([data-one-market-surface="true"]) .bar-glass-top {
+  --app-bar-glass-bg-light: var(--background) !important;
+  --app-bar-glass-bg-dark: rgb(28, 28, 30) !important;
+  --app-bar-shadow: none !important;
+  --app-bar-fade-top-strong: transparent !important;
+  --app-bar-fade-top-medium: transparent !important;
+  --app-bar-fade-top-soft: transparent !important;
+  --app-bar-fade-top-trace: transparent !important;
+}
+
+body:has([data-one-market-surface="true"]) .bar-glass-top {
+  --app-bar-glass-bg-light: transparent !important;
+  --app-bar-glass-bg-dark: transparent !important;
+  --app-bar-shadow: none !important;
+  opacity: 0;
+  --app-bar-fade-top-strong: transparent !important;
+  --app-bar-fade-top-medium: transparent !important;
+  --app-bar-fade-top-soft: transparent !important;
+  --app-bar-fade-top-trace: transparent !important;
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
@@ -1898,6 +1916,24 @@ md-ripple.morphy-md-ripple {
   background: transparent;
 }
 
+.agent-themed-card-surface {
+  background-color: var(--app-card-surface-default-solid);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+.agent-themed-popover-surface {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  border-color: var(--border);
+}
+
+.agent-themed-app-surface {
+  background-color: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
 /* Custom Scrollbar Styles */
 @layer utilities {
   .scrollbar-thin {
@@ -1990,6 +2026,97 @@ md-ripple.morphy-md-ripple {
 
 .animate-ripple {
   animation: ripple 0.6s linear;
+}
+
+/* ============================================================================
+ * CRYSTAL GLASS EFFECT - iOS-inspired glassmorphism with gold accents
+ * ============================================================================ */
+
+.crystal-glass {
+  background: var(--crystal-glass-bg);
+  backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
+  border: 1px solid var(--crystal-glass-border);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Primary accent variant */
+.crystal-glass-gold {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 113, 227, 0.1) 0%,
+    rgba(59, 130, 246, 0.05) 100%
+  );
+  border: 1px solid rgba(0, 113, 227, 0.25);
+  border-radius: var(--radius);
+  backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
+}
+
+.dark .crystal-glass-gold {
+  background: linear-gradient(
+    135deg,
+    rgba(96, 165, 250, 0.08) 0%,
+    rgba(59, 130, 246, 0.04) 100%
+  );
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+/* Crystal button variants */
+.crystal-btn {
+  background: var(--crystal-glass-bg);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid var(--crystal-glass-border);
+  border-radius: var(--radius);
+  transition: all 200ms ease-in-out;
+}
+
+.crystal-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(0, 113, 227, 0.3);
+}
+
+.dark .crystal-btn:hover {
+  background: rgba(96, 165, 250, 0.1);
+}
+
+.crystal-btn-gold {
+  background: linear-gradient(135deg, #0071e3 0%, #3b82f6 100%);
+  color: white;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 15px rgba(0, 113, 227, 0.3);
+  transition: all 200ms ease-in-out;
+}
+
+.crystal-btn-gold:hover {
+  box-shadow: 0 6px 20px rgba(0, 113, 227, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Crystal card */
+.crystal-card {
+  background: var(--crystal-glass-bg);
+  backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
+  border: 1px solid var(--crystal-glass-border);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    0 4px 30px rgba(0, 0, 0, 0.1);
+  transition: all 200ms ease-in-out;
+}
+
+.crystal-card:hover {
+  border-color: rgba(0, 113, 227, 0.3);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    0 8px 40px rgba(0, 0, 0, 0.15);
 }
 
 /* iOS-like radius utilities */
@@ -2189,20 +2316,6 @@ html.dark .morphy-app-bg {
 
 .dark {
   --foundation-gold: #D4A574;
-
-  /* Foundation color system (dark) — PDF pitch-black surfaces, gold tuned BRIGHT
-     for legibility on black (deep gold #b8894d is too faint as text on dark). */
-  --foundation-ink: #f5f5f7;
-  --foundation-dim: #86868b;
-  --foundation-off: #0a0a0c;                  /* PDF pitch black */
-  --foundation-surface: #15151c;
-  --foundation-hairline: #2a2a36;
-  --foundation-gold-accent: #e6b366;          /* fills / markers — brightened for dark vibrancy */
-  --foundation-gold-deep: #e6b366;            /* TEXT on dark = BRIGHT gold (brighter+more saturated) */
-  --foundation-accent-surface: rgba(212, 165, 116, 0.12);
-  --foundation-accent-surface-strong: rgba(212, 165, 116, 0.20);
-  --foundation-accent-border: rgba(212, 165, 116, 0.28);
-  --foundation-crimson: #e0584f;
 }
 
 @layer utilities {
@@ -2307,8 +2420,7 @@ html.dark .morphy-app-bg {
   }
 
   .gold-period {
-    /* deep gold (#b8894d) on light, bright gold (#d4a574) on dark — auto via token */
-    color: var(--foundation-gold-deep);
+    color: var(--foundation-gold);
   }
 }
 
@@ -2318,140 +2430,5 @@ html.dark .morphy-app-bg {
   }
   .segmented-pill-button-default:hover {
     color: color-mix(in srgb, var(--foreground) 80%, transparent);
-  }
-}
-
-/* ==========================================================================
- * UNIFORM OVERLAY MOTION — single source of truth
- * --------------------------------------------------------------------------
- * tw-animate-css drives Radix open/close with `animate-in` / `animate-out`,
- * but its defaults don't use our motion tokens and apply the SAME timing on
- * the way out as on the way in. Close then reads as a "snap" — especially next
- * to a richer, slide-based open. This block retunes EVERY core overlay so:
- *   - open  = decelerate (settles in),  close = accelerate (responsive exit)
- *   - close is never instant: it always plays the full animate-out frame
- *   - timing/easing are uniform across dialog, popover, select, dropdown,
- *     tooltip, sheet, drawer, alert-dialog, and any Radix overlay we add later
- * Only transform/opacity animate, so the whole frame stays GPU-composited.
- * Components keep their directional zoom/slide utilities; we only override the
- * duration + timing-function so the motion language is identical app-wide.
- * ========================================================================== */
-[data-slot$="-content"][data-state="open"],
-[data-slot$="-overlay"][data-state="open"],
-[data-slot="tooltip-content"][data-state="delayed-open"],
-[data-slot="tooltip-content"][data-state="instant-open"] {
-  animation-duration: var(--motion-overlay-enter-duration);
-  animation-timing-function: var(--motion-overlay-enter-ease);
-  animation-fill-mode: both;
-}
-
-[data-slot$="-content"][data-state="closed"],
-[data-slot$="-overlay"][data-state="closed"] {
-  animation-duration: var(--motion-overlay-exit-duration);
-  animation-timing-function: var(--motion-overlay-exit-ease);
-  animation-fill-mode: both;
-}
-
-/* The static blur/scrim layers behind dialogs and sheets are plain divs with
- * no data-state, so they vanish instantly and make the surface look like it
- * snaps shut. Fade them in/out in lockstep with the Radix overlay using the
- * mounted-state marker the overlay siblings expose. We animate the scrim via a
- * sibling-driven class so it tracks open/close without extra JS. */
-[data-slot="dialog-scrim"],
-[data-slot="sheet-scrim"],
-[data-slot="drawer-scrim"],
-[data-slot="alert-dialog-scrim"],
-[data-slot="popover-scrim"] {
-  animation: overlay-scrim-in var(--motion-overlay-enter-duration)
-    var(--motion-overlay-enter-ease) both;
-}
-
-[data-slot="dialog-scrim"][data-state="closed"],
-[data-slot="sheet-scrim"][data-state="closed"],
-[data-slot="drawer-scrim"][data-state="closed"],
-[data-slot="alert-dialog-scrim"][data-state="closed"],
-[data-slot="popover-scrim"][data-state="closed"] {
-  animation: overlay-scrim-out var(--motion-overlay-exit-duration)
-    var(--motion-overlay-exit-ease) both;
-}
-
-@keyframes overlay-scrim-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes overlay-scrim-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-slot$="-content"][data-state],
-  [data-slot$="-overlay"][data-state],
-  [data-slot$="-scrim"][data-state],
-  [data-slot$="-scrim"] {
-    animation-duration: 1ms !important;
-  }
-}
-
-/* ==========================================================================
- * UNIFORM ROUTE TRANSITION — app-wide page crossfade
- * --------------------------------------------------------------------------
- * The app plays a rich GSAP *enter* animation per route (usePageEnterAnimation).
- * This block adds the missing *exit* half so navigation crossfades instead of
- * hard-cutting — matching hussh-wiki / hushh-search-console.
- *
- * The driver (lib/morphy-ux/hooks/use-route-transition.ts) intercepts internal
- * link clicks, sets `data-route-transition` on <html>, fades the current page
- * out, then pushes the route. The incoming page fades in via the same tokens.
- *
- *   pending  → outgoing page fades + lifts away (exit, accelerate)
- *   entering → incoming page fades + settles in (enter, decelerate)
- *
- * The envelope is the existing app shell content node, so no extra wrapper is
- * introduced. Only opacity/transform animate → GPU-composited, 60fps.
- * ========================================================================== */
-:root[data-route-transition="pending"] [data-app-shell-content="true"] {
-  opacity: 0;
-  transform: translateY(6px);
-  transition:
-    opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease),
-    transform var(--motion-route-exit-duration) var(--motion-route-exit-ease);
-  will-change: opacity, transform;
-}
-
-/* Enter is opacity-only here so it never fights the GSAP enter (which owns the
- * staggered translate). When GSAP is unavailable/slow this still guarantees a
- * clean fade-in with no flash of the prior frame. */
-:root[data-route-transition="entering"] [data-app-shell-content="true"] {
-  animation: app-route-enter var(--motion-route-enter-duration)
-    var(--motion-route-enter-ease) both;
-  will-change: opacity;
-}
-
-@keyframes app-route-enter {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root[data-route-transition="pending"] [data-app-shell-content="true"],
-  :root[data-route-transition="entering"] [data-app-shell-content="true"] {
-    opacity: 1 !important;
-    transform: none !important;
-    transition: none !important;
-    animation: none !important;
   }
 }

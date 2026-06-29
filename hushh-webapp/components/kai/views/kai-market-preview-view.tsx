@@ -154,8 +154,8 @@ const oneMarketRootClassName = cn(
   "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
   "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
-  "[--one-blue:#d4a574] [--one-link:#b8894d]",
-  "dark:[--one-blue:#d4a574] dark:[--one-link:#d4a574]",
+  "[--one-blue:#0071e3] [--one-link:#0066cc]",
+  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
@@ -766,71 +766,6 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
   );
 }
 
-function OneMarketNotificationsSheet({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  return (
-    <section
-      className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[min(62vh,620px)] max-w-[720px] flex-col rounded-t-[28px] bg-white/95 shadow-[0_-18px_50px_-20px_rgba(0,0,0,0.40)] backdrop-blur-[20px] transition-transform duration-300",
-        open ? "translate-y-0" : "translate-y-[105%]"
-      )}
-      aria-label="Notifications"
-      aria-hidden={!open}
-    >
-      <div className="mx-auto mt-2.5 h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)] opacity-35" />
-      <header className="flex items-center gap-3 border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
-        <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Notifications</b>
-          <span className="block text-[12px] text-[color:var(--one-fg3)]">Signals and receipts</span>
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg2)]"
-          aria-label="Close notifications"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
-        {[
-          { title: "Receipt signed", body: "Banking agent · credit score · 30 min · revocable", time: "2m", icon: Activity, tone: "up" },
-          { title: "Kai signal · Buy TSLA", body: "High conviction · 12+ month horizon", time: "1h", icon: Sparkles, tone: "blue" },
-          { title: "Markets closed soft", body: "S&P 500 -1.58% · defensives led", time: "3h", icon: TrendingDown, tone: "down" },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-[18px] py-[13px] first:border-t-0">
-              <span
-                className={cn(
-                  "grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px]",
-                  item.tone === "up" && "bg-[color:var(--one-up-t)] text-[color:var(--one-up)]",
-                  item.tone === "down" && "bg-[color:var(--one-down-t)] text-[color:var(--one-down)]",
-                  item.tone === "blue" && "bg-[#d4a574]/10 text-[color:var(--one-link)]"
-                )}
-              >
-                <Icon className="h-[17px] w-[17px]" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <b className="block text-[14px] font-semibold text-[color:var(--one-fg)]">{item.title}</b>
-                <span className="mt-0.5 block text-[12.5px] leading-snug text-[color:var(--one-fg2)]">
-                  {item.body}
-                </span>
-              </span>
-              <time className="shrink-0 text-[11.5px] text-[color:var(--one-fg3)]">{item.time}</time>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function OneMarketKaiSheet({
   open,
   onClose,
@@ -1314,33 +1249,9 @@ function toThemeItems(payload: KaiHomeInsightsV2 | null): ThemeFocusItem[] {
     .slice(0, 3);
 }
 
-function formatStatusUpdatedLabel(asOf: unknown): string | null {
-  if (typeof asOf !== "string" || !asOf.trim()) return null;
-  const updated = new Date(asOf);
-  if (Number.isNaN(updated.getTime())) return null;
-  const diffMs = Date.now() - updated.getTime();
-  if (diffMs < 0) {
-    return "Updated just now";
-  }
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return "Updated just now";
-  if (diffMinutes === 1) return "Updated 1 min ago";
-  if (diffMinutes < 60) return `Updated ${diffMinutes} min ago`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours === 1) return "Updated 1 hr ago";
-  if (diffHours < 24) return `Updated ${diffHours} hrs ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return "Updated 1 day ago";
-  return `Updated ${diffDays} days ago`;
-}
-
 function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   label: string;
   className: string;
-  isOpen: boolean;
-  degraded: boolean;
-  source: string | null;
-  updatedLabel: string | null;
 } | null {
   const row = findOverviewRow(payload, (candidate) =>
     String(candidate.label || "").toLowerCase().includes("market status")
@@ -1352,31 +1263,17 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   });
   if (!value) return null;
 
-  const degraded = Boolean(row.degraded);
-  const isOpen = value.toLowerCase().includes("open");
-  const source =
-    typeof row.source === "string" && row.source.trim() ? row.source.trim() : null;
-  const updatedLabel = formatStatusUpdatedLabel(row.as_of);
-
-  if (degraded) {
+  if (Boolean(row.degraded)) {
     return {
       label: value,
-      isOpen,
-      degraded,
-      source,
-      updatedLabel,
       className:
         "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
     };
   }
 
-  if (isOpen) {
+  if (value.toLowerCase().includes("open")) {
     return {
       label: value,
-      isOpen,
-      degraded,
-      source,
-      updatedLabel,
       className:
         "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     };
@@ -1384,10 +1281,6 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
 
   return {
     label: value,
-    isOpen,
-    degraded,
-    source,
-    updatedLabel,
     className: "border-border/70 bg-background/80 text-muted-foreground",
   };
 }
@@ -1794,7 +1687,6 @@ export function KaiMarketPreviewView() {
   const displayError = usingLocalPreviewFallback ? null : error;
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<string | null>(null);
   const [moverTab, setMoverTab] = useState<OneMarketMoverTab>("gain");
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [kaiSheetOpen, setKaiSheetOpen] = useState(false);
   const [marketSearchQuery, setMarketSearchQuery] = useState("");
   const {
@@ -2056,9 +1948,8 @@ export function KaiMarketPreviewView() {
     () => (Array.isArray(effectiveNewsTape) ? effectiveNewsTape : []),
     [effectiveNewsTape]
   );
-  const shellOverlayOpen = notificationsOpen || kaiSheetOpen;
+  const shellOverlayOpen = kaiSheetOpen;
   const closeShellOverlays = useCallback(() => {
-    setNotificationsOpen(false);
     setKaiSheetOpen(false);
   }, []);
 
@@ -2068,7 +1959,9 @@ export function KaiMarketPreviewView() {
       return;
     }
     const normalizedQuery = query.length <= 6 ? query.toUpperCase() : query;
-    openOneMarketHref(`/kai/analysis?symbol=${encodeURIComponent(normalizedQuery)}`);
+    openOneMarketHref(
+      `${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(normalizedQuery)}`
+    );
   }, [marketSearchQuery]);
 
   return (
@@ -2116,28 +2009,9 @@ export function KaiMarketPreviewView() {
         <header className="mx-auto w-full max-w-[1080px] px-[var(--one-gutter)] pt-4">
           <div className="flex items-start justify-between">
             <div className="flex min-w-0 flex-col gap-1.5">
-              <span
-                className={cn(
-                  "inline-flex items-center gap-[7px]",
-                  marketStatus?.degraded
-                    ? "text-[color:var(--one-fg3)]"
-                    : marketStatus?.isOpen
-                      ? "text-[color:var(--one-up)]"
-                      : "text-[color:var(--one-fg2)]",
-                  kaiPreviewEyebrowClassName
-                )}
-              >
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    marketStatus?.degraded
-                      ? "bg-[color:var(--one-fg3)]"
-                      : marketStatus?.isOpen
-                        ? "bg-[color:var(--one-up)]"
-                        : "bg-[color:var(--one-fg2)]"
-                  )}
-                />
-                {marketStatus?.label ?? "Live market"}
+              <span className={cn("inline-flex items-center gap-[7px] text-[color:var(--one-up)]", kaiPreviewEyebrowClassName)}>
+                <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--one-up)]" />
+                {marketStatus?.label?.toLowerCase().includes("open") ? "Markets open" : "Live market"}
               </span>
               <div className={kaiPreviewPageTitleClassName} role="heading" aria-level={1}>
                 Market
@@ -2145,13 +2019,6 @@ export function KaiMarketPreviewView() {
               <p className="max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 Track the market and your watchlist.
               </p>
-              {marketStatus?.updatedLabel || marketStatus?.source ? (
-                <p className="text-[12px] leading-[1.3] text-[color:var(--one-fg3)]">
-                  {[marketStatus?.updatedLabel, marketStatus?.source]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              ) : null}
             </div>
           </div>
           <form
@@ -2164,6 +2031,7 @@ export function KaiMarketPreviewView() {
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
               type="text"
+              aria-label="Search stocks, ETFs, indices"
               placeholder="Search stocks, ETFs, indices"
               value={marketSearchQuery}
               onChange={(event) => setMarketSearchQuery(event.target.value)}
@@ -2318,10 +2186,6 @@ export function KaiMarketPreviewView() {
         />
       ) : null}
 
-      <OneMarketNotificationsSheet
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
       <OneMarketKaiSheet
         open={kaiSheetOpen}
         onClose={() => setKaiSheetOpen(false)}

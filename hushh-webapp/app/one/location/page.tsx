@@ -20,7 +20,6 @@ import {
   ContactRound,
   Copy,
   ExternalLink,
-  Hand,
   Loader2,
   LocateFixed,
   MapPin,
@@ -32,7 +31,6 @@ import {
   Search,
   Send,
   ShieldCheck,
-  UserPlus,
   UserRoundCheck,
   UsersRound,
   X,
@@ -45,7 +43,6 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -57,25 +54,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
-
 import { useRequireAuth } from "@/hooks/use-auth";
-
-type LocationTab = "compose" | "activity";
-
-const LOCATION_TAB_PARAM = "tab";
-const LOCATION_TAB_OPTIONS: { value: LocationTab; label: string }[] = [
-  { value: "compose", label: "Share & Request" },
-  { value: "activity", label: "Activity" },
-];
-
-function normalizeLocationTab(value: string | null | undefined): LocationTab {
-  return value === "activity" ? "activity" : "compose";
-}
-
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
-
 import {
   decryptLocationEnvelope,
   encryptLocationForRecipient,
@@ -85,14 +66,11 @@ import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
   isOneLocationGrantOpened,
-  isOneLocationGrantUnwatched,
   locationShareNotificationDescription,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
-  markOneLocationGrantUnwatched,
   ONE_LOCATION_GRANT_ID_PARAM,
   ONE_LOCATION_GRANT_OPENED_EVENT,
-  ONE_LOCATION_GRANT_UNWATCHED_EVENT,
   ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
   ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
   ONE_LOCATION_REFERRAL_ID_PARAM,
@@ -112,17 +90,11 @@ import {
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
-import {
-  LocationRedesignHub,
-  type LocationHubViewModel,
-} from "@/components/one-location/redesign/location-redesign-hub";
-import { LocationRedesignSkeleton } from "@/components/one-location/redesign/location-redesign-skeleton";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
-  OneLocationCircleInvite,
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
@@ -149,22 +121,9 @@ const DURATION_OPTIONS = [
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
-// True live tracking: while a share is active and the app is foregrounded, the
-// owner subscribes to a continuous geolocation watch and publishes a fresh
-// encrypted envelope as soon as they MOVE at least this far. The min publish
-// interval prevents flooding the network when GPS jitters or the user moves
-// fast; the 20s interval above stays as a stationary heartbeat so a standing
-// user's point never goes stale.
-const LIVE_LOCATION_MIN_MOVE_METERS = 25;
-const LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS = 8_000;
-
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
-const REQUEST_MESSAGE_MAX_LENGTH = 80;
-
-
-const ONE_LOCATION_SHARE_TITLE = "Join me on One";
+const ONE_LOCATION_SHARE_TITLE = "Join my One Location circle";
 const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
-const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
@@ -186,8 +145,6 @@ type BusyState =
   | "contactInvite"
   | "publicInvite"
   | "publicRevoke"
-  | "circleInvite"
-  | "circleRevoke"
   | null;
 
 type OneLocationSelectionSurface =
@@ -257,30 +214,6 @@ function expiresLabel(grant: OneLocationGrant): string {
   return `Expires ${formatDateTime(grant.expiresAt)}`;
 }
 
-// Human, at-a-glance countdown to when a share auto-stops (e.g. "Stops in
-// 14 min"). This is a key confidence cue: the user can always see that sharing
-// is time-boxed and will end on its own. Falls back to the absolute time when
-// the window is long, and degrades gracefully if the timestamp is missing.
-function expiresCountdownLabel(value?: string | null): string | null {
-  if (!value) return null;
-  const expiresAt = new Date(value).getTime();
-  if (!Number.isFinite(expiresAt)) return null;
-  const diffMs = expiresAt - Date.now();
-  if (diffMs <= 0) return "Stopping now";
-  const minutes = Math.round(diffMs / 60000);
-  if (minutes < 60) {
-    return `Stops in ${minutes} min`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    const remMinutes = minutes % 60;
-    return remMinutes
-      ? `Stops in ${hours}h ${remMinutes}m`
-      : `Stops in ${hours}h`;
-  }
-  return `Stops ${formatDateTime(value)}`;
-}
-
 function looksLikeInternalIdentifier(value: string): boolean {
   const label = value.trim();
   if (!label) return false;
@@ -339,7 +272,7 @@ function recommendationToneClassName(tier?: string | null): string {
     case "trusted_circle":
       return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
     case "kai_network":
-      return "bg-[#f7f1e8] text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]";
+      return "bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]";
     default:
       return "bg-[#f2f2f7] text-[#636366] dark:bg-white/10 dark:text-white/65";
   }
@@ -563,10 +496,10 @@ function publicSubmissionLabel(
 
 function publicInviteUrlLabel(value: string): string {
   if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
   const configuredOrigin = String(process.env.NEXT_PUBLIC_APP_URL || "")
     .trim()
     .replace(/\/+$/, "");
-  if (/^https?:\/\//i.test(value)) return value;
   const origin =
     /^https?:\/\//i.test(configuredOrigin) ||
     typeof window === "undefined"
@@ -692,27 +625,6 @@ function isLocationPointStale(point: PlainLocationPoint): boolean {
   return Date.now() - capturedAt > LIVE_LOCATION_STALE_THRESHOLD_MS;
 }
 
-// Great-circle distance in metres between two points (Haversine). Used to decide
-// whether the owner has actually MOVED enough to warrant publishing a fresh
-// encrypted live-location update, so the watch stream doesn't flood the network
-// on GPS jitter while standing still.
-function locationDistanceMeters(
-  from: PlainLocationPoint,
-  to: PlainLocationPoint,
-): number {
-  const earthRadiusM = 6_371_000;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(to.latitude - from.latitude);
-  const dLon = toRad(to.longitude - from.longitude);
-  const lat1 = toRad(from.latitude);
-  const lat2 = toRad(to.latitude);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * earthRadiusM * Math.asin(Math.min(1, Math.sqrt(a)));
-}
-
-
 function formatLocationCoordinate(value: number): string {
   return Number.isFinite(value) ? value.toFixed(6) : "0.000000";
 }
@@ -765,14 +677,7 @@ function locationSourceLabel(sourcePlatform: PlainLocationPoint["sourcePlatform"
   }
 }
 
-function LocalMapPreview({
-  point,
-  showNavigation = true,
-}: {
-  point: PlainLocationPoint;
-  // Self-location previews do not need Directions/Start - you are already there.
-  showNavigation?: boolean;
-}) {
+function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
   const captured = formatDateTime(point.capturedAt);
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
@@ -780,7 +685,6 @@ function LocalMapPreview({
   const directionsUrl = googleMapsDirectionsUrl(point);
   const startUrl = googleMapsStartNavigationUrl(point);
   const statusLabel = isStale ? "Last known location" : "Live location";
-
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
@@ -825,43 +729,40 @@ function LocalMapPreview({
           </p>
         </div>
 
-        {showNavigation ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="h-10 w-full min-w-0 rounded-full border-[#d4a574]/30 bg-[#d4a574]/10 text-[#b8894d] hover:bg-[#d4a574]/15 dark:text-[#e6b366]"
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-10 w-full min-w-0 rounded-full border-[#0a84ff]/30 bg-[#0a84ff]/10 text-[#0066cc] hover:bg-[#0a84ff]/15 dark:text-[#76b7ff]"
+          >
+            <a
+              href={directionsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open Google Maps directions to shared live location"
             >
-              <a
-                href={directionsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open Google Maps directions to shared live location"
-              >
-                <Route className="h-4 w-4" aria-hidden="true" />
-                Directions
-              </a>
-            </Button>
-            <Button
-              asChild
-              size="sm"
-              className="h-10 w-full min-w-0 rounded-full bg-[#1c1c1e] text-white hover:bg-black dark:bg-white dark:text-[#1c1c1e] dark:hover:bg-white/90"
+              <Route className="h-4 w-4" aria-hidden="true" />
+              Directions
+            </a>
+          </Button>
+          <Button
+            asChild
+            size="sm"
+            className="h-10 w-full min-w-0 rounded-full bg-[#1c1c1e] text-white hover:bg-black dark:bg-white dark:text-[#1c1c1e] dark:hover:bg-white/90"
+          >
+            <a
+              href={startUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Start Google Maps navigation to shared live location"
             >
-              <a
-                href={startUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Start Google Maps navigation to shared live location"
-              >
-                <Navigation className="h-4 w-4" aria-hidden="true" />
-                Start
-              </a>
-            </Button>
-          </div>
-        ) : null}
+              <Navigation className="h-4 w-4" aria-hidden="true" />
+              Start
+            </a>
+          </Button>
+        </div>
       </div>
-
 
       {isStale ? (
         <div
@@ -943,13 +844,13 @@ function initialsForLabel(label: string): string {
 
 function avatarColor(index: number): string {
   const colors = [
-    "bg-[#b8894d]",
+    "bg-[#007aff]",
     "bg-[#34c759]",
     "bg-[#5856d6]",
     "bg-[#ff9500]",
     "bg-[#ff3b30]",
   ];
-  return colors[index % colors.length] || "bg-[#b8894d]";
+  return colors[index % colors.length] || "bg-[#007aff]";
 }
 
 function AvatarBubble({
@@ -1041,135 +942,6 @@ function EmptyOneState({
   );
 }
 
-const ONE_LOCATION_TRUST_CHIPS: {
-  icon: LucideIcon;
-  label: string;
-  detail: string;
-}[] = [
-  {
-    icon: ShieldCheck,
-    label: "End-to-end encrypted",
-    detail: "Only the people you pick can see it. We can't.",
-  },
-  {
-    icon: Clock3,
-    label: "Auto-expires",
-    detail: "Sharing stops on its own when the timer ends.",
-  },
-  {
-    icon: Hand,
-    label: "Stop anytime",
-    detail: "One tap ends sharing instantly - no waiting.",
-  },
-];
-
-const ONE_LOCATION_FIRST_RUN_STEPS: {
-  icon: LucideIcon;
-  title: string;
-  detail: string;
-}[] = [
-  {
-    icon: UsersRound,
-    title: "Add the people you trust",
-    detail: "Pick from your One Network, or invite someone in a tap.",
-  },
-  {
-    icon: Clock3,
-    title: "Choose how long",
-    detail: "15 minutes to a day - it auto-stops when the timer ends.",
-  },
-  {
-    icon: Send,
-    title: "Share or request",
-    detail: "Share your live location, or ask to see theirs once they approve.",
-  },
-];
-
-const ONE_LOCATION_FIRST_RUN_GUIDE_KEY = "one_location_first_run_guide_v1";
-
-// One-time, friendly "how it works" card for first-time customers. It explains
-// the whole flow in three plain steps so a brand-new user is never confused
-// about what to do first. It is dismissible and the choice persists per user,
-// and it auto-hides once the user already has any activity.
-function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <section
-      aria-label="How One Location works"
-      className="relative min-w-0 max-w-full overflow-hidden rounded-[20px] border border-[#b8894d]/15 bg-gradient-to-b from-[#f3f8ff] to-white p-4 shadow-sm dark:border-[#d4a574]/20 dark:from-[#d4a574]/10 dark:to-transparent"
-    >
-      <button
-        type="button"
-        aria-label="Dismiss the getting started guide"
-        onClick={onDismiss}
-        className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-[#8e8e93] transition-colors hover:bg-black/[0.05] hover:text-[#1c1c1e] dark:hover:bg-white/10 dark:hover:text-white"
-      >
-        <X className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <div className="space-y-0.5 pr-8">
-        <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
-          New here? It takes 3 quick steps
-        </h3>
-        <p className="text-[13px] leading-snug text-[#8e8e93] dark:text-white/55">
-          Location sharing is always your choice, and you stay in control.
-        </p>
-      </div>
-      <ol className="mt-3 grid min-w-0 gap-2 sm:grid-cols-3">
-        {ONE_LOCATION_FIRST_RUN_STEPS.map(({ icon: Icon, title, detail }, index) => (
-          <li
-            key={title}
-            className="flex min-w-0 items-start gap-2.5 rounded-[14px] border border-black/[0.04] bg-white/70 px-3 py-2.5 dark:border-white/[0.08] dark:bg-white/[0.06]"
-          >
-            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#b8894d]/12 text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]">
-              <Icon className="h-4 w-4" aria-hidden="true" />
-            </span>
-            <span className="min-w-0">
-              <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-[#1c1c1e] dark:text-white">
-                <span className="text-[#b8894d] dark:text-[#e6b366]">
-                  {index + 1}.
-                </span>
-                {title}
-              </span>
-              <span className="mt-0.5 block text-[11.5px] leading-snug text-[#8e8e93] dark:text-white/55">
-                {detail}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-// Compact reassurance row shown above the tabs so a first-time user immediately
-// sees the three trust promises ("why this is safe") before doing anything.
-function OneLocationTrustStrip() {
-  return (
-    <ul
-      aria-label="How One Location keeps you safe"
-      className="grid min-w-0 max-w-full grid-cols-1 gap-2 sm:grid-cols-3"
-    >
-      {ONE_LOCATION_TRUST_CHIPS.map(({ icon: Icon, label, detail }) => (
-        <li
-          key={label}
-          className="flex min-w-0 items-start gap-2.5 rounded-[14px] border border-black/[0.05] bg-white/80 px-3 py-2.5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
-        >
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#34c759]/12 text-[#2dbd5a] dark:bg-[#34c759]/15">
-            <Icon className="h-4 w-4" aria-hidden="true" />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-[13px] font-semibold leading-tight text-[#1c1c1e] dark:text-white">
-              {label}
-            </span>
-            <span className="mt-0.5 block text-[11.5px] leading-snug text-[#8e8e93] dark:text-white/55">
-              {detail}
-            </span>
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function isLocationServicesDisabled(
   permission: HushhLocationPermissionState | null,
 ): boolean {
@@ -1211,8 +983,8 @@ function isShareAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function oneLocationShareMessage(text: string, url: string): string {
-  return `${text}\n${url}`;
+function oneLocationPublicShareMessage(url: string): string {
+  return `${ONE_LOCATION_PUBLIC_SHARE_COPY}\n${url}`;
 }
 
 async function shareOneLocationLink(params: {
@@ -1225,7 +997,7 @@ async function shareOneLocationLink(params: {
   if (!url) {
     throw new Error("Create a public location link before sharing.");
   }
-  const message = oneLocationShareMessage(params.text, url);
+  const message = oneLocationPublicShareMessage(url);
 
   const { Capacitor } = await import("@capacitor/core");
   if (Capacitor.isNativePlatform()) {
@@ -1493,9 +1265,9 @@ function OneLocationIntroMapIllustration() {
         <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
       </div>
       <div className="absolute left-[45%] top-[47%] flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-        <span className="absolute h-20 w-20 rounded-full bg-[#b8894d]/12 dark:bg-[#d4a574]/18" />
-        <span className="absolute h-[30px] w-[30px] animate-ping rounded-full bg-[#b8894d]/35" />
-        <span className="relative h-[22px] w-[22px] rounded-full border-[3px] border-white bg-[#b8894d] shadow-[0_2px_8px_rgba(0,113,227,0.55),0_1px_3px_rgba(0,0,0,0.25)]" />
+        <span className="absolute h-20 w-20 rounded-full bg-[#0071e3]/12 dark:bg-[#0a84ff]/18" />
+        <span className="absolute h-[30px] w-[30px] animate-ping rounded-full bg-[#0071e3]/35" />
+        <span className="relative h-[22px] w-[22px] rounded-full border-[3px] border-white bg-[#0071e3] shadow-[0_2px_8px_rgba(0,113,227,0.55),0_1px_3px_rgba(0,0,0,0.25)]" />
       </div>
       <div className="absolute bottom-[29%] right-[21%] flex flex-col items-center">
         <span className="flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-white bg-[#ff3b30] text-[16px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
@@ -1517,7 +1289,7 @@ function OneLocationIntroMapIllustration() {
 function OneLocationPermissionGlyph() {
   return (
     <div
-      className="flex h-24 w-24 items-center justify-center rounded-full bg-[#b8894d] text-[#b8894d] shadow-[0_0_64px_10px_rgba(0,113,227,0.34),0_16px_34px_rgba(0,113,227,0.34)] dark:bg-[#d4a574] dark:text-[#d4a574] dark:shadow-[0_0_70px_10px_rgba(10,132,255,0.42),0_18px_38px_rgba(10,132,255,0.32)]"
+      className="flex h-24 w-24 items-center justify-center rounded-full bg-[#0071e3] text-[#0071e3] shadow-[0_0_64px_10px_rgba(0,113,227,0.34),0_16px_34px_rgba(0,113,227,0.34)] dark:bg-[#0a84ff] dark:text-[#0a84ff] dark:shadow-[0_0_70px_10px_rgba(10,132,255,0.42),0_18px_38px_rgba(10,132,255,0.32)]"
       aria-hidden="true"
     >
       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" focusable="false">
@@ -1623,7 +1395,7 @@ function OneLocationOnboardingFlow({
             type="button"
             onClick={isPermissionStep ? onRequestPermission : onContinueIntro}
             disabled={busy}
-            className="h-[54px] w-full rounded-full bg-[#b8894d] text-[17px] font-semibold text-white shadow-[0_8px_22px_rgba(0,113,227,0.28)] hover:bg-[#006fe6] dark:bg-[#d4a574] dark:hover:bg-[#0077ed]"
+            className="h-[54px] w-full rounded-full bg-[#0071e3] text-[17px] font-semibold text-white shadow-[0_8px_22px_rgba(0,113,227,0.28)] hover:bg-[#006fe6] dark:bg-[#0a84ff] dark:hover:bg-[#0077ed]"
           >
             {busy ? (
               <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
@@ -1657,22 +1429,10 @@ function OneLocationAgentPageContent() {
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
-  const pendingCircleInviteToken = useMemo(
-    () => String(searchParams.get("circleInviteToken") || "").trim(),
-    [searchParams],
-  );
   const [state, setState] = useState<OneLocationState | null>(null);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
-  // Per-grant revoke tracking so "Stop sharing" only spins on the specific
-  // active-share card the user tapped, not every active share at once.
-  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
-  // Monotonic counter bumped each time a share completes successfully, so the
-  // redesign hub can close the 3-step share flow and return to the main screen.
-  const [shareCompletedTick, setShareCompletedTick] = useState(0);
-
-
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
   const [locationOnboardingStep, setLocationOnboardingStep] =
@@ -1680,25 +1440,6 @@ function OneLocationAgentPageContent() {
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
-  const locationTab = normalizeLocationTab(
-    searchParams.get(LOCATION_TAB_PARAM),
-  );
-  const setLocationTab = useCallback(
-    (next: LocationTab) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (next === "compose") {
-        params.delete(LOCATION_TAB_PARAM);
-      } else {
-        params.set(LOCATION_TAB_PARAM, next);
-      }
-      const query = params.toString();
-      router.replace(query ? `/one/location?${query}` : "/one/location", {
-        scroll: false,
-      });
-    },
-    [router, searchParams],
-  );
-
   const [shareReviewOpen, setShareReviewOpen] = useState(false);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
@@ -1724,7 +1465,6 @@ function OneLocationAgentPageContent() {
     Record<string, string>
   >({});
   const [publicInviteUrl, setPublicInviteUrl] = useState("");
-  const [circleInviteUrl, setCircleInviteUrl] = useState("");
   const [myLocationPoint, setMyLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
@@ -1732,14 +1472,6 @@ function OneLocationAgentPageContent() {
     Record<string, PlainLocationPoint>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
-  // Bumped whenever the recipient unwatches a share, so the memoized
-  // "Shared with me" list recomputes immediately.
-  const [unwatchedTick, setUnwatchedTick] = useState(0);
-  // First-run "how it works" guide for brand-new customers. Defaults to shown
-  // and is hidden once the user dismisses it (persisted per user) so it never
-  // nags returning customers.
-  const [firstRunGuideDismissed, setFirstRunGuideDismissed] = useState(true);
-
   const [focusedSection, setFocusedSection] =
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -1753,13 +1485,6 @@ function OneLocationAgentPageContent() {
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
   const suppressAutoRecipientSelectionRef = useRef(false);
-  // Continuous movement-driven live tracking (owner side). Holds the active
-  // geolocation watch id, the last point we actually published (to measure
-  // movement), and the timestamp of that publish (to throttle bursts).
-  const liveWatchIdRef = useRef<string | null>(null);
-  const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
-  const lastWatchPublishAtRef = useRef(0);
-
 
   const recipients = useMemo(
     () => state?.recipients ?? [],
@@ -1840,36 +1565,26 @@ function OneLocationAgentPageContent() {
       ),
     [auth.userId, state?.requests],
   );
-  // Every ACTIVE received share is shown inline in "Shared with me" so the
-  // recipient can view the live map directly - opening a notification is a
-  // convenience deep-link, NOT a requirement. Shares the recipient explicitly
-  // "unwatched" are hidden. Terminal (revoked/expired) grants are never listed
-  // here (the backend keeps them for ~12h for history only).
   const visibleReceivedGrants = useMemo(() => {
     void openedGrantTick;
-    void unwatchedTick;
-    return (state?.receivedGrants ?? []).filter(
-      (grant) =>
-        grant.status === "active" &&
-        !isOneLocationGrantUnwatched(auth.userId, grant.id),
+    return (state?.receivedGrants ?? []).filter((grant) =>
+      isOneLocationGrantOpened(auth.userId, grant.id),
     );
-  }, [auth.userId, openedGrantTick, unwatchedTick, state?.receivedGrants]);
+  }, [auth.userId, openedGrantTick, state?.receivedGrants]);
   const activeOwnerGrants = useMemo(
     () =>
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
-  const activeVisibleReceivedGrants = visibleReceivedGrants;
-  // Active shares the recipient unwatched (hidden locally). Used only to tailor
-  // the empty-state copy.
-  const unwatchedActiveReceivedGrantCount = useMemo(() => {
-    void unwatchedTick;
-    return (state?.receivedGrants ?? []).filter(
-      (grant) =>
-        grant.status === "active" &&
-        isOneLocationGrantUnwatched(auth.userId, grant.id),
-    ).length;
-  }, [auth.userId, unwatchedTick, state?.receivedGrants]);
+  const activeVisibleReceivedGrants = useMemo(
+    () => visibleReceivedGrants.filter((grant) => grant.status === "active"),
+    [visibleReceivedGrants],
+  );
+  const hiddenReceivedGrantCount = (state?.receivedGrants ?? []).filter(
+    (grant) =>
+      grant.status === "active" &&
+      !isOneLocationGrantOpened(auth.userId, grant.id),
+  ).length;
   const activePublicInvites = useMemo(
     () =>
       (state?.publicInvites ?? []).filter(
@@ -1886,22 +1601,6 @@ function OneLocationAgentPageContent() {
       (left, right) => inviteTime(right) - inviteTime(left),
     )[0] ?? null;
   }, [activePublicInvites]);
-  const activeCircleInvites = useMemo(
-    () =>
-      (state?.circleInvites ?? []).filter(
-        (invite) => invite.status === "active",
-      ),
-    [state?.circleInvites],
-  );
-  const latestActiveCircleInvite = useMemo(() => {
-    const inviteTime = (invite: OneLocationCircleInvite) =>
-      Date.parse(
-        invite.createdAt || invite.updatedAt || invite.expiresAt || "",
-      ) || 0;
-    return [...activeCircleInvites].sort(
-      (left, right) => inviteTime(right) - inviteTime(left),
-    )[0] ?? null;
-  }, [activeCircleInvites]);
   const publicSubmissions = useMemo(
     () => state?.publicInviteSubmissions ?? [],
     [state?.publicInviteSubmissions],
@@ -1925,47 +1624,27 @@ function OneLocationAgentPageContent() {
         public_responses: publicResponsesSectionRef,
         activity: activitySectionRef,
       };
-      // Every deep-link focus target (Shared with me, Approvals, My requests,
-      // etc.) lives inside the "Activity & Links" tab. The default tab is
-      // "compose", where those sections render inside a `hidden` container, so
-      // scrollIntoView would silently no-op. Switch to the Activity tab first,
-      // then wait for the section to become visible (offsetParent !== null)
-      // before scrolling — retrying a few frames to cover the tab transition.
-      setLocationTab("activity");
-
-      let attempts = 0;
-      const tryScroll = () => {
+      window.setTimeout(() => {
         const element = sectionRefs[target]?.current;
-        const isVisible = Boolean(element && element.offsetParent !== null);
-        if (element && isVisible) {
-          element.scrollIntoView({ behavior: "smooth", block: "start" });
-          element.focus({ preventScroll: true });
-          setFocusedSection(target);
-          if (focusClearRef.current) {
-            window.clearTimeout(focusClearRef.current);
-          }
-          focusClearRef.current = window.setTimeout(() => {
-            setFocusedSection((current) =>
-              current === target ? null : current,
-            );
-          }, 2200);
-          return;
+        if (!element) return;
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+        element.focus({ preventScroll: true });
+        setFocusedSection(target);
+        if (focusClearRef.current) {
+          window.clearTimeout(focusClearRef.current);
         }
-        attempts += 1;
-        if (attempts <= 12) {
-          window.setTimeout(tryScroll, 80);
-        }
-      };
-      window.setTimeout(tryScroll, 80);
+        focusClearRef.current = window.setTimeout(() => {
+          setFocusedSection((current) => (current === target ? null : current));
+        }, 2200);
+      }, 80);
     },
-    [setLocationTab],
+    [],
   );
-
 
   const sectionFocusClassName = useCallback(
     (target: OneLocationFocusTarget) =>
       focusedSection === target
-        ? "rounded-[22px] ring-2 ring-[#b8894d]/35 ring-offset-2 ring-offset-transparent"
+        ? "rounded-[22px] ring-2 ring-[#007aff]/35 ring-offset-2 ring-offset-transparent"
         : "",
     [focusedSection],
   );
@@ -2028,6 +1707,7 @@ function OneLocationAgentPageContent() {
             </p>
           </div>
           <button
+            type="button"
             onClick={() => {
               toast.dismiss(toastKey);
               openLocationShareFromNotification(grant.id);
@@ -2118,6 +1798,7 @@ function OneLocationAgentPageContent() {
               router.push(routeHref, { scroll: false });
               focusOneLocationSection(section);
             }}
+            type="button"
             className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
           >
             Open
@@ -2132,11 +1813,6 @@ function OneLocationAgentPageContent() {
     },
     [auth.userId, focusOneLocationSection, router],
   );
-
-  useEffect(() => {
-    if (!pendingCircleInviteToken || !vaultOwnerToken) return;
-    router.push(`/one/location/invite/${encodeURIComponent(pendingCircleInviteToken)}`);
-  }, [pendingCircleInviteToken, router, vaultOwnerToken]);
 
   const refresh = useCallback(async () => {
     if (!auth.userId) {
@@ -2213,18 +1889,27 @@ function OneLocationAgentPageContent() {
               ? firstRecommendedRecipient?.userId || ""
               : "",
         );
-        // Multi-select share/request lists must never auto-select a default
-        // person: the redesign hub ("Who can see you?" / "Make it comfortable")
-        // requires the user to pick explicitly. We only preserve selections that
-        // are still valid after a refresh and otherwise leave the list empty.
-        setSelectedRecipientIds((current) =>
-          current.filter((recipientId) => nextRecipientIds.has(recipientId)),
-        );
-        setSelectedRequestOwnerIds((current) =>
-          current.filter((recipientId) => nextRecipientIds.has(recipientId)),
-        );
+        setSelectedRecipientIds((current) => {
+          const validSelectedIds = current.filter((recipientId) =>
+            nextRecipientIds.has(recipientId),
+          );
+          return validSelectedIds.length
+            ? validSelectedIds
+            : shouldAutoSelectFallback && firstRecommendedRecipient
+              ? [firstRecommendedRecipient.userId]
+              : [];
+        });
+        setSelectedRequestOwnerIds((current) => {
+          const validSelectedIds = current.filter((recipientId) =>
+            nextRecipientIds.has(recipientId),
+          );
+          return validSelectedIds.length
+            ? validSelectedIds
+            : shouldAutoSelectFallback && firstRecommendedRecipient
+              ? [firstRecommendedRecipient.userId]
+              : [];
+        });
         suppressAutoRecipientSelectionRef.current = false;
-
       } catch (error) {
         suppressAutoRecipientSelectionRef.current = false;
         setLoadError(
@@ -2381,47 +2066,6 @@ function OneLocationAgentPageContent() {
       return;
     }
 
-    const introSeen =
-      typeof window !== "undefined" &&
-      window.localStorage.getItem(
-        `one_location_onboarding_v1:${auth.userId}`,
-      ) === "1";
-    // Re-show the permission screen only when location is *actionably* off:
-    // the phone Location switch is disabled, or the user explicitly denied /
-    // restricted access. Neutral states ("prompt" = never asked yet, or
-    // "unavailable" = web Permissions API can't determine state) must NOT trap
-    // the user on the permission screen — they can use the app, see their
-    // circle, and grant access at the moment they actually share.
-    const deviceLocationBlocked =
-      isLocationServicesDisabled(permission) ||
-      permission?.state === "denied" ||
-      permission?.state === "restricted";
-
-    // The marketing intro screen only ever shows once per user (persisted in
-    // localStorage). After that, the second "Allow location" screen is driven
-    // purely by the real device location state: it re-appears only when access
-    // is explicitly off / blocked, and stays hidden otherwise.
-    if (introSeen) {
-      // If onboarding is already visible (the user is mid-flow, e.g. just
-      // advanced from the intro to the permission step), never auto-hide or
-      // redirect — let them finish the current step. Dismissal happens through
-      // the flow's own handlers. Device-state-driven (re)appearance only
-      // applies on a fresh load when onboarding is not already showing.
-      if (locationOnboardingGate === "show") {
-        return;
-      }
-      if (deviceLocationBlocked) {
-        setLocationOnboardingStep("permission");
-        setLocationOnboardingGate("show");
-        return;
-      }
-      setLocationOnboardingGate("hidden");
-      return;
-    }
-
-
-
-
     if (locationOnboardingGate !== "show") {
       setLocationOnboardingStep("intro");
     }
@@ -2431,10 +2075,8 @@ function OneLocationAgentPageContent() {
     auth.userId,
     loadError,
     locationOnboardingGate,
-    permission,
     vaultOwnerToken,
   ]);
-
 
   useEffect(() => {
     return () => {
@@ -2548,37 +2190,6 @@ function OneLocationAgentPageContent() {
   }, [auth.userId]);
 
   useEffect(() => {
-    if (!auth.userId || typeof window === "undefined") return;
-    const handleGrantUnwatched = (event: Event) => {
-      const detail =
-        (event as CustomEvent<{ userId?: string; grantId?: string }>).detail ||
-        {};
-      if (detail.userId && detail.userId !== auth.userId) return;
-      setUnwatchedTick((value) => value + 1);
-      // Drop any decrypted map point for the unwatched grant immediately.
-      const grantId = String(detail.grantId || "").trim();
-      if (grantId) {
-        setDecryptedPoints((current) => {
-          if (!(grantId in current)) return current;
-          const next = { ...current };
-          delete next[grantId];
-          return next;
-        });
-      }
-    };
-    window.addEventListener(
-      ONE_LOCATION_GRANT_UNWATCHED_EVENT,
-      handleGrantUnwatched,
-    );
-    return () => {
-      window.removeEventListener(
-        ONE_LOCATION_GRANT_UNWATCHED_EVENT,
-        handleGrantUnwatched,
-      );
-    };
-  }, [auth.userId]);
-
-  useEffect(() => {
     if (!auth.userId || !state?.receivedGrants?.length) return;
     for (const grant of state.receivedGrants) {
       if (grant.status !== "active") continue;
@@ -2638,30 +2249,7 @@ function OneLocationAgentPageContent() {
       }
     }
 
-    // Owners who currently have an ACTIVE share with me. When a person re-shares
-    // their location within an existing window, the backend silently supersedes
-    // the prior grant (sets it to "revoked" with NO push), so a stale
-    // revoked/expired row sits alongside a fresh active one. We must NOT raise a
-    // "location removed" / "expired" notification in that case - it is the core
-    // source of the false "location removed by this user" spam. Only notify when
-    // the owner has genuinely stopped sharing (no active grant remains).
-    const ownersWithActiveReceivedGrant = new Set(
-      (state.receivedGrants ?? [])
-        .filter((grant) => grant.status === "active")
-        .map((grant) => String(grant.ownerUserId || "").trim())
-        .filter(Boolean),
-    );
     for (const grant of state.receivedGrants ?? []) {
-      const ownerId = String(grant.ownerUserId || "").trim();
-      const supersededByNewerShare =
-        Boolean(ownerId) && ownersWithActiveReceivedGrant.has(ownerId);
-      // A recipient who unwatched this share does not want any follow-up noise.
-      const recipientUnwatched = isOneLocationGrantUnwatched(
-        auth.userId,
-        grant.id,
-      );
-      if (supersededByNewerShare || recipientUnwatched) continue;
-
       if (grant.status === "revoked") {
         showWorkflowToast({
           notificationType: "location_share_revoked",
@@ -2810,11 +2398,7 @@ function OneLocationAgentPageContent() {
         )}.`,
       );
       resetShareComposer();
-      // Signal the redesign hub to close the 3-step share flow and return to
-      // the main One Location screen now that sharing finished.
-      setShareCompletedTick((value) => value + 1);
       await refresh();
-
     } catch (error) {
       const failureCount =
         shareReadySelectedRecipients.length - successCount || 1;
@@ -2929,52 +2513,6 @@ function OneLocationAgentPageContent() {
     [viewGrantEnvelope],
   );
 
-  // Recipient-side "Unwatch": locally hide a received share so it stops
-  // appearing in "Shared with me" and stops surfacing notifications. The owner's
-  // grant is unaffected server-side (a recipient cannot revoke it); the backend
-  // continues to enforce real access. The choice persists across refreshes.
-  const handleUnwatch = useCallback(
-    (grant: OneLocationGrant) => {
-      if (!auth.userId) return;
-      markOneLocationGrantUnwatched(auth.userId, grant.id);
-      // Optimistically reflect the change even before the event listener fires.
-      setUnwatchedTick((value) => value + 1);
-      setDecryptedPoints((current) => {
-        if (!(grant.id in current)) return current;
-        const next = { ...current };
-        delete next[grant.id];
-        return next;
-      });
-      toast.success(
-        `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`,
-      );
-    },
-    [auth.userId],
-  );
-
-  // When a received grant is revoked or expires, immediately drop its decrypted
-  // map point so the "Shared with me" map view for that person disappears.
-  useEffect(() => {
-    const activeGrantIds = new Set(
-      (state?.receivedGrants ?? [])
-        .filter((grant) => grant.status === "active")
-        .map((grant) => grant.id),
-    );
-    setDecryptedPoints((current) => {
-      const next: Record<string, PlainLocationPoint> = {};
-      let changed = false;
-      for (const [grantId, point] of Object.entries(current)) {
-        if (activeGrantIds.has(grantId)) {
-          next[grantId] = point;
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
-  }, [state?.receivedGrants]);
-
-
   useEffect(() => {
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
     if (busy && busy !== "load") return;
@@ -3033,119 +2571,9 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
-  // True LIVE tracking (owner side): while a share is active and the app is in
-  // the foreground, subscribe to a continuous geolocation watch and re-publish
-  // an encrypted envelope to every active grant as soon as the owner MOVES
-  // (>= LIVE_LOCATION_MIN_MOVE_METERS), throttled so GPS jitter / fast motion
-  // can't flood the network. This complements the 20s heartbeat above: standing
-  // still keeps the point fresh via the interval, while walking/driving streams
-  // movement updates so recipients watch the dot move in near real time. The
-  // watch is foreground-only and cleans up on unmount or when sharing stops.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!vaultOwnerToken || !activeOwnerGrants.length) return;
-    if (
-      permission?.state === "denied" ||
-      permission?.state === "restricted" ||
-      permission?.state === "unavailable"
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    lastPublishedPointRef.current = null;
-    lastWatchPublishAtRef.current = 0;
-
-    const publishMovement = async (point: PlainLocationPoint) => {
-      if (cancelled) return;
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      ) {
-        return;
-      }
-      if (livePublishInFlightRef.current) return;
-
-      const now = Date.now();
-      const previous = lastPublishedPointRef.current;
-      const movedMeters = previous
-        ? locationDistanceMeters(previous, point)
-        : Number.POSITIVE_INFINITY;
-      const sincePublishMs = now - lastWatchPublishAtRef.current;
-
-      // Always reflect movement in the owner's own live preview immediately.
-      setMyLocationPoint(point);
-
-      if (
-        previous &&
-        (movedMeters < LIVE_LOCATION_MIN_MOVE_METERS ||
-          sincePublishMs < LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS)
-      ) {
-        return;
-      }
-
-      livePublishInFlightRef.current = true;
-      try {
-        for (const grant of activeOwnerGrants) {
-          const recipient = recipientForGrant(grant);
-          if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            point,
-          );
-        }
-        lastPublishedPointRef.current = point;
-        lastWatchPublishAtRef.current = Date.now();
-      } catch (error) {
-        console.warn(
-          "[OneLocationAgent] Live movement update skipped:",
-          error,
-        );
-      } finally {
-        livePublishInFlightRef.current = false;
-      }
-    };
-
-    void (async () => {
-      try {
-        const watchId = await OneLocationService.watchCurrentPosition(
-          (point) => void publishMovement(point),
-          (error) => {
-            console.warn("[OneLocationAgent] Live watch error:", error.message);
-          },
-        );
-        if (cancelled) {
-          void OneLocationService.clearLocationWatch(watchId).catch(() => null);
-          return;
-        }
-        liveWatchIdRef.current = watchId;
-      } catch (error) {
-        console.warn("[OneLocationAgent] Could not start live watch:", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      const watchId = liveWatchIdRef.current;
-      liveWatchIdRef.current = null;
-      if (watchId) {
-        void OneLocationService.clearLocationWatch(watchId).catch(() => null);
-      }
-    };
-  }, [
-    activeOwnerGrants,
-    permission?.state,
-    publishEnvelopeWithRetry,
-    recipientForGrant,
-    vaultOwnerToken,
-  ]);
-
   useEffect(() => {
     if (!activeVisibleReceivedGrants.length) return;
     if (busy && busy !== "load") return;
-
 
     const refreshVisibleGrants = async () => {
       if (liveViewInFlightRef.current) return;
@@ -3180,9 +2608,7 @@ function OneLocationAgentPageContent() {
   const handleRevoke = useCallback(
     async (grantId: string) => {
       if (!vaultOwnerToken) return;
-      // Track the specific grant being revoked so only its "Stop sharing" card
-      // shows the loading state, not every active share at once.
-      setRevokingGrantId(grantId);
+      setBusy("revoke");
       try {
         await OneLocationService.revokeGrant({ vaultOwnerToken, grantId });
         toast.success("Location access revoked.");
@@ -3192,12 +2618,11 @@ function OneLocationAgentPageContent() {
           error instanceof Error ? error.message : "Could not revoke access.",
         );
       } finally {
-        setRevokingGrantId(null);
+        setBusy(null);
       }
     },
     [refresh, vaultOwnerToken],
   );
-
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -3500,102 +2925,6 @@ function OneLocationAgentPageContent() {
     refresh,
     vaultOwnerToken,
   ]);
-
-  const handleCreateCircleInvite = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    setBusy("circleInvite");
-    try {
-      const response = await OneLocationService.createCircleInvite({
-        vaultOwnerToken,
-        durationHours: Number(durationHours),
-        message: "Join me on One.",
-      });
-      const url = publicInviteUrlLabel(response.inviteUrl);
-      setCircleInviteUrl(url);
-      const copiedToClipboard = url ? await copyToClipboard(url) : false;
-      trackEvent("one_location_circle_invite_created", {
-        route_id: "one_location",
-        result: "success",
-        duration_bucket: oneLocationDurationBucket(durationHours),
-        copied_to_clipboard: copiedToClipboard,
-        active_invite_count: activeCircleInvites.length + 1,
-      });
-      toast.success(
-        copiedToClipboard
-          ? "Invite to One link created and copied."
-          : "Invite to One link created.",
-      );
-      await refresh();
-    } catch (error) {
-      trackEvent("one_location_circle_invite_created", {
-        route_id: "one_location",
-        result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
-        copied_to_clipboard: false,
-        active_invite_count: activeCircleInvites.length,
-      });
-      toast.error(
-        oneLocationErrorMessage(error, "Could not create Invite to One link."),
-      );
-    } finally {
-      setBusy(null);
-    }
-  }, [activeCircleInvites.length, durationHours, refresh, vaultOwnerToken]);
-
-  const handleCopyCircleInvite = useCallback(async () => {
-    if (!circleInviteUrl) return;
-    try {
-      const copiedToClipboard = await copyToClipboard(circleInviteUrl);
-      if (copiedToClipboard) {
-        toast.success("Invite to One link copied.");
-      } else {
-        toast.error("Could not copy the Invite to One link.");
-      }
-    } catch {
-      toast.error("Could not copy the Invite to One link.");
-    }
-  }, [circleInviteUrl]);
-
-  const handleShareCircleInvite = useCallback(async () => {
-    if (!circleInviteUrl) return;
-    try {
-      const delivery = await shareOneLocationLink({
-        title: ONE_LOCATION_SHARE_TITLE,
-        text: ONE_LOCATION_CIRCLE_SHARE_COPY,
-        url: circleInviteUrl,
-        dialogTitle: "Share Invite to One",
-      });
-      if (delivery === "copied") {
-        toast.success("Invite to One link copied.");
-      }
-    } catch (error) {
-      if (isShareAbortError(error)) return;
-      toast.error("Could not open the share sheet.");
-    }
-  }, [circleInviteUrl]);
-
-  const handleRevokeCircleInvite = useCallback(
-    async (invite: OneLocationCircleInvite) => {
-      if (!vaultOwnerToken || !invite.id) return;
-      setBusy("circleRevoke");
-      try {
-        await OneLocationService.revokeCircleInvite({
-          vaultOwnerToken,
-          inviteId: invite.id,
-        });
-        setCircleInviteUrl("");
-        toast.success("Invite to One link revoked.");
-        await refresh();
-      } catch (error) {
-        toast.error(
-          oneLocationErrorMessage(error, "Could not revoke Invite to One link."),
-        );
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh, vaultOwnerToken],
-  );
 
   const handleRevokePublicInvite = useCallback(
     async (invite: OneLocationPublicInvite) => {
@@ -3940,73 +3269,13 @@ function OneLocationAgentPageContent() {
   }, [ensureForegroundLocationReady]);
 
   const dismissLocationOnboarding = useCallback(() => {
-    // Persist that onboarding is complete so the one-time marketing intro never
-    // shows again for this user; only the location-permission screen can
-    // re-appear, and only when device location is actually off. We persist on
-    // dismissal/completion (not when merely advancing to the permission step)
-    // so a partially-seen flow still re-shows next time.
-    if (typeof window !== "undefined" && auth.userId) {
-      try {
-        window.localStorage.setItem(
-          `one_location_onboarding_v1:${auth.userId}`,
-          "1",
-        );
-      } catch {
-        // localStorage may be unavailable (private mode); intro will simply
-        // show again next time, which is acceptable.
-      }
-    }
     setLocationOnboardingGate("hidden");
     setLocationOnboardingBusy(false);
-  }, [auth.userId]);
+  }, []);
 
   const handleContinueLocationOnboardingIntro = useCallback(() => {
     setLocationOnboardingStep("permission");
   }, []);
-
-  const handleDismissFirstRunGuide = useCallback(() => {
-    setFirstRunGuideDismissed(true);
-    if (typeof window !== "undefined" && auth.userId) {
-      try {
-        window.localStorage.setItem(
-          `${ONE_LOCATION_FIRST_RUN_GUIDE_KEY}:${auth.userId}`,
-          "1",
-        );
-      } catch {
-        // localStorage may be unavailable (private mode); the guide will simply
-        // show again next time, which is acceptable.
-      }
-    }
-  }, [auth.userId]);
-
-  // Decide whether to show the first-run "how it works" guide. It appears only
-  // for genuinely new customers (no shares, requests, or invites yet) who have
-  // not dismissed it before. Returning/active users never see it.
-  useEffect(() => {
-    if (!auth.userId || !state) return;
-    let alreadyDismissed = false;
-    if (typeof window !== "undefined") {
-      try {
-        alreadyDismissed =
-          window.localStorage.getItem(
-            `${ONE_LOCATION_FIRST_RUN_GUIDE_KEY}:${auth.userId}`,
-          ) === "1";
-      } catch {
-        alreadyDismissed = false;
-      }
-    }
-    const hasAnyActivity = Boolean(
-      (state.ownerGrants?.length ?? 0) ||
-        (state.receivedGrants?.length ?? 0) ||
-        (state.requests?.length ?? 0) ||
-        (state.publicInvites?.length ?? 0) ||
-        (state.circleInvites?.length ?? 0),
-    );
-    setFirstRunGuideDismissed(alreadyDismissed || hasAnyActivity);
-  }, [auth.userId, state]);
-
-
-
 
   const handleSkipLocationOnboarding = useCallback(() => {
     dismissLocationOnboarding();
@@ -4119,131 +3388,24 @@ function OneLocationAgentPageContent() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Mobile-first redesign (Figma: one_location_final_fixed_clean_navigation).
-  // PRESENTATION ONLY: the view-model below wires the redesigned hub to the
-  // EXACT existing state + handlers, so consent gating, crypto, analytics, and
-  // routing are unchanged. The full original UI remains intact below and is
-  // used for the loading/error states (and as a guaranteed fallback). The
-  // global app footer is never touched.
-  // ---------------------------------------------------------------------------
-  const USE_LOCATION_REDESIGN = true;
-
-  const locationHubVm: LocationHubViewModel = {
-    userId: auth.userId ?? null,
-    canShare,
-    busy,
-    revokingGrantId,
-    shareCompletedTick,
-    readiness: {
-
-      tone: locationReadiness.tone,
-      title: locationReadiness.title,
-      description: locationReadiness.description,
-      actionLabel: locationReadiness.actionLabel ?? null,
-    },
-    permissionIsPrompt: permission?.state === "prompt",
-    myLocationPoint,
-    myLocationError,
-    recipients: rankedRecipients,
-    visibleRecipients,
-    activeOwnerGrants,
-    receivedGrants: visibleReceivedGrants,
-    pendingOwnerRequests,
-    requestedByMe,
-    latestActivePublicInvite,
-    latestActiveCircleInvite,
-    activityReceipts: (locationActivity?.events ?? []).map((event) => ({
-      id: event.id,
-      title: event.title,
-      detail: event.detail,
-    })),
-    recipientSearch,
-    selectedRecipientIds,
-    selectedRequestOwnerIds,
-    durationHours,
-    requestMessage,
-    shareReviewOpen,
-    publicInviteUrl,
-    circleInviteUrl,
-    setRecipientSearch,
-    setDurationHours,
-    setRequestMessage,
-    setShareReviewOpen,
-    toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),
-    toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
-    onRefresh: () => void refresh(),
-    onShowMyLocation: () => void handleShowMyLiveLocation(),
-    onRequestPermission: () => void handleRequestLocationPermission(),
-    onOpenLocationSettings: () => void handleOpenLocationSettings(),
-    onSyncContacts: () => void handleSyncContactSignal(),
-    onShareToContacts: () => void handleShareContactInvite(),
-    onOpenShareReview: () => void handleOpenShareReview(),
-    onConfirmShare: () => void handleShare(),
-    onSendRequest: () => void handleRequestAccess(),
-    onApprove: (request) => void handleApprove(request),
-    onDeny: (requestId) => void handleDeny(requestId),
-    onViewGrant: (grant) => void handleView(grant),
-    onUnwatchGrant: (grant) => handleUnwatch(grant),
-    onStopGrant: (grantId) => void handleRevoke(grantId),
-    onCreatePublicInvite: () => void handleCreatePublicInvite(),
-    onCopyPublicInvite: () => void handleCopyPublicInvite(),
-    onSharePublicInvite: () => void handleSharePublicInvite(),
-    onRevokePublicInvite: (invite) => void handleRevokePublicInvite(invite),
-    onCreateCircleInvite: () => void handleCreateCircleInvite(),
-    onCopyCircleInvite: () => void handleCopyCircleInvite(),
-    onShareCircleInvite: () => void handleShareCircleInvite(),
-    onRevokeCircleInvite: (invite) => void handleRevokeCircleInvite(invite),
-    recipientLabel,
-    recipientSubtitle: recipientRecommendationLine,
-    isRecipientShareReady: isShareReadyRecipient,
-    requestOwnerLabel: (request) => requestOwnerLabel(request, recipients),
-    requesterLabel: requestLabel,
-    grantRecipientLabel: grantCounterpartyLabel,
-    grantOwnerLabel: receivedGrantOwnerLabel,
-    formatDateTime,
-    expiresLabel: (value) =>
-      value ? `Live until ${formatDateTime(value)}` : "Live now",
-    expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
-    renderMapPreview: (point, showNavigation) => (
-      <LocalMapPreview point={point} showNavigation={showNavigation} />
-    ),
-    decryptedPoints,
-  };
-
-  if (USE_LOCATION_REDESIGN && !loadError) {
-    return (
-      <AppPageShell width="standard" nativeTest={nativeTestConfig}>
-        <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
-          {showInitialSkeleton ? (
-            <LocationRedesignSkeleton />
-          ) : (
-            <LocationRedesignHub vm={locationHubVm} />
-          )}
-        </AppPageContentRegion>
-      </AppPageShell>
-    );
-  }
-
   return (
     <AppPageShell
       width="standard"
       nativeTest={nativeTestConfig}
     >
-      <CapabilityExploreCard capabilityId="location" />
       <AppPageHeaderRegion className="mx-auto w-full max-w-[720px] min-w-0 overflow-hidden">
         <div className="flex flex-col gap-4 px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
           <header className="max-w-[560px] min-w-0 space-y-2">
-            <span className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-[#b8894d] dark:text-[#e6b366]">
-              Private location sharing
+            <span className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-[#007aff] dark:text-[#76b7ff]">
+              When it matters most
             </span>
             <h1 className="text-[28px] font-medium leading-[1.12] tracking-normal text-[#1c1c1e] sm:text-[32px] dark:text-white">
               Your circle, safely connected.
             </h1>
             <h2 className="sr-only">One Location Agent</h2>
-            <p className="max-w-[460px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
-              Let the people you trust see where you are - only when you choose,
-              only for as long as you choose. We can never see it.
+            <p className="max-w-[440px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
+              Share your location with selected contacts, or ask to see theirs
+              after they approve.
             </p>
           </header>
           <div className="flex items-center gap-2">
@@ -4276,63 +3438,9 @@ function OneLocationAgentPageContent() {
           <OneLocationInitialSkeleton />
         ) : (
           <div className="flex min-w-0 max-w-full flex-col gap-6">
-            <div className="px-1">
-              <SegmentedTabs
-                value={locationTab}
-                onValueChange={(value) =>
-                  setLocationTab(normalizeLocationTab(value))
-                }
-                options={
-                  pendingOwnerRequests.length
-                    ? LOCATION_TAB_OPTIONS.map((option) =>
-                        option.value === "activity"
-                          ? {
-                              ...option,
-                              label: `${option.label} (${pendingOwnerRequests.length})`,
-                            }
-                          : option,
-                      )
-                    : LOCATION_TAB_OPTIONS
-                }
-              />
-            </div>
-
-            {!firstRunGuideDismissed ? (
-              <div className="px-1">
-                <OneLocationFirstRunGuide
-                  onDismiss={handleDismissFirstRunGuide}
-                />
-              </div>
-            ) : null}
-
-            <div className="px-1">
-              <OneLocationTrustStrip />
-            </div>
-            {pendingOwnerRequests.length && locationTab !== "activity" ? (
-              <button
-                type="button"
-                onClick={() => setLocationTab("activity")}
-                className="mx-1 flex items-center gap-2 rounded-[14px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 px-3.5 py-2.5 text-left text-[13px] font-semibold text-[#b42318] transition-colors hover:bg-[#ff3b30]/15 dark:text-[#ff9f9a]"
-              >
-                <UserRoundCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                  {pendingOwnerRequests.length === 1
-                    ? "1 person is waiting for you to approve their location request."
-                    : `${pendingOwnerRequests.length} people are waiting for you to approve their location requests.`}
-                </span>
-                <span className="shrink-0 underline">Review</span>
-              </button>
-            ) : null}
-
-            <div
-              className={cn(
-                "min-w-0 max-w-full space-y-7",
-                locationTab === "compose" ? "" : "hidden",
-              )}
-            >
+            <div className="min-w-0 max-w-full space-y-7">
               <section className="min-w-0 max-w-full space-y-2 px-1">
                 {sectionLabel("Device readiness")}
-
                 <div
                   className={cn(
                     "flex min-w-0 max-w-full flex-col items-center gap-3 overflow-hidden rounded-[20px] border px-4 py-4 text-center shadow-sm sm:flex-row sm:justify-between sm:text-left",
@@ -4357,7 +3465,7 @@ function OneLocationAgentPageContent() {
                         locationReadiness.tone === "blocked" &&
                           "bg-[#ff3b30]/15 text-[#ff3b30]",
                         locationReadiness.tone === "checking" &&
-                          "bg-[#b8894d]/15 text-[#b8894d]",
+                          "bg-[#007aff]/15 text-[#007aff]",
                       )}
                     >
                       {locationReadiness.tone === "ready" ? (
@@ -4405,7 +3513,7 @@ function OneLocationAgentPageContent() {
                       size="sm"
                       onClick={() => void handleShowMyLiveLocation()}
                       disabled={busy !== null && busy !== "selfLocation"}
-                      className="h-11 w-full shrink-0 rounded-full bg-[#b8894d] px-4 text-[14px] font-semibold text-white hover:bg-[#006fe6]"
+                      className="h-11 w-full shrink-0 rounded-full bg-[#007aff] px-4 text-[14px] font-semibold text-white hover:bg-[#006fe6]"
                     >
                       {busy === "selfLocation" ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
@@ -4424,13 +3532,9 @@ function OneLocationAgentPageContent() {
 
                   {myLocationPoint ? (
                     <div className="px-3.5 pb-3.5">
-                      <LocalMapPreview
-                        point={myLocationPoint}
-                        showNavigation={false}
-                      />
+                      <LocalMapPreview point={myLocationPoint} />
                     </div>
                   ) : null}
-
                 </div>
               </section>
 
@@ -4449,7 +3553,7 @@ function OneLocationAgentPageContent() {
                       onChange={(event) =>
                         setRecipientSearch(event.target.value)
                       }
-                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[#b8894d]/20 dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[#007aff]/20 dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
                       placeholder="Search One Network..."
                       type="text"
                     />
@@ -4476,7 +3580,7 @@ function OneLocationAgentPageContent() {
                         onClick={() => void handleShareContactInvite()}
                         disabled={!vaultOwnerToken || busy === "contactSync"}
                         variant="outline"
-                        className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#b8894d] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-[#e6b366] dark:hover:bg-white/15 dark:hover:text-white"
+                        className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#007aff] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15 dark:hover:text-white"
                       >
                         {busy !== "contactInvite" ? (
                           <Send className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -4521,7 +3625,7 @@ function OneLocationAgentPageContent() {
                                   <span className="min-w-0 max-w-full truncate text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
                                     {recipientLabel(recipient)}
                                   </span>
-                                  <span className="rounded-md bg-[#f0f5ff] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]">
+                                  <span className="rounded-md bg-[#f0f5ff] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
                                     {recipient.phoneVerified
                                       ? "Verified"
                                       : "Contact"}
@@ -4554,7 +3658,7 @@ function OneLocationAgentPageContent() {
                                 ) : null}
                               </div>
                               {selected ? (
-                                <CheckCircle2 className="mt-1 h-[22px] w-[22px] shrink-0 text-[#b8894d] dark:text-[#e6b366]" />
+                                <CheckCircle2 aria-hidden="true" className="mt-1 h-[22px] w-[22px] shrink-0 text-[#007aff] dark:text-[#76b7ff]" />
                               ) : (
                                 <button
                                   type="button"
@@ -4574,7 +3678,7 @@ function OneLocationAgentPageContent() {
                                       );
                                     }
                                   }}
-                                  className="mt-0.5 inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[#b8894d] transition-colors hover:bg-[#e5e5ea] hover:text-[#1c1c1e] dark:bg-white/10 dark:text-[#e6b366] dark:hover:bg-white/15 dark:hover:text-white"
+                                  className="mt-0.5 inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[#007aff] transition-colors hover:bg-[#e5e5ea] hover:text-[#1c1c1e] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15 dark:hover:text-white"
                                 >
                                   <Plus className="h-3.5 w-3.5" />
                                   Select
@@ -4611,7 +3715,7 @@ function OneLocationAgentPageContent() {
                       onClick={() =>
                         setOneNetworkListExpanded((expanded) => !expanded)
                       }
-                      className="h-9 w-full rounded-full border-black/[0.06] bg-white text-[13px] font-semibold text-[#b8894d] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-[#e6b366] dark:hover:bg-white/15 dark:hover:text-white"
+                      className="h-9 w-full rounded-full border-black/[0.06] bg-white text-[13px] font-semibold text-[#007aff] shadow-sm hover:bg-[#f2f2f7] hover:text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15 dark:hover:text-white"
                     >
                       {showExpandedOneNetworkList ? (
                         <ChevronUp className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -4680,7 +3784,7 @@ function OneLocationAgentPageContent() {
                               onClick={() =>
                                 removeShareRecipient(recipient.userId)
                               }
-                              className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] hover:text-[#1c1c1e] dark:bg-[#d4a574]/15 dark:text-[#a7d4ff] dark:hover:bg-[#d4a574]/25 dark:hover:text-white"
+                              className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] hover:text-[#1c1c1e] dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff] dark:hover:bg-[#0a84ff]/25 dark:hover:text-white"
                             >
                               <span className="min-w-0 truncate">
                                 {recipientLabel(recipient)}
@@ -4713,7 +3817,7 @@ function OneLocationAgentPageContent() {
                         <div
                           role="region"
                           aria-label="Share safety review"
-                          className="min-w-0 max-w-full space-y-3 overflow-hidden rounded-[14px] border border-[#b8894d]/20 bg-[#eef5ff] p-3 text-[13px] leading-5 text-[#17446f] dark:border-[#d4a574]/30 dark:bg-[#d4a574]/15 dark:text-[#cfe7ff]"
+                          className="min-w-0 max-w-full space-y-3 overflow-hidden rounded-[14px] border border-[#007aff]/20 bg-[#eef5ff] p-3 text-[13px] leading-5 text-[#17446f] dark:border-[#0a84ff]/30 dark:bg-[#0a84ff]/15 dark:text-[#cfe7ff]"
                         >
                           <div>
                             <p className="font-semibold text-[#0b3d70] dark:text-[#e6f2ff]">
@@ -4733,20 +3837,12 @@ function OneLocationAgentPageContent() {
                               .
                             </p>
                           </div>
-                          <p className="flex items-center gap-1.5 text-[12px] font-medium text-[#17446f]/80 dark:text-[#cfe7ff]/80">
-                            <ShieldCheck
-                              className="h-3.5 w-3.5 shrink-0"
-                              aria-hidden="true"
-                            />
-                            Encrypted end-to-end, auto-stops when the timer ends,
-                            and you can stop early anytime.
-                          </p>
                           <ActionButton
                             busy={busy}
                             busyKey="share"
                             onClick={() => void handleShare()}
                             disabled={!canShare}
-                            className="h-10 w-full min-w-0 rounded-full bg-[#b8894d] px-4 text-[13px] font-semibold text-white hover:bg-[#006fe6] sm:w-auto"
+                            className="h-10 w-full min-w-0 rounded-full bg-[#007aff] px-4 text-[13px] font-semibold text-white hover:bg-[#006fe6] sm:w-auto"
                           >
                             <Send
                               className="mr-2 h-4 w-4"
@@ -4800,7 +3896,7 @@ function OneLocationAgentPageContent() {
                               onClick={() =>
                                 removeRequestOwner(recipient.userId)
                               }
-                              className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] hover:text-[#1c1c1e] dark:bg-[#d4a574]/15 dark:text-[#a7d4ff] dark:hover:bg-[#d4a574]/25 dark:hover:text-white"
+                              className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] hover:text-[#1c1c1e] dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff] dark:hover:bg-[#0a84ff]/25 dark:hover:text-white"
                             >
                               <span className="min-w-0 truncate">
                                 {recipientLabel(recipient)}
@@ -4820,27 +3916,16 @@ function OneLocationAgentPageContent() {
                             )} selected for approval-first requests.`
                           : "Select one or more One users before requesting location access."}
                       </p>
-                      <div className="space-y-1">
-                        <Textarea
-                          value={requestMessage}
-                          onChange={(event) =>
-                            setRequestMessage(
-                              event.target.value.slice(
-                                0,
-                                REQUEST_MESSAGE_MAX_LENGTH,
-                              ),
-                            )
-                          }
-                          placeholder="Optional reason"
-                          rows={3}
-                          maxLength={REQUEST_MESSAGE_MAX_LENGTH}
-                          className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
-                        />
-                        <p className="px-1 text-right text-[11px] font-medium text-[#8e8e93] dark:text-white/45">
-                          {requestMessage.length}/{REQUEST_MESSAGE_MAX_LENGTH}
-                        </p>
-                      </div>
-
+                      <Textarea
+                        value={requestMessage}
+                        onChange={(event) =>
+                          setRequestMessage(event.target.value)
+                        }
+                        aria-label="Reason for location request"
+                        placeholder="Optional reason"
+                        rows={3}
+                        className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
+                      />
                       <ActionButton
                         busy={busy}
                         busyKey="request"
@@ -4860,14 +3945,8 @@ function OneLocationAgentPageContent() {
               </section>
             </div>
 
-            <div
-              className={cn(
-                "min-w-0 max-w-full space-y-6",
-                locationTab === "activity" ? "" : "hidden",
-              )}
-            >
+            <div className="min-w-0 max-w-full space-y-6">
               {SHOW_LOCATION_ACTIVITY_SECTION ? (
-
                 <section
                   ref={activitySectionRef}
                   tabIndex={-1}
@@ -5002,7 +4081,7 @@ function OneLocationAgentPageContent() {
                               busy={busy}
                               busyKey="approve"
                               onClick={() => void handleApprove(request)}
-                              className="h-9 flex-1 rounded-[12px] bg-[#b8894d] font-semibold text-white shadow-[0_2px_8px_rgba(0,122,255,0.25)] hover:bg-[#0066ff]"
+                              className="h-9 flex-1 rounded-[12px] bg-[#007aff] font-semibold text-white shadow-[0_2px_8px_rgba(0,122,255,0.25)] hover:bg-[#0066ff]"
                             >
                               Approve
                             </ActionButton>
@@ -5017,99 +4096,6 @@ function OneLocationAgentPageContent() {
                       description="Referral and direct access requests wait here."
                     />
                   )}
-                </div>
-              </section>
-
-              <section className="min-w-0 max-w-full space-y-2 px-1">
-                {sectionLabel("Invite to One")}
-                <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
-                    <div className={cn(oneInsetClassName, "min-w-0 px-3 py-2 text-sm")}>
-                      {circleInviteUrl ? (
-                        <span
-                          title={circleInviteUrl}
-                          aria-label={`Invite to One link ${circleInviteUrl}`}
-                          className="block truncate text-[13px] font-medium text-[#1c1c1e] dark:text-white"
-                        >
-                          {publicInviteUrlPreview(circleInviteUrl)}
-                        </span>
-                      ) : (
-                        <span className={cn(oneSecondaryTextClassName, "block text-[13px] leading-5")}>
-                          Share an Invite to One link. After they sign in, verify phone, and accept it, both of you become One Network connections. Live location sharing still starts only from an explicit Share Location action.
-                        </span>
-                      )}
-                    </div>
-                    <Select
-                      value={durationHours}
-                      onValueChange={setDurationHours}
-                    >
-                      <SelectTrigger className="h-10 w-full rounded-[12px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DURATION_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid min-w-0 max-w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-                    <ActionButton
-                      busy={busy}
-                      busyKey="circleInvite"
-                      onClick={() => void handleCreateCircleInvite()}
-                      disabled={!vaultOwnerToken}
-                      className="w-full min-w-0 rounded-full bg-[#b8894d] text-white hover:bg-[#0066ff] sm:w-auto"
-                    >
-                      <UserPlus className="mr-2 h-4 w-4" />
-                      Create Circle Invite
-                    </ActionButton>
-                    <Button
-                      variant="outline"
-                      onClick={() => void handleShareCircleInvite()}
-                      disabled={!circleInviteUrl}
-                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
-                    >
-                      <Send className="mr-2 h-4 w-4" />
-                      Share
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => void handleCopyCircleInvite()}
-                      disabled={!circleInviteUrl}
-                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
-                    >
-                      <Copy className="mr-2 h-4 w-4" />
-                      Copy
-                    </Button>
-                  </div>
-                  {latestActiveCircleInvite ? (
-                    <div className="space-y-2">
-                      <div className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
-                        <div className="min-w-0">
-                          <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
-                            Latest active Invite to One link
-                          </p>
-                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                            Expires {formatDateTime(latestActiveCircleInvite.expiresAt)}
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void handleRevokeCircleInvite(latestActiveCircleInvite)
-                          }
-                          disabled={busy === "circleRevoke"}
-                          className="w-full rounded-full border-black/[0.06] bg-white text-[#1c1c1e] hover:bg-[#f2f2f7] hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
-                        >
-                          Revoke
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               </section>
 
@@ -5154,7 +4140,7 @@ function OneLocationAgentPageContent() {
                       busyKey="publicInvite"
                       onClick={() => void handleCreatePublicInvite()}
                       disabled={!vaultOwnerToken}
-                      className="w-full min-w-0 rounded-full bg-[#b8894d] text-white hover:bg-[#0066ff] sm:w-auto"
+                      className="w-full min-w-0 rounded-full bg-[#007aff] text-white hover:bg-[#0066ff] sm:w-auto"
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Create Public Link
@@ -5235,48 +4221,26 @@ function OneLocationAgentPageContent() {
                                 <Badge variant={statusVariant(grant.status)}>
                                   {grant.status}
                                 </Badge>
-                                {grant.status === "active" &&
-                                expiresCountdownLabel(grant.expiresAt) ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-[#34c759]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2dbd5a] dark:bg-[#34c759]/15">
-                                    <Clock3
-                                      className="h-3 w-3"
-                                      aria-hidden="true"
-                                    />
-                                    {expiresCountdownLabel(grant.expiresAt)}
-                                  </span>
-                                ) : null}
                                 <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
                                   {expiresLabel(grant)}
                                 </span>
                               </div>
                             </div>
                             {grant.status === "active" ? (
-                              <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => void handleView(grant)}
-                                  disabled={busy === "view"}
-                                  className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
-                                >
-                                  {busy === "view" ? (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <ShieldCheck className="mr-2 h-4 w-4" />
-                                  )}
-                                  View
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  aria-label={`Stop watching ${receivedGrantOwnerLabel(grant)}'s location`}
-                                  onClick={() => handleUnwatch(grant)}
-                                  className="w-full rounded-full border-black/[0.06] bg-transparent text-[#8e8e93] hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] sm:w-auto dark:border-white/[0.08] dark:text-white/55 dark:hover:bg-[#ff453a]/15 dark:hover:text-[#ff9f9a]"
-                                >
-                                  <X className="mr-2 h-4 w-4" />
-                                  Unwatch
-                                </Button>
-                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleView(grant)}
+                                disabled={busy === "view"}
+                                className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                              >
+                                {busy === "view" ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <ShieldCheck className="mr-2 h-4 w-4" />
+                                )}
+                                View
+                              </Button>
                             ) : null}
                           </div>
                           {point ? (
@@ -5291,14 +4255,14 @@ function OneLocationAgentPageContent() {
                     <EmptyOneState
                       icon={MapPin}
                       title={
-                        unwatchedActiveReceivedGrantCount > 0
-                          ? "You unwatched your active shares"
+                        hiddenReceivedGrantCount > 0
+                          ? "Open notification to view"
                           : "Nothing shared with you"
                       }
                       description={
-                        unwatchedActiveReceivedGrantCount > 0
-                          ? "Refresh to start watching a hidden share again, or ask them to re-share."
-                          : "When someone shares their live location with you, it appears here automatically - no need to open a notification."
+                        hiddenReceivedGrantCount > 0
+                          ? "A location share is waiting in the notification bell."
+                          : "Approved recipient grants appear after you open their notification."
                       }
                     />
                   )}
@@ -5426,7 +4390,7 @@ function OneLocationAgentPageContent() {
                         className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 sm:flex-row sm:items-center"
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
-                          <Clock3 className="h-[18px] w-[18px]" />
+                          <Clock3 aria-hidden="true" className="h-[18px] w-[18px]" />
                         </span>
                         <div className="min-w-0 flex-1">
                           <h3 className="break-words text-[16px] font-medium text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">

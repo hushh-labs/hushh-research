@@ -57,6 +57,8 @@ export type KaiOnboardingState = KaiSetupState;
 export type KaiProfileV2 = {
   schema_version: 3;
   setup: KaiSetupState;
+  /** @deprecated Use `setup`. Kept for legacy onboarding callers. */
+  onboarding: KaiOnboardingState;
   preferences: KaiPreferences;
   updated_at: string;
 };
@@ -173,16 +175,18 @@ export function resolveHorizonAnchorAt(params: {
 
 function createDefaultProfile(now?: Date): KaiProfileV2 {
   const iso = nowIso(now);
+  const setup: KaiSetupState = {
+    completed: false,
+    completed_at: null,
+    skipped_preferences: false,
+    nav_completed_at: null,
+    nav_skipped_at: null,
+    version: 3,
+  };
   return {
     schema_version: SCHEMA_VERSION,
-    setup: {
-      completed: false,
-      completed_at: null,
-      skipped_preferences: false,
-      nav_completed_at: null,
-      nav_skipped_at: null,
-      version: 3,
-    },
+    setup,
+    onboarding: setup,
     preferences: {
       investment_horizon: null,
       investment_horizon_selected_at: null,
@@ -196,6 +200,17 @@ function createDefaultProfile(now?: Date): KaiProfileV2 {
       risk_profile_selected_at: null,
     },
     updated_at: iso,
+  };
+}
+
+function withOnboardingAlias(
+  profile: Omit<KaiProfileV2, "onboarding"> & {
+    onboarding?: KaiOnboardingState;
+  }
+): KaiProfileV2 {
+  return {
+    ...profile,
+    onboarding: profile.setup,
   };
 }
 
@@ -235,7 +250,7 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
 
   const risk_profile = normalizeRiskProfile(prefsRaw.risk_profile);
 
-  return {
+  return withOnboardingAlias({
     schema_version: SCHEMA_VERSION,
     setup: {
       completed,
@@ -273,7 +288,7 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
       ),
     },
     updated_at: normalizeOptionalIso(raw.updated_at) ?? fallback.updated_at,
-  };
+  });
 }
 
 function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
@@ -281,7 +296,7 @@ function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
   const introSeen = raw.intro_seen === true;
   const investment_horizon = normalizeInvestmentHorizon(raw.investment_horizon);
 
-  return {
+  return withOnboardingAlias({
     schema_version: SCHEMA_VERSION,
     setup: {
       completed: introSeen,
@@ -305,7 +320,7 @@ function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
       risk_profile_selected_at: null,
     },
     updated_at: normalizeOptionalIso(raw.updated_at) ?? fallback.updated_at,
-  };
+  });
 }
 
 function normalizeProfile(raw: unknown): KaiProfileV2 {
@@ -638,6 +653,7 @@ export class KaiProfileService {
     }
 
     next.preferences = recomputeDerived(next.preferences, iso);
+    next.onboarding = next.setup;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
@@ -686,6 +702,7 @@ export class KaiProfileService {
       },
       updated_at: iso,
     };
+    next.onboarding = next.setup;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
@@ -740,6 +757,7 @@ export class KaiProfileService {
       },
       updated_at: iso,
     };
+    next.onboarding = next.setup;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
@@ -850,9 +868,10 @@ export class KaiProfileService {
         nav_skipped_at:
           params.navTour.skippedAt !== undefined
             ? params.navTour.skippedAt
-            : next.setup.nav_skipped_at,
+        : next.setup.nav_skipped_at,
       };
     }
+    next.onboarding = next.setup;
 
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,

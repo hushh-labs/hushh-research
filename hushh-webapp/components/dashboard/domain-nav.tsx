@@ -40,7 +40,12 @@ export function DomainNav() {
             )}
           >
             <div className="flex items-center gap-3">
-              <Icon icon={Lucide} size="md" className={domain.color} />
+              <Icon
+                icon={Lucide}
+                size="md"
+                className={domain.color}
+                aria-hidden="true"
+              />
               <span>{domain.name}</span>
             </div>
           </Link>

@@ -210,7 +210,7 @@ export default function RiaClientsPage() {
           >
             {clientsResource.loading ? (
               <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
                 Loading clients...
               </div>
             ) : clientItems.length === 0 ? (
@@ -268,7 +268,7 @@ export default function RiaClientsPage() {
                       <Badge className={cn("text-[10px]", statusBadgeClass(client.status))}>
                         {formatStatus(client.status)}
                       </Badge>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                     </div>
                   </div>
                   <MaterialRipple variant="none" effect="fade" className="z-0" />

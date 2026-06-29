@@ -82,8 +82,12 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
   exit 1
 fi
 
-BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
-if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
+if [ -x "$REPO_ROOT/consent-protocol/.venv/bin/python" ]; then
+  BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
+elif [ -x "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ]; then
+  BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe"
+else
+  BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
   echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
   echo "Run './bin/hushh bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
   exit 1

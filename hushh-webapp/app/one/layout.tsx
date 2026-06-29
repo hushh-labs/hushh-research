@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 
-import { OneAuthGate } from "./one-auth-gate";
+import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
+import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 
 export default function OneLayout({ children }: { children: ReactNode }) {
-  return <OneAuthGate>{children}</OneAuthGate>;
+  return (
+    <VaultLockGuard>
+      <PhoneMandateGuard>{children}</PhoneMandateGuard>
+    </VaultLockGuard>
+  );
 }

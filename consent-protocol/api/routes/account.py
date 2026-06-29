@@ -29,7 +29,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
@@ -40,6 +40,14 @@ from hushh_mcp.services.actor_identity_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# RFC 5322-simplified email pattern — rejects obviously invalid addresses
+# without requiring the email-validator package.
+_EMAIL_RE = re.compile(
+    r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+"
+    r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
+)
 
 router = APIRouter(prefix="/api/account", tags=["Account"])
 
@@ -74,10 +82,24 @@ class DeleteAccountRequest(BaseModel):
 class EmailAliasVerificationStartRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email address format")
+        return v
+
 
 class EmailAliasVerificationConfirmRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     verification_code: str = Field(min_length=1, max_length=64)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email address format")
+        return v
 
 
 class PhoneClaimRequest(BaseModel):

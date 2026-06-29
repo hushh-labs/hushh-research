@@ -362,6 +362,104 @@ def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
     assert action_plan.reason == "durable personal context"
 
 
+def test_agent_chat_translates_gemini_function_call_to_pkm_update(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-4",
+            name="update_pkm",
+            args={
+                "domain": "identity",
+                "field_path": "address",
+                "proposed_value": "123 Main St, New York, NY, 10001",
+                "current_value": "456 Old Rd",
+            },
+        )
+    )
+
+    assert action_plan is not None
+    assert action_plan.call_id == "gemini-call-4"
+    assert action_plan.action_id == "pkm.update"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {
+        "domain": "identity",
+        "field_path": "address",
+        "proposed_value": "123 Main St, New York, NY, 10001",
+        "current_value": "456 Old Rd",
+    }
+
+
+def test_agent_chat_pkm_update_omitted_current_value_defaults_empty(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-5",
+            name="update_pkm",
+            args={
+                "domain": "identity",
+                "field_path": "address",
+                "proposed_value": "123 Main St",
+            },
+        )
+    )
+
+    assert action_plan is not None
+    assert action_plan.action_id == "pkm.update"
+    assert action_plan.slots["current_value"] == ""
+
+
+def test_agent_chat_pkm_update_requires_domain_field_and_value(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    # Missing domain -> cannot target an update, returns None (no broken emit)
+    assert (
+        service._action_plan_from_function_call(
+            SimpleNamespace(
+                id="c",
+                name="update_pkm",
+                args={"field_path": "address", "proposed_value": "x"},
+            )
+        )
+        is None
+    )
+    # Missing field_path
+    assert (
+        service._action_plan_from_function_call(
+            SimpleNamespace(
+                id="c",
+                name="update_pkm",
+                args={"domain": "identity", "proposed_value": "x"},
+            )
+        )
+        is None
+    )
+    # Missing proposed_value
+    assert (
+        service._action_plan_from_function_call(
+            SimpleNamespace(
+                id="c",
+                name="update_pkm",
+                args={"domain": "identity", "field_path": "address"},
+            )
+        )
+        is None
+    )
+
+
+def test_agent_chat_regex_fallback_does_not_misroute_update_to_add(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    # The deterministic regex fallback cannot infer the PKM domain, so an
+    # "update my X" intent must NOT be silently routed to pkm.add (the add flow
+    # auto-saves to the wrong domain without confirmation). pkm.update is emitted
+    # only by the LLM function-call path, which receives PKM domain context.
+    action_plan = service.plan_action("Update my address in pkm to 123 Main St")
+
+    assert action_plan is None or action_plan.action_id != "pkm.add"
+
+
 def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
 

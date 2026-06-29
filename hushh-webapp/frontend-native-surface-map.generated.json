@@ -25,10 +25,6 @@
       "file": "app/api/account/export/route.ts"
     },
     {
-      "template": "/api/account/reset",
-      "file": "app/api/account/reset/route.ts"
-    },
-    {
       "template": "/api/app-config/review-mode",
       "file": "app/api/app-config/review-mode/route.ts"
     },
@@ -510,41 +506,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/getting-started",
-      "page_file": "app/getting-started/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
-        "shell_verification_file": null,
-        "shell_verification_includes": []
-      },
-      "native": {
-        "route": "/getting-started",
-        "classification": "native-required-functional",
-        "initialRoute": "/getting-started",
-        "expectedMarker": "native-route-getting-started",
-        "expectedRoute": "/getting-started",
-        "autoReviewerLogin": false,
-        "expectedAuth": "anonymous",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/gmail",
       "page_file": "app/gmail/page.tsx",
       "physical_page_exists": true,
@@ -909,7 +870,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
+        "exemption_reason": "Compatibility redirect route only launches the canonical /one/onboarding flow.",
         "shell_verification_file": null,
         "shell_verification_includes": []
       },
@@ -917,8 +878,8 @@
         "route": "/kai/onboarding",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai%2Fonboarding",
-        "expectedMarker": "native-route-one-setup-kai",
-        "expectedRoute": "/one/setup/kai",
+        "expectedMarker": "native-route-kai-onboarding",
+        "expectedRoute": "/one/kai/onboarding",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1719,7 +1680,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
+        "exemption_reason": "Compatibility redirect route only launches the canonical /one/onboarding flow.",
         "shell_verification_file": null,
         "shell_verification_includes": []
       },
@@ -1727,14 +1688,13 @@
         "route": "/one/kai/onboarding",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fonboarding",
-        "expectedMarker": "native-route-one-setup-kai",
-        "expectedRoute": "/one/setup/kai",
+        "expectedMarker": "native-route-kai-onboarding",
+        "expectedRoute": "/one/kai/onboarding",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ],
-        "legacyAlias": true
+        ]
       },
       "shell": {
         "app_page_shell": false,
@@ -2016,12 +1976,12 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/one/location/invite/[token]",
-      "page_file": "app/one/location/invite/[token]/page.tsx",
+      "route": "/one/location/request/[token]",
+      "page_file": "app/one/location/request/[token]/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public one-location circle invite route is a standalone external-acceptance form outside the signed-in app shell.",
+        "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
         "shell_verification_file": null,
         "shell_verification_includes": []
       },
@@ -2040,12 +2000,12 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/one/location/request/[token]",
-      "page_file": "app/one/location/request/[token]/page.tsx",
+      "route": "/one/onboarding",
+      "page_file": "app/one/onboarding/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+        "mode": "flow",
+        "exemption_reason": "Fullscreen onboarding flow owns its own shell and safe-area spacing.",
         "shell_verification_file": null,
         "shell_verification_includes": []
       },
@@ -2054,8 +2014,8 @@
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -2099,110 +2059,6 @@
         "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/one/setup",
-      "page_file": "app/one/setup/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/onboarding/setup/one-setup-hub.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ]
-      },
-      "native": {
-        "route": "/one/setup",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fsetup",
-        "expectedMarker": "native-route-one-setup",
-        "expectedRoute": "/one/setup",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": true,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/one/setup/[capability]",
-      "page_file": "app/one/setup/[capability]/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/onboarding/setup/onboarding-capability-step.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ]
-      },
-      "native": null,
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/one/setup/kai",
-      "page_file": "app/one/setup/kai/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "flow",
-        "exemption_reason": "Fullscreen setup wizard owns its own shell and safe-area spacing.",
-        "shell_verification_file": null,
-        "shell_verification_includes": []
-      },
-      "native": {
-        "route": "/one/setup/kai",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fkai",
-        "expectedMarker": "native-route-one-setup-kai",
-        "expectedRoute": "/one/setup/kai",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],

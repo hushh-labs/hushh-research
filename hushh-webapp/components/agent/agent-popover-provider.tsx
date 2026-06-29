@@ -2,10 +2,10 @@
 
 import {
   createContext,
-  Suspense,
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -16,22 +16,35 @@ import {
   type SetStateAction,
 } from "react";
 import { usePathname } from "next/navigation";
-import { Grip, Maximize2, Minimize2, Minus, X } from "lucide-react";
+import {
+  Grip,
+  Maximize2,
+  MessageCircleMore,
+  Minimize2,
+  Minus,
+  X,
+} from "lucide-react";
 
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AGENT_POPOVER_DEFAULT_SIZE_MODE,
   AGENT_POPOVER_PRESET_SIZES,
   AGENT_POPOVER_STORAGE_KEYS,
+  clampAgentTriggerPosition,
   clampAgentPopoverSize,
+  getDefaultAgentTriggerPosition,
   isAgentPopoverSizeMode,
   resolveAgentPopoverSize,
   type AgentPopoverSize,
   type AgentPopoverSizeMode,
+  type AgentTriggerBounds,
+  type AgentTriggerPosition,
 } from "@/lib/agent/agent-popover-layout";
-import { ROUTES } from "@/lib/navigation/routes";
+import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
+import { ROUTES, isRiaActionBarRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type AgentPopoverContextValue = {
@@ -48,6 +61,9 @@ type AgentPopoverMotionState = "idle" | "opening" | "closing";
 
 const AGENT_POPOVER_TRANSITION_MS = 360;
 const DEFAULT_CUSTOM_SIZE: AgentPopoverSize = AGENT_POPOVER_PRESET_SIZES.large;
+const AGENT_TRIGGER_FALLBACK_SIZE = 44;
+const AGENT_TRIGGER_DRAG_THRESHOLD_PX = 5;
+const AGENT_TRIGGER_TOP_GUARD_PX = 88;
 
 const AgentPopoverContext = createContext<AgentPopoverContextValue | null>(
   null,
@@ -91,6 +107,99 @@ function readStoredCustomSize(): AgentPopoverSize {
   } catch {
     return DEFAULT_CUSTOM_SIZE;
   }
+}
+
+function readStoredTriggerPosition(): AgentTriggerPosition | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.localStorage.getItem(
+    AGENT_POPOVER_STORAGE_KEYS.triggerPosition,
+  );
+  if (!stored) return null;
+  try {
+    const parsed = JSON.parse(stored) as Partial<AgentTriggerPosition>;
+    if (typeof parsed.x !== "number" || typeof parsed.y !== "number") {
+      return null;
+    }
+    if (!Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) {
+      return null;
+    }
+    return {
+      x: parsed.x,
+      y: parsed.y,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resolveCssLength(anchor: HTMLElement | null, value: string): number {
+  if (typeof document === "undefined") return 0;
+  const container = anchor?.parentElement ?? document.body;
+  if (!container) return 0;
+
+  const probe = document.createElement("div");
+  probe.style.position = "fixed";
+  probe.style.left = "0";
+  probe.style.top = "0";
+  probe.style.height = value;
+  probe.style.width = "1px";
+  probe.style.visibility = "hidden";
+  probe.style.pointerEvents = "none";
+  probe.style.contain = "strict";
+  container.appendChild(probe);
+  const px = probe.getBoundingClientRect().height;
+  probe.remove();
+
+  return Number.isFinite(px) ? Math.max(0, px) : 0;
+}
+
+function measureVisibleReservedBottom(selector: string): number {
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return 0;
+  const viewportHeight = window.innerHeight;
+  let reservedBottom = 0;
+
+  document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    if (rect.bottom <= 0 || rect.top >= viewportHeight) return;
+    reservedBottom = Math.max(reservedBottom, viewportHeight - rect.top);
+  });
+
+  return reservedBottom;
+}
+
+function getAgentTriggerBounds(
+  trigger: HTMLElement | null,
+): AgentTriggerBounds {
+  const rect = trigger?.getBoundingClientRect();
+  const reservedBottomFromChrome = Math.max(
+    measureVisibleReservedBottom('[data-tour-id="kai-command-bar"]'),
+    measureVisibleReservedBottom('[data-testid="ria-action-bar"]'),
+    measureVisibleReservedBottom('[aria-label="Main navigation"]'),
+  );
+  const reservedBottomFromCss = Math.max(
+    resolveCssLength(trigger, "var(--bottom-chrome-full-height, 0px)"),
+    resolveCssLength(trigger, "var(--bottom-chrome-stack-height, 0px)"),
+    resolveCssLength(
+      trigger,
+      "calc(var(--app-bottom-fixed-ui, 76px) + var(--kai-command-fixed-ui, 82px) + var(--bottom-chrome-fade-overscan, 18px))",
+    ),
+  );
+
+  return {
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    triggerWidth: Math.max(AGENT_TRIGGER_FALLBACK_SIZE, rect?.width ?? 0),
+    triggerHeight: Math.max(AGENT_TRIGGER_FALLBACK_SIZE, rect?.height ?? 0),
+    reservedBottom: Math.max(reservedBottomFromChrome, reservedBottomFromCss),
+    reservedTop: AGENT_TRIGGER_TOP_GUARD_PX,
+    safeTop: resolveCssLength(
+      trigger,
+      "var(--app-safe-area-top-effective, 0px)",
+    ),
+    margin: 16,
+  };
 }
 
 export function useAgentPopover() {
@@ -233,6 +342,7 @@ function AgentPopoverSurface({
   customSize,
   setCustomSize,
 }: AgentPopoverSurfaceProps) {
+  const { isAuthenticated } = useAuth();
   const pathname = usePathname();
   const {
     expanded,
@@ -243,26 +353,21 @@ function AgentPopoverSurface({
     openAgent,
     minimizeAgent,
   } = useAgentPopover();
+  const chromeState = getKaiChromeState(pathname);
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
-  // The agent is a SINGLE surface present everywhere, including onboarding and
-  // for anonymous (pre-sign-in) users. It degrades gracefully by auth/vault
-  // level rather than unmounting, so it intentionally does NOT gate on
-  // isAuthenticated or on the Kai command-bar's hideCommandBar (which is a
-  // different surface). We only suppress it where an agent window must not exist
-  // at all: the legacy dedicated agent route, phone mandate, the appearance lab,
-  // the developers page, and the auth/landing transitions where the app shell
-  // itself is not the right host.
-  const path = pathname ?? "";
-  const isAgentSuppressedRoute =
-    isLegacyAgentRoute ||
-    isPhoneMandateRoute ||
-    path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
-    path === ROUTES.DEVELOPERS ||
-    path === ROUTES.HOME ||
-    path.startsWith(ROUTES.LOGIN) ||
-    path.startsWith(ROUTES.LOGOUT);
-  const canShowAgent = !isAgentSuppressedRoute;
+  const canShowAgent =
+    isAuthenticated &&
+    !isLegacyAgentRoute &&
+    !isPhoneMandateRoute &&
+    !chromeState.hideCommandBar;
+  const isKaiSurfaceRoute = Boolean(
+    pathname?.startsWith(ROUTES.KAI_HOME) || pathname?.startsWith(ROUTES.LEGACY_KAI_HOME)
+  );
+  const useEmbeddedAgentTrigger =
+    isKaiSurfaceRoute ||
+    isRiaActionBarRoute(pathname) ||
+    !chromeState.hideCommandBar;
   const isCollapsing = motionState === "closing";
   const surfaceVisible = expanded || motionState !== "idle";
   const isFullscreen = sizeMode === "fullscreen";
@@ -273,6 +378,17 @@ function AgentPopoverSurface({
     startWidth: number;
     startHeight: number;
   } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const triggerDragStartRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startPosition: AgentTriggerPosition;
+    moved: boolean;
+  } | null>(null);
+  const skipTriggerClickRef = useRef(false);
+  const [triggerPosition, setTriggerPosition] =
+    useState<AgentTriggerPosition | null>(readStoredTriggerPosition);
 
   const resolvedPanelSize = useMemo(() => {
     const viewport = getViewportSize();
@@ -353,6 +469,124 @@ function AgentPopoverSurface({
     [],
   );
 
+  const clampTriggerPosition = useCallback((position: AgentTriggerPosition) => {
+    return clampAgentTriggerPosition(
+      position,
+      getAgentTriggerBounds(triggerRef.current),
+    );
+  }, []);
+
+  const clampStoredTriggerPosition = useCallback(() => {
+    if (typeof window === "undefined") return;
+    setTriggerPosition((current) => {
+      const bounds = getAgentTriggerBounds(triggerRef.current);
+      const next = current
+        ? clampAgentTriggerPosition(current, bounds)
+        : getDefaultAgentTriggerPosition(bounds);
+      return next;
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!canShowAgent || useEmbeddedAgentTrigger) return;
+    clampStoredTriggerPosition();
+
+    window.addEventListener("resize", clampStoredTriggerPosition);
+    window.addEventListener("orientationchange", clampStoredTriggerPosition);
+    return () => {
+      window.removeEventListener("resize", clampStoredTriggerPosition);
+      window.removeEventListener(
+        "orientationchange",
+        clampStoredTriggerPosition,
+      );
+    };
+  }, [canShowAgent, clampStoredTriggerPosition, useEmbeddedAgentTrigger]);
+
+  useEffect(() => {
+    if (!triggerPosition) return;
+    window.localStorage.setItem(
+      AGENT_POPOVER_STORAGE_KEYS.triggerPosition,
+      JSON.stringify(triggerPosition),
+    );
+  }, [triggerPosition]);
+
+  const handleTriggerPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const startPosition = clampTriggerPosition(
+        triggerPosition ?? {
+          x: rect.left,
+          y: rect.top,
+        },
+      );
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+      triggerDragStartRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startPosition,
+        moved: false,
+      };
+    },
+    [clampTriggerPosition, triggerPosition],
+  );
+
+  const handleTriggerPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const start = triggerDragStartRef.current;
+      if (!start || start.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - start.startClientX;
+      const deltaY = event.clientY - start.startClientY;
+      const moved =
+        start.moved ||
+        Math.hypot(deltaX, deltaY) >= AGENT_TRIGGER_DRAG_THRESHOLD_PX;
+      if (!moved) return;
+
+      event.preventDefault();
+      start.moved = true;
+      setTriggerPosition(
+        clampTriggerPosition({
+          x: start.startPosition.x + deltaX,
+          y: start.startPosition.y + deltaY,
+        }),
+      );
+    },
+    [clampTriggerPosition],
+  );
+
+  const handleTriggerPointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const start = triggerDragStartRef.current;
+      if (!start || start.pointerId !== event.pointerId) return;
+
+      triggerDragStartRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      if (start.moved) {
+        event.preventDefault();
+        skipTriggerClickRef.current = true;
+      }
+    },
+    [],
+  );
+
+  const handleTriggerClick = useCallback(() => {
+    if (skipTriggerClickRef.current) {
+      skipTriggerClickRef.current = false;
+      return;
+    }
+    openAgent();
+  }, [openAgent]);
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
   if (!canShowAgent) {
     return null;
   }
@@ -369,26 +603,18 @@ function AgentPopoverSurface({
         >
           <section
             className={cn(
-              "pointer-events-auto fixed flex min-h-0 origin-bottom-right flex-col overflow-hidden bg-white/95 text-[#1d1d1f] shadow-2xl backdrop-blur-xl transition-[border-radius,filter,height,opacity,transform,width] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transform-none motion-reduce:transition-none dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
+              "pointer-events-auto fixed flex min-h-0 origin-bottom-right flex-col overflow-hidden border border-black/10 bg-white/95 text-[#1d1d1f] shadow-2xl backdrop-blur-xl transition-[border-radius,filter,height,opacity,transform,width] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transform-none motion-reduce:transition-none dark:border-white/10 dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
               isFullscreen
-                ? "inset-0 rounded-none border-0"
-                : // On phones the Agent window is a full immersive sheet: edge to
-                  // edge across the entire dynamic viewport (incl. safe areas),
-                  // no rounded corners and no hairline border. On >=sm it is a
-                  // floating, rounded, inset card with a hairline border.
-                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg border border-black/10 max-sm:inset-0 max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))] dark:border-white/10",
+                ? "inset-0 rounded-none"
+                : "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg max-sm:inset-0 max-sm:h-auto max-sm:w-auto max-sm:rounded-none sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))]",
               expanded
                 ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0"
-                : // Closed/closing motion. On phones the sheet simply slides down
-                  // and fades (no corner-scale), so it never collapses into the
-                  // agent bar's spot and fights its fade-in. On >=sm it keeps the
-                  // genie-style shrink toward the bottom-right launcher.
-                  "pointer-events-none opacity-0 max-sm:translate-y-full max-sm:scale-100 max-sm:blur-0 sm:translate-x-3 sm:translate-y-[calc(100%-5.75rem)] sm:scale-[0.2] sm:blur-sm",
-              isCollapsing && "sm:rounded-2xl sm:ring-1 sm:ring-primary/25",
+                : "pointer-events-none translate-x-3 translate-y-[calc(100%-5.75rem)] scale-[0.2] opacity-0 blur-sm",
+              isCollapsing && "rounded-2xl ring-1 ring-primary/25",
             )}
             style={panelStyle}
             role="dialog"
-            aria-label="One"
+            aria-label="Agent"
             aria-modal={false}
             aria-hidden={!expanded}
             inert={!expanded}
@@ -408,29 +634,65 @@ function AgentPopoverSurface({
                 onPointerMove={handleResizePointerMove}
                 onPointerUp={handleResizePointerEnd}
                 onPointerCancel={handleResizePointerEnd}
-                aria-label="Resize One"
-                title="Drag to resize One"
+                aria-label="Resize Agent"
+                title="Drag to resize Agent"
               >
                 <Grip className="h-3.5 w-3.5" />
               </Button>
             ) : null}
-            <Suspense fallback={null}>
-              <AgentChatWorkspace
-                variant="popover"
-                windowControls={
-                  <AgentPopoverWindowControls
-                    sizeMode={sizeMode}
-                    setSizeMode={setSizeMode}
-                    onMinimize={minimizeAgent}
-                    onClose={minimizeAgent}
-                  />
-                }
-                onMinimize={minimizeAgent}
-                onNavigationActionComplete={handleNavigationActionComplete}
-              />
-            </Suspense>
+            <AgentChatWorkspace
+              variant="popover"
+              windowControls={
+                <AgentPopoverWindowControls
+                  sizeMode={sizeMode}
+                  setSizeMode={setSizeMode}
+                  onMinimize={minimizeAgent}
+                  onClose={minimizeAgent}
+                />
+              }
+              onMinimize={minimizeAgent}
+              onNavigationActionComplete={handleNavigationActionComplete}
+            />
           </section>
         </div>
+      ) : null}
+
+      {!useEmbeddedAgentTrigger ? (
+        <Button
+          ref={triggerRef}
+          type="button"
+          variant="secondary"
+          className={cn(
+            "fixed z-[130] h-11 touch-none select-none gap-2 rounded-full border border-black/10 bg-white/92 px-4 text-[#1d1d1f] shadow-lg shadow-black/10 backdrop-blur-md transition-[box-shadow,opacity,transform,background-color,border-color] duration-300 ease-out hover:border-black/15 hover:bg-white hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 motion-reduce:transform-none motion-reduce:transition-none dark:border-white/15 dark:bg-[#1c1c1e]/90 dark:text-[#f5f5f7] dark:shadow-black/35 dark:hover:bg-[#2c2c2e]",
+            "cursor-grab active:cursor-grabbing",
+            expanded && !isCollapsing
+              ? "pointer-events-none translate-y-3 scale-95 opacity-0"
+              : "translate-y-0 scale-100 opacity-100",
+            isCollapsing && "ring-1 ring-primary/30 shadow-primary/20",
+          )}
+          style={
+            triggerPosition
+              ? {
+                  left: `${triggerPosition.x}px`,
+                  top: `${triggerPosition.y}px`,
+                }
+              : {
+                  bottom:
+                    "calc(var(--bottom-chrome-full-height, calc(var(--app-bottom-fixed-ui, 76px) + var(--kai-command-fixed-ui, 82px) + 18px)) + 0.75rem)",
+                  right: "1rem",
+                }
+          }
+          onPointerDown={handleTriggerPointerDown}
+          onPointerMove={handleTriggerPointerMove}
+          onPointerUp={handleTriggerPointerEnd}
+          onPointerCancel={handleTriggerPointerEnd}
+          onClick={handleTriggerClick}
+          aria-label="Open Agent"
+          title="Drag to reposition Agent, tap to open"
+        >
+          <MessageCircleMore className="h-4 w-4" />
+          <span className="hidden text-sm font-medium sm:inline">Agent</span>
+        </Button>
       ) : null}
 
       <AgentVoiceFloatingIndicator onClick={openAgent} />
@@ -454,7 +716,7 @@ function AgentPopoverWindowControls({
   return (
     <div
       className="hidden h-8 overflow-hidden rounded-md border border-black/10 bg-black/[0.035] dark:border-white/10 dark:bg-white/[0.03] sm:flex"
-      aria-label="One window controls"
+      aria-label="Agent window controls"
       role="group"
     >
       <Button
@@ -463,8 +725,8 @@ function AgentPopoverWindowControls({
         size="icon-xs"
         className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100"
         onClick={onMinimize}
-        aria-label="Minimize One"
-        title="Minimize One"
+        aria-label="Minimize Agent"
+        title="Minimize Agent"
       >
         <Minus className="h-3.5 w-3.5" />
       </Button>
@@ -474,8 +736,8 @@ function AgentPopoverWindowControls({
         size="icon-xs"
         className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100"
         onClick={() => setSizeMode(isFullscreen ? "large" : "fullscreen")}
-        aria-label={isFullscreen ? "Restore One" : "Maximize One"}
-        title={isFullscreen ? "Restore One" : "Maximize One"}
+        aria-label={isFullscreen ? "Restore Agent" : "Maximize Agent"}
+        title={isFullscreen ? "Restore Agent" : "Maximize Agent"}
       >
         {isFullscreen ? (
           <Minimize2 className="h-3.5 w-3.5" />
@@ -489,10 +751,10 @@ function AgentPopoverWindowControls({
         size="icon-xs"
         className="h-8 w-10 rounded-none text-[rgba(0,0,0,0.50)] hover:bg-red-500/85 hover:text-white focus-visible:ring-2 focus-visible:ring-red-400/70 dark:text-zinc-400"
         onClick={onClose}
-        aria-label="Close One"
-        title="Close One"
+        aria-label="Close Agent"
+        title="Close Agent"
       >
-        <X className="h-3.5 w-3.5" />
+        <X aria-hidden="true" className="h-3.5 w-3.5" />
       </Button>
     </div>
   );

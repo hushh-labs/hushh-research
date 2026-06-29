@@ -202,10 +202,7 @@ export function DataTable<TData, TValue>({
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
 
   return (
-    <div
-      className="space-y-[var(--data-table-controls-gap)]"
-      data-no-route-swipe={hasMultiplePages ? "true" : undefined}
-    >
+    <div className="space-y-[var(--data-table-controls-gap)]">
       {(enableSearch || (filterKey && filterOptions)) && (
         <div className="flex flex-col gap-3 sm:flex-row">
           {enableSearch && (
@@ -396,7 +393,6 @@ export function DataTable<TData, TValue>({
                     variant="outline"
                     size="sm"
                     className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
-                    data-no-route-swipe
                     aria-label="Rows per page"
                   >
                     {table.getState().pagination.pageSize}
@@ -420,10 +416,7 @@ export function DataTable<TData, TValue>({
             </div>
 
             <Pagination className="justify-end">
-              <PaginationContent
-                data-no-route-swipe
-                className="flex-wrap gap-y-1"
-              >
+              <PaginationContent className="flex-wrap gap-y-1">
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
