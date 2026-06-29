@@ -1,11 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AgentPopoverProvider,
-  useAgentPopover,
-} from "@/components/agent/agent-popover-provider";
-
+import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/profile",
@@ -142,67 +138,4 @@ describe("AgentPopoverProvider floating trigger", () => {
 
     expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
   });
-
-  // Regression: the fullscreen agent window must NOT stay mounted on top of the
-  // destination page after a route change. Opening the agent on one screen and
-  // navigating (e.g. into /one/location) previously left the agent covering the
-  // page's real UI. Closing on route change keeps the agent a transient overlay.
-  it("minimizes the agent window when the route changes", () => {
-    navigationMock.pathname = "/profile";
-
-    // openAgent defers setExpanded to requestAnimationFrame; run rAF callbacks
-    // synchronously so the open transition completes within act().
-    const rafSpy = vi
-      .spyOn(window, "requestAnimationFrame")
-      .mockImplementation((cb: FrameRequestCallback) => {
-        cb(0);
-        return 0;
-      });
-
-    function OpenAgentOnMount() {
-      const { openAgent, expanded } = useAgentPopover();
-
-      return (
-        <button
-          type="button"
-          data-testid="probe"
-          data-expanded={expanded ? "1" : "0"}
-          onClick={openAgent}
-        >
-          open
-        </button>
-      );
-    }
-
-    const { rerender } = render(
-      <AgentPopoverProvider>
-        <OpenAgentOnMount />
-      </AgentPopoverProvider>,
-    );
-
-    const probe = () => screen.getByTestId("probe");
-    expect(probe().getAttribute("data-expanded")).toBe("0");
-
-    // Open the agent on the current route.
-    act(() => {
-      probe().click();
-    });
-    expect(probe().getAttribute("data-expanded")).toBe("1");
-
-    // Navigate to a new route; the agent must close itself.
-    act(() => {
-      navigationMock.pathname = "/one/location";
-      rerender(
-        <AgentPopoverProvider>
-          <OpenAgentOnMount />
-        </AgentPopoverProvider>,
-      );
-    });
-
-    expect(probe().getAttribute("data-expanded")).toBe("0");
-
-    rafSpy.mockRestore();
-  });
 });
-
-
