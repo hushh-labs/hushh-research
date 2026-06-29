@@ -554,7 +554,7 @@ class ConsentDBService:
 
         # Post-process to get latest per request_id (DISTINCT ON equivalent)
         latest_per_request = {}
-        for row in response.data:
+        for row in response.data or []:
             if not self._is_external_audit_row(row):
                 continue
             request_id = row.get("request_id")
@@ -824,7 +824,7 @@ class ConsentDBService:
 
         # Post-process to get latest per (agent_id, scope) (DISTINCT ON equivalent)
         latest_per_agent_scope = {}
-        for row in response.data:
+        for row in response.data or []:
             if not self._is_external_audit_row(row):
                 continue
             row_scope = row.get("scope")
