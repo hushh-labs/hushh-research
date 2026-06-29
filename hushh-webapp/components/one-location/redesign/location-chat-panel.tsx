@@ -1,88 +1,126 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useRef, useState } from "react";
+import { Maximize2, RotateCcw } from "lucide-react";
 
-import { OneLocationService } from "@/lib/one-location/service";
-
-interface ChatLine {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-}
+import { cn } from "@/lib/utils";
+import { BotAvatar } from "./location-chat-atoms";
+import { ChatComposer } from "./location-chat-composer";
+import { ChatMessageList } from "./location-chat-message-list";
+import { LocationChatOverlay } from "./location-chat-overlay";
+import { SuggestionChips } from "./location-chat-suggestions";
+import { CARD_SURFACE, MUTED_TEXT } from "./tokens";
+import { useLocationChat } from "./use-location-chat";
 
 export function LocationChatPanel(props: {
-  vaultOwnerToken: string;
+  vaultOwnerToken: string | null;
   onStateChanged?: () => void;
 }) {
   const { vaultOwnerToken, onStateChanged } = props;
   const [input, setInput] = useState("");
-  const [lines, setLines] = useState<ChatLine[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const send = useCallback(async () => {
+  const chat = useLocationChat({
+    vaultOwnerToken: vaultOwnerToken ?? "",
+    onStateChanged,
+  });
+
+  const submit = () => {
     const message = input.trim();
-    if (!message || busy) return;
-
-    setBusy(true);
-    setError(null);
+    if (!message) return;
     setInput("");
-    setLines((prev) => [
-      ...prev,
-      { id: `u-${prev.length}`, role: "user", text: message },
-    ]);
+    void chat.send(message);
+  };
 
-    try {
-      const result = await OneLocationService.chat({
-        vaultOwnerToken,
-        message,
-        conversationId,
-      });
-      setConversationId(result.conversationId);
-      setLines((prev) => [
-        ...prev,
-        { id: `a-${prev.length}`, role: "assistant", text: result.response },
-      ]);
-      if (result.stateChanged) onStateChanged?.();
-    } catch {
-      setError("Sorry — that location command could not be processed.");
-    } finally {
-      setBusy(false);
-    }
-  }, [input, busy, vaultOwnerToken, conversationId, onStateChanged]);
+  const sendValue = (value: string) => {
+    setInput("");
+    void chat.send(value);
+  };
+
+  const prefill = (value: string) => {
+    setInput(value);
+    inputRef.current?.focus();
+  };
+
+  if (!vaultOwnerToken) {
+    return (
+      <section data-testid="location-chat-panel" className={cn(CARD_SURFACE, "p-4")}>
+        <div className="flex items-center gap-3">
+          <BotAvatar />
+          <div>
+            <p className="text-sm font-semibold text-foreground">One Location</p>
+            <p className={MUTED_TEXT}>Unlock your vault to use the assistant.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const hasMessages = chat.messages.length > 0;
 
   return (
-    <div data-testid="location-chat-panel">
-      <div data-testid="location-chat-log">
-        {lines.map((line) => (
-          <p key={line.id} data-role={line.role}>
-            {line.text}
+    <section data-testid="location-chat-panel" className={cn(CARD_SURFACE, "p-4")}>
+      <header className="mb-3 flex items-center gap-3">
+        <BotAvatar />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">One Location</p>
+          <p className={MUTED_TEXT}>
+            Ask who can see you — or make changes by typing.
           </p>
-        ))}
-      </div>
-      {error ? <p role="alert">{error}</p> : null}
-      <div>
-        <input
-          data-testid="location-chat-input"
-          value={input}
-          disabled={busy}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void send();
-          }}
-          placeholder="Ask: who can see me? / stop sharing with…"
-          aria-label="Ask the location assistant"
-        />
+        </div>
+        {hasMessages ? (
+          <button
+            type="button"
+            onClick={chat.clear}
+            aria-label="Clear conversation"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </button>
+        ) : null}
         <button
           type="button"
-          data-testid="location-chat-send"
-          disabled={busy}
-          onClick={() => void send()}
+          onClick={() => setOverlayOpen(true)}
+          aria-label="Open focused chat"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
         >
-          Send
+          <Maximize2 className="h-4 w-4" />
         </button>
-      </div>
-    </div>
+      </header>
+
+      {hasMessages || chat.busy ? (
+        <div className="mb-3">
+          <ChatMessageList
+            messages={chat.messages}
+            busy={chat.busy}
+            onRetry={chat.retry}
+          />
+        </div>
+      ) : (
+        <div className="mb-3">
+          <SuggestionChips onSend={sendValue} onPrefill={prefill} />
+        </div>
+      )}
+
+      <ChatComposer
+        value={input}
+        onChange={setInput}
+        onSend={submit}
+        busy={chat.busy}
+        inputRef={inputRef}
+      />
+
+      <LocationChatOverlay
+        open={overlayOpen}
+        onOpenChange={setOverlayOpen}
+        messages={chat.messages}
+        busy={chat.busy}
+        value={input}
+        onChange={setInput}
+        onSend={submit}
+        onRetry={chat.retry}
+      />
+    </section>
   );
 }

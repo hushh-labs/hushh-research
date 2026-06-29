@@ -7,7 +7,6 @@ import { OneLocationService } from "@/lib/one-location/service";
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: { chat: vi.fn() },
 }));
-
 vi.mock("@/lib/capacitor", () => ({
   HushhLocation: {
     getPermissionState: vi.fn(),
@@ -19,6 +18,8 @@ vi.mock("@/lib/capacitor", () => ({
     requestLocationPermission: vi.fn(),
   },
 }));
+// Keep the overlay on its desktop (Dialog) branch if it mounts during a test.
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 
 const mockChat = vi.mocked(OneLocationService.chat);
 
@@ -89,5 +90,28 @@ describe("LocationChatPanel", () => {
     await waitFor(() => expect(mockChat).toHaveBeenCalledTimes(2));
 
     expect(mockChat.mock.calls[1][0].conversationId).toBe("conv-42");
+  });
+
+  it("shows suggestion chips before any message and sends one on click", async () => {
+    mockChat.mockResolvedValue({
+      conversationId: "c",
+      response: "Mom and Dad.",
+      isComplete: true,
+      stateChanged: false,
+    });
+    render(<LocationChatPanel vaultOwnerToken="t" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Who can see me?" }));
+
+    await waitFor(() =>
+      expect(mockChat.mock.calls[0][0].message).toBe("Who can see me right now?"),
+    );
+  });
+
+  it("renders a locked stub when there is no vault token", () => {
+    render(<LocationChatPanel vaultOwnerToken={null} />);
+    expect(screen.getByTestId("location-chat-panel")).toBeTruthy();
+    expect(screen.getByText(/unlock your vault/i)).toBeTruthy();
+    expect(screen.queryByTestId("location-chat-input")).toBeNull();
   });
 });
