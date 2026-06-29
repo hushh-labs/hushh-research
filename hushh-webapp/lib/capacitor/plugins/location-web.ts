@@ -6,7 +6,6 @@ import type {
 function geolocationAvailable(): boolean {
   return typeof navigator !== "undefined" && "geolocation" in navigator;
 }
-
 export class HushhLocationWeb implements HushhLocationPlugin {
   async getPermissionState(): Promise<HushhLocationPermissionState> {
     if (!geolocationAvailable()) {
@@ -247,4 +246,3 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     }
   }
 }
-

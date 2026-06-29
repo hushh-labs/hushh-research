@@ -268,7 +268,7 @@ export default function RiaClientsPage() {
                       <Badge className={cn("text-[10px]", statusBadgeClass(client.status))}>
                         {formatStatus(client.status)}
                       </Badge>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                     </div>
                   </div>
                   <MaterialRipple variant="none" effect="fade" className="z-0" />

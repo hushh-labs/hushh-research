@@ -15,9 +15,7 @@ import {
   KaiCommandPalette,
   type KaiCommandPaletteSelection,
 } from "@/components/kai/kai-command-palette";
-import {
-  type VoiceAmbientMode,
-} from "@/components/kai/voice/voice-ambient-search-surface";
+import { type VoiceAmbientMode } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -91,6 +89,7 @@ interface KaiSearchBarProps {
   onTtsPlayingChange?: (playing: boolean) => void;
   voiceContext?: Record<string, unknown>;
   surfaceVariant?: SearchSurfaceVariant;
+  showAgent?: boolean;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -312,6 +311,7 @@ export function KaiSearchBar({
   onTtsPlayingChange,
   voiceContext,
   surfaceVariant = "kai",
+  showAgent: _showAgent = false,
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
@@ -1646,11 +1646,14 @@ export function KaiSearchBar({
   const isRiaSurface = surfaceVariant === "ria";
   const riaVoiceActive = ambientMode !== "idle";
   const riaVoiceDisabled =
-    !riaVoiceActive && (disabled || micDisabled || voiceVisibilityMode === "hidden");
+    !riaVoiceActive &&
+    (disabled || micDisabled || voiceVisibilityMode === "hidden");
   const handleRiaVoiceClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       if (riaVoiceDisabled) {
-        toast.info(stableMicDisabledReason || "Voice is unavailable right now.");
+        toast.info(
+          stableMicDisabledReason || "Voice is unavailable right now.",
+        );
         return;
       }
       if (riaVoiceActive) {
@@ -1695,7 +1698,7 @@ export function KaiSearchBar({
           ref={barRef}
           className={cn(
             "pointer-events-none w-full",
-            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[548px]"
+            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[548px]",
           )}
           style={
             isRiaSurface
@@ -1729,11 +1732,13 @@ export function KaiSearchBar({
                   variant="pill"
                   wrapperClassName="w-full"
                   contentClassName="gap-1.5"
-                  aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
+                  aria-label={
+                    riaVoiceActive ? "End RIA voice session" : "Start RIA voice"
+                  }
                   aria-disabled={riaVoiceDisabled}
                   className={cn(
                     "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
-                    riaVoiceDisabled && "opacity-60"
+                    riaVoiceDisabled && "opacity-60",
                   )}
                   onClick={handleRiaVoiceClick}
                 >
@@ -1749,14 +1754,12 @@ export function KaiSearchBar({
           ) : (
             <div className="relative ml-auto flex w-[58px] items-end justify-end">
               <div
-                className={cn(
-                  "ml-auto flex w-[58px] items-end justify-end"
-                )}
+                className={cn("ml-auto flex w-[58px] items-end justify-end")}
               >
                 <div
                   className={cn(
                     "pointer-events-auto grid rounded-full kai-bottom-search-action p-[5px]",
-                    "w-[58px] grid-cols-1"
+                    "w-[58px] grid-cols-1",
                   )}
                   data-testid="kai-compact-search-surface"
                   data-mode={ambientMode}
@@ -1774,7 +1777,7 @@ export function KaiSearchBar({
                     onClick={() => setOpen(true)}
                     className={cn(
                       "inline-flex h-12 min-w-0 items-center justify-center rounded-full px-3 text-[13px] font-semibold text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-white/10",
-                      open && "bg-primary/10 text-primary"
+                      open && "bg-primary/10 text-primary",
                     )}
                   >
                     <Search className="h-5 w-5 shrink-0" strokeWidth={1.9} />

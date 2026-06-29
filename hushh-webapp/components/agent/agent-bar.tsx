@@ -23,6 +23,7 @@ import { AudioLines, Mic, X } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
+import { useAuth } from "@/hooks/use-auth";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
   getAgentVoiceStatusLabel,
@@ -68,6 +69,7 @@ function resolveAgentBarHint(pathname: string | null): string {
 
 export function AgentBar() {
   const pathname = usePathname();
+  const { isAuthenticated } = useAuth();
   const agentPopover = useOptionalAgentPopover();
   // Shared single source of truth for the agent's active state. The bar uses it
   // for tier-aware presentation and to detect the home/onboarding surfaces
@@ -212,19 +214,12 @@ export function AgentBar() {
 
   // Hard unmount gates: route/auth contexts where the bar must not exist at all.
   //
-  // The agent is a SINGLE bar that is present everywhere, including the very
-  // first marketing/intro screen ("/"), onboarding, and for anonymous
-  // (pre-sign-in) users on the welcome flow. It degrades gracefully by
-  // auth/vault level: anonymous + locked-vault users get informational/
-  // navigation help and an in-place unlock prompt only when a vault operation
-  // is invoked, while unlocked users get the full agent. So we do NOT unmount
-  // on onboarding chrome, on the root intro screen, or on missing auth. We only
-  // unmount where an agent launcher genuinely must not exist (legacy dedicated
-  // agent route, phone mandate, appearance lab, developers), or on the
-  // transient auth transitions (login, logout) where the app shell is not the
-  // host.
+  // Keep the agent out of anonymous, onboarding, and auth-transition surfaces.
+  // It becomes available only after the signed-in app shell is ready.
   const path = pathname ?? "";
   const unmountBar =
+    !isAuthenticated ||
+    useOnboardingChrome ||
     !agentPopover ||
     path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||

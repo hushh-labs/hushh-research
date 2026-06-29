@@ -1469,6 +1469,10 @@ export function ConsentCenterPage() {
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
+  const summaryCounts = summaryData?.counts;
+  const pendingSummaryCount = summaryCounts?.pending ?? 0;
+  const activeSummaryCount = summaryCounts?.active ?? 0;
+  const previousSummaryCount = summaryCounts?.previous ?? 0;
   const listData =
     listResource.data ??
     (retainedList?.key === listCacheKey ? retainedList.data : null);
@@ -1702,10 +1706,10 @@ export function ConsentCenterPage() {
 
     const expectedCount =
       listSurface === "pending"
-        ? summaryData.counts.pending
+        ? pendingSummaryCount
         : listSurface === "active"
-          ? summaryData.counts.active
-          : summaryData.counts.previous;
+          ? activeSummaryCount
+          : previousSummaryCount;
     if (expectedCount <= 0) return;
     if (listData.total > 0 || items.length > 0) return;
 
@@ -1721,6 +1725,9 @@ export function ConsentCenterPage() {
     listResource,
     listSurface,
     mutationTick,
+    activeSummaryCount,
+    pendingSummaryCount,
+    previousSummaryCount,
     summaryData,
     tab,
   ]);
@@ -1880,9 +1887,9 @@ export function ConsentCenterPage() {
         actor,
         tab,
         manager_view: managerView,
-        pending_count: summaryData?.counts.pending ?? 0,
-        active_count: summaryData?.counts.active ?? 0,
-        previous_count: summaryData?.counts.previous ?? 0,
+        pending_count: pendingSummaryCount,
+        active_count: activeSummaryCount,
+        previous_count: previousSummaryCount,
         selected_request_id:
           selectedEntry?.request_id || selectedEntry?.id || null,
         selected_status: selectedEntry?.status || null,
@@ -1905,9 +1912,9 @@ export function ConsentCenterPage() {
     searchValue,
     selectedEntry,
     selectedId,
-    summaryData?.counts.active,
-    summaryData?.counts.pending,
-    summaryData?.counts.previous,
+    activeSummaryCount,
+    pendingSummaryCount,
+    previousSummaryCount,
     summaryResource.loading,
     tab,
   ]);
@@ -1979,6 +1986,34 @@ export function ConsentCenterPage() {
           description={pageDescription}
           icon={ShieldCheck}
           accent="consent"
+          actions={
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={retryConsentCenter}
+                aria-label="Refresh consent entries"
+                disabled={isConsentActionRefreshing}
+              >
+                <RefreshCcw
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    isConsentActionRefreshing && "animate-spin",
+                  )}
+                />
+                Refresh
+              </Button>
+              <Badge
+                className={cn(
+                  "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+                )}
+              >
+                {pendingSummaryCount} pending
+              </Badge>
+            </div>
+          }
         />
       </AppPageHeaderRegion>
 
@@ -1993,15 +2028,15 @@ export function ConsentCenterPage() {
               options={[
                 {
                   value: "requests",
-                  label: `Requests (${summaryData?.counts.pending ?? 0})`,
+                  label: `Requests (${pendingSummaryCount})`,
                 },
                 {
                   value: "active",
-                  label: `Active Access (${summaryData?.counts.active ?? 0})`,
+                  label: `Active Access (${activeSummaryCount})`,
                 },
                 {
                   value: "history",
-                  label: `History (${summaryData?.counts.previous ?? 0})`,
+                  label: `History (${previousSummaryCount})`,
                 },
                 {
                   value: "relationships",
