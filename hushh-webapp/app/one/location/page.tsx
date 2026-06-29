@@ -4224,6 +4224,13 @@ function OneLocationAgentPageContent() {
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
+          <LocationChatPanel
+            vaultOwnerToken={vaultOwnerToken ?? null}
+            onStateChanged={() => {
+              void refresh();
+              dispatchConsentStateChanged({ source: "one_location_chat" });
+            }}
+          />
         </AppPageContentRegion>
       </AppPageShell>
     );
@@ -5452,13 +5459,6 @@ function OneLocationAgentPageContent() {
             </div>
           </div>
         )}
-        <LocationChatPanel
-          vaultOwnerToken={vaultOwnerToken ?? null}
-          onStateChanged={() => {
-            void refresh();
-            dispatchConsentStateChanged({ source: "one_location_chat" });
-          }}
-        />
       </AppPageContentRegion>
     </AppPageShell>
   );
