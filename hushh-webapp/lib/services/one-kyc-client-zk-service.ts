@@ -10,7 +10,6 @@ import {
   buildApprovedDisclosureHtml,
   buildApprovedDisclosurePlainText,
   redraftTransformFromInstructions,
-  renderLlmRedraftHtml,
   type ApprovedDisclosureRenderModel,
   type RedraftTransform,
   type RenderFact,
@@ -1616,6 +1615,65 @@ export function validateTokenIntegrity(
   return true;
 }
 
+export async function runLlmRedraft(params: {
+  localDraft: KycDraftBuildResult;
+  instruction: string;
+  workflow: OneKycWorkflow;
+  exportPayloads?: KycDraftExportPayload[];
+  llmRewrite: KycLlmRewriteCallable;
+}): Promise<
+  | { ok: true; draft: KycDraftBuildResult }
+  | { ok: false; errorCode: "TOKEN_INTEGRITY" | "FIELD_SET_CHANGED" }
+> {
+  const template = splitDraftTemplate({
+    body: params.localDraft.body,
+    renderModel: params.localDraft.renderModel,
+  });
+  const sourceBody = template.matched ? template.content : params.localDraft.body;
+  const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+    body: sourceBody,
+    approvedValues: params.localDraft.approvedValues,
+  });
+  const rewrittenTemplate = await params.llmRewrite(
+    tokenizedTemplate,
+    params.instruction
+  );
+
+  if (!validateTokenIntegrity(tokenizedTemplate, rewrittenTemplate, tokenMap)) {
+    return { ok: false, errorCode: "TOKEN_INTEGRITY" };
+  }
+
+  const revalidatedDraft = await OneKycClientZkService.buildDraft({
+    workflow: params.workflow,
+    exportPayloads: params.exportPayloads,
+  });
+  const originalFieldSet = Object.keys(params.localDraft.approvedValues).sort();
+  const revalidatedFieldSet = Object.keys(revalidatedDraft.approvedValues).sort();
+  if (originalFieldSet.join("\n") !== revalidatedFieldSet.join("\n")) {
+    return { ok: false, errorCode: "FIELD_SET_CHANGED" };
+  }
+
+  const rewrittenBodyCore = resubstituteDraft(rewrittenTemplate, tokenMap);
+  const body = template.matched
+    ? reassembleDraftTemplate({
+        opening: template.opening,
+        content: rewrittenBodyCore,
+        signature: template.signature,
+      })
+    : rewrittenBodyCore;
+  const renderModel = params.localDraft.renderModel;
+
+  return {
+    ok: true,
+    draft: {
+      ...params.localDraft,
+      body,
+      htmlBody: buildApprovedDisclosureHtml(renderModel),
+      draftHash: await sha256Hex(body),
+    },
+  };
+}
+
 /**
  * The fixed signature the renderer appends to every approved-disclosure draft.
  * Kept byte-identical to `buildApprovedDisclosurePlainText` (renderer) so that
@@ -1691,88 +1749,4 @@ export function reassembleDraftTemplate(params: {
   signature: string;
 }): string {
   return `${params.opening}\n\n${params.content}\n\n${params.signature}`;
-}
-
-export type LlmRedraftResult =
-  | { ok: true; draft: KycDraftBuildResult }
-  | { ok: false; errorCode: "TOKEN_INTEGRITY" | "FIELD_SET_CHANGED" };
-
-/**
- * LLM-only KYC redraft orchestrator (zero-knowledge).
- *
- * Pipeline: split off the fixed framing (opening + signature) so only the middle
- * content is rewritten; redact every PII value to a token (map stays local);
- * call the injected LLM rewrite; verify token integrity (guardrail 1); re-substitute
- * real values and reassemble the framing; re-run buildDraft and confirm the
- * consented field-key set is unchanged (guardrail 2); render the LLM output into
- * the same themed email shell. Both guardrails fail closed — the caller keeps the
- * prior draft. The PII map and real values never leave the browser.
- */
-export async function runLlmRedraft(params: {
-  localDraft: KycDraftBuildResult;
-  instruction: string;
-  workflow: OneKycWorkflow;
-  exportPayloads: Parameters<typeof OneKycClientZkService.buildDraft>[0]["exportPayloads"];
-  llmRewrite: KycLlmRewriteCallable;
-}): Promise<LlmRedraftResult> {
-  const { localDraft, instruction, workflow, exportPayloads, llmRewrite } = params;
-
-  // 0. Preserve framing: rewrite only the middle content.
-  const templateSplit = splitDraftTemplate({
-    body: localDraft.body,
-    renderModel: localDraft.renderModel,
-  });
-
-  // 1. Redact: PII -> tokens; map stays in the browser.
-  const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
-    body: templateSplit.content,
-    approvedValues: localDraft.approvedValues,
-  });
-
-  // 2. Rewrite through the injected callable (server Gemini proxy by default).
-  const rewrittenTemplate = await llmRewrite(tokenizedTemplate, instruction);
-
-  // 3. Token-integrity gate (guardrail 1) — fail closed.
-  if (!validateTokenIntegrity(tokenizedTemplate, rewrittenTemplate, tokenMap)) {
-    return { ok: false, errorCode: "TOKEN_INTEGRITY" };
-  }
-
-  // 4. Re-substitute real values locally, then reassemble around the framing.
-  const resubstitutedContent = resubstituteDraft(rewrittenTemplate, tokenMap);
-  const resubstitutedBody = templateSplit.matched
-    ? reassembleDraftTemplate({
-        opening: templateSplit.opening,
-        content: resubstitutedContent,
-        signature: templateSplit.signature,
-      })
-    : resubstitutedContent;
-
-  // 5. Field re-validation (guardrail 2): consented field set must be unchanged.
-  const revalidatedDraft = await OneKycClientZkService.buildDraft({
-    workflow,
-    exportPayloads,
-  });
-  const beforeKeys = new Set(Object.keys(localDraft.approvedValues));
-  const afterKeys = new Set(Object.keys(revalidatedDraft.approvedValues));
-  const keysMatch =
-    beforeKeys.size === afterKeys.size &&
-    [...beforeKeys].every((key) => afterKeys.has(key));
-  if (!keysMatch) {
-    return { ok: false, errorCode: "FIELD_SET_CHANGED" };
-  }
-
-  // 6. Build the LLM draft. body AND htmlBody both reflect the LLM output;
-  //    htmlBody is re-derived from the resubstituted plaintext via
-  //    renderLlmRedraftHtml so the preview/sent email stays visually consistent.
-  const llmHtmlBody = renderLlmRedraftHtml(resubstitutedBody);
-  const llmDraftHash = await sha256Hex(resubstitutedBody);
-  return {
-    ok: true,
-    draft: {
-      ...revalidatedDraft,
-      body: resubstitutedBody,
-      htmlBody: llmHtmlBody,
-      draftHash: llmDraftHash,
-    },
-  };
 }

@@ -329,6 +329,23 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
         return []
 
 
+class SegmentBlob(BaseModel):
+    """Single-level encrypted blob for one segment of a PKM domain payload.
+
+    Intentionally non-recursive: the server only reads one level of segments
+    (see get_domain_data below), so accepting arbitrarily nested EncryptedBlob
+    trees via Pydantic would let a caller force unbounded recursive validation
+    depth on every store-domain call (CWE-400).
+    """
+
+    ciphertext: str = Field(
+        ..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data"
+    )
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
+
+
 class EncryptedBlob(BaseModel):
     """Encrypted data blob."""
 
@@ -341,8 +358,9 @@ class EncryptedBlob(BaseModel):
     # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.
     tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
     algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
-    segments: dict[str, "EncryptedBlob"] = Field(
+    segments: dict[str, SegmentBlob] = Field(
         default_factory=dict,
+        max_length=50,
         description="Optional segmented PKM ciphertext payloads keyed by segment id",
     )
 
@@ -444,9 +462,6 @@ class StoreDomainResponse(BaseModel):
     conflict: bool = False
     data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
     updated_at: Optional[str] = Field(default=None, max_length=64)
-
-
-EncryptedBlob.model_rebuild()
 
 
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
@@ -643,7 +658,7 @@ async def get_domain_data(
             tag=data["tag"],
             algorithm=data.get("algorithm", "aes-256-gcm"),
             segments={
-                segment_id: EncryptedBlob(
+                segment_id: SegmentBlob(
                     ciphertext=segment_blob["ciphertext"],
                     iv=segment_blob["iv"],
                     tag=segment_blob["tag"],

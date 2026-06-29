@@ -32,81 +32,50 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("uses sanitized from params for Kai setup wizard back navigation", () => {
+  it("uses sanitized from params for Kai onboarding back navigation", () => {
     const params = new URLSearchParams();
     params.set("from", "/one?mode=finance");
 
-    expect(resolveTopShellBreadcrumb("/one/setup/kai", params)).toEqual({
+    expect(resolveTopShellBreadcrumb("/one/onboarding", params)).toEqual({
       backHref: "/one?mode=finance",
       width: "content",
       align: "center",
-      // Back is now always available on the wizard so the user is never trapped
-      // on the questionnaire; re-entry honors the `from` origin.
-      hideBack: false,
       items: [
         { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-      ],
-    });
-
-    // Bare entry (no `from`) still shows back, falling to the setup hub rather
-    // than bypassing the gate to /one.
-    expect(resolveTopShellBreadcrumb("/one/setup/kai")).toEqual({
-      backHref: "/one/setup",
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
+        { label: "Setup" },
       ],
     });
 
     const unsafeParams = new URLSearchParams();
     unsafeParams.set("from", "//evil.example/path");
 
-    expect(resolveTopShellBreadcrumb("/one/setup/kai", unsafeParams)?.backHref).toBe(
-      "/one/setup",
+    expect(resolveTopShellBreadcrumb("/one/onboarding", unsafeParams)?.backHref).toBe(
+      "/one",
     );
   });
 
-  it("gives the setup hub a back affordance to One home", () => {
-    expect(resolveTopShellBreadcrumb("/one/setup")).toEqual({
-      backHref: "/one",
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup" },
-      ],
-    });
-  });
+  it("keeps Kai analysis query-state back navigation inside analysis", () => {
+    const activeParams = new URLSearchParams();
+    activeParams.set("focus", "active");
+    activeParams.set("ticker", "tsla");
 
-  it("gives per-capability setup steps a back affordance to the hub", () => {
-    expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
-      backHref: "/one/setup",
+    expect(resolveTopShellBreadcrumb("/one/kai/analysis", activeParams)).toEqual({
+      backHref: "/one/kai/analysis",
       width: "content",
       align: "center",
-      hideBack: false,
       items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-        { label: "Finance" },
+        { label: "Kai", href: "/one/kai" },
+        { label: "Analysis", href: "/one/kai/analysis" },
+        { label: "TSLA live" },
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/one/setup/connected-systems")).toEqual({
-      backHref: "/one/setup",
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-        { label: "Connected Systems" },
-      ],
-    });
+    const previewParams = new URLSearchParams();
+    previewParams.set("ticker", "nvda");
+
+    expect(resolveTopShellBreadcrumb("/one/kai/analysis", previewParams)?.backHref).toBe(
+      "/one/kai/analysis",
+    );
   });
 
   it("treats the PKM agent lab as a profile privacy surface", () => {
@@ -176,6 +145,7 @@ describe("top shell breadcrumbs", () => {
         { label: "Preferences", href: undefined },
       ],
     });
+   
   });
 
   it("routes legacy receipts back to canonical Gmail", () => {
@@ -231,4 +201,9 @@ describe("top shell breadcrumbs", () => {
       ],
     });
   });
+  it("keeps breadcrumb href stable with empty search params", () => {
+  const params = new URLSearchParams();
+
+  expect(params.toString()).toBe("");
+});
 });

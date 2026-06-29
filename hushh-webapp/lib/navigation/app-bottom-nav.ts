@@ -112,17 +112,47 @@ export function resolveOneActiveNav(
   pathname: string | null | undefined,
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.ONE_HOME
+  ) {
+    return "dashboard";
+  }
   if (normalizedPathname === ROUTES.AGENT) return "search";
   if (isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE)) {
     return "connect";
   }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECTED_SYSTEMS)) {
+    return "connected";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.LEGACY_CONNECTED_SYSTEMS)) {
+    return "connected";
+  }
+  if (normalizedPathname === ROUTES.ONE_KYC) return "email";
+  if (
+    normalizedPathname === ROUTES.GMAIL ||
+    normalizedPathname === ROUTES.LEGACY_GMAIL ||
+    normalizedPathname === ROUTES.PROFILE_RECEIPTS
+  ) {
+    return "gmail";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_LOCATION)) {
+    return "location";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.CONSENTS)) {
+    return "guardian";
+  }
+  if (
+    normalizedPathname === ROUTES.PKM ||
+    normalizedPathname === ROUTES.LEGACY_PKM ||
+    normalizedPathname === ROUTES.PROFILE_PKM ||
+    normalizedPathname === ROUTES.PROFILE_PKM_AGENT_LAB
+  ) {
+    return "pkm";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
   }
-  // Every other One destination, including the dashboard itself and all of its
-  // subroutes (consent, pkm, gmail, email, location, connected systems), keeps
-  // the Dashboard parent tab highlighted. Subroutes are no longer surfaced as
-  // their own bottom-nav entries (finance-style parent collapsing).
   return "dashboard";
 }
 
@@ -223,12 +253,20 @@ export function resolveBottomNavOptionKeys(
   pathname: string | null | undefined,
   scope: AppBottomNavScope,
 ): AppBottomNavKey[] {
+  const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (scope === "one") {
-    // Fixed top-level set, mirroring the investor (finance) pattern. Subroutes
-    // entered from the One dashboard (consent, pkm, gmail, location, systems)
-    // keep the Dashboard tab highlighted via resolveOneActiveNav instead of
-    // being injected as their own ephemeral bottom-nav entries.
-    return ["dashboard", "connect", "profile"];
+    if (
+      normalizedPathname === ROUTES.HOME ||
+      normalizedPathname === ROUTES.ONE_HOME ||
+      isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)
+    ) {
+      return ["dashboard", "connect", "profile"];
+    }
+    const contextKey = resolveOneNavSlot(normalizedPathname);
+    if (contextKey === "connect") {
+      return ["dashboard", "connect", "profile"];
+    }
+    return ["dashboard", contextKey, "connect", "profile"];
   }
 
   if (scope === "investor") {

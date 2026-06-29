@@ -51,7 +51,10 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  PlaidPortfolioService,
+  requirePlaidLinkTokenReady,
+} from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
@@ -282,14 +285,12 @@ export function InvestmentsMasterView({
           updateMode: Boolean(itemId),
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_INVESTMENTS,
             startedAt: new Date().toISOString(),
           });
@@ -305,14 +306,14 @@ export function InvestmentsMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangePublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -381,15 +382,13 @@ export function InvestmentsMasterView({
           itemId,
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             flowKind: "funding",
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_INVESTMENTS,
             startedAt: new Date().toISOString(),
           });
@@ -405,14 +404,14 @@ export function InvestmentsMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangeFundingPublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
                 consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {

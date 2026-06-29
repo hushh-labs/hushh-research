@@ -25,6 +25,7 @@ import {
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 const analysisRootClassName = cn(
@@ -407,6 +408,7 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            autoComplete="off"
             placeholder="Message Kai..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
@@ -559,7 +561,9 @@ export function KaiAnalysisPreviewView() {
               event.preventDefault();
               const query = stockQuery.trim();
               if (query) {
-                openAnalysisHref(`/kai/analysis?preview=analysis&q=${encodeURIComponent(query)}`);
+                openAnalysisHref(
+                  `${ROUTES.KAI_ANALYSIS}?preview=analysis&q=${encodeURIComponent(query)}`
+                );
               }
             }}
             className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
@@ -567,6 +571,7 @@ export function KaiAnalysisPreviewView() {
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
               type="text"
+              autoComplete="off"
               placeholder="Analyze any stock"
               value={stockQuery}
               onChange={(event) => setStockQuery(event.target.value)}

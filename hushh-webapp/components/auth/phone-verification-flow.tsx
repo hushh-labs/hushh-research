@@ -321,7 +321,9 @@ export function PhoneVerificationFlow({
       morphyToast.success(mode === "replace" ? "Phone number updated." : "Phone number verified.");
       await onCompleted(verifiedUser);
     } catch (error) {
-      console.error("[PhoneVerificationFlow] Failed to confirm verification code:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[PhoneVerificationFlow] Failed to confirm verification code:", error);
+      }
       trackEvent("phone_verification_completed", {
         action: mode,
         result: "error",

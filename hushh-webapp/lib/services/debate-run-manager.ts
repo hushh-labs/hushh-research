@@ -299,10 +299,18 @@ class DebateRunManager {
         for (const task of parsed.tasks) {
           if (!task || typeof task !== "object") continue;
           if (!task.runId || !task.userId || !task.ticker) continue;
+          const persistedState = task.persistenceState || "none";
+          const persistenceState =
+            task.status === "completed" && persistedState === "pending"
+              ? "failed"
+              : persistedState;
           this.tasks.set(task.runId, {
             ...task,
-            persistenceState: task.persistenceState || "none",
-            persistenceError: task.persistenceError || null,
+            persistenceState,
+            persistenceError:
+              persistenceState === "failed" && !task.persistenceError
+                ? "History save was interrupted. Retry from task center."
+                : task.persistenceError || null,
             dismissedAt: task.dismissedAt || null,
             finalDecision: task.finalDecision || null,
           });
@@ -1015,10 +1023,21 @@ class DebateRunManager {
     });
   }
 
-  async retryTaskPersistence(runId: string): Promise<void> {
+  async retryTaskPersistence(
+    runId: string,
+    secrets?: {
+      vaultOwnerToken?: string | null;
+      vaultKey?: string | null;
+    }
+  ): Promise<void> {
     const task = this.tasks.get(runId);
     if (!task) return;
     if (task.status !== "completed") return;
+    const vaultOwnerToken = String(secrets?.vaultOwnerToken || "").trim();
+    const vaultKey = String(secrets?.vaultKey || "").trim();
+    if (vaultOwnerToken && vaultKey) {
+      this.runSecrets.set(runId, { vaultOwnerToken, vaultKey });
+    }
     await this.persistDecisionHistory(runId, task);
   }
 

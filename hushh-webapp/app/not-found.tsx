@@ -40,11 +40,11 @@ export default function AppNotFoundPage() {
               </p>
             </div>
             <div className="flex gap-3 pt-1">
-              <Button variant="muted" effect="glass" size="sm" onClick={handleGoBack}>
+              <Button type="button" variant="muted" effect="glass" size="sm" onClick={handleGoBack}>
                 <Icon icon={ArrowLeft} size="sm" className="mr-1.5" />
                 Go back
               </Button>
-              <Button variant="blue-gradient" effect="fill" size="sm" onClick={handleGoHome}>
+              <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={handleGoHome}>
                 <Icon icon={Home} size="sm" className="mr-1.5" />
                 Go home
               </Button>

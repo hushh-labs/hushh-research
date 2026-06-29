@@ -59,7 +59,6 @@ Rules:
 5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
 6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
 7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
-8. Async actionables (deletes, resets, disconnects, sends, and any mutation that waits for a backend ack or status) must surface a single branded loading -> success/error lifecycle through `morphyToast.promise` from `@/lib/morphy-ux/morphy`, tied to the real action promise. The toast stays in its loading state while the promise is pending and morphs in place to success or error once the ack lands. Do not hand-roll a `loading` toast plus a separate `success`/`error` toast, and do not fire a success toast before the promise resolves. Pre-flight guards that are not failures of the action itself (for example a required vault unlock) stay outside the promise as an `info`/`error` toast. Use `variant: "destructive"` for destructive actionables so the toast accent matches the action.
 8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
 9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
@@ -161,19 +160,19 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. Each navigation scope (`one`, `investor`, `ria`) owns a FIXED top-level set. The set does not change as the user moves through subroutes. Do not inject a per-subroute tab into the bar.
-2. The bottom bar uses fixed per-scope sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch narrow bars wider.
-3. Subroutes collapse onto their parent top-level tab (finance is the reference pattern). A subroute keeps its parent tab highlighted and never surfaces its own bottom-nav entry. The One scope collapses `/one/gmail`, `/one/pkm`, `/one/connected-systems`, `/one/location`, and `/consents` onto the `One` (dashboard) tab; profile subroutes keep the `Profile` tab.
-4. The One scope is the fixed set `One / Connect / Profile` on every One route. Consent/PKM/Gmail/Location/Systems are subroutes of the One dashboard, not their own tabs.
-5. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
-6. Investor finance routes own the fixed finance-family set `Market`, `Portfolio`, `Analysis`, `Connect`, and `Profile`. All finance subroutes collapse onto one of these via `activeKaiRouteTabFromPath`.
-7. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
-8. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
-9. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
-10. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
-11. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
-12. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
-13. The pending-consent count badge homes on exactly one tab per scope: the `Dashboard` tab in the One scope and the `Guardian` tab in the investor/ria scopes. Do not duplicate the consent badge onto the Profile tab or any subroute tab.
+1. The segmented bottom bar is contextual route-family navigation. Do not include global destinations such as `One`, `Search`, or `Profile` on every route.
+2. The bottom bar uses fixed five-item sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch two-tab bars wider.
+3. `/one` and `/profile` show the compact root switch `One / Connect / Profile` because that is the dashboard/connection/account shell relationship, not a feature-family tab list.
+4. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
+5. `Connect` is the people and relationship-consent entry point for One. Investor/RIA matching is a specialization of that relationship model, not the definition of the tab.
+6. Generic One sub-app routes such as `/one/gmail`, `/one/pkm`, `/one/connected-systems`, and `/consents` may show `One / current context / Connect / Profile` when the current context is meaningful.
+7. Investor finance routes own finance-family actions such as `Market`, `Portfolio`, `Connect`, and `Analysis`.
+8. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
+9. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
+10. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
+11. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
+12. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
+13. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 
 ## Row and Card Interaction Contract
 
@@ -187,118 +186,6 @@ Rules:
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
-
-## Control Surface Contract
-
-The agent bar, bottom nav, and top-app-bar action buttons define the gold-standard flat-control aesthetic. All standalone buttons, pill triggers, and icon controls should match it.
-
-Rules:
-
-1. `ShellActionSurface` (`components/app-ui/shell-action-surface.tsx`) is the canonical control primitive. It exports `SHELL_ICON_BUTTON_CLASSNAME` and `SHELL_PILL_TRIGGER_CLASSNAME` and embeds `MaterialRipple variant="blue" effect="glass"`. Reuse these instead of re-deriving the recipe per surface.
-2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
-3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
-4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. The vault unlock methods (Vault Key, Passkey, Recovery Key) must all share one effect so the buttons read as a uniform set.
-5. Bars use the shared `.bar-glass` and `.bar-glass-top` surfaces; cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
-6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
-
-## Foundation Color Contract
-
-The app's color identity is the **Foundation** system, established in
-hushh-research by the `feat/foundation-design-unification` work (theme-aware
-wordmark, tokens, and the blue→gold sweep across shadcn/brand/morphy primitives
-and feature components). The CSS tokens live in `hushh-webapp/app/globals.css`
-(`--foundation-*`, `--color-accent-*`) and flip automatically in `.dark`. (The
-underlying gold/ink palette hexes were adopted from the hushh-search-console
-palette; see the note in `globals.css`.) This contract governs how those tokens
-are USED in component code so the palette stays consistent across every surface
-and engineer.
-
-### The Foundation law
-
-1. **Gold is emphasis / accent ONLY — never decoration and never primary.** Ink
-   (near-black, `--primary`/`text-foreground`) carries primary; gray
-   (`text-muted-foreground`) carries support. Gold marks the ONE thing that
-   deserves attention on a surface (active state, key metric, brand chrome).
-2. **Use semantic tokens, not raw hex.** Prefer `text-accent-strong`,
-   `bg-accent`, `bg-accent-surface`, `border-accent-border`, `ring-accent`,
-   `text-foreground`, `text-muted-foreground`, `bg-primary` over literal
-   `#b8894d`/`#d4a574` or `text-yellow-*`. The tokens are theme-aware; raw hex is
-   not and drifts in dark mode.
-3. **`text-accent-strong` already flips for dark** (it is
-   `var(--foundation-gold-deep)`: `#b8894d` light → `#e6b366` dark). Use it
-   WITHOUT a `dark:` variant — adding one fights the token.
-4. **No off-palette brand blue.** `blue-*`, `sky-*`, `indigo-*`, `cyan-*` Tailwind
-   classes and hardcoded blue hexes (`#0071e3`, `#0a84ff`, `#0066cc`, `#2997ff`,
-   `#3b82f6`, …) are NOT part of Foundation. New code must not introduce them as
-   brand accent; existing ones get swept to gold per the rule below.
-5. **Never `#FFD700` / garish gold.** Stay in the Foundation family
-   (`#b8894d`/`#d4a574` light, `#e6b366` dark) even when a vision critic pushes
-   for a brighter gold.
-
-### Brand-accent vs semantic-status (the one rule that governs every color sweep)
-
-When removing off-palette blue, every blue is EITHER brand chrome (→ gold) OR a
-semantic status/data-viz color (→ LEAVE IT). Gold-ifying a status blue actively
-breaks the color language because gold collides with the amber/warning semantic.
-
-- **Brand accent → GOLD:** buttons, links, active tab/indicator, focus ring,
-  brand gradient, a lone decorative panel/icon accent, a category "info" chip
-  that is NOT part of a status set.
-- **Semantic status / data-viz → LEAVE:** an "info" state sitting in a
-  success(green)/warning(amber)/error(red) set, a distinct chart-series color,
-  bullish/bearish/neutral, a tier/persona category color, an
-  in-progress/refreshing status (sky paired with emerald=done/rose=failed).
-- **The fast tell:** look at what the blue is grouped WITH in the same
-  map/ternary/object. Grouped with emerald+red+amber → STATUS → leave. The only
-  accent on a header/icon/border/active-indicator, or paired with category chips
-  → BRAND CHROME → gold. When unsure, LEAVE a clearly-semantic status blue: a
-  missed brand accent is cosmetic, a gold-ified status color is a broken semantic.
-
-### Mapping cheat-sheet
-
-| Off-palette (from) | Foundation (to) |
-|---|---|
-| `bg-blue-50`, `dark:bg-blue-950/40` | `bg-accent-surface` (no `dark:` needed) |
-| `text-blue-500/600/700` | `text-accent-strong` |
-| `bg-blue-500/600` accent fill | `bg-accent` (gold) — OR `bg-primary` (ink) if it's a PRIMARY CTA |
-| `hover:bg-blue-600` | `hover:opacity-90` |
-| `border-blue-*` | `border-accent-border` |
-| `ring-blue-*`, `focus:ring-blue-*` | `ring-accent` / `focus-visible:ring-accent/70` |
-| `from-blue-500 to-purple-600` brand gradient | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]` |
-| brand hex `#0071e3`/`#0066cc` (+ dark `#0a84ff`/`#2997ff`) | `#b8894d` text / `#d4a574` fill (dark → `#d4a574`/`#e6b366`) |
-
-NOTE: `MaterialRipple variant="blue"` and the `morphy-ux` `gradients.primary`
-already resolve to `var(--morphy-primary-*)` (gold) — these are legacy NAMES, not
-off-palette bugs; leave them unless renaming the whole API.
-
-### Verification + reporting for a color sweep
-
-1. Find hits: `rg -n -e 'blue-[0-9]' -e 'sky-[0-9]' -e 'indigo-[0-9]' -e 'cyan-[0-9]' -e '#0071e3' -e '#0066cc' -e '#3b82f6' <files>`.
-2. Edit with exact string replacement; colors only — never touch layout, spacing,
-   logic, or copy.
-3. Gate a className-only sweep with `npx tsc --noEmit` (exit 0, your files clean).
-   `npm run build` is NOT needed for color strings (it needs backend env). Do NOT
-   touch `app/globals.css` during a component sweep — the tokens are already done.
-4. Report per file: what you CHANGED, what you deliberately LEFT and WHY (name the
-   status set it belongs to), and any genuine uncertainty. A report that lists only
-   changes is incomplete — the LEFT list with semantic justification is the proof
-   judgment was applied rather than blind find-replace.
-
-The component-level playbook with the full CHANGED/LEFT catalog from the
-`components/kai/**` finance sweep lives in the `hushh-workspace-and-governance`
-skill at `references/foundation-design-system.md`.
-
-## Overlay Backdrop Contract
-
-Every floating surface that takes modal focus shares one backdrop language so opening a surface gives the same dimming and blur thump.
-
-Rules:
-
-1. The canonical scrim is `bg-black/22 backdrop-blur-[8px]` plus the `-webkit-backdrop-filter` fallback, sitting at `z-[499]` directly below the surface at `z-[500]`. Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) already carry this via their `data-state` motion classes.
-2. Dialogs, sheets, drawers, the command palette, and the vault unlock dialog inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top.
-3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
-4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`.
-5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
 
 ## Consent Inbox And Notification Contract
 
@@ -417,14 +304,12 @@ Use the `Subtle Apple` depth model:
 4. Outer cards remain `overflow-visible`; ripple, media, code panes, and chart plots clip inside their own inner boundaries.
 5. Standard shared actionables include:
    - `Button`
-   - `AlertDialogAction` / `AlertDialogCancel` (confirmation buttons)
    - dropdown/select rows
    - segmented controls / bottom nav items
    - actionable settings rows
    - actionable cards or list rows
 6. Do not add route-level ripple wrappers when a shared primitive already provides one.
 7. The top shell uses `components/app-ui/shell-action-surface.tsx` as its canonical interaction host.
-8. Confirmation buttons get their ripple from the shared `components/ui/alert-dialog.tsx` primitive: `AlertDialogAction` and `AlertDialogCancel` host a clipped `MaterialRipple` (palette mapped from the shadcn variant) while preserving their appearance via the caller `className` (for example `app-critical-action`). Do not re-import the plain `@/components/ui/button` for confirmation actions or strip the ripple host; keep the action label inside the `z-10` content span so the ripple stays behind it.
 
 ## Labs Boundary
 

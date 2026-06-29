@@ -166,11 +166,19 @@ export function getIgnoredPkmCards(cards: readonly AgentPkmPreviewCard[]): Agent
   return cards.filter((card) => card.write_mode === "do_not_save");
 }
 
+export interface AgentPkmUpdateIntent {
+  domain: string;
+  field_path: string;
+  current_value: string;
+  proposed_value: string;
+}
+
 export async function previewAgentPkmMemory(params: {
   userId: string;
   message: string;
   currentDomains: string[];
   vaultOwnerToken: string;
+  updateIntent?: AgentPkmUpdateIntent | null;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
   const response = await ApiService.apiFetch("/api/pkm/agent-lab/structure", {
     method: "POST",
@@ -182,6 +190,10 @@ export async function previewAgentPkmMemory(params: {
       user_id: params.userId,
       message: params.message,
       current_domains: params.currentDomains,
+      // Carry the structured update slots so the backend derives routing +
+      // confirm_first deterministically instead of re-classifying the
+      // synthesized message with the LLM (GAP 1 fix).
+      ...(params.updateIntent ? { update_intent: params.updateIntent } : {}),
     }),
   });
 
@@ -327,6 +339,103 @@ export async function addToPKM(params: {
     domains: Array.from(new Set(savedResults.map((result) => result.domain))).filter(Boolean),
     results,
   };
+}
+
+// ─── Update-flow helpers ──────────────────────────────────────────────────────
+
+/**
+ * applyFieldPatch — module-private utility.
+ *
+ * Applies a dot-notation path set against `data`, returning a new object
+ * without mutating the original. Uses `structuredClone` for deep isolation.
+ *
+ * Examples:
+ *   applyFieldPatch({}, "a.b.c", "v")                    → { a: { b: { c: "v" } } }
+ *   applyFieldPatch({ a: { b: { x: 1 } } }, "a.b.c", "v") → { a: { b: { x: 1, c: "v" } } }
+ *   applyFieldPatch({ name: "old" }, "name", "new")       → { name: "new" }
+ */
+function applyFieldPatch(
+  data: Record<string, unknown>,
+  path: string,
+  value: unknown
+): Record<string, unknown> {
+  const cloned = structuredClone(data) as Record<string, unknown>;
+  const segments = path.split(".");
+  let cursor: Record<string, unknown> = cloned;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const segment = segments[i] as string;
+    if (
+      cursor[segment] === null ||
+      cursor[segment] === undefined ||
+      typeof cursor[segment] !== "object" ||
+      Array.isArray(cursor[segment])
+    ) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  const leaf = segments[segments.length - 1] as string;
+  cursor[leaf] = value;
+  return cloned;
+}
+
+export async function previewAgentPkmUpdate(params: {
+  userId: string;
+  domain: string;
+  fieldPath: string;
+  currentValue: string;
+  proposedValue: string;
+  currentDomains: string[];
+  vaultOwnerToken: string;
+}): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
+  const message = `Update ${params.domain} - ${params.fieldPath}: change from "${params.currentValue}" to "${params.proposedValue}"`;
+  return previewAgentPkmMemory({
+    userId: params.userId,
+    message,
+    currentDomains: params.currentDomains,
+    vaultOwnerToken: params.vaultOwnerToken,
+    // Structured slots make the confirm decision deterministic (GAP 1 fix):
+    // the backend uses these instead of re-classifying `message` with the LLM.
+    updateIntent: {
+      domain: params.domain,
+      field_path: params.fieldPath,
+      current_value: params.currentValue,
+      proposed_value: params.proposedValue,
+    },
+  });
+}
+
+export async function saveAgentPkmUpdate(params: {
+  userId: string;
+  domain: string;
+  fieldPath: string;
+  proposedValue: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+}): Promise<PkmWriteCoordinatorResult> {
+  const result = await PkmWriteCoordinator.savePreparedDomain({
+    userId: params.userId,
+    domain: params.domain,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    build: async (context) => {
+      const updatedData = applyFieldPatch(
+        context.currentDomainData as Record<string, unknown>,
+        params.fieldPath,
+        params.proposedValue
+      );
+      return {
+        domainData: updatedData,
+        summary: {
+          source: "agent_chat_update",
+          field_path: params.fieldPath,
+          proposed_value: params.proposedValue,
+        },
+      };
+    },
+  });
+  AgentPkmContextStore.invalidateUser(params.userId);
+  return result;
 }
 
 export function buildAgentPkmContextFromMetadata(

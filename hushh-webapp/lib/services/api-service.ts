@@ -136,6 +136,11 @@ function normalizeNativeBackendUrl(raw: string): string {
   if (Capacitor.getPlatform() !== "android") {
     return trimmed;
   }
+  if (
+    process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"
+  ) {
+    return trimmed;
+  }
   const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
@@ -144,6 +149,57 @@ function normalizeNativeBackendUrl(raw: string): string {
     return trimmed.replace("127.0.0.1", "10.0.2.2");
   }
   return trimmed;
+}
+
+function decodeNativeBinaryPayload(data: unknown): Uint8Array {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (Array.isArray(data)) {
+    return new Uint8Array(data);
+  }
+
+  const raw =
+    typeof data === "string"
+      ? data
+      : data &&
+          typeof data === "object" &&
+          "data" in data &&
+          typeof (data as { data?: unknown }).data === "string"
+        ? String((data as { data: string }).data)
+        : "";
+  const base64 = raw.includes(",") ? raw.split(",").pop() || "" : raw;
+  if (!base64) return new Uint8Array();
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function getNativeHeaderValue(
+  headers: Record<string, unknown> | undefined,
+  name: string
+): string | null {
+  if (!headers) return null;
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() !== target || value === undefined || value === null) {
+      continue;
+    }
+    return Array.isArray(value) ? value.join(",") : String(value);
+  }
+  return null;
 }
 
 function detectHostedToLocalMismatch(apiBase: string): string | null {
@@ -2634,6 +2690,96 @@ export class ApiService {
     });
   }
 
+  /**
+   * Pre-vault informational/navigation-only One chat.
+   *
+   * This is the lower-privilege sibling of {@link streamAgentChat}. It powers
+   * the single agent bar before the vault is unlocked, including anonymous
+   * onboarding visitors. It never sends PKM or vault data, is not persisted,
+   * and the backend only forwards pure navigation actions. Firebase auth is
+   * attached when available (for per-user rate limiting); anonymous callers
+   * send no Authorization header, which the backend accepts on this route only.
+   */
+  static async streamAgentIntro(data: {
+    message: string;
+    screenContext?: Record<string, unknown> | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return ApiService.apiFetchStream("/api/kai/agent/chat/intro/stream", {
+      method: "POST",
+      headers: firebaseIdToken
+        ? { Authorization: `Bearer ${firebaseIdToken}` }
+        : {},
+      body: JSON.stringify({
+        message: data.message,
+        screen_context: data.screenContext || undefined,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  /**
+   * Mint a short-lived, constrained Gemini Live ephemeral token for in-bar
+   * full-duplex voice. The browser connects directly to the Gemini Live API
+   * with this token, so the managed Gemini key never leaves the backend.
+   *
+   * Firebase auth is attached when available so the backend can pick the full
+   * (signed-in) vs. intro (pre-vault / onboarding) persona; anonymous callers
+   * send no Authorization header, which this route accepts.
+   */
+  static async fetchGeminiLiveToken(data?: {
+    voice?: string | null;
+    screen?: string | null;
+    persona?: string | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return ApiService.apiFetch("/api/kai/agent/realtime/gemini/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({
+        voice: data?.voice || undefined,
+        screen: data?.screen || undefined,
+        persona: data?.persona || undefined,
+      }),
+      signal: data?.signal,
+    });
+  }
+
+  /**
+   * Build the WebSocket URL for the server-side Gemini Live relay.
+   *
+   * Unlike the ephemeral-token path (browser connects straight to Google), this
+   * relay runs Gemini Live over Vertex AI on the backend via ADC, so it works
+   * on projects where the Developer API is restricted. The browser opens a
+   * WebSocket to our backend; the backend bridges audio to/from Vertex.
+   *
+   * WebSockets cannot carry an Authorization header from the browser and do not
+   * pass through the Next.js middleware proxy, so we connect directly to the
+   * backend host and ride the Firebase bearer (when present) in a query param.
+   * Anonymous callers omit it and get the navigation-only intro persona.
+   */
+  static async getGeminiLiveRelayUrl(data?: {
+    voice?: string | null;
+    screen?: string | null;
+    persona?: string | null;
+  }): Promise<string> {
+    const backend = resolveRuntimeBackendUrl();
+    const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
+    const wsBase = base.replace(/^http/i, "ws");
+    const url = new URL(`${wsBase}/api/kai/agent/realtime/gemini/live`);
+    const firebaseIdToken = await this.getFirebaseToken();
+    if (firebaseIdToken) url.searchParams.set("authorization", firebaseIdToken);
+    if (data?.voice) url.searchParams.set("voice", data.voice);
+    if (data?.screen) url.searchParams.set("screen", data.screen);
+    if (data?.persona) url.searchParams.set("persona", data.persona);
+    return url.toString();
+  }
+
   static async transcribeAgentVoice(data: {
     userId: string;
     vaultOwnerToken: string;
@@ -2666,6 +2812,67 @@ export class ApiService {
     voice?: string;
     signal?: AbortSignal;
   }): Promise<Response> {
+    if (Capacitor.isNativePlatform()) {
+      const apiBase = getApiBaseUrl();
+      if (!apiBase) {
+        throw new Error(
+          "Native Agent voice TTS requires NEXT_PUBLIC_BACKEND_URL."
+        );
+      }
+      const mismatchMessage = detectHostedToLocalMismatch(apiBase);
+      if (mismatchMessage) {
+        throw new Error(mismatchMessage);
+      }
+      if (data.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
+      const abortPromise = data.signal
+        ? new Promise<never>((_resolve, reject) => {
+            data.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true }
+            );
+          })
+        : null;
+      const requestPromise = CapacitorHttp.request({
+        url: `${apiBase}/api/kai/agent/voice/tts`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        data: {
+          user_id: data.userId,
+          text: data.text,
+          voice: data.voice,
+        },
+        responseType: "arraybuffer",
+        readTimeout: 55_000,
+        connectTimeout: 15_000,
+      });
+      const nativeResponse = abortPromise
+        ? await Promise.race([requestPromise, abortPromise])
+        : await requestPromise;
+      const headers = new Headers();
+      Object.entries(nativeResponse.headers || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        headers.set(key, String(value));
+      });
+      const contentType =
+        getNativeHeaderValue(nativeResponse.headers, "content-type") ||
+        getNativeHeaderValue(nativeResponse.headers, "Content-Type") ||
+        "audio/wav";
+      headers.set("Content-Type", contentType);
+
+      const audioBytes = decodeNativeBinaryPayload(nativeResponse.data);
+      return new Response(toArrayBuffer(audioBytes), {
+        status: nativeResponse.status,
+        headers,
+      });
+    }
+
     return apiFetch("/api/kai/agent/voice/tts", {
       method: "POST",
       headers: {

@@ -95,18 +95,16 @@ describe("Navbar bottom navigation", () => {
     agentPopoverMock.openAgent.mockReset();
   });
 
-  it("keeps the fixed One/Connect/Profile set on One subroutes without injecting a subroute tab", () => {
-    // On a One subroute (connected systems) the bottom nav stays the fixed
-    // top-level set. The subroute does not surface its own tab (finance-style).
+  it("shows One, Systems, Connect, Profile, and separate Search on generic One routes", () => {
     render(<Navbar />);
 
     expect(screen.getByRole("radio", { name: "One" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Systems" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Connect" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Profile" })).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: "Systems" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Consent" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Search" })).toBeNull();
     expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Profile" })).toBeTruthy();
   });
 
   it("shows the root One/Connect/Profile switch without empty pill slots on the One dashboard", () => {

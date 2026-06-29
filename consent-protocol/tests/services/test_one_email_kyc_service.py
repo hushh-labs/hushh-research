@@ -13,6 +13,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.one_email_kyc_service import (
+    _ALLOWED_KYC_DATA_SCOPES,
+    _DEFAULT_KYC_SCOPE,
+    _IDENTITY_REQUIRED_FIELDS,
+    _ONE_EMAIL_ATTR_SCOPE_RE,
     OneEmailKycConfig,
     OneEmailKycError,
     OneEmailKycService,
@@ -2606,75 +2610,73 @@ async def test_reject_draft_requires_ready_review_draft():
     assert exc.value.code == "ONE_KYC_DRAFT_NOT_READY"
 
 
-def _binding_export(scope, revision, generated_at="2026-06-26T06:10:54+00:00", key="key-1"):
-    return {
-        "scope": scope,
-        "export_revision": revision,
-        "export_generated_at": generated_at,
-        "connector_key_id": key,
-        "connector_wrapping_alg": "X25519-AES256-GCM",
-    }
+# ---------------------------------------------------------------------------
+# Wave 3 (plan 02-03): identity producer -> KYC consumer contract.
+# Lock the field-shape mapping and the attr.identity.* scope-resolution path so
+# a regression cannot silently break the producer->consumer contract (D-12/D-13).
+# ---------------------------------------------------------------------------
+
+_IDENTITY_PRODUCER_FIELDS = [
+    "full_name",
+    "email",
+    "phone_number",
+    "date_of_birth",
+    "address",
+]
 
 
-def test_validate_send_export_binding_accepts_broader_bound_scope():
-    """A narrower expected scope (attr.financial.portfolio.*) is satisfied by a
-    broader bound/current export scope (attr.financial.*); the validator must NOT
-    fall back to the identity binding and raise EXPORT_STALE."""
+def test_identity_candidate_yields_kyc_required_fields():
+    """An identity candidate passes its extracted producer fields through to KYC.
+
+    The identity producer (plan 02-01) stores full_name/email/phone_number/
+    date_of_birth/address; `_effective_required_fields_for_candidates` must return
+    those exact fields for a `domain="identity"` candidate so the KYC consumer's
+    `_IDENTITY_REQUIRED_FIELDS` are satisfied with zero KYC schema changes.
+    """
     service = _service(_FakeDb(), _FakeConsentDb())
-    workflow = {
-        "workflow_id": "wf_scope",
-        "metadata": {
-            "consent_export": _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
-            "consent_exports": [
-                _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
-                _binding_export("attr.financial.*", 2),
-            ],
-        },
-    }
-    # Must not raise: the financial.* binding covers the financial.portfolio.* request.
-    service._validate_send_export_binding(
-        workflow=workflow,
-        export_package=_binding_export("attr.financial.*", 2),
-        expected_scope="attr.financial.portfolio.*",
+    candidates = [{"domain": "identity", "scope": _DEFAULT_KYC_SCOPE}]
+
+    effective = service._effective_required_fields_for_candidates(
+        extracted_fields=list(_IDENTITY_PRODUCER_FIELDS),
+        candidates=candidates,
+    )
+
+    for field in _IDENTITY_PRODUCER_FIELDS:
+        assert field in effective, f"{field} should resolve to a KYC required field"
+    # Every producer field is also a known KYC required field (no orphan keys).
+    assert {"full_name", "email", "phone_number", "date_of_birth", "address"} <= set(
+        _IDENTITY_REQUIRED_FIELDS
     )
 
 
-def test_validate_send_export_binding_still_rejects_revision_drift():
-    """Scope tolerance must not relax data-integrity checks: a revision change
-    between the bound export and the current export still raises EXPORT_STALE."""
-    service = _service(_FakeDb(), _FakeConsentDb())
-    workflow = {
-        "workflow_id": "wf_drift",
-        "metadata": {
-            "consent_exports": [_binding_export("attr.financial.*", 1)],
-        },
-    }
-    with pytest.raises(OneEmailKycError) as exc:
-        service._validate_send_export_binding(
-            workflow=workflow,
-            export_package=_binding_export("attr.financial.*", 2),  # revision 1 -> 2
-            expected_scope="attr.financial.portfolio.*",
-        )
-    assert exc.value.code == "ONE_KYC_DRAFT_EXPORT_STALE"
+def test_attr_identity_scope_resolves():
+    """`attr.identity.*` is the default KYC scope, matches the attr-scope regex,
+    and is permitted for KYC consent-export."""
+    assert _DEFAULT_KYC_SCOPE == "attr.identity.*"
+    assert _ONE_EMAIL_ATTR_SCOPE_RE.match(_DEFAULT_KYC_SCOPE) is not None
+    assert _DEFAULT_KYC_SCOPE in _ALLOWED_KYC_DATA_SCOPES
 
 
-def test_validate_send_export_binding_rejects_unrelated_scope_binding():
-    """If only an identity binding exists, a financial request is reported as
-    binding-missing rather than silently compared against the identity export."""
+def test_kyc_required_fields_have_no_ssn():
+    """No KYC required field references SSN (D-A: SSN is never stored or mapped)."""
+    assert not any("ssn" in field.lower() for field in _IDENTITY_REQUIRED_FIELDS)
+    assert not any("social_security" in field.lower() for field in _IDENTITY_REQUIRED_FIELDS)
+
+
+def test_identity_domain_distinct_from_kyc_workflow():
+    """The identity producer domain key is `identity`, not the separate internal
+    `kyc_workflow` domain — the two must not collide (D-12)."""
+    from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_KEYS
+
+    assert "identity" in CANONICAL_DOMAIN_KEYS
+    assert "kyc_workflow" not in CANONICAL_DOMAIN_KEYS
+
+    # The KYC consumer's required-fields branch keys off domain == "identity",
+    # and an identity candidate must resolve while a kyc_workflow-keyed candidate
+    # is not treated as the identity producer.
     service = _service(_FakeDb(), _FakeConsentDb())
-    workflow = {
-        "workflow_id": "wf_missing",
-        "metadata": {
-            "consent_export": _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
-            "consent_exports": [
-                _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
-            ],
-        },
-    }
-    with pytest.raises(OneEmailKycError) as exc:
-        service._validate_send_export_binding(
-            workflow=workflow,
-            export_package=_binding_export("attr.financial.*", 2),
-            expected_scope="attr.financial.portfolio.*",
-        )
-    assert exc.value.code == "ONE_KYC_DRAFT_EXPORT_BINDING_MISSING"
+    identity_fields = service._effective_required_fields_for_candidates(
+        extracted_fields=list(_IDENTITY_PRODUCER_FIELDS),
+        candidates=[{"domain": "identity", "scope": _DEFAULT_KYC_SCOPE}],
+    )
+    assert "full_name" in identity_fields

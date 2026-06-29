@@ -897,7 +897,7 @@ async def fetch_sec_filings(
     # Step 1: Get CIK from ticker
     async with httpx.AsyncClient() as client:
         # Get ticker-to-CIK mapping
-        logger.info(f"[SEC Fetcher] Looking up CIK for {ticker}...")
+        logger.info("[SEC Fetcher] Looking up CIK for %s...", ticker)
         tickers_response = await client.get(
             f"{EDGAR_WWW_URL}/files/company_tickers.json", headers=HEADERS, timeout=10.0
         )
@@ -914,10 +914,10 @@ async def fetch_sec_filings(
         if not cik:
             raise ValueError(f"CIK not found for ticker: {ticker}")
 
-        logger.info(f"[SEC Fetcher] Found CIK {cik} for {ticker}")
+        logger.info("[SEC Fetcher] Found CIK %s for %s", cik, ticker)
 
         # Step 2: Get submissions (filings list)
-        logger.info(f"[SEC Fetcher] Fetching submissions for CIK {cik}...")
+        logger.info("[SEC Fetcher] Fetching submissions for CIK %s...", cik)
         submissions_response = await client.get(
             f"{EDGAR_DATA_URL}/submissions/CIK{cik}.json", headers=HEADERS, timeout=10.0
         )
@@ -940,11 +940,13 @@ async def fetch_sec_filings(
             raise ValueError(f"No 10-K filing found for ticker: {ticker} (CIK: {cik})")
 
         logger.info(
-            f"[SEC Fetcher] Found 10-K: {accession_numbers[latest_10k_idx]} dated {filing_dates[latest_10k_idx]}"
+            "[SEC Fetcher] Found 10-K: %s dated %s",
+            accession_numbers[latest_10k_idx],
+            filing_dates[latest_10k_idx],
         )
 
         # Step 4: Fetch Company Facts for actual financial data
-        logger.info(f"[SEC Fetcher] Fetching company facts (financial metrics) for CIK {cik}...")
+        logger.info("[SEC Fetcher] Fetching company facts (financial metrics) for CIK %s...", cik)
         try:
             facts_url = f"{EDGAR_DATA_URL}/api/xbrl/companyfacts/CIK{cik}.json"
             # NVDA and other large filers can have very large payloads; allow a bit more time + retry.
@@ -959,7 +961,9 @@ async def fetch_sec_filings(
                     if attempt >= 2:
                         raise
                     logger.warning(
-                        f"[SEC Fetcher] companyfacts attempt {attempt} failed: {e}; retrying once..."
+                        "[SEC Fetcher] companyfacts attempt %s failed: %s; retrying once...",
+                        attempt,
+                        e,
                     )
                     await asyncio.sleep(0.5)
 
@@ -1081,7 +1085,8 @@ async def fetch_sec_filings(
             )
 
             logger.info(
-                f"[SEC Fetcher] Extracted Deep Metrics for {ticker} - Trends for Revenue, Net Income, OCF, R&D available."
+                "[SEC Fetcher] Extracted Deep Metrics for %s - Trends for Revenue, Net Income, OCF, R&D available.",
+                ticker,
             )
 
         except Exception as facts_error:

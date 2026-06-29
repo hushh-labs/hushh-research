@@ -26,10 +26,7 @@
       "owner": "vault-pkm-governance",
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "vault_keys",
-        "vault_key_wrappers"
-      ],
+      "exact_tables": ["vault_keys", "vault_key_wrappers"],
       "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services",
       "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
       "deletion_behavior": "Hard-delete with account deletion after dependent personal data is purged.",
@@ -61,11 +58,7 @@
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "consent_audit",
-        "internal_access_events",
-        "consent_scope_templates"
-      ],
+      "exact_tables": ["consent_audit", "internal_access_events", "consent_scope_templates"],
       "primary_access_path": "consent issuance, revocation, notification, and internal access review",
       "retention_policy": "Long-retention metadata audit; redact payload detail rather than deleting audit authority rows.",
       "deletion_behavior": "Account export may include safe audit metadata; deletion redacts user linkage only if legally required.",
@@ -78,10 +71,7 @@
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "consent_exports",
-        "consent_export_refresh_jobs"
-      ],
+      "exact_tables": ["consent_exports", "consent_export_refresh_jobs"],
       "primary_access_path": "scoped export generation, connector key wrapping, and refresh jobs",
       "retention_policy": "Short-lived by export expiry; stale refresh jobs compacted after terminal status.",
       "deletion_behavior": "Delete on account deletion and expire/revoke when the consent grant expires.",
@@ -94,9 +84,7 @@
       "owner": "vault-pkm-governance",
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "pkm_blobs"
-      ],
+      "exact_tables": ["pkm_blobs"],
       "primary_access_path": "PKM store/read/delete domain routes and client-side vault unlock flows",
       "retention_policy": "Retain until account deletion or explicit domain deletion.",
       "deletion_behavior": "Delete by user and domain for domain deletion; delete all user rows on account deletion.",
@@ -109,10 +97,7 @@
       "owner": "backend-agents-operons",
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "agent_chat_conversations",
-        "agent_chat_messages"
-      ],
+      "exact_tables": ["agent_chat_conversations", "agent_chat_messages"],
       "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
       "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
       "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
@@ -144,9 +129,7 @@
       "owner": "vault-pkm-governance",
       "data_class": "personal_projection",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "pkm_default_available_projections"
-      ],
+      "exact_tables": ["pkm_default_available_projections"],
       "primary_access_path": "vault-owner profile sharing controls publish safe projections; authenticated developer connectors read ready projections through the default-available export endpoint",
       "retention_policy": "Retain while the user keeps the section available by default; revoke or replace on posture change, projection refresh, domain deletion, or account deletion.",
       "deletion_behavior": "Soft revoke individual projections by setting revoked_at; hard-delete on account or domain deletion.",
@@ -159,11 +142,7 @@
       "owner": "vault-pkm-governance",
       "data_class": "workflow_state",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "pkm_migration_state",
-        "pkm_upgrade_runs",
-        "pkm_upgrade_steps"
-      ],
+      "exact_tables": ["pkm_migration_state", "pkm_upgrade_runs", "pkm_upgrade_steps"],
       "primary_access_path": "client-side PKM cutover and generic PKM upgrade orchestration",
       "retention_policy": "Retain active and recent terminal runs; compact terminal rows after 30 days unless needed for incident review.",
       "deletion_behavior": "Delete all user rows on account deletion.",
@@ -200,9 +179,7 @@
       "owner": "vault-pkm-governance",
       "data_class": "reference",
       "lifecycle_status": "transitional",
-      "exact_tables": [
-        "domain_registry"
-      ],
+      "exact_tables": ["domain_registry"],
       "primary_access_path": "legacy/domain reference compatibility during PKM scope migration",
       "retention_policy": "Retain until PKM manifests and scope registry fully replace runtime domain classification.",
       "deletion_behavior": "Reference cleanup only after migration plan; not user-delete scoped.",
@@ -234,10 +211,7 @@
       "owner": "backend-api-contracts",
       "data_class": "reference",
       "lifecycle_status": "current",
-      "exact_tables": [
-        "investor_profiles",
-        "marketplace_investor_replenisher_runs"
-      ],
+      "exact_tables": ["investor_profiles", "marketplace_investor_replenisher_runs"],
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence",
       "retention_policy": "Refreshable public reference data; update from official public sources, preserve evidence URLs, and keep curation/admission fields plus replenisher run health auditable.",
       "deletion_behavior": "Not user-delete scoped; remove or correct only when the public-source inventory is withdrawn or superseded.",
@@ -250,10 +224,7 @@
       "owner": "backend-runtime-governance",
       "data_class": "provider_cache",
       "lifecycle_status": "current",
-      "glob_tables": [
-        "kai_plaid_*",
-        "kai_portfolio_source_preferences"
-      ],
+      "glob_tables": ["kai_plaid_*", "kai_portfolio_source_preferences"],
       "primary_access_path": "Plaid link, refresh, portfolio source preference, and portfolio-read services",
       "retention_policy": "Short-lived provider cache; refresh or purge stale derived state and keep encrypted provider tokens only as required.",
       "deletion_behavior": "Delete on disconnect/account deletion; revoke provider access where supported.",
@@ -280,15 +251,35 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "kai_live_location_sharing",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "transitional",
+      "exact_tables": [
+        "kai_location_access_requests",
+        "kai_location_contacts",
+        "kai_location_events",
+        "kai_location_latest",
+        "kai_location_shares",
+        "kai_location_update_sessions"
+      ],
+      "primary_access_path": "KAI live location contacts, bounded share links, viewer access requests, scoped update sessions, latest-point polling, and redacted event audit services",
+      "retention_policy": "Retain active contacts and live share metadata while enabled; expire shares and update sessions within bounded windows, and compact redacted location events after operational review windows.",
+      "deletion_behavior": "Delete owner-scoped location rows on account deletion; revoke active shares and update sessions on explicit stop/revoke flows.",
+      "trust_boundary": "Vault-owner APIs require owner consent authority; public share links are bearer-token scoped, token hashes persist server-side, and event metadata must not persist raw coordinates.",
+      "plaintext_posture": "location_metadata_coordinates_and_token_hashes",
+      "expected_row_growth": "medium_per_user_share"
+    },
+    {
       "id": "one_location_agent",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
         "one_location_access_requests",
-        "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
+        "one_location_circle_invites",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
@@ -296,10 +287,10 @@
         "one_location_referrals",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is owner, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access or reveal only an explicit public snapshot; Invite to One links create metadata-only network readiness and never reveal private grants, ciphertext, or owner identity beyond a safe label.",
+      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access only and never reveal location, grants, ciphertext, or owner identity beyond a safe label.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },
@@ -326,9 +317,7 @@
       "owner": "backend-runtime-governance",
       "data_class": "audit_regulated",
       "lifecycle_status": "current",
-      "glob_tables": [
-        "kai_funding_*"
-      ],
+      "glob_tables": ["kai_funding_*"],
       "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services",
       "retention_policy": "Long-retention operational/audit metadata for money movement and trade execution.",
       "deletion_behavior": "Do not hard-delete regulated operational evidence without explicit legal/compliance process.",
@@ -358,10 +347,7 @@
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
       "lifecycle_status": "customer0",
-      "exact_tables": [
-        "connected_system_intents",
-        "connected_system_record_bindings"
-      ],
+      "exact_tables": ["connected_system_intents", "connected_system_record_bindings"],
       "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows",
       "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. Record bindings retain the current external CRM record id and workflow metadata only.",
       "deletion_behavior": "Delete user-linked workflow rows on account deletion; compact terminal rows after the operational review window.",
@@ -374,9 +360,7 @@
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",
       "lifecycle_status": "customer0",
-      "exact_tables": [
-        "connected_system_audit_events"
-      ],
+      "exact_tables": ["connected_system_audit_events"],
       "primary_access_path": "Connected Systems read/create/update approval audit and CRM readback result classification",
       "retention_policy": "Retain metadata audit rows for operational review; never retain raw CRM request, MCP result, or readback payload values in audit events.",
       "deletion_behavior": "Preserve regulated audit metadata where required; redact user linkage if account deletion or legal process requires it.",
@@ -385,19 +369,16 @@
       "expected_row_growth": "medium_append_only"
     },
     {
-      "id": "enterprise_crm_registry",
+      "id": "connected_system_registry",
       "owner": "iam-consent-governance",
       "data_class": "reference",
       "lifecycle_status": "customer0",
-      "exact_tables": [
-        "enterprise_crm_registry",
-        "crm_operation_endpoints"
-      ],
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
-      "retention_policy": "Retain active enterprise CRM integration config and per-operation tool catalog while the integration is provisioned; deactivate via is_active rather than delete to preserve audit lineage.",
-      "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
-      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
-      "plaintext_posture": "config_urls_plaintext_credentials_encrypted",
+      "exact_tables": ["enterprise_crm_registry", "crm_operation_endpoints"],
+      "primary_access_path": "Connected Systems CRM registry, encrypted gateway credential lookup, and per-operation MCP tool catalog",
+      "retention_policy": "Retain active enterprise CRM definitions while the managed connector is enabled; rotate encrypted credentials and deactivate superseded registry rows.",
+      "deletion_behavior": "Not user-delete scoped; delete or deactivate only through connector lifecycle and incident-response operations.",
+      "trust_boundary": "Shared connector configuration and encrypted credential envelopes only. No user PKM, consent export payloads, raw MCP responses, or plaintext CRM credentials may persist here.",
+      "plaintext_posture": "reference_metadata_and_encrypted_credentials",
       "expected_row_growth": "low_reference"
     },
     {
@@ -405,9 +386,7 @@
       "owner": "mcp-developer-surface",
       "data_class": "audit_regulated",
       "lifecycle_status": "current",
-      "glob_tables": [
-        "developer_*"
-      ],
+      "glob_tables": ["developer_*"],
       "primary_access_path": "developer app registration, token issuance, and MCP/developer API access",
       "retention_policy": "Retain active apps/tokens and audit metadata; revoke or expire inactive tokens.",
       "deletion_behavior": "Delete/revoke by developer app lifecycle; preserve audit metadata where needed.",

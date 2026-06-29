@@ -459,6 +459,7 @@ export function RuntimeSecretSettingsCard({
                 </div>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 md:flex md:flex-nowrap">
                   <Button
+                    type="button"
                     onClick={() => void handleSave(provider)}
                     disabled={
                       saving ||
@@ -481,6 +482,7 @@ export function RuntimeSecretSettingsCard({
                     )}
                   </Button>
                   <Button
+                    type="button"
                     variant="none"
                     effect="fade"
                     onClick={() => void handleRemove(provider)}

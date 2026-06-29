@@ -26,6 +26,7 @@ import {
   getOneCapability,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
 import {
   isCapabilitySetupActionable,
@@ -70,6 +71,20 @@ export function OneSetupHub() {
   const done = items.filter((item) => isCapabilitySetupComplete(item.status)).length;
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
+
+  // Publish screen context so the onboarding guide can describe the hub and
+  // navigate the person to any capability they ask for.
+  usePublishVoiceSurfaceMetadata({
+    screenId: "one_setup_hub",
+    title: "Set up One",
+    purpose:
+      "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
+    actions: CAPABILITY_SETUP_COPY.map((cap) => ({
+      id: cap.id,
+      label: cap.title,
+      purpose: cap.setupBlurb,
+    })),
+  });
 
   // The MASTER setup acknowledgement is owned by this single hub control:
   //   - 0 capabilities done  -> "Skip"     (master skip-resolved)

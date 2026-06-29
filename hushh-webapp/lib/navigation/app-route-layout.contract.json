@@ -13,14 +13,6 @@
     }
   },
   {
-    "route": "/one/setup",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/onboarding/setup/one-setup-hub.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
-    }
-  },
-  {
     "route": "/developers",
     "mode": "standard",
     "shellVerification": {
@@ -42,11 +34,6 @@
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell."
   },
   {
-    "route": "/getting-started",
-    "mode": "hidden",
-    "exemptionReason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes."
-  },
-  {
     "route": "/one/kyc",
     "mode": "standard",
     "shellVerification": {
@@ -66,11 +53,6 @@
     "route": "/one/location/request/[token]",
     "mode": "hidden",
     "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell."
-  },
-  {
-    "route": "/one/location/invite/[token]",
-    "mode": "hidden",
-    "exemptionReason": "Public one-location circle invite route is a standalone external-acceptance form outside the signed-in app shell."
   },
   {
     "route": "/gmail",
@@ -230,25 +212,17 @@
   {
     "route": "/kai/onboarding",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/kai flow."
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/onboarding flow."
   },
   {
     "route": "/one/kai/onboarding",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/kai flow."
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/onboarding flow."
   },
   {
-    "route": "/one/setup/kai",
+    "route": "/one/onboarding",
     "mode": "flow",
-    "exemptionReason": "Fullscreen setup wizard owns its own shell and safe-area spacing."
-  },
-  {
-    "route": "/one/setup/[capability]",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/onboarding/setup/onboarding-capability-step.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
-    }
+    "exemptionReason": "Fullscreen onboarding flow owns its own shell and safe-area spacing."
   },
   {
     "route": "/kai/optimize",

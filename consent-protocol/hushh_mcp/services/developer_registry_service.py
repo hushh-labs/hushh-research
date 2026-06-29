@@ -394,13 +394,6 @@ class DeveloperRegistryService:
         if self.__class__._tables_ensured:
             return
 
-        # Canonical schema source: db/migrations/070_developer_registry.sql
-        # (registered in db/release_migration_manifest.json under the
-        # "developer" group). The idempotent CREATE TABLE IF NOT EXISTS DDL
-        # below is retained only as a runtime safety net so a backend booting
-        # against a database that has not yet applied migration 070 still
-        # functions. The migration is authoritative; keep the two in sync.
-        #
         # Offline mode: the developer_* tables are pre-created by the SQLite
         # offline schema (db/offline_schema.sql). The Postgres DDL below uses
         # BIGSERIAL/JSONB/::jsonb casts that SQLite cannot parse, so skip it.

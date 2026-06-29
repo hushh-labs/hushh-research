@@ -148,7 +148,7 @@ export const SegmentedPill = React.forwardRef<
           <span
             key={`${value}-${activePulseKey}`}
             data-segment-active-pulse
-            className="absolute inset-0 rounded-full bg-accent/25 opacity-0"
+            className="absolute inset-0 rounded-full bg-primary/20 opacity-0"
           />
         </div>
         {options.map((option) => {
@@ -179,9 +179,9 @@ export const SegmentedPill = React.forwardRef<
                 isStacked ? styles.stackedButton : styles.button,
                 isStacked ? styles.stackedGap : styles.gap,
                 isActive
-                  ? "text-accent-strong font-semibold segmented-pill-active-choice"
+                  ? "text-foreground font-semibold segmented-pill-active-choice"
                   : isAccent
-                    ? "text-accent-strong/85 segmented-pill-button-accent"
+                    ? "text-primary/85 segmented-pill-button-accent"
                     : "text-foreground/60 segmented-pill-button-default",
                 isDisabled && "opacity-45",
               )}

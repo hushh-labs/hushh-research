@@ -129,13 +129,18 @@ function featureStyle(tone: "green" | "blue" | "orange", index: number): CSSProp
 export function IntroStep({
   onNext,
   onLogin,
+  onBack: _onBack,
 }: {
   onNext: () => void;
   onLogin?: () => void;
+  onBack?: () => void;
 }) {
   return (
     <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-[#f5f5f7]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+      {/* Reserve bottom room for the global agent bar (conversational voice
+          piece) which is anchored above the safe area on this intro screen, so
+          the footer CTAs never collide with it. */}
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(94px+var(--app-safe-area-bottom-effective,0px))]">
         <div className="flex min-h-0 flex-1 flex-col justify-center py-6">
           <section className="relative flex flex-none flex-col items-center text-center">
             <Image

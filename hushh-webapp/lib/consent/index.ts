@@ -12,10 +12,4 @@ export {
   type ConsentMutationDetail,
   type PendingConsent,
 } from "./use-consent-actions";
-
-// One Location Actions Hook (E2E location share lifecycle inside /consents)
-export {
-  useOneLocationConsentActions,
-  type LocationConsentActionEntry,
-} from "./use-one-location-consent-actions";
-
+export { useOneLocationConsentActions } from "./use-one-location-consent-actions";

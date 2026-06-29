@@ -57,15 +57,11 @@ Non-owned surfaces:
 
 Default PR-Train Mode: Use the async PR-train method as the default for
 multi-PR work, now formalized as the PR governance subagent train method.
-Lane is decided by AUTHOR, not branch name. Community/contributor/agent PRs:
-intake against `main` is retargeted to `integration/pr-train` before review,
-approval, maintainer patching, harvest, queue, or merge. Governed maintainers
-(in `main.review_bypass_users` / `main.merge_queue_bypass_users`) shipping their
-OWN code branch from `origin/main` and open a PR DIRECTLY into `main` — no train
-detour, no cherry-pick, no promote-branch whitelist (the `PR Base Policy` gate
-passes them by actor identity; CI gate + merge queue + post-merge smoke still
-apply). `main` therefore receives both train-promotion PRs and maintainer
-direct-to-main PRs; the train carries everything non-maintainer.
+Contributors may open PRs against `main`; before review, approval, maintainer
+patching, harvest, queue, or merge, non-maintainer normal intake must be
+retargeted to `integration/pr-train`. Merge-to-main lane is decided by author:
+governed maintainers may PR directly into `main` from `origin/main` by actor identity.
+Everyone else rides the train.
 
 1. Lock the current PR head SHA, current `CI Status Gate`, mergeability, draft state, and review state before judging.
 2. Run the delegation router at intake; use real read-only subagent evidence lanes for non-trivial, high-risk, or multi-PR work.

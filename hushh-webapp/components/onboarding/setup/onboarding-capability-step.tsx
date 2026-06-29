@@ -15,6 +15,7 @@ import {
   ONE_CAPABILITY_ICON_CLASS_BY_TONE,
   getOneCapability,
 } from "@/lib/onboarding/one-capabilities";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,20 +64,15 @@ export function OnboardingCapabilityStep({
   const copy = getCapabilitySetupCopy(capabilityId);
   const [acted, setActed] = useState(false);
 
-  if (!capability || !copy) {
-    return null;
-  }
-
-  const isExploreOnly = capability.isExploreOnly === true;
-  const Icon: LucideIcon = capability.icon;
+  const isExploreOnly = capability?.isExploreOnly === true;
 
   const title = isExploreOnly
-    ? copy.exploreTitle ?? copy.setupTitle
-    : copy.setupTitle;
+    ? copy?.exploreTitle ?? copy?.setupTitle ?? ""
+    : copy?.setupTitle ?? "";
   const blurb = isExploreOnly
-    ? copy.exploreBlurb ?? copy.setupBlurb
-    : copy.setupBlurb;
-  const bullets = isExploreOnly ? copy.exploreBullets : copy.setupBullets;
+    ? copy?.exploreBlurb ?? copy?.setupBlurb ?? ""
+    : copy?.setupBlurb ?? "";
+  const bullets = isExploreOnly ? copy?.exploreBullets : copy?.setupBullets;
   const ctaLabel = isExploreOnly
     ? "Got it"
     : needsVaultUnlock
@@ -88,6 +84,39 @@ export function OnboardingCapabilityStep({
       ? "A quick, one-time setup. You'll unlock your vault next."
       : "A quick, one-time setup.";
 
+  // Publish screen context so the onboarding guide can explain this exact step.
+  // Called before the early return below so hook order stays stable.
+  usePublishVoiceSurfaceMetadata(
+    capability && copy
+      ? {
+          screenId: `one_setup_${capabilityId}`,
+          title,
+          purpose: blurb,
+          primaryEntity: capability.title,
+          actions: [
+            {
+              id: "primary",
+              label: ctaLabel,
+              purpose: isExploreOnly
+                ? "Acknowledge and continue."
+                : "Start this setup.",
+            },
+            {
+              id: "back",
+              label: "Back to setup",
+              purpose: "Return to the setup home.",
+            },
+          ],
+        }
+      : null
+  );
+
+  if (!capability || !copy) {
+    return null;
+  }
+
+  const Icon: LucideIcon = capability.icon;
+
   function handlePrimary() {
     if (busy || acted) return;
     setActed(true);
@@ -98,7 +127,7 @@ export function OnboardingCapabilityStep({
     <AppPageShell
       as="main"
       width="content"
-      className="space-y-5 px-4 py-5 sm:px-6"
+      className="space-y-5 px-4 py-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:px-6"
       nativeTest={{
         routeId: `/one/setup/${capabilityId}`,
         marker: "native-route-one-setup-capability",

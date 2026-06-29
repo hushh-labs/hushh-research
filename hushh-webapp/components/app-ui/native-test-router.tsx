@@ -12,7 +12,7 @@ let lastAppliedExpectedRouteRecovery: { key: string; appliedAt: number } | null 
 const NATIVE_TEST_CONFIG_UPDATED_EVENT = "hushh:native-test-config-updated";
 const EXPECTED_ROUTE_RECOVERY_RETRY_MS = 5_000;
 
-function normalizeRoute(value: string | null | undefined) {
+export function normalizeRoute(value: string | null | undefined) {
   const trimmed = String(value || "").trim();
   if (!trimmed || trimmed === "/") {
     return trimmed || "/";

@@ -5,7 +5,6 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
 
 export const CONSENT_CENTER_PAGE_SIZE = 20;
@@ -427,11 +426,11 @@ export class ConsentCenterService {
     );
     payload.self_activity_summary = payload.self_activity_summary || null;
 
-    cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
+    cache.set(cacheKey, payload, CACHE_TTL.SHORT);
     cache.set(
       CACHE_KEYS.CONSENT_CENTER(userId, "all"),
       payload,
-      CACHE_TTL.MEDIUM,
+      CACHE_TTL.SHORT,
     );
     return payload;
   }
@@ -517,84 +516,32 @@ export class ConsentCenterService {
       options.userId,
       `${cacheActor}:${mode}`,
     );
-    const deviceResourceKey = `consent_center_summary:${cacheActor}:${mode}`;
     const cache = CacheService.getInstance();
-
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageSummary>(cacheKey);
       if (cached) return cached;
     }
-
-    const fetchFresh = async (): Promise<ConsentCenterPageSummary> => {
-      const query = new URLSearchParams({ mode });
-      if (actor) query.set("actor", actor);
-      const response = await ApiService.apiFetch(
-        `/api/consent/center/summary?${query.toString()}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${options.idToken}`,
-          },
+    const query = new URLSearchParams({ mode });
+    if (actor) query.set("actor", actor);
+    const response = await ApiService.apiFetch(
+      `/api/consent/center/summary?${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${options.idToken}`,
         },
+      },
+    );
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
+    if (!response.ok) {
+      throw new Error(
+        payload.detail || payload.error || `Request failed: ${response.status}`,
       );
-      const payload = (await response
-        .json()
-        .catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
-      if (!response.ok) {
-        throw new Error(
-          payload.detail || payload.error || `Request failed: ${response.status}`,
-        );
-      }
-      cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
-      void DeviceResourceCacheService.write({
-        userId: options.userId,
-        resourceKey: deviceResourceKey,
-        value: payload,
-        ttlMs: CACHE_TTL.SESSION,
-      }).catch(() => undefined);
-      return payload;
-    };
-
-    // Stale-while-revalidate: on an in-memory miss, fall back to the persisted
-    // IndexedDB device cache so a page reload after unlock returns the last
-    // known summary instantly instead of blocking on a cold backend call.
-    // The fresh fetch then runs in the background to update both tiers.
-    if (!options.force) {
-      const stored = await DeviceResourceCacheService.read<ConsentCenterPageSummary>({
-        userId: options.userId,
-        resourceKey: deviceResourceKey,
-      });
-      if (stored) {
-        cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
-        void this.refreshSummaryInBackground(cacheKey, fetchFresh);
-        return stored;
-      }
     }
-
-    return fetchFresh();
-  }
-
-  private static readonly summaryRefreshInflight = new Map<
-    string,
-    Promise<void>
-  >();
-
-  private static refreshSummaryInBackground(
-    cacheKey: string,
-    fetchFresh: () => Promise<ConsentCenterPageSummary>,
-  ): Promise<void> {
-    const existing = this.summaryRefreshInflight.get(cacheKey);
-    if (existing) return existing;
-    const run = fetchFresh()
-      .then(() => undefined)
-      .catch(() => undefined)
-      .finally(() => {
-        if (this.summaryRefreshInflight.get(cacheKey) === run) {
-          this.summaryRefreshInflight.delete(cacheKey);
-        }
-      });
-    this.summaryRefreshInflight.set(cacheKey, run);
-    return run;
+    cache.set(cacheKey, payload, CACHE_TTL.SHORT);
+    return payload;
   }
 
   static async listEntries(options: {
@@ -669,7 +616,7 @@ export class ConsentCenterService {
       );
     }
     payload.items = normalizeConsentEntries(payload.items);
-    cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
+    cache.set(cacheKey, payload, CACHE_TTL.SHORT);
     return payload;
   }
 

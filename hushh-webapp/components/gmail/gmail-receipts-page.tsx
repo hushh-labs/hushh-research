@@ -613,7 +613,7 @@ export default function ProfileReceiptsPage() {
       : statusSummary.tone === "error"
         ? "border-rose-500/22 bg-rose-500/[0.06]"
         : statusSummary.tone === "loading"
-          ? "border-accent-border bg-accent-surface"
+          ? "border-sky-500/18 bg-sky-500/[0.05]"
           : "border-border/60 bg-background/68";
   const receiptsVoiceSurfaceMetadata = useMemo(() => {
     const visibleModules = ["Receipt status", "Receipts list"];

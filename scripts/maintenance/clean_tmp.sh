@@ -45,7 +45,6 @@ FAMILIES=(
   "pr-governance-lane-"
   "contributor-impact-dashboard"
   "founder-brief"
-  "board-kpi"
   "autodrive-run"
   "patch-run"
   "patch-queue"

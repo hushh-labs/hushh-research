@@ -35,7 +35,6 @@ import {
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { AsyncActionStatus } from "@/components/system/async-action-status";
-import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import {
   AlertDialog,
@@ -92,11 +91,19 @@ import {
   type KycWorkflowSentReplySnapshot,
   type KycWorkflowStatus,
 } from "@/lib/services/kyc-pkm-write-service";
+import { renderLlmRedraftHtml } from "@/lib/services/one-kyc-approved-disclosure-renderer";
 import {
   effectiveOneKycRequiredFields,
+  isKeywordOnlyInstruction,
   OneKycClientZkService,
-  runLlmRedraft,
+  reassembleDraftTemplate,
+  redactDraftForLlm,
+  resubstituteDraft,
+  sha256Hex,
+  splitDraftTemplate,
+  validateTokenIntegrity,
   type KycDraftBuildResult,
+  type KycLlmRewriteCallable,
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
@@ -317,6 +324,8 @@ function OneKycWorkspace() {
   );
   const [error, setError] = useState<string | null>(null);
   const [redraftInstructions, setRedraftInstructions] = useState("");
+  // D-F: routing override. null = auto-detect; true = force LLM; false = force regex.
+  const [useAiRedraft, setUseAiRedraft] = useState<boolean | null>(null);
   const [localDrafts, setLocalDrafts] = useState<
     Record<string, KycDraftBuildResult>
   >({});
@@ -853,14 +862,6 @@ function OneKycWorkspace() {
 
     return () => {
       cancelled = true;
-      // Clear the background draft-prep flag when this run is superseded or
-      // unmounted. The in-flight run's `finally` skips the reset while
-      // `cancelled`, and a follow-up run can early-return before the `try`
-      // (e.g. the failed-attempt/recovery guards on a 409), which would leave
-      // `busy` stuck at "draft" and disable every action button. Only "draft"
-      // is cleared, so a concurrent user action's busy state is never touched;
-      // the next run re-sets it if it actually starts preparing.
-      setBusy((current) => (current === "draft" ? null : current));
     };
   }, [
     auth.userId,
@@ -991,33 +992,174 @@ function OneKycWorkspace() {
             setError("Prepare the email draft before revising it.");
             return;
           }
-          const exportPayloads = localExportPayloads[workflow.workflow_id] || [];
-          const result = await runLlmRedraft({
-            localDraft,
-            instruction: redraftInstructions.trim(),
-            workflow,
-            exportPayloads,
-            llmRewrite: (tokenizedTemplate, instruction) =>
+          // Routing (D-F): keyword-only instructions take the fast local regex path;
+          // free-form / semantic instructions take the LLM redact -> rewrite -> re-fill path.
+          // The useAiRedraft override forces a path regardless of keyword detection:
+          //   false -> force regex; true -> force LLM; null -> auto-detect.
+          const isKeyword =
+            useAiRedraft === false
+              ? true // force regex
+              : useAiRedraft === true
+                ? false // force LLM
+                : isKeywordOnlyInstruction(redraftInstructions.trim());
+          if (!isKeyword) {
+            // --- LLM path ---
+            // 0. Template preservation: split off the fixed framing (opening line +
+            //    "Best,\nhussh One" signature) recomputed deterministically from the
+            //    render model. Only the middle `content` is sent to / rewritten by the
+            //    LLM; opening + signature are reassembled byte-identically afterwards.
+            //    Defensive: if the framing does not match, splitDraftTemplate returns
+            //    the whole body as content (matched=false) and we send it all as today.
+            const templateSplit = splitDraftTemplate({
+              body: localDraft.body,
+              renderModel: localDraft.renderModel,
+            });
+
+            // 1. Redact: every PII value -> opaque token; map stays in the browser (D-B).
+            //    Tokenize ONLY the content portion.
+            const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+              body: templateSplit.content,
+              approvedValues: localDraft.approvedValues,
+            });
+
+            // 2. Rewrite through the injectable callable (D-G). Default impl is the
+            //    server Gemini Vertex proxy from Wave 2.
+            const llmRewrite: KycLlmRewriteCallable = (tmpl, instr) =>
               OneKycService.redraftWithLlm({
                 ...input,
-                tokenizedTemplate,
-                instruction,
-              }).then((response) => response.rewritten_template),
-          });
-          if (!result.ok) {
-            setError(
-              result.errorCode === "TOKEN_INTEGRITY"
-                ? "AI output failed token integrity check — using original draft. Try again or use a simpler instruction."
-                : "AI output altered the consented field set — using original draft. Try again.",
+                tokenizedTemplate: tmpl,
+                instruction: instr,
+              }).then((response) => response.rewritten_template);
+
+            const rewrittenTemplate = await llmRewrite(
+              tokenizedTemplate,
+              redraftInstructions.trim(),
             );
+
+            // 3. Token integrity gate (D-H guardrail 2), run on the content portion.
+            //    On failure, fall back to the prior draft — never set a mangled draft.
+            const integrityOk = validateTokenIntegrity(
+              tokenizedTemplate,
+              rewrittenTemplate,
+              tokenMap,
+            );
+            if (!integrityOk) {
+              setError(
+                "AI output failed token integrity check — using original draft. Try again or use a simpler instruction.",
+              );
+              setRedraftInstructions("");
+              return;
+            }
+
+            // 4. Re-substitute real values locally (values never left the browser, D-B),
+            //    then reassemble the full body around the preserved framing so the
+            //    opening line and signature are byte-identical to before.
+            const resubstitutedContent = resubstituteDraft(rewrittenTemplate, tokenMap);
+            const resubstitutedBody = templateSplit.matched
+              ? reassembleDraftTemplate({
+                  opening: templateSplit.opening,
+                  content: resubstitutedContent,
+                  signature: templateSplit.signature,
+                })
+              : resubstitutedContent;
+
+            // 5. Field re-validation (D-H guardrail 3): re-run buildDraft and confirm the
+            //    consented field set is unchanged (no field added, dropped, or renamed).
+            const exportPayloads =
+              localExportPayloads[workflow.workflow_id] || [];
+            const revalidatedDraft = await OneKycClientZkService.buildDraft({
+              workflow,
+              exportPayloads,
+            });
+            const beforeKeys = new Set(Object.keys(localDraft.approvedValues));
+            const afterKeys = new Set(
+              Object.keys(revalidatedDraft.approvedValues),
+            );
+            const keysMatch =
+              beforeKeys.size === afterKeys.size &&
+              [...beforeKeys].every((key) => afterKeys.has(key));
+            if (!keysMatch) {
+              setError(
+                "AI output altered the consented field set — using original draft. Try again.",
+              );
+              setRedraftInstructions("");
+              return;
+            }
+
+            // 6. Build the LLM draft. body AND htmlBody both reflect the LLM output;
+            //    htmlBody is re-derived from the resubstituted plaintext via
+            //    renderLlmRedraftHtml (NOT the revalidated draft html, which is rebuilt
+            //    from the original render model with no LLM input — DraftReplyPreview
+            //    renders htmlBody, so reusing the stale html would show the OLD draft).
+            //    renderLlmRedraftHtml renders the LLM markdown into the SAME themed
+            //    email shell as the structured draft, so the preview/sent email stays
+            //    visually consistent before vs after an LLM redraft.
+            const llmHtmlBody = renderLlmRedraftHtml(resubstitutedBody);
+            const llmDraftHash = await sha256Hex(resubstitutedBody);
+            const llmDraft: KycDraftBuildResult = {
+              ...revalidatedDraft,
+              body: resubstitutedBody,
+              htmlBody: llmHtmlBody,
+              draftHash: llmDraftHash,
+            };
+            setLocalDrafts((current) => ({
+              ...current,
+              [workflow.workflow_id]: llmDraft,
+            }));
             setRedraftInstructions("");
+            // Reset the routing override so each new redraft session starts fresh (D-F).
+            setUseAiRedraft(null);
             return;
           }
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: result.draft,
-          }));
+          // --- Keyword path (unchanged) ---
+          const next = await OneKycService.redraft({
+            ...input,
+            instructions: redraftInstructions.trim(),
+            source: "text",
+          });
+          updateWorkflow(next);
+          if (next.status === "waiting_on_user") {
+            let exportPayloads = localExportPayloads[workflow.workflow_id] || [];
+            if (exportPayloads.length === 0) {
+              const connector = await OneKycClientZkService.ensureConnector({
+                userId: auth.userId,
+                vaultKey,
+                vaultOwnerToken,
+              });
+              const exportResponse = await OneKycService.getWorkflowConsentExports({
+                userId: auth.userId,
+                vaultOwnerToken,
+                workflowId: next.workflow_id,
+              });
+              exportPayloads = await Promise.all(
+                exportResponse.exports.map(async (exportPackage) => ({
+                  scope: exportPackage.scope,
+                  payload: await OneKycClientZkService.decryptScopedExport({
+                    exportPackage,
+                    connector,
+                  }),
+                })),
+              );
+              setLocalExportPayloads((current) => ({
+                ...current,
+                [workflow.workflow_id]: exportPayloads,
+              }));
+            }
+            const draft = await OneKycClientZkService.buildDraft({
+              workflow: next,
+              exportPayloads,
+              instructions: redraftInstructions.trim(),
+            });
+            setLocalDrafts((current) => ({
+              ...current,
+              [workflow.workflow_id]: draft,
+            }));
+          } else {
+            clearLocalWorkflowState(workflow.workflow_id);
+          }
           setRedraftInstructions("");
+          // Reset the routing override so each new redraft session starts fresh (D-F).
+          setUseAiRedraft(null);
           return;
         }
 
@@ -1160,6 +1302,7 @@ function OneKycWorkspace() {
       localExportPayloads,
       localDrafts,
       redraftInstructions,
+      useAiRedraft,
       refreshWorkflowState,
       updateWorkflow,
       vaultKey,
@@ -1518,7 +1661,6 @@ function OneKycWorkspace() {
         dataState: showInitialLoading ? "loading" : error ? "error" : "loaded",
       }}
     >
-      <CapabilityExploreCard capabilityId="email" />
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="One"
@@ -1609,12 +1751,9 @@ function OneKycWorkspace() {
                           size="icon"
                           className="size-8"
                           aria-label="Remove request"
-                          // Removing a request only opens the confirm dialog and is
-                          // its own action; it must not be blocked by a background
-                          // draft-prep (busy === "draft"), or a stuck/looping draft
-                          // prep would trap the user with no way to delete the
-                          // workflow. Guard only against an in-flight archive.
-                          disabled={Boolean(archivingWorkflowId)}
+                          disabled={
+                            Boolean(busy) || Boolean(archivingWorkflowId)
+                          }
                           onClick={(event) => {
                             event.stopPropagation();
                             setArchiveTarget(workflow);
@@ -1946,36 +2085,90 @@ function OneKycWorkspace() {
 
               {selectedCanReviewDraft ? (
                 <SettingsGroup embedded title="Redraft">
-                  <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                    <Textarea
-                      value={redraftInstructions}
-                      onChange={(event) =>
-                        setRedraftInstructions(event.target.value)
-                      }
-                      maxLength={1000}
-                      placeholder="Make it shorter, more formal, or use a bullet list."
-                      className="min-h-24"
-                      data-voice-control-id="one-kyc-redraft-instructions"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => void runAction("redraft", selected)}
-                      disabled={
-                        Boolean(busy) ||
-                        !redraftInstructions.trim() ||
-                        !selectedDraft
-                      }
-                      data-voice-control-id="one-kyc-redraft"
-                      data-voice-action-id="kyc.draft.request_redraft"
-                    >
-                      {busy === "redraft" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <PenLine className="size-4" />
-                      )}
-                      {busy === "redraft" ? "Redrafting..." : "Redraft"}
-                    </Button>
-                  </div>
+                  {(() => {
+                    // Will this instruction take the LLM path? Mirror the runAction
+                    // routing: useAiRedraft override wins; otherwise auto-detect via
+                    // isKeywordOnlyInstruction. When the LLM path will be used we show a
+                    // small NON-BLOCKING informational disclosure (no acknowledgement
+                    // gate — the user does not have to click before every AI redraft).
+                    const willUseLlm =
+                      useAiRedraft === false
+                        ? false
+                        : useAiRedraft === true
+                          ? true
+                          : !isKeywordOnlyInstruction(
+                              redraftInstructions.trim(),
+                            );
+                    return (
+                      <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">Rewrite mode</span>
+                          <select
+                            value={
+                              useAiRedraft === true
+                                ? "ai"
+                                : useAiRedraft === false
+                                  ? "regex"
+                                  : ""
+                            }
+                            onChange={(event) => {
+                              const val = event.target.value;
+                              setUseAiRedraft(
+                                val === "ai"
+                                  ? true
+                                  : val === "regex"
+                                    ? false
+                                    : null,
+                              );
+                            }}
+                            className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+                            data-voice-control-id="one-kyc-redraft-mode"
+                          >
+                            <option value="">Auto-detect</option>
+                            <option value="ai">Use AI</option>
+                            <option value="regex">Use keywords only</option>
+                          </select>
+                        </label>
+                        {willUseLlm ? (
+                          <div
+                            role="note"
+                            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+                          >
+                            {/* prettier-ignore */}
+                            <p>AI rewrite — only redacted placeholders are sent, never your actual details.</p>
+                          </div>
+                        ) : null}
+                        <Textarea
+                          value={redraftInstructions}
+                          onChange={(event) =>
+                            setRedraftInstructions(event.target.value)
+                          }
+                          maxLength={1000}
+                          placeholder="Make it shorter, more formal, or use a bullet list."
+                          className="min-h-24"
+                          data-voice-control-id="one-kyc-redraft-instructions"
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => void runAction("redraft", selected)}
+                          disabled={
+                            Boolean(busy) ||
+                            !redraftInstructions.trim() ||
+                            !selectedDraft
+                          }
+                          data-voice-control-id="one-kyc-redraft"
+                          data-voice-action-id="kyc.draft.request_redraft"
+                        >
+                          {busy === "redraft" ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <PenLine className="size-4" />
+                          )}
+                          {busy === "redraft" ? "Redrafting..." : "Redraft"}
+                        </Button>
+                      </div>
+                    );
+                  })()}
                 </SettingsGroup>
               ) : null}
 

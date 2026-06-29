@@ -57,7 +57,11 @@ class AgentChatMessageModel(BaseModel):
     conversation_id: str = Field(..., max_length=256)
     role: str = Field(..., max_length=64)
     status: str = Field(..., max_length=64)
-    content: str = Field(..., max_length=8192)
+    # Assistant completions are stored in full and can be far larger than a user
+    # turn (long markdown answers, tables, code). An 8 KB cap here rejected real
+    # stored messages at serialization time and 500'd history loads, making the
+    # conversation unrecoverable. Allow up to 128 KB, well above any single turn.
+    content: str = Field(..., max_length=131072)
     model: Optional[str] = Field(default=None, max_length=128)
     created_at: Optional[str] = Field(default=None, max_length=64)
     completed_at: Optional[str] = Field(default=None, max_length=64)

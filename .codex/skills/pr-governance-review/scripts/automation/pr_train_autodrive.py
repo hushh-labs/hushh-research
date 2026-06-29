@@ -64,24 +64,12 @@ def inventory():
     return d,sorted(un),sorted(cr)
 
 def detect_repass(cr):
-    """Return repass PR numbers (contributor addressed since the maintainer CR).
-
-    Two independent signals (a PR is a repass if EITHER fires):
-      1. TIMESTAMP: latest contributor commit / non-maintainer comment is newer
-         than the latest maintainer CHANGES_REQUESTED review.
-      2. HEAD-DRIFT: the current head SHA differs from the commit_id the latest
-         maintainer review was pinned to. This is IMMUNE to timestamp quirks
-         (rebases keep an old committedDate while moving the head; edited review
-         bodies keep an old submittedAt) — the exact failure mode that left 20+
-         genuinely-addressed PRs looking blocked. Head-drift is the source of
-         truth for "the contributor changed the code after we reviewed it".
-    Batched: queries 15 PRs per GraphQL call via aliases to stay fast.
-    """
+    """Return green+mergeable repass PR numbers (contributor addressed since CR).
+    Batched: queries 15 PRs per GraphQL call via aliases to stay fast."""
     from datetime import datetime
     def ts(x): return datetime.fromisoformat(x.replace("Z","+00:00")) if x else None
     FRAG="""pXNX: pullRequest(number:XNX){
-      headRefOid
-      reviews(last:30){nodes{author{login} state submittedAt commit{oid}}}
+      reviews(last:30){nodes{author{login} state submittedAt}}
       commits(last:1){nodes{commit{committedDate}}}
       comments(last:15){nodes{author{login} createdAt}}}"""
     repass=[]
@@ -96,65 +84,23 @@ def detect_repass(cr):
         for n in b:
             pr=repo.get(f"p{n}")
             if not pr: continue
-            head=pr.get("headRefOid")
-            maint_revs=[r for r in pr["reviews"]["nodes"]
-                        if (r.get("author") or {}).get("login") in MAINT
-                        and r["state"]=="CHANGES_REQUESTED"]
-            revs=[ts(r["submittedAt"]) for r in maint_revs]
+            revs=[ts(r["submittedAt"]) for r in pr["reviews"]["nodes"] if r["state"]=="CHANGES_REQUESTED"]
             last_rev=max([r for r in revs if r],default=None)
-            # commit_id the most-recent maintainer CR review was pinned to
-            reviewed_head=None
-            if maint_revs:
-                last_maint=max(maint_revs,key=lambda r: r.get("submittedAt") or "")
-                reviewed_head=(last_maint.get("commit") or {}).get("oid")
             lc=pr["commits"]["nodes"]; last_commit=ts(lc[0]["commit"]["committedDate"]) if lc else None
             cc=[ts(c["createdAt"]) for c in pr["comments"]["nodes"] if (c["author"] or {}).get("login") not in MAINT]
             last_act=max([t for t in ([last_commit]+cc) if t],default=None)
-            timestamp_repass = bool(last_rev and last_act and last_act>last_rev)
-            # HEAD-DRIFT: head moved past the reviewed commit (timestamp-immune).
-            head_drift = bool(head and reviewed_head and head!=reviewed_head)
-            if timestamp_repass or head_drift:
-                repass.append(n)
+            if last_rev and last_act and last_act>last_rev: repass.append(n)
     return sorted(repass)
 
-def engine_scan(prs,tag,max_chunks,max_age_s=7200):
-    """Scan actionable PRs in chunks of 50, caching each chunk's engine report.
-
-    REALTIME-DRAIN CACHE SEMANTICS (fixed 2026-06): the per-chunk cache file is
-    keyed by chunk INDEX, but the actionable PR set changes every run (new PRs,
-    repass activity). A stale cache therefore silently skips freshly-opened PRs
-    (the June-19 tranche bug). We now invalidate a cached chunk when EITHER:
-      (a) it is older than ``max_age_s`` (default 2h), OR
-      (b) the exact PR-number set in that chunk differs from what the cache was
-          built for (membership drift).
-    The cache stores the chunk's PR list alongside the reports so (b) is exact.
-    """
+def engine_scan(prs,tag,max_chunks):
     os.makedirs(WORK,exist_ok=True)
     chunks=[prs[i:i+50] for i in range(0,len(prs),50)][:max_chunks]
     reps={}
     for idx,ch in enumerate(chunks):
         out=f"{WORK}/{tag}-{idx}.json"
-        fresh=False
-        if os.path.exists(out):
-            try:
-                age=time.time()-os.path.getmtime(out)
-                cached=json.load(open(out))
-                cached_prs=cached.get("_autodrive_chunk_prs")
-                # Fresh only if young AND same membership as this run's chunk.
-                fresh=(age<=max_age_s and cached_prs==list(ch))
-            except Exception:
-                fresh=False
-        if not fresh:
+        if not os.path.exists(out):
             run(["python3",ENGINE,"--repo",REPO,"--prs",",".join(map(str,ch)),
                  "--repass-after-changes","--json","--output",out],timeout=420,retries=1)
-            # Tag the freshly written report with the chunk's PR set so the next
-            # run can detect membership drift and avoid stale reuse.
-            try:
-                d=json.load(open(out))
-                d["_autodrive_chunk_prs"]=list(ch)
-                json.dump(d,open(out,"w"),default=str)
-            except Exception:
-                pass
         if os.path.exists(out):
             d=json.load(open(out))
             for r in d["reports"]:
@@ -212,24 +158,11 @@ def post_record(n,body,head=None):
 
 def main():
     ap=argparse.ArgumentParser()
-    # Drain-to-zero defaults (2026-06): the goal is MINIMUM standing backlog —
-    # every actionable PR (unattended + repass) is driven to terminal each run,
-    # not a fixed slice. First cycle is heavy; steady state is light because only
-    # newly-opened or newly-updated (repass) PRs remain actionable. Override with
-    # smaller values for a quick partial pass. max-chunks 200 ⇒ up to 10k PRs/run.
-    ap.add_argument("--max-merge",type=int,default=10000)
-    ap.add_argument("--max-chunks",type=int,default=200)
-    # Destructive-on-others'-PRs guard: closing a contributor's PR as superseded
-    # is gated behind --apply-close. Without it, harvest_then_close duplicates are
-    # only COUNTED into close_candidates (dry-run) so the operator can review the
-    # list before any PR is closed. (Matches the operator's "destructive on others'
-    # GitHub = dry-run + counts first" rule.)
-    ap.add_argument("--apply-close",action="store_true",
-                    help="Actually close harvest_then_close duplicate PRs (default: dry-run count only).")
+    ap.add_argument("--max-merge",type=int,default=40)
+    ap.add_argument("--max-chunks",type=int,default=8)
     a=ap.parse_args()
     res={"queued":[],"block_recorded":[],"operator_patch":[],"security_review":[],
          "conflicting":[],"collision_defer":[],"self_hold":[],"skipped":[],"fail":[],
-         "patch_auto_merged":[],"superseded_closed":[],"close_candidates":[],
          "inventory":{},"repass_detected":0}
     allpr,un,cr=inventory()
     res["inventory"]={"open_train":len(allpr),"unattended":len(un),"changes_requested":len(cr)}
@@ -272,65 +205,10 @@ def main():
         elif r=="no_template": res["skipped"].append(n)
         else: res["fail"].append(n)
         time.sleep(0.15)
-    # patch/harvest — COMPLETE the loop instead of just listing.
-    # 1. patch_then_merge / maintainer_harvest: if the contributor's head is
-    #    ALREADY green + mergeable + diff-safe (no sensitive path, not self-mock),
-    #    no maintainer patch is actually needed — approve + enqueue so it merges
-    #    and the PR auto-closes (the #3473 pattern). Otherwise it still needs a
-    #    hand-written patch: leave it for the patch campaign and record it in
-    #    operator_patch so it is never silently dropped.
+    # patch/harvest
     for n in sorted(reps):
-        if reps[n]["lane"] not in ("patch_then_merge","maintainer_harvest"): continue
-        files=reps[n]["files"]
-        if mn>=a.max_merge: res["operator_patch"].append({"pr":n,"attach":reps[n]["attach"]}); continue
-        if claimed & set(files): res["collision_defer"].append(n); continue
-        safe,why=diff_safe(n,files)
-        if not safe:
-            # touches a sensitive path or is self-mock — genuinely needs a human/
-            # campaign patch, do NOT auto-merge.
-            res["operator_patch"].append({"pr":n,"attach":reps[n]["attach"]}); continue
-        d=gh_json(n,"headRefOid,baseRefName,isDraft,mergeable,id")
-        if not d or d["baseRefName"]!="integration/pr-train" or d["isDraft"]:
-            res["operator_patch"].append({"pr":n,"attach":reps[n]["attach"]}); continue
-        if d["mergeable"]=="UNKNOWN": time.sleep(3); d=gh_json(n,"headRefOid,baseRefName,isDraft,mergeable,id") or d
-        if d["mergeable"]!="MERGEABLE":
-            # not cleanly mergeable as-is → real patch work; hand off, don't drop.
-            res["operator_patch"].append({"pr":n,"attach":reps[n]["attach"]}); continue
-        sha=d["headRefOid"][:8]
-        body=(f"## Approved: clean at current head\n\nRe-reviewed at head `{sha}`: the "
-              f"contributor's {reps[n]['contract']} change is self-sufficient, path-clean, "
-              f"green CI Status Gate, MERGEABLE, base integration/pr-train — no separate "
-              f"maintainer patch needed. Enqueued to merge queue; it closes on merge.")
-        run(["gh","pr","review",str(n),"--repo",REPO,"--approve","--body",body])
-        rc,o,e=run(["gh","api","graphql","-f",
-            f'query=mutation{{enqueuePullRequest(input:{{pullRequestId:"{d["id"]}"}}){{mergeQueueEntry{{state position}}}}}}'])
-        if rc==0 and '"errors"' not in o: mn+=1; claimed|=set(files); res["patch_auto_merged"].append(n)
-        elif "last pusher" in (o+e): res["self_hold"].append(n)
-        else: res["operator_patch"].append({"pr":n,"attach":reps[n]["attach"]})
-        time.sleep(0.2)
-    # 2. harvest_then_close / close_duplicate: the PR duplicates a preferred
-    #    canonical implementation. Post the superseded record, then close — but
-    #    closing a contributor's PR is destructive, so it is gated behind
-    #    --apply-close. Without the flag we only post the record (non-destructive)
-    #    and COUNT the close into close_candidates for operator review.
-    for n in sorted(reps):
-        if reps[n]["lane"] not in ("harvest_then_close","close_duplicate"): continue
-        hd=gh_json(n,"headRefOid,state")
-        if not hd or hd.get("state")!="OPEN": continue
-        head=hd.get("headRefOid")
-        # Post/refresh the superseded record first so the PR is never unattended,
-        # even if the close is deferred (dry-run) or fails.
-        post_record(n,reps[n]["comment"],head=head)
-        if a.apply_close:
-            rc,o,e=run(["gh","pr","close",str(n),"--repo",REPO,
-                        "--comment","Closing as superseded by the preferred canonical "
-                        "implementation for this product contract (see the maintainer "
-                        "record above). Thank you for the contribution — unique value "
-                        "has been harvested into the canonical path where applicable."])
-            (res["superseded_closed"] if rc==0 else res["fail"]).append(n)
-        else:
-            res["close_candidates"].append(n)
-        time.sleep(0.2)
+        if reps[n]["lane"] in ("patch_then_merge","maintainer_harvest"):
+            res["operator_patch"].append({"pr":n,"attach":reps[n]["attach"]})
     print(json.dumps(res,indent=1,default=str))
 
 if __name__=="__main__": main()

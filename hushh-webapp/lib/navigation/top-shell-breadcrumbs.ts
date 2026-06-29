@@ -10,14 +10,6 @@ export type TopShellBreadcrumbConfig = {
   items: TopShellBreadcrumbItem[];
   width?: "content" | "profile";
   align?: "start" | "center";
-  /**
-   * Suppress the top-bar back button for this route while keeping the rest of
-   * the breadcrumb/title chrome. Used by the onboarding entry screen: until the
-   * user has explicitly skipped or continued into a step, there is no confirmed
-   * "previous" destination (back-before-/one would be logically wrong), so we
-   * show no back affordance at all.
-   */
-  hideBack?: boolean;
 };
 
 function titleizeSegment(segment: string): string {
@@ -147,63 +139,12 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  if (pathname === ROUTES.ONE_SETUP_KAI) {
+  if (pathname === ROUTES.ONE_ONBOARDING) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      // Re-entry (finance tile / edit) carries a `from` origin, so back returns
-      // there; otherwise back falls to the setup hub.
-      backHref: originHref || ROUTES.ONE_SETUP,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      // Show a back affordance when the user reached the wizard from a known
-      // origin (the `from` marker set by the setup hub / finance tile re-entry)
-      // OR fall back to the setup hub so the user is never trapped on the
-      // questionnaire with no exit. Only the bare first-run entry with no origin
-      // hides back, because navigating before /one/setup would bypass the
-      // unfinished gate.
-      hideBack: false,
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Setup", href: ROUTES.ONE_SETUP },
-      ],
-    };
-  }
-
-  // Per-capability setup step (`/one/setup/<capability>`, e.g. finance, gmail).
-  // These live under the setup hub, so back returns to the hub and the user is
-  // never trapped on a capability step with no exit. Checked before the bare
-  // hub so the more specific nested route wins.
-  if (
-    pathname.startsWith(`${ROUTES.ONE_SETUP}/`) &&
-    pathname !== ROUTES.ONE_SETUP_KAI
-  ) {
-    const capabilitySegment = pathname
-      .slice(`${ROUTES.ONE_SETUP}/`.length)
-      .split("/")
-      .filter(Boolean)[0];
-    return {
-      backHref: ROUTES.ONE_SETUP,
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Setup", href: ROUTES.ONE_SETUP },
-        ...(capabilitySegment
-          ? [{ label: titleizeSegment(capabilitySegment) }]
-          : []),
-      ],
-    };
-  }
-
-  // The setup hub itself (`/one/setup`). Back returns to the One home so a user
-  // who opened setup from the dashboard can step out without completing it.
-  if (pathname === ROUTES.ONE_SETUP) {
-    return {
-      backHref: ROUTES.ONE_HOME,
-      width: "content",
-      align: "center",
-      hideBack: false,
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Setup" },

@@ -1,23 +1,7 @@
-import { ROUTES, isOneSetupSurfaceRoute } from "@/lib/navigation/routes";
+import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
 
-/**
- * @deprecated The `hushh_setup_required` cookie is a client-only
- * (`document.cookie`) hint that the Next 16 `proxy.ts` CANNOT read — setup
- * gating is owned by the client guards (OneSetupGuard / PostAuthRouteService
- * / VaultLockGuard) reading the authoritative stores, not this cookie. It is
- * written in several places but currently has no reader, so it is effectively
- * dead state. It is retained only because the reset-account and register-phone
- * contract tests assert its presence as a behavioral marker; do not build new
- * gating on it. Prefer the setup registry
- * (`lib/navigation/onboarding-registry.ts`) for any new flow logic. Slated for
- * removal once those contract tests are migrated to assert store state directly.
- */
-export const ONBOARDING_REQUIRED_COOKIE = "hushh_setup_required";
-/**
- * Live cookie: read by `kai-chrome-state` and `AuthStep` to know a setup flow is
- * mid-progress (e.g. route to the import step after Continue).
- */
-export const ONBOARDING_FLOW_ACTIVE_COOKIE = "hushh_setup_flow_active";
+export const ONBOARDING_REQUIRED_COOKIE = "kai_onboarding_required";
+export const ONBOARDING_FLOW_ACTIVE_COOKIE = "kai_onboarding_flow_active";
 
 const COOKIE_PATH = "path=/";
 const COOKIE_SAME_SITE = "SameSite=Lax";
@@ -68,11 +52,11 @@ export function isOnboardingFlowActiveCookieEnabled(): boolean {
 }
 
 export function isOnboardingRoute(pathname: string): boolean {
-  return isOneSetupSurfaceRoute(pathname);
+  return isKaiOnboardingRoute(pathname);
 }
 
 export const ONBOARDING_ROUTES = {
-  PREFERRED: ROUTES.ONE_SETUP,
+  PREFERRED: ROUTES.ONE_ONBOARDING,
 } as const;
 
 export function getOnboardingRoute(): string {

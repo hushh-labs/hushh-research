@@ -6,24 +6,13 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 
-// Lean top-bar control surface. Mirrors the ThemeToggleLean pill exactly:
-// a soft translucent track (no sky border, no heavy shadow, no blur) so every
-// top-app-bar control (back button, theme toggle, title pill, future actions)
-// shares one minimal, symmetric aesthetic. h-9 / rounded-full / px to match.
-// Every top-bar control shares one lean translucent track that matches the
-// bottom nav pill and the back button exactly: soft fill (bg-black/[0.05]
-// light, bg-white/[0.07] dark), no border, no shadow, no blur. Icon controls
-// carry the muted eyebrow tone on the stroke and warm to full foreground on
-// hover; pill controls add horizontal padding + label text.
 const shellActionSurfaceVariants = cva(
-  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full bg-black/[0.05] transition-[color,background-color,transform] duration-200 hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]",
+  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-sky-500/28 bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] bg-[length:100%_100%] bg-no-repeat text-[color:var(--app-shell-surface-foreground)] shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)] transition-[background-color,transform,box-shadow,border-color] duration-200 hover:border-sky-500/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:border-sky-400/24 dark:hover:border-sky-300/48",
   {
     variants: {
       variant: {
-        icon:
-          "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground active:scale-90",
-        pill:
-          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-medium tracking-normal text-[#1d1d1f] active:scale-[0.97] dark:text-[#f5f5f7] sm:gap-2 sm:px-4 sm:text-base",
+        icon: "h-10 w-10 items-center justify-center hover:scale-[1.035] hover:bg-[color:var(--app-shell-surface-bg-hover)] active:scale-[0.965]",
+        pill: "min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 px-3 py-1.5 text-[14px] font-medium tracking-normal hover:bg-[color:var(--app-shell-surface-bg-hover)] sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {
@@ -71,6 +60,14 @@ export const ShellActionSurface = React.forwardRef<
         className={cn(shellActionSurfaceVariants({ variant }), className)}
         {...props}
       >
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 z-[1] rounded-full bg-transparent transition-[background-color]",
+            "group-hover/shell-action:bg-foreground/[0.04] group-active/shell-action:bg-foreground/[0.065]",
+            "dark:group-hover/shell-action:bg-white/[0.075] dark:group-active/shell-action:bg-white/[0.12]"
+          )}
+        />
         <span
           className={cn(
             "pointer-events-none relative z-10 inline-flex min-w-0 max-w-full items-center justify-center",

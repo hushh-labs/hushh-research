@@ -52,9 +52,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/profile/receipts`
 - `/profile/gmail/oauth/return`
 - `/consents`
-- `/one/setup`
-- `/one/setup/kai`
-- `/one/setup/[capability]`
+- `/one/onboarding`
 - `/one/kyc`
 - `/marketplace`
 - `/marketplace/ria`

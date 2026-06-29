@@ -115,6 +115,9 @@ const RANDOM_DEMO_NAMES = [
 const CRM_LIST_PAGE_SIZE = 12;
 const SALESFORCE_CRM_LOGO_SRC = "/brand/salesforce-crm-logo.svg";
 const MACYS_LOGO_SRC = "/brand/macys-logo.svg";
+const RESPONSIVE_ACTION_ROW_CLASSNAME = "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap";
+const RESPONSIVE_ACTION_BUTTON_CLASSNAME = "w-full justify-center sm:w-auto";
+const RESPONSIVE_BADGE_ROW_CLASSNAME = "flex min-w-0 max-w-full flex-wrap items-center justify-start gap-2 sm:justify-end";
 const CRM_FIELD_PLACEHOLDERS: Record<CrmProfileFieldKey, string> = {
   FirstName: "Maria",
   LastName: "Joe",
@@ -1224,7 +1227,11 @@ export function ConnectedSystemsPanel({
         : null,
     ].filter(Boolean);
 
-    return <p className="text-xs text-muted-foreground">{parts.join(" / ")}</p>;
+  return (
+    <p className="min-w-0 text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+      {parts.join(" / ")}
+    </p>
+  );
   };
 
   const renderRegisteredLookup = (buttonLabel: string) => (
@@ -1241,7 +1248,9 @@ export function ConnectedSystemsPanel({
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {label}
             </div>
-            <div className="mt-1 truncate text-sm font-medium text-foreground">{value}</div>
+            <div className="mt-1 min-w-0 text-sm font-medium text-foreground [overflow-wrap:anywhere]">
+              {value}
+            </div>
           </div>
         ))}
       </div>
@@ -1289,15 +1298,15 @@ export function ConnectedSystemsPanel({
           ? identityValue || crmFieldValues[field.key]
           : crmFieldValues[field.key];
         return (
-          <label key={field.key} className="space-y-1.5">
-            <span className="flex items-center justify-between gap-2 text-[12px] font-medium text-muted-foreground">
-              <span>{field.label}</span>
+          <label key={field.key} className="min-w-0 space-y-1.5">
+            <span className="flex min-w-0 flex-col gap-1 text-[12px] font-medium text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+              <span className="min-w-0 [overflow-wrap:anywhere]">{field.label}</span>
               {identityField ? (
-                <span>From One profile</span>
+                <span className="shrink-0">From One profile</span>
               ) : field.required ? (
-                <span>Required</span>
+                <span className="shrink-0">Required</span>
               ) : field.key in changedProfileFields ? (
-                <span>Changed</span>
+                <span className="shrink-0">Changed</span>
               ) : null}
             </span>
             <Input
@@ -1309,7 +1318,7 @@ export function ConnectedSystemsPanel({
               autoComplete="off"
             />
             {crmBaselineValues[field.key] && !identityField ? (
-              <span className="block truncate text-[11px] text-muted-foreground">
+              <span className="block min-w-0 text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
                 Current: {displayRecordValue(crmBaselineValues[field.key])}
               </span>
             ) : null}
@@ -1325,9 +1334,9 @@ export function ConnectedSystemsPanel({
         <div className="mb-2 text-[12px] font-medium text-foreground">
           Pending update preview
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           {Object.entries(changedProfileFields).map(([field, value]) => (
-            <Badge key={field} variant="secondary">
+            <Badge key={field} variant="secondary" className="max-w-full whitespace-normal text-left leading-5">
               {field}: {value || "Clear value"}
             </Badge>
           ))}
@@ -1439,12 +1448,20 @@ export function ConnectedSystemsPanel({
                   system.objectTypeDefault || "Contact"
                 } / ${system.transportLabel || "External CRM MCP"}`}
                 trailing={
-                  <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                  <div className={RESPONSIVE_BADGE_ROW_CLASSNAME}>
                     <CrmTypeLogoBadge system={system} />
-                    <Badge variant="secondary">{statusBadge(system.status)}</Badge>
-                    {typeLabel ? <Badge variant="secondary">{typeLabel}</Badge> : null}
+                    <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
+                      {statusBadge(system.status)}
+                    </Badge>
+                    {typeLabel ? (
+                      <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
+                        {typeLabel}
+                      </Badge>
+                    ) : null}
                     {system.toolCatalog?.length ? (
-                      <Badge variant="secondary">{system.toolCatalog.length} MCP tools</Badge>
+                      <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
+                        {system.toolCatalog.length} MCP tools
+                      </Badge>
                     ) : null}
                   </div>
                 }
@@ -1510,25 +1527,25 @@ export function ConnectedSystemsPanel({
   return (
     <div className="space-y-4 sm:space-y-5">
       <SurfaceInset className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
             <ConnectedSystemLogo system={selectedSystem} size="hero" />
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 CRM system
               </p>
-              <h2 className="text-lg font-semibold tracking-normal text-foreground">
+              <h2 className="text-lg font-semibold tracking-normal text-foreground [overflow-wrap:anywhere]">
                 {customerName}
               </h2>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]">
                 {systemLabel || selectedSystem?.displayName || "Salesforce CRM"} /{" "}
                 {selectedSystem?.objectTypeDefault || "Contact"}.
               </p>
             </div>
           </div>
-          <div className="text-left text-xs text-muted-foreground sm:text-right">
+          <div className="min-w-0 text-left text-xs leading-5 text-muted-foreground md:max-w-[18rem] md:text-right">
             <CrmTypeLogoBadge system={selectedSystem} />
-            <div className="mt-2">
+            <div className="mt-2 [overflow-wrap:anywhere]">
               {statusBadge(selectedSystem?.status || "connected")} through{" "}
               {selectedSystem?.transportLabel || "External CRM MCP"}
               {selectedSystem?.toolCatalog?.length
@@ -1571,12 +1588,13 @@ export function ConnectedSystemsPanel({
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               {renderSchemaStatus()}
-              <div className="flex flex-wrap gap-2">
+              <div className={RESPONSIVE_ACTION_ROW_CLASSNAME}>
                 <Button
                   type="button"
                   variant="none"
                   effect="fade"
                   size="sm"
+                  className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                   disabled={busy !== null}
                   onClick={resetWorkingCopy}
                 >
@@ -1587,6 +1605,7 @@ export function ConnectedSystemsPanel({
                   variant="none"
                   effect="fade"
                   size="sm"
+                  className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                   disabled={busy !== null}
                   onClick={fillRandomCreateDetails}
                 >
@@ -1598,6 +1617,7 @@ export function ConnectedSystemsPanel({
                   variant="none"
                   effect="fade"
                   size="sm"
+                  className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                   disabled={busy !== null}
                   onClick={() => void loadSchema()}
                 >
@@ -1611,6 +1631,7 @@ export function ConnectedSystemsPanel({
               <Button
                 type="button"
                 size="sm"
+                className="w-full sm:w-auto"
                 disabled={
                   busy !== null ||
                   !hasRegisteredLookup ||
@@ -1635,12 +1656,13 @@ export function ConnectedSystemsPanel({
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               {renderSchemaStatus({ showPendingChanges: true })}
-              <div className="flex flex-wrap gap-2">
+              <div className={RESPONSIVE_ACTION_ROW_CLASSNAME}>
                 <Button
                   type="button"
                   variant="none"
                   effect="fade"
                   size="sm"
+                  className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                   disabled={busy !== null}
                   onClick={resetWorkingCopy}
                 >
@@ -1651,6 +1673,7 @@ export function ConnectedSystemsPanel({
                   variant="none"
                   effect="fade"
                   size="sm"
+                  className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                   disabled={busy !== null}
                   onClick={() => void loadSchema()}
                 >
@@ -1662,6 +1685,7 @@ export function ConnectedSystemsPanel({
                   variant="none"
                   effect="fade"
                   size="sm"
+                  className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                   disabled={busy !== null || !hasLookup}
                   onClick={() => void readRecord()}
                 >
@@ -1672,12 +1696,13 @@ export function ConnectedSystemsPanel({
             </div>
             {renderCrmFieldGrid()}
             {renderPendingUpdatePreview()}
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <Button
                 type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
+                className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                 disabled={busy !== null}
                 onClick={fillRandomUpdateChange}
               >
@@ -1687,6 +1712,7 @@ export function ConnectedSystemsPanel({
               <Button
                 type="button"
                 size="sm"
+                className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                 disabled={
                   busy !== null ||
                   !currentRecordId.trim() ||
@@ -1713,7 +1739,7 @@ export function ConnectedSystemsPanel({
             title={`Delete ${customerName} Contact`}
             description={`Remove record ${currentRecordId} from ${customerName} Salesforce CRM.`}
             trailing={
-              <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+              <div className={RESPONSIVE_BADGE_ROW_CLASSNAME}>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -1721,6 +1747,7 @@ export function ConnectedSystemsPanel({
                       variant="none"
                       effect="fade"
                       size="sm"
+                      className={RESPONSIVE_ACTION_BUTTON_CLASSNAME}
                       disabled={busy !== null || !(deleteId || currentRecordId)}
                     >
                       <Icon icon={Trash2} size="sm" className="mr-2" />

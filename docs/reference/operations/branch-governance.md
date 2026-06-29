@@ -1,31 +1,6 @@
 # Branch Governance
 
 
-## Lane decision: WHO authored the code (the one rule that prevents drift)
-
-The deciding question for how code reaches `main` is **who wrote it**, never the
-branch name. There are exactly two lanes:
-
-| Lane | For | Where you branch FROM | How it reaches `main` |
-|---|---|---|---|
-| **Maintainer Direct-to-Main** | code authored by a governed maintainer (anyone in `main.review_bypass_users` ∪ `main.merge_queue_bypass_users`) | **`origin/main`** | open a PR **directly into `main`**, green CI, merge. No train, no cherry-pick, no promote-branch whitelist. |
-| **Async PR-Train** | community / contributor / agent PRs | `integration/pr-train` | normal train intake → periodic train→`main` promotion PR |
-
-This is enforced — not just documented — by `scripts/ci/verify-pr-base-policy.py`,
-which authorizes a direct `→main` PR by **actor identity**: if the PR author is a
-governed maintainer, a direct PR to `main` from ANY branch passes the
-`PR Base Policy` gate. The `CI Status Gate`, merge queue, and
-`Main Post-Merge Smoke Gate` still run, so direct-to-main removes the train
-detour, not the safety gates. Non-maintainer PRs must still target the train.
-
-The single rule that keeps this clean: **a maintainer who intends to ship to
-`main` branches from `origin/main` at the START**, so the branch carries only its
-own commits and merges with zero missing dependencies. A branch cut from the
-train cannot be cherry-picked onto `main` (the train runs far ahead of `main`, so
-it references code `main` does not have yet) — if you started on the train, either
-rebase onto `origin/main` (small change) or let the train promotion carry it
-(large change). Cherry-picking a train-dependent commit onto `main` is deprecated.
-
 ## Visual Map
 
 ```mermaid
@@ -37,27 +12,26 @@ flowchart LR
   uat["UAT deploy<br/>manual exact SHA"]
   prod["Production deploy<br/>manual chosen SHA"]
   feature --> train --> main --> green
-  feature -->|maintainer-authored, branched from main| main
   green --> uat
   green --> prod
 ```
 
-This repo runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
+This repo now runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
 
 | Lane | Purpose | Default policy |
 |---|---|---|
-| `integration/pr-train` | Community / contributor / agent PR intake and async train landing | Effective landing base for every non-maintainer feature/fix/docs PR |
-| `main` | Promotion branch for deployable history | Governed maintainers open PRs **directly into `main`** from a branch cut off `origin/main`; the train also opens normal promotion PRs. CI gate + merge queue + post-merge smoke always required. |
+| `integration/pr-train` | Normal non-maintainer PR intake and async train landing | Effective landing base for non-maintainer feature/fix/docs PRs |
+| `main` | Promotion branch for deployable history | Governed maintainers may open direct PRs into `main` from branches created from `origin/main`; everyone else rides `integration/pr-train` |
 | UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
-1. **If you are a maintainer shipping your own code to `main`, branch from `origin/main`** and open your PR directly into `main` — do not route maintainer milestones through `integration/pr-train` (that couples them to train-only commits and makes a clean landing on `main` impossible). Branch from `integration/pr-train` only when your work is genuinely train-lane work (e.g. coordinating a contributor train).
+1. Merge-to-main lane is decided by author. Governed maintainers branch from `origin/main` and PR directly into `main`; `scripts/ci/verify-pr-base-policy.py` authorizes that path by actor identity. Non-maintainers use `integration/pr-train`.
 2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
 3. Merge all normal feature/fix/docs work into `integration/pr-train`.
-4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
-5. Non-maintainer feature, contributor, or agent PRs must not target `main`; CI blocks them unless the head branch is `integration/pr-train` (or a registered promote branch). Governed maintainers (anyone in `main.review_bypass_users` / `main.merge_queue_bypass_users`) may open a direct PR into `main` from any branch; the `CI Status Gate`, merge queue, and `Main Post-Merge Smoke Gate` still apply, so this removes only the train detour, not the safety gates.
+4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean when the work followed the train lane.
+5. Do not merge direct non-maintainer feature, contributor, or agent PRs into `main`; CI blocks them unless they ride the train lane.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 8. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
@@ -74,11 +48,10 @@ Coding agents must run this gate before CI, deploy, PR, hotfix, or validation wo
 2. Keep incremental fixes on the preserved developer branch when the current worktree can safely carry them.
 3. Do not create temporary branches for routine follow-up work, UAT validation fixes, PR polish, or local hardening.
 4. Use a temporary branch only when branch isolation is explicitly requested, an isolated `main` hotfix is required, or unrelated in-flight work makes the preserved branch unsafe for the fix.
-5. If a temporary branch is used, delete it locally AND remotely after the work is safely preserved on the kept branches, then switch back to the preserved developer branch. Before deleting, verify every unique commit/file is represented on a kept branch, and close any throwaway PR opened from the temp branch.
+5. If a temporary branch is used, delete it locally and remotely after merge and rollout validation when safe, then switch back to the preserved developer branch.
 6. If a normal fix lands on `integration/pr-train`, merge or rebase the landed train commits into the preserved developer branch before handoff.
 7. If an emergency hotfix lands on `main`, merge or rebase the landed `origin/main` commits into `integration/pr-train` and the preserved developer branch before handoff.
-8. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration. If branch switching happened mid-task (including from a parallel terminal), switch back to the developer's starting branch before handoff and state that you did.
-9. HARD RULE — leave the tree clean at handoff: developer on their branch, no stray local temp branches, no stray remote temp branches, no dangling throwaway PRs. Auto-creating branches, abandoning the developer on a stray branch, or leaving temp branches behind is a defect to correct immediately, not an acceptable shortcut.
+8. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration.
 
 ## Branch Types and Retention
 
@@ -102,7 +75,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 2. The workflow checks out that exact chosen green `main` SHA.
-3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
+3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`): `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, and `DamriaNeelesh`. This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 6. The canonical GitHub deployment environment for this lane is `uat`.
@@ -162,8 +135,8 @@ outside it, and the boundaries are enforced, not informal:
 
 | Ring | Who | Authority | Source of truth |
 |---|---|---|---|
-| Merge cohort | `allowed-maintainers-to-approve` team | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
-| UAT deploy cohort | same as merge cohort | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
+| Merge cohort | `allowed-maintainers-to-approve` team (6) | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
+| UAT deploy cohort | same 6 | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
 | Production deploy cohort | `kushaltrivedi5` only | dispatch production deploy | `production.manual_dispatch_users` |
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
@@ -180,39 +153,6 @@ Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
 cohort lists are protected-surface edits: they require maintainer-team code-owner
 review, pass the CI guard, and should be authored/merged by the owner. Widening
 who can deploy is never a routine, self-mergeable change.
-
-### Adding or removing a maintainer (the one standardized procedure)
-
-`config/ci-governance.json` is the single source of truth. Editing it is the only
-thing you author. One apply command pushes it to GitHub — never edit GitHub
-settings by hand, that is what drifts (and silently leaves a "maintainer" who
-cannot actually approve on `main`).
-
-```bash
-# 1. Edit config/ci-governance.json. For a full maintainer, add the GitHub login to:
-#      main.review_bypass_users
-#      main.merge_queue_bypass_users
-#      uat.manual_dispatch_users        (held equal to the merge cohort)
-#    Leave production.manual_dispatch_users = ["kushaltrivedi5"] unless the owner says otherwise.
-
-# 2. Push intent to GitHub (idempotent). Dry-run first, then apply:
-python3 scripts/ci/apply-governance.py
-python3 scripts/ci/apply-governance.py --apply
-
-# 3. Confirm no drift (these run in CI too):
-./scripts/ci/verify-main-branch-protection.sh
-python3 scripts/ci/verify-deployment-environment-governance.py
-
-# 4. Land the JSON edit through the train (it is a protected_pipeline_path —
-#    needs maintainer-team review and should be merged by the owner).
-```
-
-`apply-governance.py` is the write side (JSON → GitHub branch-protection
-review-bypass + the `allowed-maintainers-to-approve` team). The `verify-*`
-scripts are the read side (drift detection). They are mirror images: if a verify
-reports drift, run apply. UAT/production deploy authority needs no GitHub sync —
-`scripts/ci/assert-governed-actor.py` reads `manual_dispatch_users` from the JSON
-at workflow runtime.
 
 ## Hotfix Playbook
 
@@ -262,8 +202,8 @@ Current operating note:
 - admin ownership does not count as an independent PR approval
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
-- the current live branch protection review-bypass allowlist is whatever `config/ci-governance.json` `main.review_bypass_users` declares (kept in sync by `scripts/ci/apply-governance.py`); do not transcribe names here — they drift
-- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, whose membership equals `main.merge_queue_bypass_users`
+- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, and `DamriaNeelesh`
+- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 6 users only
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path

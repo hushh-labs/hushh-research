@@ -82,15 +82,21 @@ function Carousel({
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "ArrowLeft") {
+      if (event.key === "ArrowLeft" && orientation === "horizontal") {
         event.preventDefault()
         scrollPrev()
-      } else if (event.key === "ArrowRight") {
+      } else if (event.key === "ArrowRight" && orientation === "horizontal") {
+        event.preventDefault()
+        scrollNext()
+      } else if (event.key === "ArrowUp" && orientation === "vertical") {
+        event.preventDefault()
+        scrollPrev()
+      } else if (event.key === "ArrowDown" && orientation === "vertical") {
         event.preventDefault()
         scrollNext()
       }
     },
-    [scrollPrev, scrollNext]
+    [scrollPrev, scrollNext, orientation]
   )
 
   React.useEffect(() => {
@@ -179,18 +185,19 @@ function CarouselItem({ className, ...props }: React.ComponentProps<"div">) {
 function CarouselPrevious({
   className,
   variant = "outline",
-  size = "icon",
+  size = "icon-sm",
   ...props
 }: React.ComponentProps<typeof Button>) {
   const { orientation, scrollPrev, canScrollPrev } = useCarousel()
 
   return (
     <Button
+      type="button"
       data-slot="carousel-previous"
       variant={variant}
       size={size}
       className={cn(
-        "absolute size-8 rounded-full",
+        "absolute rounded-full",
         orientation === "horizontal"
           ? "top-1/2 -left-12 -translate-y-1/2"
           : "-top-12 left-1/2 -translate-x-1/2 rotate-90",
@@ -200,7 +207,7 @@ function CarouselPrevious({
       onClick={scrollPrev}
       {...props}
     >
-      <ArrowLeft />
+      <ArrowLeft aria-hidden="true" />
       <span className="sr-only">Previous slide</span>
     </Button>
   )
@@ -209,18 +216,19 @@ function CarouselPrevious({
 function CarouselNext({
   className,
   variant = "outline",
-  size = "icon",
+  size = "icon-sm",
   ...props
 }: React.ComponentProps<typeof Button>) {
   const { orientation, scrollNext, canScrollNext } = useCarousel()
 
   return (
     <Button
+      type="button"
       data-slot="carousel-next"
       variant={variant}
       size={size}
       className={cn(
-        "absolute size-8 rounded-full",
+        "absolute rounded-full",
         orientation === "horizontal"
           ? "top-1/2 -right-12 -translate-y-1/2"
           : "-bottom-12 left-1/2 -translate-x-1/2 rotate-90",
@@ -230,7 +238,7 @@ function CarouselNext({
       onClick={scrollNext}
       {...props}
     >
-      <ArrowRight />
+      <ArrowRight aria-hidden="true" />
       <span className="sr-only">Next slide</span>
     </Button>
   )

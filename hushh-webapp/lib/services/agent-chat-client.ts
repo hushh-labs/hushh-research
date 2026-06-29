@@ -132,6 +132,33 @@ export async function streamAgentChat(input: {
     signal: input.signal,
   });
 
+  return consumeAgentChatStream(response, {
+    handlers: input.handlers,
+    signal: input.signal,
+  });
+}
+
+/**
+ * Maximum time to wait for any single chunk before treating the stream as
+ * stalled. Generation can pause between tokens (tool calls, model latency), so
+ * this is generous; it only guards against a silently dead connection that
+ * would otherwise hang the UI forever.
+ */
+const SSE_INACTIVITY_TIMEOUT_MS = 60_000;
+
+/**
+ * Shared SSE consumer for the Agent chat event protocol (start / token /
+ * tool_* / complete / error). Used by both the vault-gated full chat and the
+ * pre-vault informational chat, which speak the exact same wire protocol.
+ */
+async function consumeAgentChatStream(
+  response: Response,
+  input: {
+    handlers?: AgentChatStreamHandlers;
+    signal?: AbortSignal;
+    inactivityTimeoutMs?: number;
+  }
+): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   if (!response.ok) {
     throw new Error(await readError(response));
   }
@@ -160,9 +187,10 @@ export async function streamAgentChat(input: {
     if (event === "start") {
       conversationId = readString(payload, "conversation_id") || conversationId;
       model = readString(payload, "model") || model;
-      if (conversationId) {
-        input.handlers?.onStart?.({ conversationId, model: model || undefined });
-      }
+      input.handlers?.onStart?.({
+        conversationId: conversationId || "",
+        model: model || undefined,
+      });
       return;
     }
     if (event === "token") {
@@ -203,13 +231,39 @@ export async function streamAgentChat(input: {
     }
   };
 
+  const inactivityTimeoutMs = input.inactivityTimeoutMs ?? SSE_INACTIVITY_TIMEOUT_MS;
+
+  // Race each read against an inactivity deadline so a silently dead connection
+  // rejects instead of hanging the UI indefinitely. The watchdog is reset on
+  // every chunk by virtue of being re-armed for the next read.
+  const readWithWatchdog = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error("Agent chat stream stalled. Please try again."));
+      }, inactivityTimeoutMs);
+    });
+    try {
+      return await Promise.race([reader.read(), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   while (true) {
     if (input.signal?.aborted) {
       await reader.cancel();
       throw new DOMException("Aborted", "AbortError");
     }
 
-    const { done, value } = await reader.read();
+    let result: ReadableStreamReadResult<Uint8Array>;
+    try {
+      result = await readWithWatchdog();
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    }
+    const { done, value } = result;
     if (done) break;
     const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), buffer);
     buffer = parsed.remainder;
@@ -239,6 +293,30 @@ export async function streamAgentChat(input: {
   }
 
   return { conversationId, model, text };
+}
+
+/**
+ * Pre-vault informational/navigation-only agent turn.
+ *
+ * Calls the lower-privilege backend tier that never touches PKM/vault data and
+ * is not persisted. Used by the single agent bar before the vault is unlocked,
+ * including anonymous onboarding visitors.
+ */
+export async function streamAgentIntro(input: {
+  message: string;
+  screenContext?: Record<string, unknown> | null;
+  signal?: AbortSignal;
+  handlers?: AgentChatStreamHandlers;
+}): Promise<{ conversationId: string | null; model: string | null; text: string }> {
+  const response = await ApiService.streamAgentIntro({
+    message: input.message,
+    screenContext: input.screenContext,
+    signal: input.signal,
+  });
+  return consumeAgentChatStream(response, {
+    handlers: input.handlers,
+    signal: input.signal,
+  });
 }
 
 export async function listAgentChatConversations(input: {
