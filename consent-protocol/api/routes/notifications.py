@@ -86,6 +86,12 @@ async def unregister_push_token(request: Request):
     user_id = body.get("user_id") or body.get("userId") or firebase_uid
     platform = body.get("platform")
 
+    if platform is not None and platform not in ("web", "ios", "android"):
+        raise HTTPException(
+            status_code=400,
+            detail="platform must be one of: web, ios, android",
+        )
+
     if firebase_uid != user_id:
         raise HTTPException(
             status_code=403,

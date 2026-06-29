@@ -199,6 +199,29 @@ def test_unregister_push_token_forwards_platform(monkeypatch):
     mock_service.delete_user_push_tokens.assert_called_once_with(user_id="user_123", platform="ios")
 
 
+def test_unregister_push_token_rejects_invalid_platform(monkeypatch):
+    client = TestClient(_build_app())
+    monkeypatch.setattr(
+        "api.routes.notifications.verify_firebase_bearer",
+        lambda auth_header: "user_123",
+    )
+
+    with patch("api.routes.notifications.PushTokensService") as mock_service_class:
+        mock_service = MagicMock()
+        mock_service_class.return_value = mock_service
+
+        response = client.request(
+            "DELETE",
+            "/api/notifications/unregister",
+            json={"platform": "desktop"},
+            headers={"Authorization": "Bearer firebase-token"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "platform must be one of: web, ios, android"
+    mock_service.delete_user_push_tokens.assert_not_called()
+    
+
 def test_unregister_push_token_rejects_cross_user_unregistration(monkeypatch):
     client = TestClient(_build_app())
     monkeypatch.setattr(
