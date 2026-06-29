@@ -44,7 +44,9 @@ export function ProfileKaiPreferencesPanel({
           setProfile(nextProfile);
         }
       } catch (error) {
-        console.warn("[ProfileKaiPreferencesPanel] Failed to load profile:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[ProfileKaiPreferencesPanel] Failed to load profile:", error);
+        }
         if (!cancelled) {
           setProfile(null);
         }
