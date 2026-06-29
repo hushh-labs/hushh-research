@@ -1189,7 +1189,7 @@ export function ConsentNotificationProvider({
         setFcmInitStatus(result.status);
         setDeliveryDetail(result.detail ?? null);
         setDeliveryMode(deliveryModeFromInitStatus(result.status));
-        console.info("[NotificationProvider] Delivery init:", result);
+
       } catch (err) {
         if (cancelled) return;
         const detail = err instanceof Error ? err.message : "fcm_init_failed";
