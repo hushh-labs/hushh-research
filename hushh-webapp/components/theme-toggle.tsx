@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Moon, Monitor, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 
 import {
   DropdownMenu,

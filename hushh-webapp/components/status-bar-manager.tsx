@@ -7,7 +7,7 @@ import {
   SystemBarsStyle,
   SystemBarType,
 } from "@capacitor/core";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 
 const PROBE_ID = "app-safe-area-probe";
 

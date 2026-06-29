@@ -6,6 +6,7 @@ Modular architecture with routes organized in api/routes/ directory.
 Run with: uvicorn server:app --reload --port 8000
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -22,6 +23,12 @@ logging.basicConfig(level=logging.INFO)
 install_sensitive_log_filter()
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
+_STARTUP_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _track_startup_background_task(task: asyncio.Task[None]) -> None:
+    _STARTUP_BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_STARTUP_BACKGROUND_TASKS.discard)
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -598,9 +605,18 @@ async def startup_market_cache_store_table():
 
 @app.on_event("startup")
 async def startup_market_insights_refresh():
-    """Warm shared market caches, then keep them refreshed in the background."""
-    await warm_market_insights_startup_once()
-    start_market_insights_background_refresh()
+    """Warm shared market caches without blocking health or user traffic."""
+
+    async def _warm_then_refresh() -> None:
+        await warm_market_insights_startup_once()
+        start_market_insights_background_refresh()
+
+    _track_startup_background_task(
+        asyncio.create_task(
+            _warm_then_refresh(),
+            name="market-insights-startup-warm",
+        )
+    )
 
 
 @app.on_event("startup")
