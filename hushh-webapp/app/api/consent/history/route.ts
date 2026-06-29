@@ -78,12 +78,10 @@ export async function GET(request: NextRequest) {
 
       const payload = await response
         .json()
-        .catch(async () => ({
-          error: (await response.text().catch(() => "")) || "Failed to fetch consent history",
-        }));
+        .catch(async () => ({ detail: await response.text().catch(() => "") }));
       return {
-        status: response.status,
-        payload: response.ok ? payload : { error: "Failed to fetch consent history", ...payload },
+        status: response.ok ? response.status : response.status,
+        payload: response.ok ? payload : { error: "Failed to fetch consent history", detail: payload?.detail || "" },
       };
     })();
 

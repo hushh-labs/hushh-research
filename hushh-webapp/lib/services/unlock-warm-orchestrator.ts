@@ -181,9 +181,13 @@ export class UnlockWarmOrchestrator {
     void bootstrapCurrentUserLocationRecipientKey({
       userId: params.userId,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => {
+    }).catch((error) => {
       // Never block unlock warming; allow a later retry this session.
       this.locationKeyBootstrappedByUser.delete(params.userId);
+      console.warn(
+        "[UnlockWarmOrchestrator] One Location recipient key bootstrap failed:",
+        error
+      );
     });
   }
 

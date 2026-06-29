@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
-import { Progress } from "@/components/ui/progress";
+import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
@@ -77,7 +77,6 @@ export function KaiPreferencesWizard(props: {
   initialAnswers?: Partial<WizardAnswers>;
   onAnswersChange?: (answers: WizardAnswers) => void | Promise<void>;
   onBack?: () => void;
-  onSkip?: () => void;
   onComplete: (payload: WizardCompletePayload) => void | Promise<void>;
 }) {
   const total = QUESTIONS.length;
@@ -99,7 +98,6 @@ export function KaiPreferencesWizard(props: {
   const progressValue = useMemo(() => {
     return Math.round((step / total) * 100);
   }, [step, total]);
-  const currentStep = step + 1;
 
   const isLast = step === total - 1;
 
@@ -170,7 +168,11 @@ export function KaiPreferencesWizard(props: {
       : "Next";
 
   const reserveBackSlot = props.mode === "onboarding";
-  const showBack = props.mode === "onboarding" && step > 0;
+  // In onboarding the Back control is always available: on step 0 it returns to
+  // the One setup hub (resuming the main onboarding) via props.onBack; on later
+  // steps it walks back through the questions. This replaces the old intra-step
+  // "Skip" button so a sub-step can never satisfy or skip the root flow.
+  const showBack = props.mode === "onboarding" && Boolean(props.onBack || step > 0);
   const canGoPrevious = step > 0;
   const isPageLayout = layout === "page";
 
@@ -238,14 +240,10 @@ export function KaiPreferencesWizard(props: {
               </span>
             </div>
 
-            <div className="flex items-center justify-between text-[13px] text-muted-foreground">
-              <span className="font-medium tracking-normal">
-                Step {currentStep} of {total}
-              </span>
-            </div>
-            <Progress
-              value={progressValue}
-              className="h-1 rounded-full bg-black/[0.045] dark:bg-white/10"
+            <OnboardingStepper
+              steps={QUESTIONS.map((q) => ({ id: q.id, label: q.prompt }))}
+              currentIndex={step}
+              ariaLabel="Investment preferences setup"
             />
           </div>
 
@@ -311,24 +309,6 @@ export function KaiPreferencesWizard(props: {
                 {isSubmitting ? "Saving..." : primaryLabel}
                 {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
               </Button>
-
-              {props.mode === "onboarding" && props.onSkip && (
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fill"
-                  size="lg"
-                  fullWidth
-                  onClick={props.onSkip}
-                  disabled={isSubmitting}
-                  loading={isSubmitting}
-                  showRipple
-                  className="h-11 rounded-full !bg-primary/10 text-[15px] font-medium !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
-                >
-                  {isSubmitting ? "Saving..." : "Skip"}
-                  {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
-                </Button>
-              )}
             </div>
           </div>
         </div>

@@ -48,10 +48,11 @@ from hushh_mcp.operons.kai.llm import (
     _require_gemini_ready,
 )
 
-try:  # google-genai is already installed for the Kai LLM operons.
+try:
     from google.genai import types as _genai_types  # type: ignore
-except ImportError:  # pragma: no cover - mirrors llm.py GEMINI_AVAILABLE guard
+except Exception:  # pragma: no cover - optional dependency
     _genai_types = None  # type: ignore
+
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url, frontend_origin
@@ -3459,15 +3460,33 @@ class OneEmailKycService:
         if expected_scope and isinstance(metadata, dict):
             exports = metadata.get("consent_exports")
             if isinstance(exports, list):
-                workflow_export = next(
-                    (
-                        item
-                        for item in exports
-                        if isinstance(item, dict)
-                        and _clean_text(item.get("scope")) == _clean_text(expected_scope)
-                    ),
-                    workflow_export,
-                )
+                scoped_entries = [item for item in exports if isinstance(item, dict)]
+                if scoped_entries:
+                    expected_clean = _clean_text(expected_scope)
+                    # Prefer an exact-scope binding; otherwise accept a bound
+                    # export whose scope SATISFIES the expected scope (a broader
+                    # grant like attr.financial.* covers attr.financial.portfolio.*).
+                    # Never fall back to an unrelated-scope binding (e.g. the
+                    # identity export), which would compare a financial export
+                    # against an identity snapshot and guarantee a false stale
+                    # mismatch whenever the request scope is narrower than the
+                    # actual export scope.
+                    workflow_export = next(
+                        (
+                            item
+                            for item in scoped_entries
+                            if _clean_text(item.get("scope")) == expected_clean
+                        ),
+                        None,
+                    ) or next(
+                        (
+                            item
+                            for item in scoped_entries
+                            if _clean_text(item.get("scope"))
+                            and scope_matches(_clean_text(item.get("scope")), expected_clean)
+                        ),
+                        None,
+                    )
         if not isinstance(workflow_export, dict):
             raise OneEmailKycError(
                 "KYC workflow is not bound to the approved export revision.",
@@ -3483,8 +3502,25 @@ class OneEmailKycService:
                 status_code=409,
                 code="ONE_KYC_DRAFT_EXPORT_STALE",
             )
+        # Scope is validated by COMPATIBILITY, not byte-equality: a broader
+        # bound/export scope (attr.financial.*) legitimately covers a narrower
+        # expected/current scope (attr.financial.portfolio.*). The remaining
+        # fields must still match exactly — they prove the underlying export
+        # data has not changed since the reply was bound.
+        bound_scope = _clean_text(workflow_export.get("scope"))
+        current_scope = _clean_text(current_export.get("scope"))
+        if (
+            bound_scope
+            and current_scope
+            and not scope_matches(bound_scope, current_scope)
+            and not scope_matches(current_scope, bound_scope)
+        ):
+            raise OneEmailKycError(
+                "KYC approved reply must be regenerated because the approved export changed.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_EXPORT_STALE",
+            )
         compared_fields = (
-            "scope",
             "export_revision",
             "export_generated_at",
             "connector_key_id",
@@ -3910,7 +3946,7 @@ class OneEmailKycService:
         instruction: str,
         consent_token: str,
     ) -> dict[str, Any]:
-        """Redact-safe LLM proxy for KYC redraft (Phase 03, D-C/D-D).
+        """Redact-safe LLM proxy for KYC redraft (Phase 03).
 
         Accepts a PII-free tokenized template (placeholders like ``{{F0}}``) plus
         a free-form instruction, validates the ``agent.kyc.redraft.llm`` consent
@@ -3919,9 +3955,9 @@ class OneEmailKycService:
         rewritten template is returned to the client, which re-substitutes the
         real values locally.
 
-        Zero-knowledge contract (D-D): the template body is NEVER persisted or
-        logged. ``draft_body`` stays NULL. Only the instruction hash + revision
-        metadata are recorded — the same fields the regex ``redraft()`` writes.
+        Zero-knowledge contract: the template body is NEVER persisted or logged.
+        ``draft_body`` stays NULL. Only the instruction hash + revision metadata
+        are recorded.
         """
         # Step 1 — Consent gate (DB-aware so revoked tokens are rejected).
         valid, reason, _token_obj = await validate_token_with_db(
@@ -3988,7 +4024,7 @@ class OneEmailKycService:
                 config=config,
             )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(None, _invoke)
         rewritten_template = getattr(response, "text", None)
         if not rewritten_template:
@@ -4008,7 +4044,7 @@ class OneEmailKycService:
             instruction_hash,
         )
 
-        # Step 8 — Update workflow metadata only (no draft_body). Synchronous.
+        # Step 8 — Update workflow metadata only (no draft_body).
         metadata = workflow.get("metadata", {})
         revision = int(metadata.get("draft_revision") or 1) + 1
         self._update_workflow(

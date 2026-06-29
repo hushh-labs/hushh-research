@@ -43,7 +43,7 @@ export function HushhLoader({
 }: HushhLoaderProps) {
   if (variant === "compact") {
     return (
-      <span  role="status" aria-live="polite" aria-label={label} className={cn(loaderVariants({ variant }), className)} aria-hidden="true">
+      <span className={cn(loaderVariants({ variant }), className)} aria-hidden="true">
         …
       </span>
     );

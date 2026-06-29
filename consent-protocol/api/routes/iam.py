@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -19,7 +17,7 @@ router = APIRouter(prefix="/api/iam", tags=["IAM"])
 
 
 class PersonaSwitchRequest(BaseModel):
-    persona: Literal["investor", "ria"] = Field(..., description="Target persona")
+    persona: str = Field(..., description="Target persona: investor | ria", max_length=32)
 
 
 class MarketplaceOptInRequest(BaseModel):

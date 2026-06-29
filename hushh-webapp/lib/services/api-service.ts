@@ -136,11 +136,6 @@ function normalizeNativeBackendUrl(raw: string): string {
   if (Capacitor.getPlatform() !== "android") {
     return trimmed;
   }
-  if (
-    process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"
-  ) {
-    return trimmed;
-  }
   const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
@@ -149,57 +144,6 @@ function normalizeNativeBackendUrl(raw: string): string {
     return trimmed.replace("127.0.0.1", "10.0.2.2");
   }
   return trimmed;
-}
-
-function decodeNativeBinaryPayload(data: unknown): Uint8Array {
-  if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data);
-  }
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  }
-  if (Array.isArray(data)) {
-    return new Uint8Array(data);
-  }
-
-  const raw =
-    typeof data === "string"
-      ? data
-      : data &&
-          typeof data === "object" &&
-          "data" in data &&
-          typeof (data as { data?: unknown }).data === "string"
-        ? String((data as { data: string }).data)
-        : "";
-  const base64 = raw.includes(",") ? raw.split(",").pop() || "" : raw;
-  if (!base64) return new Uint8Array();
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return buffer;
-}
-
-function getNativeHeaderValue(
-  headers: Record<string, unknown> | undefined,
-  name: string
-): string | null {
-  if (!headers) return null;
-  const target = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() !== target || value === undefined || value === null) {
-      continue;
-    }
-    return Array.isArray(value) ? value.join(",") : String(value);
-  }
-  return null;
 }
 
 function detectHostedToLocalMismatch(apiBase: string): string | null {
@@ -2812,67 +2756,6 @@ export class ApiService {
     voice?: string;
     signal?: AbortSignal;
   }): Promise<Response> {
-    if (Capacitor.isNativePlatform()) {
-      const apiBase = getApiBaseUrl();
-      if (!apiBase) {
-        throw new Error(
-          "Native Agent voice TTS requires NEXT_PUBLIC_BACKEND_URL."
-        );
-      }
-      const mismatchMessage = detectHostedToLocalMismatch(apiBase);
-      if (mismatchMessage) {
-        throw new Error(mismatchMessage);
-      }
-      if (data.signal?.aborted) {
-        throw new DOMException("Aborted", "AbortError");
-      }
-
-      const abortPromise = data.signal
-        ? new Promise<never>((_resolve, reject) => {
-            data.signal?.addEventListener(
-              "abort",
-              () => reject(new DOMException("Aborted", "AbortError")),
-              { once: true }
-            );
-          })
-        : null;
-      const requestPromise = CapacitorHttp.request({
-        url: `${apiBase}/api/kai/agent/voice/tts`,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${data.vaultOwnerToken}`,
-        },
-        data: {
-          user_id: data.userId,
-          text: data.text,
-          voice: data.voice,
-        },
-        responseType: "arraybuffer",
-        readTimeout: 55_000,
-        connectTimeout: 15_000,
-      });
-      const nativeResponse = abortPromise
-        ? await Promise.race([requestPromise, abortPromise])
-        : await requestPromise;
-      const headers = new Headers();
-      Object.entries(nativeResponse.headers || {}).forEach(([key, value]) => {
-        if (value === undefined || value === null) return;
-        headers.set(key, String(value));
-      });
-      const contentType =
-        getNativeHeaderValue(nativeResponse.headers, "content-type") ||
-        getNativeHeaderValue(nativeResponse.headers, "Content-Type") ||
-        "audio/wav";
-      headers.set("Content-Type", contentType);
-
-      const audioBytes = decodeNativeBinaryPayload(nativeResponse.data);
-      return new Response(toArrayBuffer(audioBytes), {
-        status: nativeResponse.status,
-        headers,
-      });
-    }
-
     return apiFetch("/api/kai/agent/voice/tts", {
       method: "POST",
       headers: {

@@ -1,15 +1,13 @@
 package com.hushh.app.plugins.shared
 
-import android.os.Build
 import com.getcapacitor.Bridge
 import com.getcapacitor.PluginCall
 
 /**
  * BackendUrl
  *
- * Shared backend URL normalization:
- * - Android emulator cannot reach host loopback, so localhost maps to 10.0.2.2.
- * - Physical Android devices can use adb reverse, so localhost stays localhost.
+ * Shared backend URL normalization for Android emulator:
+ * - host loopback (localhost/127.0.0.1) must be rewritten to 10.0.2.2
  */
 object BackendUrl {
     private val sharedPluginConfigOrder = listOf(
@@ -23,30 +21,10 @@ object BackendUrl {
         "HushhSync"
     )
 
-    private fun isProbablyEmulator(): Boolean {
-        val fingerprint = Build.FINGERPRINT.lowercase()
-        val model = Build.MODEL.lowercase()
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val brand = Build.BRAND.lowercase()
-        val device = Build.DEVICE.lowercase()
-        val product = Build.PRODUCT.lowercase()
-
-        return fingerprint.startsWith("generic") ||
-            fingerprint.contains("emulator") ||
-            fingerprint.contains("sdk_gphone") ||
-            model.contains("emulator") ||
-            model.contains("android sdk built for") ||
-            manufacturer.contains("genymotion") ||
-            brand.startsWith("generic") ||
-            device.startsWith("generic") ||
-            product.contains("sdk")
-    }
-
     fun normalize(raw: String): String {
-        val useEmulatorHost = isProbablyEmulator()
         return when {
-            useEmulatorHost && raw.contains("localhost") -> raw.replace("localhost", "10.0.2.2")
-            useEmulatorHost && raw.contains("127.0.0.1") -> raw.replace("127.0.0.1", "10.0.2.2")
+            raw.contains("localhost") -> raw.replace("localhost", "10.0.2.2")
+            raw.contains("127.0.0.1") -> raw.replace("127.0.0.1", "10.0.2.2")
             else -> raw
         }
     }

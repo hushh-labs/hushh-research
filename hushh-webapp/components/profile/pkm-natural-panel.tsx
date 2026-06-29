@@ -417,11 +417,11 @@ export function PkmNaturalPanel({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="none" effect="fade" onClick={() => setRefreshNonce((value) => value + 1)}>
+            <Button variant="none" effect="fade" onClick={() => setRefreshNonce((value) => value + 1)}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
             </Button>
-            <Button type="button" variant="none" effect="fade" onClick={onOpenExplorer}>
+            <Button variant="none" effect="fade" onClick={onOpenExplorer}>
               Open Explorer view
             </Button>
           </div>

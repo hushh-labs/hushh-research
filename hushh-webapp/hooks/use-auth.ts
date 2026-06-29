@@ -16,7 +16,6 @@
 "use client";
 
 import { useAuth as useContextAuth } from "@/lib/firebase/auth-context";
-import { ROUTES } from "@/lib/navigation/routes";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
@@ -35,8 +34,8 @@ export function useRequireAuth() {
   useEffect(() => {
     if (!auth.loading && !auth.isAuthenticated) {
       // Avoid redirect loop if already on login
-      if (pathname !== ROUTES.LOGIN) {
-        router.push(ROUTES.LOGIN);
+      if (pathname !== "/login") {
+        router.push("/login");
       }
     }
   }, [auth.loading, auth.isAuthenticated, router, pathname]);

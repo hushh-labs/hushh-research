@@ -198,7 +198,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   // No user - redirect to login
   if (!user) {
-    return <HushhLoader label="Checking session..." />;
+    return <HushhLoader label="Redirecting to login..." />;
   }
 
   if (hasVault === null) {

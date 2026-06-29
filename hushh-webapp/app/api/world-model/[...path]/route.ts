@@ -18,17 +18,6 @@ async function proxyWorldModelRequest(
 
   try {
     const { path } = await paramsPromise;
-    if (
-      path.length === 0 ||
-      path.length > 8 ||
-      path.some((segment) => segment.length > 128)
-    ) {
-      return withRequestIdJson(
-        requestId,
-        { error: "Invalid world model API path" },
-        { status: 400 }
-      );
-    }
     const pathStr = path.join("/");
     const query = request.nextUrl.search;
     const backendUrl = `${getPythonApiUrl()}/api/world-model/${pathStr}${query}`;

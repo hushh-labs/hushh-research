@@ -21,30 +21,6 @@ export interface PlaidLinkTokenResponse {
   resume_session_id?: string | null;
 }
 
-export type ReadyPlaidLinkTokenResponse = PlaidLinkTokenResponse & {
-  configured: true;
-  link_token: string;
-};
-
-export const PLAID_RUNTIME_NOT_CONFIGURED_MESSAGE =
-  "Brokerage connections are not configured for this environment yet.";
-
-export function requirePlaidLinkTokenReady(
-  response: PlaidLinkTokenResponse,
-): ReadyPlaidLinkTokenResponse {
-  if (!response.configured || !response.link_token) {
-    throw new Error(PLAID_RUNTIME_NOT_CONFIGURED_MESSAGE);
-  }
-  return response as ReadyPlaidLinkTokenResponse;
-}
-
-export function isPlaidRuntimeNotConfiguredError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message === PLAID_RUNTIME_NOT_CONFIGURED_MESSAGE
-  );
-}
-
 export interface PlaidRefreshResponse {
   accepted: boolean;
   runs: Array<Record<string, unknown>>;

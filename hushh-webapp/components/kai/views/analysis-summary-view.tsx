@@ -273,11 +273,6 @@ export function AnalysisSummaryView({
   const [marketSnapshot, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(
     rawCardSnapshot
   );
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     setMarketSnapshot(rawCardSnapshot);
@@ -422,7 +417,7 @@ export function AnalysisSummaryView({
         <CardContent className="space-y-5 p-6">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-bold uppercase tracking-widest text-primary">Analysis</span>
-            <span className="text-xs font-medium text-muted-foreground">{mounted ? updatedAt : "Updated recently"}</span>
+            <span className="text-xs font-medium text-muted-foreground">{updatedAt}</span>
           </div>
 
           <div className="rounded-2xl border border-border/60 bg-background/60 p-4">

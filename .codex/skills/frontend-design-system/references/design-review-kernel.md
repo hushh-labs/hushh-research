@@ -57,5 +57,3 @@ than the compact skill kernel.
    Nav-owned guardian behavior.
 5. One consent/vault onboarding copy frames user-held knowledge and information
    as safewords; avoid generic `your data` phrasing.
-6. Connect is a people and relationship-consent surface for One. Do not narrow
-   its UI, iconography, or copy to advisor/investor matching only.

@@ -57,15 +57,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorPayload = await response
-        .json()
-        .catch(async () => ({
-          error: (await response.text().catch(() => "")) || "Failed to cancel consent",
-        }));
+      const error = await response.text();
       if (process.env.NODE_ENV !== "production") {
-        console.error("[API] Cancel consent error:", response.status, errorPayload);
+        console.error("[API] Cancel consent error:", error);
       }
-      return NextResponse.json(errorPayload, { status: response.status });
+      return NextResponse.json(
+        { error: "Failed to cancel consent" },
+        { status: response.status },
+      );
     }
 
     const data = await response.json();

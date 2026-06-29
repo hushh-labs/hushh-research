@@ -883,7 +883,7 @@ export function VaultFlow({
               >
                 {isUnlocking ? (
                   <>
-                    <Icon aria-hidden="true" icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating Vault...
+                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating Vault...
                   </>
                 ) : (
                   "Create Vault"
@@ -951,7 +951,7 @@ export function VaultFlow({
                   >
                     {isUnlocking ? (
                       <>
-                        <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
+                        <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                       </>
                     ) : (
                       "Unlock"
@@ -968,7 +968,7 @@ export function VaultFlow({
                   <div className="flex min-h-10 items-center justify-center rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:text-sm">
                     {isUnlocking ? (
                       <span className="inline-flex items-center">
-                        <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" />
+                        <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
                         Prompting {generatedUnlockLabel.toLowerCase()}...
                       </span>
                     ) : webPrfAutoPromptBlocked ? (
@@ -1108,7 +1108,7 @@ export function VaultFlow({
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
+                      <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                     </>
                   ) : (
                     "Unlock"
@@ -1226,7 +1226,7 @@ export function VaultFlow({
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon aria-hidden="true" icon={Loader2} size="md" className="mr-2 animate-spin" />
+                      <Icon icon={Loader2} size="md" className="mr-2 animate-spin" />
                       Enabling...
                     </>
                   ) : (

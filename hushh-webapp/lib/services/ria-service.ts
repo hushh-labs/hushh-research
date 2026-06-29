@@ -44,8 +44,6 @@ export interface MarketplaceRia {
   disclosures_url?: string | null;
   verification_status: string;
   is_test_profile?: boolean;
-  visibility_posture?: string | null;
-  exposure_enabled?: boolean | null;
   firms?: Array<{
     firm_id: string;
     legal_name: string;
@@ -84,8 +82,6 @@ export interface MarketplaceInvestor {
     metadata?: Record<string, unknown>;
   } | null;
   is_test_profile?: boolean;
-  visibility_posture?: string | null;
-  exposure_enabled?: boolean | null;
 }
 
 export type MarketplaceInvestorActionName =
@@ -129,7 +125,6 @@ export interface MarketplaceContactMatch {
   display_name: string;
   headline?: string | null;
   phone_last4?: string | null;
-  matched_by?: "phone" | "email" | "phone_and_email" | null;
   profile: MarketplaceRia | MarketplaceInvestor;
 }
 
@@ -1340,7 +1335,6 @@ export class RiaService {
     idToken: string,
     payload: {
       phone_lookups: Array<{ hash: string; last4: string }>;
-      email_lookups?: Array<{ hash: string }>;
       limit?: number;
     },
   ): Promise<MarketplaceContactMatch[]> {

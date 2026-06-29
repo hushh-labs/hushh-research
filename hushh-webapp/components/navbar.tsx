@@ -26,7 +26,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
-import { ThemeToggleCompact } from "@/components/theme-toggle";
+import { ThemeToggleLean } from "@/components/theme-toggle";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -50,7 +50,10 @@ import {
   type AppBottomNavScope,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
+import {
+  openKaiCommandBar,
+  toggleKaiCommandBar,
+} from "@/lib/navigation/kai-command-bar-events";
 
 const BOTTOM_NAV_MAX_SLOT_COUNT = 5;
 const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
@@ -168,10 +171,13 @@ function navOptionForKey(
   pendingConsents: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
+  // Pending-consent badge home: the dedicated "guardian" tab when it exists
+  // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
+  // now lives as a subroute of the One dashboard.
   return {
     ...option,
     badge:
-      (key === "guardian" || key === "profile") && pendingConsents > 0
+      (key === "guardian" || key === "dashboard") && pendingConsents > 0
         ? pendingConsents
         : undefined,
   };
@@ -192,7 +198,12 @@ export const Navbar = () => {
   });
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
-  const allowScrollHide = false;
+  // The bottom pill + search bubble scroll-hide in reverse of the top app bar:
+  // on scroll-down they translate off the bottom edge (max main-body viewing),
+  // on scroll-up they slide back in. Driven by the same shared visibility store
+  // as the top bar and the bottom fade glass so all chrome stays in lockstep.
+  // Disabled while onboarding chrome is active (that flow owns its own chrome).
+  const allowScrollHide = !useOnboardingChrome;
   const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(allowScrollHide);
 
@@ -252,6 +263,8 @@ export const Navbar = () => {
       }
     };
 
+    // When the bottom nav is genuinely gone for this context (unauthenticated,
+    // onboarding chrome, or no nav options), collapse the reserved height to 0.
     if (!isAuthenticated || useOnboardingChrome || navOptions.length === 0) {
       setBottomChromeVars("0px", "58px");
       return;
@@ -259,7 +272,12 @@ export const Navbar = () => {
 
     const el = pillRef.current;
     if (!el) {
-      setBottomChromeVars("0px", "58px");
+      // The navbar is temporarily unmounted (e.g. the agent window is open, which
+      // also hides the agent bar that consumes --app-bottom-fixed-ui). Do NOT
+      // zero the reserved height here: when the agent window closes the navbar
+      // remounts but this effect's other deps are unchanged, so it would not
+      // re-measure and the stale 0px would collapse the agent bar onto the nav.
+      // Preserve the last measured value until a real measurement runs.
       return;
     }
 
@@ -284,7 +302,10 @@ export const Navbar = () => {
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [isAuthenticated, navOptions.length, useOnboardingChrome]);
+    // `agentWindowOpen` is included so the pill is re-measured when the navbar
+    // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
+    // stays stale and the agent bar overlaps the nav).
+  }, [agentWindowOpen, isAuthenticated, navOptions.length, useOnboardingChrome]);
 
   const bottomNavMaxWidth =
     navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
@@ -314,7 +335,7 @@ export const Navbar = () => {
         }}
       >
         <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggleCompact />
+          <ThemeToggleLean size="expanded" />
         </div>
       </nav>
     );
@@ -378,7 +399,7 @@ export const Navbar = () => {
     >
       <div
         className={cn(
-          "relative flex items-end justify-center gap-2",
+          "relative flex items-stretch justify-center gap-2",
           "pointer-events-none",
           hideBottomChrome && "pointer-events-none",
         )}
@@ -399,7 +420,16 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              "[&_[aria-checked=true]]:text-primary [&_[data-segment-indicator]]:bg-primary/10 [&_[data-segment-indicator]]:shadow-sm",
+              // Lean flat track matching the search button + top app bar
+              // (ShellActionSurface): soft translucent surface, no shadow/blur.
+              "bg-black/[0.05] shadow-none backdrop-blur-none dark:bg-white/[0.07]",
+              // Active segment: Foundation gold "you are here" marker, matching
+              // hushh-search-console's canonical active recipe (gold-tint fill +
+              // gold-deep ink). Active label uses the deep-gold accent token
+              // (auto-brightens in dark); the moving indicator is a warm gold
+              // tint instead of the old neutral black/white wash.
+              "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
+              "[&_[data-segment-indicator]]:bg-accent/20 [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-accent/25",
             )}
           />
         </div>
@@ -407,10 +437,14 @@ export const Navbar = () => {
           type="button"
           aria-label="Search"
           className={cn(
-            "pointer-events-auto relative z-20 inline-flex h-[58px] w-[58px] shrink-0 items-center justify-center overflow-hidden rounded-full",
-            "border border-white/50 bg-background/80 text-foreground/70 shadow-[0_11px_34px_0_var(--theme-color-boxShadow)] backdrop-blur-[var(--blur-standard)]",
-            "transition-[color,transform,background-color] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "hover:bg-background/90 hover:text-primary active:scale-[0.985] chrome-bottom-foreground",
+            // Stretch to the pill height and stay a perfect circle so the search
+            // bubble and the bottom-nav pill read as one symmetric row.
+            "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
+            // Flat surface matching the top app bar controls (ShellActionSurface):
+            // soft translucent track, no border/shadow/blur, symmetric in light + dark.
+            "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
+            "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {
@@ -419,7 +453,7 @@ export const Navbar = () => {
               );
               return;
             }
-            openKaiCommandBar();
+            toggleKaiCommandBar();
           }}
         >
           <Icon icon={SearchIcon} size="md" className="shrink-0" />

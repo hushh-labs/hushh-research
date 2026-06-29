@@ -8,14 +8,6 @@ import {
 } from "@/components/app-ui/app-page-shell";
 
 describe("AppPageShell", () => {
-  it("renders shell with data-slot='app-page-shell'", () => {
-    render(<AppPageShell>Content</AppPageShell>);
-
-    expect(screen.getByRole("main").getAttribute("data-slot")).toBe(
-      "app-page-shell"
-    );
-  });
-
   it("defaults signed-in page shells to compact density", () => {
     render(
       <AppPageShell>

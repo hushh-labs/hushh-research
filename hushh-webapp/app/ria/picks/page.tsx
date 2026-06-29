@@ -421,7 +421,7 @@ function UploadPanel({
               onClick={onUpload}
               disabled={submitting || !fileContent.trim()}
             >
-              <Upload aria-hidden="true" className="mr-2 h-4 w-4" />
+              <Upload className="mr-2 h-4 w-4" />
               {submitting ? "Uploading..." : "Upload and replace top picks"}
             </Button>
             <Button asChild variant="none" effect="fade" size="sm">
@@ -781,7 +781,6 @@ function TopPicksEditor({
             return (
             <SurfaceInset
               key={row.id}
-              data-ria-picks-row-id={row.id}
               className={cn(
                 "space-y-3 p-3",
                 focusedRowId === row.id && "ring-2 ring-amber-300/70 dark:ring-amber-500/40"
@@ -792,7 +791,7 @@ function TopPicksEditor({
                   <p className="text-sm font-semibold text-foreground">Top pick {displayIndex}</p>
                   <p className="text-xs text-muted-foreground">Compact mobile editor</p>
                 </div>
-                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -859,7 +858,7 @@ function TopPicksEditor({
             </TableHeader>
             <TableBody>
               {visibleRows.map((row) => (
-                <TableRow key={row.id} data-ria-picks-row-id={row.id} className="align-top">
+                <TableRow key={row.id} className="align-top">
                   <TableCell className="space-y-2 px-3 py-2.5 align-top">
                     <TickerLookupField
                       rowId={row.id}
@@ -902,7 +901,7 @@ function TopPicksEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1015,7 +1014,6 @@ function AvoidEditor({
             return (
             <SurfaceInset
               key={row.id}
-              data-ria-picks-row-id={row.id}
               className={cn(
                 "space-y-3 p-3",
                 focusedRowId === row.id && "ring-2 ring-amber-300/70 dark:ring-amber-500/40"
@@ -1026,7 +1024,7 @@ function AvoidEditor({
                   <p className="text-sm font-semibold text-foreground">Avoid row {displayIndex}</p>
                   <p className="text-xs text-muted-foreground">Compact mobile editor</p>
                 </div>
-                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -1105,7 +1103,7 @@ function AvoidEditor({
             </TableHeader>
             <TableBody>
               {visibleRows.map((row) => (
-                <TableRow key={row.id} data-ria-picks-row-id={row.id} className="align-top">
+                <TableRow key={row.id} className="align-top">
                   <TableCell className="space-y-2 px-3 py-2.5 align-top">
                     <TickerLookupField
                       rowId={row.id}
@@ -1159,7 +1157,7 @@ function AvoidEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1255,7 +1253,7 @@ function ScreeningEditor({
                   </p>
                 </div>
                 <div className="flex justify-start sm:justify-end">
-                  <Button type="button" variant="none" effect="fade" size="sm" onClick={() => onAddRow(section.key)} className="w-full justify-center sm:w-auto">
+                  <Button variant="none" effect="fade" size="sm" onClick={() => onAddRow(section.key)} className="w-full justify-center sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
                     Add rule
                   </Button>
@@ -1270,7 +1268,6 @@ function ScreeningEditor({
                 {filteredRows.map((row) => (
                   <SurfaceInset
                     key={row.id}
-                    data-ria-picks-row-id={row.id}
                     className={cn(
                       "space-y-3 p-3",
                       focusedRowId === row.id && "ring-2 ring-amber-300/70 dark:ring-amber-500/40"
@@ -1521,23 +1518,6 @@ export default function RiaPicksPage() {
       setValidationState({ packageErrors: [], rowErrors: {} });
     }
   }, [editing, picksResource.data?.package]);
-
-  useEffect(() => {
-    if (!focusedIssueRowId) return;
-    const timeoutId = window.setTimeout(() => {
-      const row = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-ria-picks-row-id]")
-      ).find((element) => element.dataset.riaPicksRowId === focusedIssueRowId);
-      if (!row) return;
-      row.scrollIntoView({ block: "center", behavior: "smooth" });
-      row
-        .querySelector<HTMLElement>(
-          'input:not([disabled]):not([readonly]), textarea:not([disabled]), button[aria-haspopup="dialog"]:not([disabled])'
-        )
-        ?.focus();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [category, focusedIssueRowId, showIssuesOnly]);
 
   useEffect(() => {
     if (!user || kaiRows.length > 0) return;
@@ -2103,20 +2083,6 @@ export default function RiaPicksPage() {
       const { payload, validation } = await validateDraft(draftPackage);
       setValidationState(validation);
       if (validation.packageErrors.length > 0 || Object.keys(validation.rowErrors).length > 0) {
-        const firstTopIssue = draftPackage.top_picks.find((row) => validation.rowErrors[row.id]?.length);
-        const firstAvoidIssue = draftPackage.avoid_rows.find((row) => validation.rowErrors[row.id]?.length);
-        const firstScreeningIssue = draftPackage.screening_sections
-          .flatMap((section) => section.rows)
-          .find((row) => validation.rowErrors[row.id]?.length);
-        const firstIssue =
-          firstTopIssue || firstAvoidIssue || firstScreeningIssue || null;
-
-        if (firstIssue) {
-          setCategory(
-            firstTopIssue ? "top-picks" : firstAvoidIssue ? "avoid" : "screening"
-          );
-          setFocusedIssueRowId(firstIssue.id);
-        }
         setShowIssuesOnly(true);
         toast.error("Fix the highlighted validation issues before saving.");
         return;
@@ -2361,7 +2327,7 @@ export default function RiaPicksPage() {
                     }}
                     className="w-full justify-center"
                   >
-                    <Upload aria-hidden="true" className="mr-2 h-4 w-4" />
+                    <Upload className="mr-2 h-4 w-4" />
                     {uploadOpen ? "Close upload" : "Upload"}
                   </Button>
                   <Button
@@ -2481,14 +2447,14 @@ export default function RiaPicksPage() {
 
               {source === "kai" && kaiLoading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Loading Kai list...
                 </div>
               ) : null}
 
               {source === "my" && picksResource.loading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Loading My list...
                 </div>
               ) : null}
@@ -2559,7 +2525,7 @@ export default function RiaPicksPage() {
             <div className="space-y-4">
               {source === "kai" && avoidLoading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Loading avoid list...
                 </div>
               ) : null}
@@ -2628,7 +2594,7 @@ export default function RiaPicksPage() {
             <div className="space-y-4">
               {source === "kai" && screeningLoading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Loading screening criteria...
                 </div>
               ) : null}

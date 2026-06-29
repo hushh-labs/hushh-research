@@ -74,14 +74,14 @@ function formatRelative(value?: string | number | null) {
   return `${Math.ceil(totalHours / 24)} days left`;
 }
 
-function entryHref(actor: ConsentCenterActor, entry: ConsentCenterEntry): string {
+function entryHref(actor: ConsentCenterActor, entry: ConsentCenterEntry) {
   const requestId = entry.request_id || entry.id;
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending", { requestId })
     : buildConsentCenterHref("pending", { requestId });
 }
 
-function managerHref(actor: ConsentCenterActor): string {
+function managerHref(actor: ConsentCenterActor) {
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending")
     : buildConsentCenterHref("pending");

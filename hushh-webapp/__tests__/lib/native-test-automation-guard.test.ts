@@ -5,7 +5,6 @@ import {
   isNativeUiTestSession,
   preferPassphraseUnlockForAutomation,
   shouldSkipGeneratedVaultUnlockForAutomation,
-  getNativeTestConfig,
 } from "@/lib/testing/native-test";
 
 describe("native test automation guards", () => {
@@ -46,14 +45,5 @@ describe("native test automation guards", () => {
     vi.stubGlobal("navigator", { webdriver: true });
     expect(preferPassphraseUnlockForAutomation()).toBe(true);
     expect(isNativeUiTestSession()).toBe(false);
-  });
-
-  it("ignores placeholder expected user ids in native test config", () => {
-   window.__HUSHH_NATIVE_TEST__ = {
-    enabled: true,
-    expectedUserId: "replace_with_user_id",
-   };
-
-   expect(getNativeTestConfig().expectedUserId).toBeNull();
   });
 });

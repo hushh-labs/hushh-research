@@ -8,7 +8,7 @@ function Empty({ className, ...props }: React.ComponentProps<"div">) {
       role="status"
       data-slot="empty"
       className={cn(
-        "flex min-w-0 flex-1 flex-col items-center justify-center gap-3 sm:gap-4 md:gap-6 rounded-lg border border-dashed p-6 sm:p-8 md:p-12 text-center text-balance",
+        "flex min-w-0 flex-1 flex-col items-center justify-center gap-3 sm:gap-4 md:gap-6 rounded-lg border-dashed p-6 sm:p-8 md:p-12 text-center text-balance",
         className
       )}
       {...props}
@@ -71,7 +71,7 @@ function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
 
 function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
-    <p
+    <div
       data-slot="empty-description"
       className={cn(
         "text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",

@@ -16,10 +16,7 @@ import {
   loadPlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import {
-  PlaidPortfolioService,
-  requirePlaidLinkTokenReady,
-} from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -84,7 +81,10 @@ export default function KaiPlaidOauthReturnPage() {
           resumeSessionId: session.resumeSessionId,
           vaultOwnerToken: issued.token,
         });
-        const readyResume = requirePlaidLinkTokenReady(resume);
+        const linkTokenValue = resume.link_token;
+        if (!resume.configured || !linkTokenValue) {
+          throw new Error("Plaid is not configured for this environment.");
+        }
 
         const Plaid = await loadPlaidLink();
         setStage("resuming");
@@ -98,7 +98,7 @@ export default function KaiPlaidOauthReturnPage() {
           };
 
           const handler = Plaid.create({
-            token: readyResume.link_token,
+            token: linkTokenValue,
             receivedRedirectUri: window.location.href,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void (

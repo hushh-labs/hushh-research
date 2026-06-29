@@ -58,7 +58,6 @@ function PaginationLink({
           variant: isActive ? "outline" : "ghost",
           size,
         }),
-        "aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         className
       )}
@@ -85,7 +84,7 @@ function PaginationPrevious({
           : undefined
       }
     >
-      <ChevronLeftIcon aria-hidden="true" />
+      <ChevronLeftIcon />
       <span className="hidden sm:block">Previous</span>
     </PaginationLink>
   )
@@ -110,7 +109,7 @@ function PaginationNext({
       }
     >
       <span className="hidden sm:block">Next</span>
-      <ChevronRightIcon aria-hidden="true" />
+      <ChevronRightIcon />
     </PaginationLink>
   )
 }
@@ -121,11 +120,12 @@ function PaginationEllipsis({
 }: React.ComponentProps<"span">) {
   return (
     <span
+      aria-hidden
       data-slot="pagination-ellipsis"
       className={cn("flex size-9 items-center justify-center", className)}
       {...props}
     >
-      <MoreHorizontalIcon className="size-4" aria-hidden="true" />
+      <MoreHorizontalIcon className="size-4" />
       <span className="sr-only">More pages</span>
     </span>
   )

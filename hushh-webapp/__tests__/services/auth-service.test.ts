@@ -44,7 +44,6 @@ const {
     unlink: vi.fn(),
   },
   mockHushhAuth: {
-    signIn: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
     signOut: vi.fn(),
@@ -193,63 +192,8 @@ describe("AuthService.restoreNativeSession", () => {
     vi.mocked(FirebaseAuthentication.confirmVerificationCode).mockResolvedValue({} as any);
     vi.mocked(FirebaseAuthentication.linkWithPhoneNumber).mockResolvedValue(undefined as any);
     vi.mocked(FirebaseAuthentication.unlink).mockResolvedValue({ user: null } as any);
-    vi.mocked(HushhAuth.signIn).mockReset();
     vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({ user: null } as any);
     vi.mocked(HushhAuth.getIdToken).mockResolvedValue({ idToken: null } as any);
-  });
-
-  it("uses HushhAuth for Android Google sign-in before FirebaseAuthentication", async () => {
-    const idToken = createIdToken(60 * 60);
-    mockCapacitor.getPlatform.mockReturnValue("android");
-    vi.mocked(HushhAuth.signIn).mockResolvedValue({
-      idToken,
-      accessToken: "google-id-token",
-      user: {
-        uid: "android-user",
-        email: "android@hushh.ai",
-        displayName: "Android User",
-        photoUrl: "https://example.com/android.png",
-        emailVerified: true,
-      },
-    } as any);
-
-    const result = await AuthService.signInWithGoogle();
-
-    expect(HushhAuth.signIn).toHaveBeenCalledTimes(1);
-    expect(FirebaseAuthentication.signInWithGoogle).not.toHaveBeenCalled();
-    expect(result.user.uid).toBe("android-user");
-    expect(result.idToken).toBe(idToken);
-  });
-
-  it("falls back to FirebaseAuthentication when Android HushhAuth Google sign-in fails", async () => {
-    const idToken = createIdToken(60 * 60);
-    const firebaseUser = {
-      uid: "firebase-native-user",
-      getIdToken: vi.fn().mockResolvedValue(idToken),
-    } as any;
-    mockAuth.currentUser = firebaseUser;
-    mockCapacitor.getPlatform.mockReturnValue("android");
-    vi.mocked(HushhAuth.signIn).mockRejectedValue(new Error("Native plugin unavailable"));
-    vi.mocked(FirebaseAuthentication.signInWithGoogle).mockResolvedValue({
-      user: {
-        uid: "firebase-native-user",
-        email: "firebase@hushh.ai",
-      },
-      credential: {
-        idToken,
-        accessToken: "google-access-token",
-      },
-    } as any);
-    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
-      token: idToken,
-    } as any);
-
-    const result = await AuthService.signInWithGoogle();
-
-    expect(HushhAuth.signIn).toHaveBeenCalledTimes(1);
-    expect(FirebaseAuthentication.signInWithGoogle).toHaveBeenCalledTimes(1);
-    expect(result.user).toBe(firebaseUser);
-    expect(result.idToken).toBe(idToken);
   });
 
   it("cleans up a synchronously restored Firebase JS listener", async () => {

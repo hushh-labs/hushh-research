@@ -15,8 +15,6 @@ import {
 import { VaultService } from "@/lib/services/vault-service";
 import { useHostname } from "@/lib/hooks/use-hostname";
 
-const vaultPresenceCache = new Map<string, boolean>();
-
 export function PhoneMandateGuard({
   children,
   exemptVaultUsers = false,
@@ -45,24 +43,28 @@ export function PhoneMandateGuard({
       return;
     }
 
-    if (vaultPresenceCache.has(user.uid)) {
-      setHasVault(vaultPresenceCache.get(user.uid) ?? null);
+    const userId = user.uid;
+    let cancelled = false;
+
+    // VaultService is the single shared, SWR-grade vault-presence cache
+    // (CacheService + sessionStorage + in-flight dedup). Hydrate the first
+    // paint synchronously from that cache, then fall back to the async check
+    // only on a cold cache.
+    const cachedPresence = VaultService.peekVaultPresence(userId);
+    if (cachedPresence !== null) {
+      setHasVault(cachedPresence);
       return;
     }
 
-    let cancelled = false;
-
     const loadVaultState = async () => {
       try {
-        const exists = await VaultService.checkVault(user.uid);
+        const exists = await VaultService.checkVault(userId);
         if (!cancelled) {
-          vaultPresenceCache.set(user.uid, exists);
           setHasVault(exists);
         }
       } catch (error) {
         console.warn("[PhoneMandateGuard] Failed to check vault presence:", error);
         if (!cancelled) {
-          vaultPresenceCache.set(user.uid, true);
           setHasVault(true);
         }
       }
@@ -86,29 +88,52 @@ export function PhoneMandateGuard({
       return;
     }
 
+    if (firebasePhoneVerified) {
+      setBackendPhoneVerified(true);
+      return;
+    }
+
     let cancelled = false;
+
+    // Stale-while-revalidate: paint the last-known phone status instantly from
+    // cache (even if stale) so route re-mounts never flash a loader, then
+    // revalidate in the background. Only show the cold-cache loading state when
+    // there is no cached value at all.
+    const cached = AccountIdentityService.peekCachedIdentity(user.uid);
+    if (cached) {
+      setBackendPhoneVerified(AccountIdentityService.hasVerifiedPhone(cached.data));
+    } else {
+      setBackendPhoneVerified(null);
+    }
 
     const loadIdentityState = async () => {
       try {
-        const identity = await AccountIdentityService.refreshCurrentUserIdentity(user);
+        // getIdentitySwr returns the cached value immediately (warming the
+        // state above) and revalidates in the background when stale. On a cold
+        // cache it performs a single non-forced fetch. Forced freshness is
+        // maintained by the sync paths at login and after a phone claim.
+        const { identity } = await AccountIdentityService.getIdentitySwr(user);
         if (!cancelled) {
           setBackendPhoneVerified(AccountIdentityService.hasVerifiedPhone(identity));
         }
       } catch (error) {
         console.warn("[PhoneMandateGuard] Failed to check account phone claim:", error);
-        if (!cancelled) {
-          setBackendPhoneVerified(firebasePhoneVerified);
+        if (!cancelled && cached == null) {
+          setBackendPhoneVerified(false);
         }
       }
     };
 
-    setBackendPhoneVerified(null);
     void loadIdentityState();
 
     return () => {
       cancelled = true;
     };
-  }, [firebasePhoneVerified, localPhoneMandateBypassed, user]);
+    // Intentionally key on `user?.uid` (stable identity) rather than the whole
+    // `user` object, which Firebase re-creates on every token refresh and would
+    // otherwise re-run this guard (and its network reads) needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebasePhoneVerified, localPhoneMandateBypassed, user?.uid]);
 
   const currentRoute = useMemo(() => {
     const query = searchParams.toString();

@@ -7,7 +7,7 @@ import {
   SystemBarsStyle,
   SystemBarType,
 } from "@capacitor/core";
-import { useTheme } from "@/components/theme-provider";
+import { useTheme } from "next-themes";
 
 const PROBE_ID = "app-safe-area-probe";
 
@@ -124,9 +124,7 @@ export function StatusBarManager() {
           ]);
         }
       } catch (err) {
-        if (process.env.NODE_ENV !== "production") {
-          console.error("[StatusBarManager] Failed to update system bars:", err);
-        }
+        console.error("[StatusBarManager] Failed to update system bars:", err);
       } finally {
         isUpdating.current = false;
       }

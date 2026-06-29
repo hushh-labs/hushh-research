@@ -9,14 +9,12 @@ flowchart TD
   root["docs/future/<br/>planning-only roadmap home"]
   kai["kai/<br/>assistant and workflow concepts"]
   oneInfra["hussh-one-infra/<br/>One infrastructure future architecture"]
-  requests["pr-request-backlog.md<br/>PR request governance note"]
   oneSurface["one-product-surface-evolution-plan.md<br/>One product surface scaling"]
   oneNav["one-nav-runtime-plan.md<br/>One/Kai/Nav/KYC runtime migration"]
   execution["promotion to execution docs<br/>only after approval"]
 
   root --> kai
   root --> oneInfra
-  root --> requests
   root --> oneSurface
   root --> oneNav
   root --> execution
@@ -64,7 +62,6 @@ Promotion targets:
 
 - [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved
 - [hussh-one-infra/README.md](./hussh-one-infra/README.md): planning-only One infrastructure architecture for Founder Wiki validation, Salesforce/MuleSoft partner boundaries, private compute, BYOA, and code-persona alignment
-- [pr-request-backlog.md](./pr-request-backlog.md): planning-only governance note for PR request workflows and execution boundaries
 - [one-product-surface-evolution-plan.md](./one-product-surface-evolution-plan.md): planning-only product-surface evolution path for One, Kai, Nav, KYC, PCHP, PKM, OpenClaw/LLM Wiki-style projections, signature, brokerage, and brand-side access
 - [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current Kai-first runtime to the One/Kai/Nav/KYC ontology
 

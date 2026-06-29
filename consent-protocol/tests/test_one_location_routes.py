@@ -278,6 +278,57 @@ def test_public_location_invite_route_returns_snapshot_on_resolve(
     assert "ciphertext" not in serialized_private_surfaces
 
 
+def test_circle_invite_route_claims_into_network_connection_without_grant(
+    monkeypatch,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    current_user["user_id"] = "user_a"
+
+    invite_response = client.post(
+        "/api/one/location/circle-invites",
+        json={"durationHours": 1, "message": "Join me on One."},
+    )
+    assert invite_response.status_code == 200
+    invite_payload = invite_response.json()
+    token = invite_payload["inviteToken"]
+    assert invite_payload["inviteUrl"].endswith(token)
+    assert token not in json.dumps(service.circle_invites, default=str)
+
+    resolve_response = client.get(f"/api/one/location/circle-invites/{token}")
+    assert resolve_response.status_code == 200
+    resolve_payload = resolve_response.json()
+    serialized_resolve = json.dumps(resolve_payload)
+    assert resolve_payload["invite"]["ownerLabel"] == "User A - *******0001"
+    assert "ownerUserId" not in serialized_resolve
+    assert "ciphertext" not in serialized_resolve
+    assert "latitude" not in serialized_resolve
+    assert "longitude" not in serialized_resolve
+
+    current_user["user_id"] = "user_b"
+    claim_response = client.post(
+        f"/api/one/location/circle-invites/{token}/claim",
+        json={"message": "Ready to join."},
+    )
+    assert claim_response.status_code == 200
+    claim_payload = claim_response.json()
+    assert claim_payload["invite"]["status"] == "claimed"
+    assert claim_payload["connection"]["status"] == "active"
+    assert claim_payload["connection"]["inviterUserId"] == "user_a"
+    assert claim_payload["connection"]["inviteeUserId"] == "user_b"
+    assert service.requests == {}
+    assert service.grants == {}
+
+    duplicate_response = client.post(
+        f"/api/one/location/circle-invites/{token}/claim",
+        json={},
+    )
+    assert duplicate_response.status_code == 410
+
+
 def test_one_location_retention_purge_requires_dedicated_token_by_default(
     monkeypatch,
 ) -> None:
@@ -477,6 +528,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_requests": 1,
         "deleted_referrals": 1,
         "deleted_public_invites": 1,
+        "deleted_circle_invites": 0,
         "deleted_public_submissions": 1,
         "deleted_events": 1,
         "retention_hours": 12.0,

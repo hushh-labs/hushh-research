@@ -15,23 +15,42 @@ function Popover({
 function PopoverTrigger({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
-  return <PopoverPrimitive.Trigger type="button" data-slot="popover-trigger" {...props} />
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
 function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  withBackdrop = false,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  /**
+   * Render the canonical overlay scrim (the "backdrop thump") behind the
+   * popover, matching the dialog/sheet/drawer overlay. Opt-in so that
+   * lightweight anchored popovers (menus, hovercards) keep their flat look,
+   * while modal popovers (vault, command palette style surfaces) darken and
+   * blur the page behind them. The scrim carries data-slot="popover-overlay"
+   * so the global motion-overlay timing in globals.css fades it in/out instead
+   * of snapping.
+   */
+  withBackdrop?: boolean
+}) {
   return (
     <PopoverPrimitive.Portal>
+      {withBackdrop ? (
+        <div
+          data-slot="popover-scrim"
+          aria-hidden
+          className="fixed inset-0 z-[499] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]"
+        />
+      ) : null}
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border p-4 shadow-md outline-hidden [scrollbar-gutter:stable]",
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:data-[state=closed]:slide-out-to-top-2 data-[side=left]:data-[state=closed]:slide-out-to-right-2 data-[side=right]:data-[state=closed]:slide-out-to-left-2 data-[side=top]:data-[state=closed]:slide-out-to-bottom-2 z-[500] w-72 origin-(--radix-popover-content-transform-origin) rounded-md border p-4 shadow-md outline-hidden",
           className
         )}
         {...props}
@@ -58,7 +77,7 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
 
 function PopoverTitle({ className, ...props }: React.ComponentProps<"h2">) {
   return (
-    <h2
+    <div
       data-slot="popover-title"
       className={cn("font-medium", className)}
       {...props}

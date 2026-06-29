@@ -6,7 +6,6 @@ export type ObservabilityEventCategory = "funnel" | "feature" | "system";
 export type GrowthJourney = "investor" | "ria";
 export type GrowthEntrySurface =
   | "login"
-  | "kai_onboarding"
   | "kai_home"
   | "one_setup"
   | "kai_import"

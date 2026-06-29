@@ -32,12 +32,18 @@ import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metri
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { TopAppBar } from "@/components/app-ui/top-app-bar";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
+import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
+import { AgentBar } from "@/components/agent/agent-bar";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { usePathname, useRouter } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
+import {
+  beginRouteTransition,
+  useRouteTransition,
+} from "@/lib/morphy-ux/hooks/use-route-transition";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -45,7 +51,7 @@ import { Capacitor } from "@capacitor/core";
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
 import {
   resetKaiBottomChromeVisibility,
-  useKaiBottomChromeVisibility,
+  useKaiBottomChromeProgressCssVar,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -59,7 +65,6 @@ import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-sta
 import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
-  normalizeInternalAppNavigationHref,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
 
@@ -71,6 +76,16 @@ function readCustomVar(style: CSSProperties, key: string): string {
   const value = (style as Record<string, string | number | undefined>)[key];
   return value === undefined || value === null ? "" : String(value).trim();
 }
+
+// Shared bottom chrome glass vars. Mirrors the top app bar glass (same bg,
+// blur via the .bar-glass default, overscan, and fade strengths) so the bottom
+// mask fade matches the top exactly, just flipped to fade upward.
+const SHARED_BOTTOM_CHROME_GLASS_VARS = {
+  "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
+  "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+  "--app-bar-shadow": "none",
+  "--app-bar-mask-overscan": "14px",
+} as const;
 
 function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
@@ -159,8 +174,13 @@ function AppShellFrame({ children }: ProvidersProps) {
     topShellMetrics.shellVisible && !isFullscreenTopFlow;
   const showVaultMethodPrompt =
     isAuthenticated && topShellMetrics.shellVisible && !isFullscreenTopFlow;
-  const { progress: hideBottomChromeGlassProgress } =
-    useKaiBottomChromeVisibility(showSharedBottomChromeGlass);
+  // Drive the bottom-chrome hide animation through a CSS variable instead of a
+  // render-coupled value. Reading the continuous scroll progress in this root
+  // shell re-rendered the entire provider subtree on every scroll frame, which
+  // made pages like /consents appear to reload on scroll. This hook writes
+  // `--bottom-chrome-progress` to the document root imperatively and returns
+  // nothing, so scrolling no longer re-renders the React tree.
+  useKaiBottomChromeProgressCssVar(showSharedBottomChromeGlass);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const isKaiRoute = useMemo(
     () =>
@@ -206,6 +226,10 @@ function AppShellFrame({ children }: ProvidersProps) {
     key: pageAnimationKey,
     observeMutations: shouldObservePageMutations,
   });
+  // App-wide route crossfade: fades the outgoing page out before navigating so
+  // route loads feel continuous instead of a hard cut (pairs with the GSAP
+  // enter animation above). See globals.css → "UNIFORM ROUTE TRANSITION".
+  useRouteTransition();
   useScrollReset(pathname, { enabled: true, behavior: "auto" });
 
   useEffect(() => {
@@ -215,17 +239,22 @@ function AppShellFrame({ children }: ProvidersProps) {
   useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
       const customEvent = event as CustomEvent<InternalAppNavigationRequest>;
-      const href = normalizeInternalAppNavigationHref(customEvent.detail?.href);
-      if (!href) {
+      const href = String(customEvent.detail?.href || "").trim();
+      if (!href.startsWith("/")) {
         return;
       }
       const replace = Boolean(customEvent.detail?.replace);
       const scroll = customEvent.detail?.scroll ?? false;
-      if (replace) {
-        router.replace(href, { scroll });
-        return;
-      }
-      router.push(href, { scroll });
+      // Route programmatic navigations through the shared exit -> enter envelope
+      // so they crossfade exactly like /one -> /one/* link clicks instead of
+      // hard-cutting on exit.
+      beginRouteTransition(href, () => {
+        if (replace) {
+          router.replace(href, { scroll });
+          return;
+        }
+        router.push(href, { scroll });
+      });
     };
 
     window.addEventListener(
@@ -293,6 +322,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     <CacheProvider>
       <PersonaProvider>
         <VaultProvider>
+          <AgentRuntimeStateProvider>
           <AgentPopoverProvider>
             <NativeTestRouter />
             <NativeTestBootstrap />
@@ -329,23 +359,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                                   height: "var(--bottom-chrome-full-height)",
                                   transform:
                                     "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                  "--bottom-chrome-progress": String(
-                                    hideBottomChromeGlassProgress,
-                                  ),
-                                  "--app-bar-glass-bg-light":
-                                    "rgba(255, 255, 255, 0.16)",
-                                  "--app-bar-glass-bg-dark":
-                                    "rgba(28, 28, 30, 0.22)",
-                                  "--app-bar-glass-blur": "0px",
-                                  "--app-bar-shadow": "none",
-                                  "--app-bar-mask-overscan": "6px",
-                                  "--app-bar-bottom-fade-strong":
-                                    "color-mix(in oklab, var(--background) 6%, transparent)",
-                                  "--app-bar-bottom-fade-medium":
-                                    "color-mix(in oklab, var(--background) 4%, transparent)",
-                                  "--app-bar-bottom-fade-soft":
-                                    "color-mix(in oklab, var(--background) 1.8%, transparent)",
-                                  "--app-bar-bottom-fade-trace": "transparent",
+                                  ...SHARED_BOTTOM_CHROME_GLASS_VARS,
                                 } as CSSProperties
                               }
                             />
@@ -353,6 +367,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                         ) : null
                       }
                     </VaultContext.Consumer>
+                    <AgentBar />
                     <PostAuthOnboardingSyncBridge />
                     <Suspense fallback={null}>
                       <KaiCommandBarGlobal />
@@ -423,23 +438,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                                   height: "var(--bottom-chrome-full-height)",
                                   transform:
                                     "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                  "--bottom-chrome-progress": String(
-                                    hideBottomChromeGlassProgress,
-                                  ),
-                                  "--app-bar-glass-bg-light":
-                                    "rgba(255, 255, 255, 0.16)",
-                                  "--app-bar-glass-bg-dark":
-                                    "rgba(28, 28, 30, 0.22)",
-                                  "--app-bar-glass-blur": "0px",
-                                  "--app-bar-shadow": "none",
-                                  "--app-bar-mask-overscan": "6px",
-                                  "--app-bar-bottom-fade-strong":
-                                    "color-mix(in oklab, var(--background) 6%, transparent)",
-                                  "--app-bar-bottom-fade-medium":
-                                    "color-mix(in oklab, var(--background) 4%, transparent)",
-                                  "--app-bar-bottom-fade-soft":
-                                    "color-mix(in oklab, var(--background) 1.8%, transparent)",
-                                  "--app-bar-bottom-fade-trace": "transparent",
+                                  ...SHARED_BOTTOM_CHROME_GLASS_VARS,
                                 } as CSSProperties
                               }
                             />
@@ -447,6 +446,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                         ) : null
                       }
                     </VaultContext.Consumer>
+                    <AgentBar />
                     <PostAuthOnboardingSyncBridge />
                     <Suspense fallback={null}>
                       <KaiCommandBarGlobal />
@@ -494,6 +494,7 @@ function AppShellFrame({ children }: ProvidersProps) {
               </ConsentNotificationProvider>
             </Suspense>
           </AgentPopoverProvider>
+          </AgentRuntimeStateProvider>
         </VaultProvider>
       </PersonaProvider>
     </CacheProvider>

@@ -5,6 +5,27 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types"
+
+// Map the shadcn Button variant used by AlertDialog actions onto the closest
+// Morphy ripple palette so the Material 3 press feedback matches the surface.
+function rippleVariantForButtonVariant(
+  variant: React.ComponentProps<typeof Button>["variant"],
+): { variant: ColorVariant; effect: ComponentEffect } {
+  switch (variant) {
+    case "destructive":
+      return { variant: "destructive", effect: "fill" }
+    case "default":
+      return { variant: "gradient", effect: "fill" }
+    case "outline":
+    case "ghost":
+    case "secondary":
+      return { variant: "none", effect: "fade" }
+    default:
+      return { variant: "none", effect: "fade" }
+  }
+}
 
 function AlertDialog({
   ...props
@@ -36,6 +57,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
+        // Blur/scrim rides the Radix overlay lifecycle so it fades OUT on close.
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
         className
       )}
@@ -148,16 +170,23 @@ function AlertDialogAction({
   className,
   variant = "default",
   size = "default",
+  children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
   Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
+  const ripple = rippleVariantForButtonVariant(variant)
   return (
     <Button variant={variant} size={size} asChild>
       <AlertDialogPrimitive.Action
         data-slot="alert-dialog-action"
-        className={cn(className)}
+        className={cn("relative isolate overflow-hidden", className)}
         {...props}
-      />
+      >
+        <span className="relative z-10 inline-flex items-center justify-center gap-2">
+          {children}
+        </span>
+        <MaterialRipple variant={ripple.variant} effect={ripple.effect} className="z-0" />
+      </AlertDialogPrimitive.Action>
     </Button>
   )
 }
@@ -166,16 +195,23 @@ function AlertDialogCancel({
   className,
   variant = "outline",
   size = "default",
+  children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> &
   Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
+  const ripple = rippleVariantForButtonVariant(variant)
   return (
     <Button variant={variant} size={size} asChild>
       <AlertDialogPrimitive.Cancel
         data-slot="alert-dialog-cancel"
-        className={cn(className)}
+        className={cn("relative isolate overflow-hidden", className)}
         {...props}
-      />
+      >
+        <span className="relative z-10 inline-flex items-center justify-center gap-2">
+          {children}
+        </span>
+        <MaterialRipple variant={ripple.variant} effect={ripple.effect} className="z-0" />
+      </AlertDialogPrimitive.Cancel>
     </Button>
   )
 }

@@ -636,18 +636,9 @@ async def startup_market_cache_store_table():
 
 @app.on_event("startup")
 async def startup_market_insights_refresh():
-    """Warm shared market caches without blocking health or user traffic."""
-
-    async def _warm_then_refresh() -> None:
-        await warm_market_insights_startup_once()
-        start_market_insights_background_refresh()
-
-    _track_startup_background_task(
-        asyncio.create_task(
-            _warm_then_refresh(),
-            name="market-insights-startup-warm",
-        )
-    )
+    """Warm shared market caches, then keep them refreshed in the background."""
+    await warm_market_insights_startup_once()
+    start_market_insights_background_refresh()
 
 
 @app.on_event("startup")

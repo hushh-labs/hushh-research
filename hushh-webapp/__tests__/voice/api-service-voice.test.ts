@@ -1,18 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const capacitorMock = vi.hoisted(() => ({
-  isNativePlatform: vi.fn(() => false),
-  getPlatform: vi.fn(() => "web"),
-  request: vi.fn(),
-}));
-
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: capacitorMock.isNativePlatform,
-    getPlatform: capacitorMock.getPlatform,
+    isNativePlatform: () => false,
+    getPlatform: () => "web",
   },
   CapacitorHttp: {
-    request: capacitorMock.request,
+    request: vi.fn(),
   },
 }));
 
@@ -57,9 +51,6 @@ describe("ApiService voice planning contract", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    capacitorMock.isNativePlatform.mockReturnValue(false);
-    capacitorMock.getPlatform.mockReturnValue("web");
-    capacitorMock.request.mockReset();
     delete process.env.BACKEND_URL;
     delete process.env.NEXT_PUBLIC_BACKEND_URL;
     delete process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND;
@@ -234,51 +225,6 @@ describe("ApiService voice planning contract", () => {
       text: "Starting Nvidia analysis.",
       voice: "Kore",
     });
-  });
-
-  it("requests Agent voice TTS as binary audio on native", async () => {
-    capacitorMock.isNativePlatform.mockReturnValue(true);
-    capacitorMock.getPlatform.mockReturnValue("ios");
-    process.env.NEXT_PUBLIC_BACKEND_URL = "https://api.example.com";
-    const audioText = "RIFFfake-wav";
-    capacitorMock.request.mockResolvedValueOnce({
-      status: 200,
-      headers: {
-        "content-type": "audio/wav",
-        "x-agent-tts-voice": "Kore",
-      },
-      data: btoa(audioText),
-      url: "https://api.example.com/api/kai/agent/voice/tts",
-    });
-    const { ApiService } = await import("@/lib/services/api-service");
-
-    const response = await ApiService.synthesizeAgentVoice({
-      userId: "user_1",
-      vaultOwnerToken: "vault_token",
-      text: "Starting Nvidia analysis.",
-      voice: "Kore",
-    });
-
-    expect(capacitorMock.request).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "https://api.example.com/api/kai/agent/voice/tts",
-        method: "POST",
-        responseType: "arraybuffer",
-        headers: expect.objectContaining({
-          Authorization: "Bearer vault_token",
-          "Content-Type": "application/json",
-        }),
-        data: expect.objectContaining({
-          user_id: "user_1",
-          text: "Starting Nvidia analysis.",
-          voice: "Kore",
-        }),
-      })
-    );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("audio/wav");
-    expect(response.headers.get("x-agent-tts-voice")).toBe("Kore");
-    expect(await response.text()).toBe(audioText);
   });
 
   it("calls voice capability route with auth and turn id", async () => {

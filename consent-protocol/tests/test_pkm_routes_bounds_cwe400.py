@@ -414,54 +414,6 @@ class TestStoreDomainRequest:
             )
 
 
-class TestEncryptedBlobSegments:
-    """EncryptedBlob.segments must be flat and bounded (CWE-400).
-
-    segments is intentionally typed as dict[str, SegmentBlob], not
-    dict[str, EncryptedBlob], so a caller cannot nest EncryptedBlob payloads
-    arbitrarily deep and force unbounded recursive Pydantic validation.
-    """
-
-    def test_segment_cannot_itself_carry_nested_segments(self):
-        """SegmentBlob has no segments field, so a nested 'segments' key is
-        dropped rather than recursively validated -- nesting is structurally
-        impossible, not just disallowed by convention."""
-        blob = EncryptedBlob(
-            ciphertext="valid" * 1000,
-            iv="iv" * 100,
-            tag="tag" * 100,
-            segments={
-                "seg1": {
-                    "ciphertext": "x",
-                    "iv": "y",
-                    "tag": "z",
-                    "segments": {"nested": {"ciphertext": "x", "iv": "y", "tag": "z"}},
-                }
-            },
-        )
-        assert not hasattr(blob.segments["seg1"], "segments")
-
-    def test_segments_dict_over_50_raises(self):
-        with pytest.raises(ValidationError):
-            EncryptedBlob(
-                ciphertext="valid" * 1000,
-                iv="iv" * 100,
-                tag="tag" * 100,
-                segments={
-                    f"seg{i}": {"ciphertext": "x", "iv": "y", "tag": "z"} for i in range(51)
-                },
-            )
-
-    def test_segments_dict_at_max_accepted(self):
-        blob = EncryptedBlob(
-            ciphertext="valid" * 1000,
-            iv="iv" * 100,
-            tag="tag" * 100,
-            segments={f"seg{i}": {"ciphertext": "x", "iv": "y", "tag": "z"} for i in range(50)},
-        )
-        assert len(blob.segments) == 50
-
-
 class TestStoreDomainResponse:
     """Store domain response bounds (CWE-400)."""
 

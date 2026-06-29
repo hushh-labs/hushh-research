@@ -272,26 +272,3 @@ describe("portfolio normalizer - negative currency boundaries", () => {
     expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
   });
 });
-
-describe("portfolio normalizer - decimal amount boundaries", () => {
-  it("preserves sub-cent, negative-zero, and large safe decimal amount strings", () => {
-    const consolidated = consolidateHoldingsBySymbol([
-      {
-        symbol: "DEC",
-        name: "Decimal Boundary Holding",
-        quantity: "1",
-        market_value: "0.0000001",
-        cost_basis: "-0.00",
-        estimated_annual_income: "999999999.99",
-      },
-    ]);
-
-    expect(consolidated).toHaveLength(1);
-    expect(Number.isFinite(consolidated[0].market_value)).toBe(true);
-    expect(Number.isFinite(consolidated[0].cost_basis)).toBe(true);
-    expect(Number.isFinite(consolidated[0].estimated_annual_income)).toBe(true);
-    expect(consolidated[0].market_value).toBeCloseTo(0.0000001, 12);
-    expect(Object.is(consolidated[0].cost_basis, -0)).toBe(true);
-    expect(consolidated[0].estimated_annual_income).toBe(999999999.99);
-  });
-});

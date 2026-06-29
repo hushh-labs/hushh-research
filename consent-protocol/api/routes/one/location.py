@@ -69,6 +69,15 @@ class CreatePublicInviteRequest(_CamelModel):
     location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
 
 
+class CreateCircleInviteRequest(_CamelModel):
+    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    message: str | None = Field(default=None, max_length=500)
+
+
+class ClaimCircleInviteRequest(_CamelModel):
+    message: str | None = Field(default=None, max_length=500)
+
+
 class SubmitPublicInviteRequest(_CamelModel):
     visitor_display_name: str = Field(alias="visitorDisplayName", min_length=2, max_length=120)
     phone_number: str = Field(alias="phoneNumber", min_length=8, max_length=32)
@@ -236,6 +245,61 @@ async def revoke_public_location_invite(
     try:
         return {
             "invite": _service().revoke_public_invite(
+                owner_user_id=_user_id(token_data),
+                invite_id=invite_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-invites")
+async def create_circle_location_invite(
+    payload: CreateCircleInviteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return _service().create_circle_invite(
+            owner_user_id=_user_id(token_data),
+            duration_hours=payload.duration_hours,
+            message=payload.message,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/circle-invites/{public_token}")
+async def resolve_circle_location_invite(public_token: _PublicToken):
+    try:
+        return _service().resolve_circle_invite(invite_token=public_token)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-invites/{public_token}/claim")
+async def claim_circle_location_invite(
+    public_token: _PublicToken,
+    payload: ClaimCircleInviteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return _service().claim_circle_invite(
+            invite_token=public_token,
+            claimant_user_id=_user_id(token_data),
+            message=payload.message,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circle-invites/{invite_id}")
+async def revoke_circle_location_invite(
+    invite_id: _InviteId,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "invite": _service().revoke_circle_invite(
                 owner_user_id=_user_id(token_data),
                 invite_id=invite_id,
             )

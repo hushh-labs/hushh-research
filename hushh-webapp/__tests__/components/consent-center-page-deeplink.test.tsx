@@ -16,7 +16,11 @@ const mocks = vi.hoisted(() => ({
   handleApprove: vi.fn(),
   handleDeny: vi.fn(),
   handleRevoke: vi.fn(),
+  handleLocationApprove: vi.fn(),
+  handleLocationDeny: vi.fn(),
+  handleLocationRevoke: vi.fn(),
   busyRequestIds: new Set<string>(),
+
   busyScopes: new Set<string>(),
   activeAction: null as null | {
     key: string;
@@ -33,6 +37,15 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: { uid: "user-1", getIdToken: mocks.getIdToken },
+    loading: false,
+  }),
+}));
+
+// CapabilityExploreCard reads useAuth from the firebase context directly, not
+// via the @/hooks/use-auth re-export, so it needs its own stub here.
+vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: { uid: "user-1", getIdToken: mocks.getIdToken },
     loading: false,
@@ -58,16 +71,19 @@ vi.mock("@/lib/consent", () => ({
     isScopeBusy: (scope?: string | null) =>
       mocks.busyScopes.has(String(scope || "")),
   }),
+  // One Location rows route through a dedicated hook; non-location consents
+  // never touch it, so a no-op mock is enough for these deep-link tests.
   useOneLocationConsentActions: () => ({
-    handleApprove: vi.fn(),
-    handleDeny: vi.fn(),
-    handleRevoke: vi.fn(),
+    handleApprove: mocks.handleLocationApprove,
+    handleDeny: mocks.handleLocationDeny,
+    handleRevoke: mocks.handleLocationRevoke,
     activeAction: null,
     activeActions: [],
     isRequestBusy: () => false,
     isScopeBusy: () => false,
   }),
 }));
+
 
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),

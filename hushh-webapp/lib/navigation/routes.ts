@@ -17,8 +17,6 @@ export const ROUTES = {
   PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
-  KAI_ONBOARDING: "/one/onboarding",
-  ONE_ONBOARDING: "/one/onboarding",
   ONE_SETUP: "/one/setup",
   ONE_SETUP_KAI: "/one/setup/kai",
   GMAIL: "/one/gmail",
@@ -107,16 +105,6 @@ export function buildOneSetupKaiRoute(entries?: {
   invite?: string | null;
 }) {
   return withQuery(ROUTES.ONE_SETUP_KAI, {
-    from: normalizeInternalRouteHref(entries?.from),
-    invite: entries?.invite,
-  });
-}
-
-export function buildOneOnboardingRoute(entries?: {
-  from?: string | null;
-  invite?: string | null;
-}) {
-  return withQuery(ROUTES.ONE_ONBOARDING, {
     from: normalizeInternalRouteHref(entries?.from),
     invite: entries?.invite,
   });
@@ -348,18 +336,7 @@ export function isOneSetupWizardRoute(pathname: string): boolean {
  * unresolved.
  */
 export function isOneSetupSurfaceRoute(pathname: string): boolean {
-  return isOneSetupRoute(pathname) || isKaiOnboardingRoute(pathname);
-}
-
-export function isKaiOnboardingRoute(pathname: string): boolean {
-  return (
-    pathname === ROUTES.ONE_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.ONE_ONBOARDING}/`) ||
-    pathname === ROUTES.LEGACY_KAI_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.LEGACY_KAI_ONBOARDING}/`) ||
-    pathname === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.LEGACY_ONE_KAI_ONBOARDING}/`)
-  );
+  return isOneSetupRoute(pathname);
 }
 
 export function isPublicRoute(pathname: string): boolean {

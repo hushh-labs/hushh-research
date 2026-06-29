@@ -41,22 +41,8 @@ describe("DataTable", () => {
       expect(source).not.toContain("swipeStartRef");
       expect(source).not.toContain("onTouchStart");
       expect(source).not.toContain("onTouchEnd");
-      expect(source).not.toContain("data-no-route-swipe");
       expect(source).not.toContain("Swipe left or right");
     }
-  });
-
-  it("keeps Kai route tabs free of global swipe routing", () => {
-    const routeTabsSource = readFileSync(
-      join(process.cwd(), "components/kai/layout/dashboard-route-tabs.tsx"),
-      "utf8"
-    );
-
-    expect(routeTabsSource).not.toContain("touchstart");
-    expect(routeTabsSource).not.toContain("touchmove");
-    expect(routeTabsSource).not.toContain("touchend");
-    expect(routeTabsSource).not.toContain("SWIPE_");
-    expect(routeTabsSource).not.toContain("data-no-route-swipe");
   });
 
   it("supports direct page-number navigation", () => {

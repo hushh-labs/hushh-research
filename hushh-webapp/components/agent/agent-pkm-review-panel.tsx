@@ -12,13 +12,6 @@ type AgentPkmReviewPanelProps = {
   className?: string;
   onSave: () => void;
   onDismiss: () => void;
-  mode?: "add" | "update";
-  updateContext?: {
-    domain: string;
-    fieldPath: string;
-    currentValue: string;
-    proposedValue: string;
-  };
 };
 
 function cleanText(value: unknown, maxLength = 120): string {
@@ -54,10 +47,8 @@ export function AgentPkmReviewPanel({
   className,
   onSave,
   onDismiss,
-  mode = "add",
-  updateContext,
 }: AgentPkmReviewPanelProps) {
-  if (cards.length === 0 && mode !== "update") return null;
+  if (cards.length === 0) return null;
 
   return (
     <div
@@ -72,13 +63,9 @@ export function AgentPkmReviewPanel({
             <Brain className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <p className="font-medium text-foreground">
-              {mode === "update" ? "Update PKM?" : "Save to PKM?"}
-            </p>
+            <p className="font-medium text-foreground">Save to PKM?</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {mode === "update"
-                ? "Agent proposes a change to your saved record. Review before applying."
-                : "Agent found durable context that needs your review before it is stored."}
+              Agent found durable context that needs your review before it is stored.
             </p>
           </div>
         </div>
@@ -102,30 +89,10 @@ export function AgentPkmReviewPanel({
             disabled={saving}
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            {mode === "update" ? "Update" : "Save"}
+            Save
           </Button>
         </div>
       </div>
-
-      {mode === "update" && updateContext ? (
-        <div className="mt-3 rounded-md border border-border/60 bg-background p-2 text-xs">
-          <p className="font-medium text-foreground">
-            {titleize(updateContext.fieldPath.replace(/\./g, " "))}
-          </p>
-          <div className="mt-1 flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-muted-foreground">Current</p>
-              <p className="mt-0.5 text-foreground">{cleanText(updateContext.currentValue)}</p>
-            </div>
-            <span className="mt-3 shrink-0 text-muted-foreground">→</span>
-            <div className="min-w-0 flex-1">
-              <p className="text-muted-foreground">Proposed</p>
-              <p className="mt-0.5 font-medium text-foreground">{cleanText(updateContext.proposedValue)}</p>
-            </div>
-          </div>
-          <p className="mt-1 text-muted-foreground">Domain: {titleize(updateContext.domain)}</p>
-        </div>
-      ) : null}
 
       <div className="mt-3 space-y-2">
         {cards.slice(0, 3).map((card) => (

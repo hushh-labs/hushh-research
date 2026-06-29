@@ -129,11 +129,9 @@ function featureStyle(tone: "green" | "blue" | "orange", index: number): CSSProp
 export function IntroStep({
   onNext,
   onLogin,
-  onBack: _onBack,
 }: {
   onNext: () => void;
   onLogin?: () => void;
-  onBack?: () => void;
 }) {
   return (
     <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-[#f5f5f7]">

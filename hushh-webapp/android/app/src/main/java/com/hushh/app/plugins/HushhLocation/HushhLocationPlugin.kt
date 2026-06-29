@@ -134,11 +134,6 @@ class HushhLocationPlugin : Plugin() {
     }
 
     @PermissionCallback
-    private fun locationPermissionStateCallback(call: PluginCall) {
-        call.resolve(permissionPayload())
-    }
-
-    @PermissionCallback
     private fun locationPermissionCallback(call: PluginCall) {
         if (getPermissionState("location") != PermissionState.GRANTED) {
             call.reject("Location permission was not granted.")

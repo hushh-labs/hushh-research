@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from typing import Any
+
+from starlette.concurrency import run_in_threadpool
 
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
@@ -13,6 +17,23 @@ from hushh_mcp.services.ria_iam_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _one_location_consent_center_enabled() -> bool:
+    """Feature flag: union One Location rows into the consent center.
+
+    Defaults ON so location requests/approvals/active shares/history appear in
+    the shared Access Manager (the canonical consent surface) instead of only
+    the notification bell. The contributor is coordinate-free and the merge in
+    ``_location_buckets`` is wrapped in try/except, so a location failure can
+    never destabilize the consent surface. Set the env var to a falsey value
+    ("0"/"false"/"off") to explicitly disable.
+    See docs/future/one-location-consent-center-integration-plan.md.
+    """
+    raw = os.getenv("ONE_LOCATION_CONSENT_CENTER_ENABLED", "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
 
 
 class ConsentCenterService:
@@ -33,6 +54,54 @@ class ConsentCenterService:
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
+        self._location_center = None
+        if _one_location_consent_center_enabled():
+            try:
+                from hushh_mcp.services.one_location_center_contributor import (
+                    OneLocationCenterContributor,
+                )
+
+                self._location_center = OneLocationCenterContributor()
+            except Exception as exc:  # never block the consent surface
+                logger.warning(
+                    "consent_center.one_location_contributor_init_failed error=%s",
+                    exc,
+                )
+                self._location_center = None
+
+    def _location_buckets(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Coordinate-free One Location entries grouped by consent bucket.
+
+        Returns empty buckets when the feature flag is off or the contributor
+        is unavailable, so the shared consent surface is never destabilized.
+        """
+        empty = {
+            "incoming_requests": [],
+            "outgoing_requests": [],
+            "active_grants": [],
+            "history": [],
+            "invites": [],
+        }
+        if not self._location_center:
+            return empty
+        try:
+            return self._location_center.collect(user_id)
+        except Exception as exc:
+            logger.warning(
+                "consent_center.one_location_collect_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+            return empty
+
+    async def _location_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Async wrapper for :meth:`_location_buckets`.
+
+        The One Location contributor reads via the synchronous (blocking)
+        db_client. Run it in a worker thread so it never stalls the asyncio
+        event loop and serialises concurrent consent/vault/persona requests.
+        """
+        return await run_in_threadpool(self._location_buckets, user_id)
 
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
@@ -1316,34 +1385,56 @@ class ConsentCenterService:
                 ]
             )
         if normalized_actor == "investor":
+            location_buckets = (
+                await self._location_buckets_async(user_id)
+                if normalized_mode == "consents"
+                else None
+            )
+            location_count = 0
+            if location_buckets:
+                if surface == "pending":
+                    location_count = len(location_buckets["incoming_requests"])
+                elif surface == "active":
+                    location_count = len(location_buckets["active_grants"])
+                else:
+                    location_count = len(location_buckets["history"])
             if surface == "pending":
-                return len(
-                    self._collapse_consent_chains(
-                        self._filter_mode_entries(
-                            await self._load_investor_pending_entries(user_id),
-                            actor=normalized_actor,
-                            mode=normalized_mode,
+                return (
+                    len(
+                        self._collapse_consent_chains(
+                            self._filter_mode_entries(
+                                await self._load_investor_pending_entries(user_id),
+                                actor=normalized_actor,
+                                mode=normalized_mode,
+                            )
                         )
                     )
+                    + location_count
                 )
             if surface == "active":
-                return len(
-                    self._collapse_consent_chains(
+                return (
+                    len(
+                        self._collapse_consent_chains(
+                            self._filter_mode_entries(
+                                await self._load_investor_active_entries(user_id),
+                                actor=normalized_actor,
+                                mode=normalized_mode,
+                            )
+                        )
+                    )
+                    + location_count
+                )
+            return (
+                len(
+                    self._group_history_identifier_trails(
                         self._filter_mode_entries(
-                            await self._load_investor_active_entries(user_id),
+                            await self._load_investor_previous_entries(user_id),
                             actor=normalized_actor,
                             mode=normalized_mode,
                         )
                     )
                 )
-            return len(
-                self._group_history_identifier_trails(
-                    self._filter_mode_entries(
-                        await self._load_investor_previous_entries(user_id),
-                        actor=normalized_actor,
-                        mode=normalized_mode,
-                    )
-                )
+                + location_count
             )
 
         if surface == "active":
@@ -1522,6 +1613,21 @@ class ConsentCenterService:
                 "invited": len([item for item in roster if item.get("status") == "invited"]),
             }
 
+        location_buckets = (
+            await self._location_buckets_async(user_id)
+            if (actor is None or normalized_actor != "ria")
+            else None
+        )
+        if location_buckets:
+            if need_incoming:
+                incoming = [*incoming, *location_buckets["incoming_requests"]]
+            if need_active:
+                active_entries = [*active_entries, *location_buckets["active_grants"]]
+            if need_history:
+                history_entries = [*history_entries, *location_buckets["history"]]
+            outgoing_entries = [*outgoing_entries, *location_buckets["outgoing_requests"]]
+            invite_entries = [*invite_entries, *location_buckets["invites"]]
+
         return {
             "user_id": user_id,
             "persona_state": persona_state,
@@ -1554,29 +1660,39 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
+        # Fetch the three surface counts concurrently instead of serially. Each
+        # count does its own DB work (and identity hydration), so running them
+        # one-after-another tripled the request latency and held pool
+        # connections far longer than needed, which exhausted the pool under
+        # load and produced cascading connection-acquire timeouts.
+        pending_count, active_count, previous_count = await asyncio.gather(
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="pending",
+                mode=normalized_mode,
+            ),
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="active",
+                mode=normalized_mode,
+            ),
+            self._get_surface_count(
+                user_id,
+                actor=normalized_actor,
+                surface="previous",
+                mode=normalized_mode,
+            ),
+        )
         return {
             "user_id": user_id,
             "actor": normalized_actor,
             "mode": normalized_mode,
             "counts": {
-                "pending": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="pending",
-                    mode=normalized_mode,
-                ),
-                "active": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="active",
-                    mode=normalized_mode,
-                ),
-                "previous": await self._get_surface_count(
-                    user_id,
-                    actor=normalized_actor,
-                    surface="previous",
-                    mode=normalized_mode,
-                ),
+                "pending": pending_count,
+                "active": active_count,
+                "previous": previous_count,
             },
         }
 
@@ -1648,6 +1764,18 @@ class ConsentCenterService:
                 if normalized_surface == "previous"
                 else self._collapse_consent_chains(entries)
             )
+            location_buckets = (
+                await self._location_buckets_async(user_id)
+                if normalized_mode == "consents"
+                else None
+            )
+            if location_buckets:
+                if normalized_surface == "pending":
+                    entries = [*entries, *location_buckets["incoming_requests"]]
+                elif normalized_surface == "active":
+                    entries = [*entries, *location_buckets["active_grants"]]
+                else:
+                    entries = [*entries, *location_buckets["history"]]
             paged = self._paginate_entries(
                 entries,
                 page=safe_page,

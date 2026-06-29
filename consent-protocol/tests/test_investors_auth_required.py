@@ -60,9 +60,9 @@ class TestInvestorBulkCreateRequiresAuth:
         try:
             from unittest.mock import AsyncMock, patch
 
-            mock_result = [{"id": 2, "name": "Bulk Investor"}]
+            mock_result = {"id": 2}
             with patch(
-                "hushh_mcp.services.investor_db.InvestorDBService.bulk_upsert_investors",
+                "hushh_mcp.services.investor_db.InvestorDBService.upsert_investor",
                 new=AsyncMock(return_value=mock_result),
             ):
                 client = TestClient(app, raise_server_exceptions=False)

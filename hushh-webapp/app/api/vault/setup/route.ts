@@ -112,12 +112,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorPayload = await response
-        .json()
-        .catch(async () => ({
-          error: (await response.text().catch(() => "")) || "Backend error",
-        }));
-      return NextResponse.json(errorPayload, { status: response.status });
+      const errorText = await response.text();
+      return NextResponse.json(
+        { error: errorText || "Backend error" },
+        { status: response.status },
+      );
     }
 
     const result = await response.json();

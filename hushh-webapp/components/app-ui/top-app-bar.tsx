@@ -133,8 +133,8 @@ function getTopBarTitle(
   interactive: boolean;
 } | null {
   if (
-    pathname === ROUTES.ONE_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.ONE_ONBOARDING}/`)
+    pathname === ROUTES.ONE_SETUP ||
+    pathname.startsWith(`${ROUTES.ONE_SETUP}/`)
   ) {
     return { label: "Set up One", interactive: false as const };
   }
@@ -201,20 +201,6 @@ function normalizeTopBarPathname(pathname: string): string {
   if (base === "/") return base;
   const withSlash = base.startsWith("/") ? base : `/${base}`;
   return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
-}
-
-function pathnameFromTopShellHref(href: string): string {
-  const rawHref = String(href || "").trim();
-  if (!rawHref) return "";
-  try {
-    return normalizeTopBarPathname(new URL(rawHref, "https://one.hushh.local").pathname);
-  } catch {
-    return normalizeTopBarPathname(rawHref);
-  }
-}
-
-function shouldReplaceTopShellBackNavigation(pathname: string, backHref: string): boolean {
-  return pathnameFromTopShellHref(pathname) === pathnameFromTopShellHref(backHref);
 }
 
 function roleSwitcherLabel(activePersona: Persona): string {
@@ -416,6 +402,15 @@ export function TopAppBar({ className }: TopAppBarProps) {
         return;
       }
 
+      // The top app bar mounts on nearly every page, so read the shared
+      // vault-presence cache synchronously first to avoid a per-route refetch
+      // while locked. Only hit the network on a cold cache.
+      const cachedPresence = VaultService.peekVaultPresence(user.uid);
+      if (cachedPresence !== null) {
+        setHasVault(cachedPresence);
+        return;
+      }
+
       try {
         const exists = await VaultService.checkVault(user.uid);
         if (!cancelled) {
@@ -562,7 +557,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
   return (
     <div
       className={cn(
-        "fixed inset-x-0 top-0 z-50 pointer-events-none",
+        "fixed inset-x-0 top-0 pointer-events-none",
+        // While the vault unlock gate is showing, ride ABOVE the dialog overlay
+        // scrim (z-[499]) so the top navbar stays sharp instead of being blurred
+        // by the vault backdrop. Otherwise keep the normal top-chrome layer.
+        showVaultUnlockAction ? "z-[505]" : "z-50",
         className,
       )}
     >
@@ -606,20 +605,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 style={{ width: "var(--top-bar-side-w)" }}
               >
                 <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-                  {topShellBreadcrumb ? (
+                  {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
                     <ShellActionSurface
                       variant="icon"
                       aria-label="Go back"
                       onClick={() => {
-                        if (
-                          shouldReplaceTopShellBackNavigation(
-                            pathname,
-                            topShellBreadcrumb.backHref,
-                          )
-                        ) {
-                          router.replace(topShellBreadcrumb.backHref);
-                          return;
-                        }
                         router.push(topShellBreadcrumb.backHref);
                       }}
                     >
@@ -631,7 +621,18 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 </div>
               </div>
 
-              <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center px-3 sm:px-4">
+              {/* Title sits in the normal flex flow. On most routes the right
+                  cluster is icon-only, so the pill stays centered. During setup
+                  the right cluster (theme toggle + menu) is wide; a centered
+                  pill would overlap it, so we left-align the title beside the
+                  reserved back slot instead. `flex-1 min-w-0` lets it truncate
+                  before it can ever collide with the actions either way. */}
+              <div
+                className={cn(
+                  "pointer-events-none flex min-w-0 flex-1 items-center",
+                  showOnboardingActions ? "justify-start" : "justify-center",
+                )}
+              >
                 {centerTitle ? (
                   centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
@@ -756,7 +757,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             aria-label="Open consent inbox"
                             badge={
                               pendingCount > 0 ? (
-                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(14,165,233,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
                                   {pendingCount}
                                 </span>
                               ) : null
@@ -784,7 +785,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             aria-label="Notifications"
                             badge={
                               badgeCount > 0 ? (
-                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(14,165,233,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
                                   {badgeCount}
                                 </span>
                               ) : null
@@ -792,7 +793,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           >
                             {activeCount > 0 ? (
                               <Loader2
-                                className="h-5 w-5 animate-spin text-sky-500"
+                                className="h-5 w-5 animate-spin text-accent-strong"
                                 aria-hidden="true"
                               />
                             ) : (
@@ -852,9 +853,7 @@ function OnboardingRouteActions() {
       await signOut();
       router.push(ROUTES.HOME);
     } catch (error) {
-      if (process.env.NODE_ENV !== "production") {
-        console.error("[TopAppBar] Failed to sign out:", error);
-      }
+      console.error("[TopAppBar] Failed to sign out:", error);
       toast.error("Couldn't sign out. Please retry.");
     }
   }

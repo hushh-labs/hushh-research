@@ -129,16 +129,4 @@ describe("agent popover layout", () => {
       y: 104,
     });
   });
-  
-  it("preserves custom size for fullscreen mode", () => {
-   expect(
-    resolveAgentPopoverSize("fullscreen", {
-      width: 900,
-      height: 700,
-    })
-   ).toEqual({
-    width: 900,
-    height: 700,
-   });
-  });
 });

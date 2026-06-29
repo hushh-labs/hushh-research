@@ -18,9 +18,6 @@ export type PreVaultUserState = {
   setupCompleted: boolean | null;
   setupSkipped: boolean | null;
   setupCompletedAt: number | null;
-  preOnboardingCompleted: boolean | null;
-  preOnboardingSkipped: boolean | null;
-  preOnboardingCompletedAt: number | null;
   navSetupCompletedAt: number | null;
   navSetupSkippedAt: number | null;
   // Per-capability setup mirror: ids the user has set up at least once. The
@@ -42,9 +39,6 @@ type PreVaultStateUpdatePayload = {
   setupCompleted?: boolean;
   setupSkipped?: boolean;
   setupCompletedAt?: number | null;
-  preOnboardingCompleted?: boolean;
-  preOnboardingSkipped?: boolean;
-  preOnboardingCompletedAt?: number | null;
   navSetupCompletedAt?: number | null;
   navSetupSkippedAt?: number | null;
   setupCapabilityIds?: string[];
@@ -93,15 +87,6 @@ function normalizeResponse(userId: string, payload: BootstrapStateResponse): Pre
     setupCompleted: toNullableBool(payload.setupCompleted),
     setupSkipped: toNullableBool(payload.setupSkipped),
     setupCompletedAt: toMillis(payload.setupCompletedAt),
-    preOnboardingCompleted: toNullableBool(
-      payload.preOnboardingCompleted ?? payload.setupCompleted,
-    ),
-    preOnboardingSkipped: toNullableBool(
-      payload.preOnboardingSkipped ?? payload.setupSkipped,
-    ),
-    preOnboardingCompletedAt: toMillis(
-      payload.preOnboardingCompletedAt ?? payload.setupCompletedAt,
-    ),
     navSetupCompletedAt: toMillis(payload.navSetupCompletedAt),
     navSetupSkippedAt: toMillis(payload.navSetupSkippedAt),
     setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
@@ -202,11 +187,6 @@ export class PreVaultUserStateService {
     return state.setupCompleted === true;
   }
 
-  static isOnboardingResolved(state: PreVaultUserState | null | undefined): boolean {
-    if (!state) return false;
-    return state.preOnboardingCompleted === true || state.setupCompleted === true;
-  }
-
   static isNavSetupResolved(state: PreVaultUserState | null | undefined): boolean {
     if (!state) return false;
     return Boolean(state.navSetupCompletedAt || state.navSetupSkippedAt);
@@ -241,31 +221,6 @@ export class PreVaultUserStateService {
           : Date.now();
 
     return this.updatePreVaultState(params.userId, {
-      setupCompleted: params.completed,
-      setupSkipped: params.skipped,
-      setupCompletedAt:
-        params.completed && Number.isFinite(completedAtMs) ? completedAtMs : Date.now(),
-    });
-  }
-
-  static async syncKaiOnboardingState(params: {
-    userId: string;
-    completed: boolean;
-    skipped: boolean;
-    completedAt?: string | number | null;
-  }): Promise<PreVaultUserState> {
-    const completedAtMs =
-      typeof params.completedAt === "number"
-        ? params.completedAt
-        : typeof params.completedAt === "string" && params.completedAt.trim()
-          ? Date.parse(params.completedAt)
-          : Date.now();
-
-    return this.updatePreVaultState(params.userId, {
-      preOnboardingCompleted: params.completed,
-      preOnboardingSkipped: params.skipped,
-      preOnboardingCompletedAt:
-        params.completed && Number.isFinite(completedAtMs) ? completedAtMs : Date.now(),
       setupCompleted: params.completed,
       setupSkipped: params.skipped,
       setupCompletedAt:

@@ -88,7 +88,7 @@ class TickerCache:
     @property
     def loaded(self) -> bool:
         with self._lock:
-            return self._loaded_at > 0.0
+            return bool(self._rows)
 
     @property
     def loaded_at(self) -> float:

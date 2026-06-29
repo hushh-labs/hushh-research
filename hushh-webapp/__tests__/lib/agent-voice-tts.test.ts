@@ -124,7 +124,7 @@ describe("agent voice TTS", () => {
     await vi.waitFor(() => expect(queue.hasPendingSpeech).toBe(false));
   });
 
-  it("does not use browser speech fallback by default when backend TTS fails", async () => {
+  it("uses browser speech fallback when backend TTS does not return audio", async () => {
     const synthesize = vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }));
     const playAudio = vi.fn().mockResolvedValue(undefined);
     const fallbackSpeak = vi.fn().mockResolvedValue(undefined);
@@ -141,18 +141,16 @@ describe("agent voice TTS", () => {
 
     queue.speakNow("Fallback sentence.");
 
-    await vi.waitFor(() =>
-      expect(onError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          stage: "synthesize",
-          status: 503,
-        })
-      )
-    );
-    await vi.waitFor(() => expect(queue.hasPendingSpeech).toBe(false));
+    await vi.waitFor(() => expect(fallbackSpeak).toHaveBeenCalledTimes(1));
 
     expect(playAudio).not.toHaveBeenCalled();
-    expect(fallbackSpeak).not.toHaveBeenCalled();
+    expect(fallbackSpeak).toHaveBeenCalledWith("Fallback sentence.", expect.any(AbortSignal));
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "synthesize",
+        status: 503,
+      })
+    );
   });
 
   it("times out browser speech fallback so voice capture can resume", async () => {
@@ -183,7 +181,6 @@ describe("agent voice TTS", () => {
       playAudio,
       onError,
       maxAttempts: 1,
-      allowBrowserFallback: true,
     });
 
     queue.speakNow("Fallback speech that never reaches onend.");

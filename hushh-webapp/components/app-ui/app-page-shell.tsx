@@ -82,7 +82,6 @@ export function AppPageShell<T extends ElementType = "main">({
         APP_SHELL_MAX_WIDTHS[width], // 4. Utilizing Tailwind utility classes over inline styles
         className
       )}
-      data-slot="app-page-shell"
       data-app-density={density}
       data-app-shell-width={width}
       data-top-content-anchor="true"

@@ -243,6 +243,7 @@ def test_search_route_binds_matching_crm_record(monkeypatch):
         "phone": "1234567899",
         "search_fields": None,
         "return_fields": ["LeadSource", "MailingCity"],
+        "force_refresh": False,
     }
 
 

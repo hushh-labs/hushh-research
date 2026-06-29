@@ -113,7 +113,7 @@ async def logout_session(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
-    Revoke the presented VAULT_OWNER session token for the authenticated user.
+    Destroy all session tokens for a user.
 
     REQUIRES: VAULT_OWNER consent token (via Authorization header).
     Only revokes session tokens (agent_id="self"). External API tokens are

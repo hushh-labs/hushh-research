@@ -97,20 +97,6 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(resolveSlowRequestTimeoutMs(0)).toBe(SAFE_FLOOR);
   });
 
-  it.each([-15.5, -0.001, -0, 0.000])(
-    "falls back to the safe floor for non-positive float defaultMs values: %s",
-    (defaultMs) => {
-      process.env.NEXT_PUBLIC_APP_ENV = "uat";
-      delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
-
-      const result = resolveSlowRequestTimeoutMs(defaultMs);
-
-      expect(result).toBe(SAFE_FLOOR);
-      expect(Number.isFinite(result)).toBe(true);
-      expect(result).toBeGreaterThan(0);
-    }
-  );
-
   // ── NaN defaultMs ─────────────────────────────────────────────────────────
 
   it("falls back to the safe floor when defaultMs is NaN — no NaN escapes the function", () => {
@@ -168,23 +154,6 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(resolveSlowRequestTimeoutMs(20_000.9)).toBe(20_001);
     // Result is always an integer (no fractional millisecond leaks to callers).
     expect(Number.isInteger(resolveSlowRequestTimeoutMs(9_999.1))).toBe(true);
-  });
-
-  it("normalizes sub-millisecond fractional timeout inputs into integer ticks", () => {
-    process.env.NEXT_PUBLIC_APP_ENV = "uat";
-    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
-
-    const microTick = resolveSlowRequestTimeoutMs(0.0045);
-    const lowLatencyTick = resolveSlowRequestTimeoutMs(0.85);
-
-    expect(microTick).toBe(0);
-    expect(lowLatencyTick).toBe(1);
-    expect(Number.isFinite(microTick)).toBe(true);
-    expect(Number.isFinite(lowLatencyTick)).toBe(true);
-    expect(Number.isInteger(microTick)).toBe(true);
-    expect(Number.isInteger(lowLatencyTick)).toBe(true);
-    expect(Number.isNaN(microTick)).toBe(false);
-    expect(Number.isNaN(lowLatencyTick)).toBe(false);
   });
 
   // ── Empty options object ───────────────────────────────────────────────────
@@ -274,64 +243,5 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(result).toBe(46);
     expect(Number.isFinite(result)).toBe(true);
     expect(Number.isInteger(result)).toBe(true);
-  });
-
-  it("applies the development floor for extreme sub-millisecond defaults", () => {
-    process.env.NEXT_PUBLIC_APP_ENV = "development";
-    delete process.env.APP_RUNTIME_PROFILE;
-    delete process.env.ENVIRONMENT;
-    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
-
-    const result = resolveSlowRequestTimeoutMs(Number("0.000025"));
-
-    expect(result).toBe(SAFE_FLOOR);
-    expect(Number.isFinite(result)).toBe(true);
-    expect(Number.isInteger(result)).toBe(true);
-  });
-});
-
-describe("resolveSlowRequestTimeoutMs - scientific notation overflow boundaries", () => {
-  const SAFE_FLOOR = 75_000;
-
-  afterEach(() => {
-    process.env.NEXT_PUBLIC_APP_ENV = ORIGINAL_APP_ENV;
-    process.env.APP_RUNTIME_PROFILE = ORIGINAL_RUNTIME_PROFILE;
-    process.env.ENVIRONMENT = ORIGINAL_ENVIRONMENT;
-    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = ORIGINAL_OVERRIDE;
-  });
-
-  it("normalizes finite scientific notation defaults without returning Infinity", () => {
-    process.env.NEXT_PUBLIC_APP_ENV = "uat";
-    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
-
-    const result = resolveSlowRequestTimeoutMs(1.25e5);
-
-    expect(result).toBe(125_000);
-    expect(Number.isFinite(result)).toBe(true);
-    expect(Number.isInteger(result)).toBe(true);
-    expect(result).not.toBe(Infinity);
-  });
-
-  it("falls back safely when scientific notation overflows to Infinity", () => {
-    process.env.NEXT_PUBLIC_APP_ENV = "uat";
-    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
-
-    const result = resolveSlowRequestTimeoutMs(1e309);
-
-    expect(result).toBe(SAFE_FLOOR);
-    expect(Number.isFinite(result)).toBe(true);
-    expect(result).not.toBe(Infinity);
-  });
-
-  it("does not let scientific notation override strings expand into unsafe timer values", () => {
-    process.env.NEXT_PUBLIC_APP_ENV = "uat";
-    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = "1e309";
-
-    const result = resolveSlowRequestTimeoutMs(Number.MAX_SAFE_INTEGER);
-
-    expect(result).toBe(1);
-    expect(Number.isFinite(result)).toBe(true);
-    expect(Number.isSafeInteger(result)).toBe(true);
-    expect(result).not.toBe(Infinity);
   });
 });

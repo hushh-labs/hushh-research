@@ -335,38 +335,6 @@ DOMAIN_RULES: dict[str, dict] = {
         "icon": "users",
         "color": "#3B82F6",
     },
-    "identity": {
-        # NO SSN per D-A. Identity carries the more-specific PII keys and the
-        # _name$/birth/passport/phone patterns so it out-scores location for
-        # full_name / date_of_birth / address.
-        "keywords": [
-            "name",
-            "full_name",
-            "first_name",
-            "last_name",
-            "email",
-            "address",
-            "dob",
-            "date_of_birth",
-            "birthday",
-            "passport",
-            "phone",
-            "phone_number",
-            "mobile",
-            "nationality",
-        ],
-        "patterns": [
-            r".*_name$",
-            r".*address.*",
-            r".*_dob$",
-            r".*birth.*",
-            r".*passport.*",
-            r".*phone.*",
-        ],
-        "display_name": "Identity",
-        "icon": "user-round",
-        "color": "#0EA5E9",
-    },
     "location": {
         "keywords": [
             "location",

@@ -88,10 +88,7 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import {
-  PlaidPortfolioService,
-  requirePlaidLinkTokenReady,
-} from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildPortfolioSharePayloadFromDashboardModel,
@@ -841,12 +838,14 @@ export function DashboardMasterView({
           updateMode: Boolean(itemId),
           redirectUri,
         });
-        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
-        if (readyLinkToken.resume_session_id) {
+        if (!linkToken.configured || !linkToken.link_token) {
+          throw new Error("Plaid is not configured for this environment.");
+        }
+        if (linkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             userId,
-            resumeSessionId: readyLinkToken.resume_session_id,
+            resumeSessionId: linkToken.resume_session_id,
             returnPath: ROUTES.KAI_PORTFOLIO,
             startedAt: new Date().toISOString(),
           });
@@ -862,14 +861,14 @@ export function DashboardMasterView({
           };
 
           const handler = Plaid.create({
-            token: readyLinkToken.link_token,
+            token: linkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangePublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: readyLinkToken.resume_session_id || null,
+                resumeSessionId: linkToken.resume_session_id || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -936,13 +935,15 @@ export function DashboardMasterView({
           itemId,
           redirectUri,
         });
-        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
-        if (readyLinkToken.resume_session_id) {
+        if (!linkToken.configured || !linkToken.link_token) {
+          throw new Error("Plaid is not configured for this environment.");
+        }
+        if (linkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             flowKind: "funding",
             userId,
-            resumeSessionId: readyLinkToken.resume_session_id,
+            resumeSessionId: linkToken.resume_session_id,
             returnPath: ROUTES.KAI_PORTFOLIO,
             startedAt: new Date().toISOString(),
           });
@@ -958,14 +959,14 @@ export function DashboardMasterView({
           };
 
           const handler = Plaid.create({
-            token: readyLinkToken.link_token,
+            token: linkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangeFundingPublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: readyLinkToken.resume_session_id || null,
+                resumeSessionId: linkToken.resume_session_id || null,
                 consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {

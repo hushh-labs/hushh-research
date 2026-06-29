@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
-from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.crd_scrape_proxy_service import (
     CrdScrapeProviderResponse,
@@ -18,6 +18,10 @@ from hushh_mcp.services.crd_scrape_proxy_service import (
 )
 
 router = APIRouter(prefix="/api/ria", tags=["RIA", "CRD Scraper"])
+
+logger = logging.getLogger(__name__)
+
+_JobId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 class CrdScrapeJobRequest(BaseModel):
@@ -45,7 +49,6 @@ def get_crd_scrape_proxy_service() -> CrdScrapeProxyService:
 async def create_crd_scrape_job(
     payload: CrdScrapeJobRequest,
     request: Request,
-    firebase_uid: str = Depends(require_firebase_auth),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
     result = await _call_provider(
@@ -60,9 +63,8 @@ async def create_crd_scrape_job(
 @router.get("/crd-scrape-jobs/{job_id}")
 @limiter.limit("60/minute")
 async def get_crd_scrape_job(
+    job_id: _JobId,
     request: Request,
-    job_id: str = Path(..., min_length=1, max_length=128),
-    firebase_uid: str = Depends(require_firebase_auth),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
     result = await _call_provider(
@@ -79,7 +81,6 @@ async def get_crd_scrape_job(
 async def create_financial_verification_job(
     payload: dict[str, Any],
     request: Request,
-    firebase_uid: str = Depends(require_firebase_auth),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
     result = await _call_provider(
@@ -94,9 +95,8 @@ async def create_financial_verification_job(
 @router.get("/financial-verification-jobs/{job_id}")
 @limiter.limit("60/minute")
 async def get_financial_verification_job(
+    job_id: _JobId,
     request: Request,
-    job_id: str = Path(..., min_length=1, max_length=128),
-    firebase_uid: str = Depends(require_firebase_auth),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
     result = await _call_provider(
@@ -117,7 +117,16 @@ async def _call_provider(coro: Any) -> CrdScrapeProviderResponse:
             detail={"code": "CRD_INVALID_REQUEST", "message": "Invalid request parameters."},
         )
     except CrdScrapeProxyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        # CWE-209: do not forward the internal proxy error verbatim to the client.
+        # Log the detail server-side; return a generic message with the status.
+        logger.warning("crd_scraper.proxy_error status=%s: %s", exc.status_code, exc)
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "code": "CRD_UPSTREAM_ERROR",
+                "message": "CRD lookup is temporarily unavailable.",
+            },
+        ) from exc
 
 
 def _request_id(request: Request) -> str | None:

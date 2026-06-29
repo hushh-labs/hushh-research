@@ -84,7 +84,6 @@ export function RecoveryKeyDialog({
 
           <div className="grid grid-cols-2 gap-2">
             <Button
-              type="button"
               onClick={handleCopy}
               className="w-full"
             >

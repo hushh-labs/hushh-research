@@ -548,10 +548,3 @@ The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml
 The consent-protocol has its own full CI pipeline at [hushh-labs/consent-protocol](https://github.com/hushh-labs/consent-protocol/actions). It now runs on all branches plus merge queue and includes: secret scan, lint, typecheck, test, security scan, Docker build verification, and a final status gate.
 
 The monorepo `protocol-check` job is a lightweight mirror. For full coverage, PRs to the upstream repo are the authoritative gate.
-
----
-
-## Security Scanning CI
-
-The repository implements automated security scanning workflows targeting Python lints, package dependencies, container configurations, secret patterns, and static analysis (Semgrep, Bandit, gitleaks, trivy, npm audit, pip-audit). These security scan jobs are integrated as part of the PR validation suite.
-

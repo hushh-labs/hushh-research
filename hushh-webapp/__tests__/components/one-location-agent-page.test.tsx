@@ -20,6 +20,7 @@ const {
   mockRevokeGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
+  mockCreateCircleInvite,
   mockGetActivity,
   mockGetState,
   mockSyncCurrentUser,
@@ -46,6 +47,7 @@ const {
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockCreateCircleInvite: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
@@ -70,6 +72,12 @@ vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
 }));
 
+// CapabilityExploreCard (rendered on the location tab) reads useAuth from the
+// firebase auth context directly, so it needs its own stub in this harness.
+vi.mock("@/lib/firebase/auth-context", () => ({
+  useAuth: () => ({ user: { uid: "user_a" }, loading: false }),
+}));
+
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: mockUseVault,
 }));
@@ -81,6 +89,18 @@ vi.mock("@/lib/observability/client", () => ({
 
 vi.mock("@/components/vault/vault-lock-guard", () => ({
   VaultLockGuard: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("@/components/vault/vault-flow", () => ({
+  VaultFlow: ({
+    onSuccess,
+  }: {
+    onSuccess: (meta?: { mode: string }) => void;
+  }) => (
+    <button type="button" onClick={() => onSuccess({ mode: "passphrase" })}>
+      Mock Vault Flow
+    </button>
+  ),
 }));
 
 vi.mock("@/lib/one-location/encryption", () => ({
@@ -101,6 +121,8 @@ vi.mock("@/lib/one-location/service", () => ({
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
+    watchCurrentPosition: vi.fn().mockResolvedValue(null),
+    clearWatch: vi.fn(),
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
     requestAccess: mockRequestAccess,
@@ -108,7 +130,9 @@ vi.mock("@/lib/one-location/service", () => ({
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
+    createCircleInvite: mockCreateCircleInvite,
     revokePublicInvite: vi.fn(),
+    revokeCircleInvite: vi.fn(),
   },
 }));
 
@@ -351,7 +375,67 @@ async function skipLocationEntryFlow() {
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
   expect(
-    await screen.findByRole("heading", { name: "One Location Agent" }),
+    await screen.findByRole("heading", { name: "One Location" }),
+  ).toBeTruthy();
+}
+
+async function switchLocationTab(
+  name: "Now" | "People" | "Links" | "Inbox",
+  expectedHeading: string,
+) {
+  fireEvent.click(screen.getByRole("button", { name }));
+  expect(
+    await screen.findByRole("heading", { name: expectedHeading }),
+  ).toBeTruthy();
+}
+
+async function openSharePersonStep() {
+  fireEvent.click(screen.getByRole("button", { name: /Share my location/i }));
+  expect(
+    await screen.findByRole("heading", { name: "Who can see you?" }),
+  ).toBeTruthy();
+}
+
+async function openShareDetailsStep() {
+  await openSharePersonStep();
+  // No recipient is auto-selected anymore — the user must pick someone before
+  // Continue is enabled. Select the first ready recipient (the action button's
+  // accessible name is the aria-label "Select <name> for private sharing").
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: /Select Trusted B for private sharing/i,
+    }),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(
+    await screen.findByRole("heading", { name: "What are you sharing?" }),
+  ).toBeTruthy();
+}
+
+
+async function openShareReviewStep() {
+  await openShareDetailsStep();
+  fireEvent.click(screen.getByRole("button", { name: /Review share/i }));
+  expect(
+    await screen.findByRole("heading", { name: "Before you start" }),
+  ).toBeTruthy();
+}
+
+async function openAskFlow() {
+  fireEvent.click(screen.getByRole("button", { name: /Ask someone/i }));
+  expect(
+    await screen.findByRole("heading", { name: "Make it comfortable" }),
+  ).toBeTruthy();
+}
+
+async function openTemporaryLinkFlow() {
+  await switchLocationTab("Links", "Links");
+  fireEvent.click(
+    screen.getByRole("button", { name: /Create public location link/i }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Share outside your Circle" }),
   ).toBeTruthy();
 }
 
@@ -476,21 +560,21 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     expect(
-      await screen.findByRole("heading", { name: "One Location Agent" }),
+      await screen.findByRole("heading", { name: "One Location" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(
-      await screen.findByRole("heading", { name: "One Network" }),
+      await screen.findByRole("heading", { name: "Active shares" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
-    expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Create public link" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+    expect(screen.queryAllByText(/Trusted B/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Device readiness" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Quick paths" })).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
-    expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       keyId: "key_a",
@@ -598,12 +682,17 @@ describe("OneLocationAgentPage", () => {
     );
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(
-      await screen.findByRole("heading", { name: "One Location Agent" }),
+      await screen.findByRole("heading", { name: "One Location" }),
     ).toBeTruthy();
-    expect(window.localStorage.getItem("one_location_onboarding_v1:user_a")).toBeNull();
+    // Completing onboarding persists the one-time intro flag so the marketing
+    // intro never shows again for this user.
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v1:user_a"),
+    ).toBe("1");
   });
 
   it("shows the location entry flow even when foreground permission is already granted", async () => {
+
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       ownerGrants: [],
@@ -625,32 +714,37 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Allow Location" }));
     expect(
-      await screen.findByRole("heading", { name: "One Location Agent" }),
+      await screen.findByRole("heading", { name: "One Location" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem("one_location_onboarding_v1:user_a")).toBeNull();
+    // Completing onboarding persists the one-time intro flag.
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v1:user_a"),
+    ).toBe("1");
   });
 
-  it("renders One Network recommendation metadata without phone-derived labels", async () => {
+  it("renders People recommendation metadata without phone-derived labels", async () => {
+
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByRole("heading", { name: "One Network" })).toBeTruthy();
+    await switchLocationTab("People", "Trusted Circle");
     expect(screen.getAllByText("Trusted Circle").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Recent share history").length).toBeGreaterThan(
-      0,
-    );
-    expect(screen.getByText("Recently shared location with you")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ready people" })).toBeTruthy();
+    expect(screen.getByText("Trusted B")).toBeTruthy();
+    expect(screen.getAllByText("Ready for private sharing").length).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
-    fireEvent.change(screen.getByPlaceholderText("Search One Network..."), {
+    await switchLocationTab("Now", "Active shares");
+    await openSharePersonStep();
+    fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
       target: { value: "advisor" },
     });
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Advisor network").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Invite first to enable sharing").length).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
@@ -691,17 +785,28 @@ describe("OneLocationAgentPage", () => {
 
     resolveState(locationState());
     await waitFor(() =>
-      expect(screen.getByText("Share Encrypted Update")).toBeTruthy(),
+      expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy(),
     );
   });
 
-  it("renders a public location link control", async () => {
+  it("renders public and private invite controls", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByText("Create public link")).toBeTruthy();
+    await switchLocationTab("People", "Trusted Circle");
+    expect(screen.getByRole("button", { name: /Invite trusted person/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
+    // People tab exposes a search bar to filter ready people, and no longer
+    // renders a separate "Pending invites" list.
+    expect(screen.getByPlaceholderText("Search trusted people")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Pending invites" })).toBeNull();
+    await switchLocationTab("Links", "Links");
+    expect(screen.getByRole("button", { name: /Create public location link/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Active public location link" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Invite link" })).toBeTruthy();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
@@ -774,6 +879,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await switchLocationTab("Inbox", "Needs your review");
+    expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
     expect(
       await screen.findByText("Location update may be stale. Ask them to refresh sharing."),
@@ -820,9 +927,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(
-      screen.getByRole("button", { name: /Create public link/i }),
-    );
+    await openTemporaryLinkFlow();
+    fireEvent.click(screen.getByRole("button", { name: /Review public location link/i }));
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
@@ -845,10 +951,9 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     expect(screen.queryByText(longPublicUrl)).toBeNull();
-    const publicLinkPreview = await screen.findByText(
-      "https://uat.kai.hushh.ai/one/location/request/aQluqH...",
-    );
-    expect(publicLinkPreview.getAttribute("title")).toBe(longPublicUrl);
+    expect(
+      await screen.findByRole("heading", { name: "Public location link active" }),
+    ).toBeTruthy();
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
@@ -864,15 +969,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(
-      screen.getByRole("button", { name: /Review Share/i }),
-    );
-    expect(
-      await screen.findByRole("region", { name: "Share safety review" }),
-    ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: /Confirm & Share Location/i }),
-    );
+    await openShareReviewStep();
+    fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
 
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
@@ -914,15 +1012,20 @@ describe("OneLocationAgentPage", () => {
         failure_count: 0,
       }),
     );
+    // After a successful share the flow closes and returns to the main hub.
     await waitFor(() =>
       expect(
-        screen.getByText("Select one or more One users for private sharing."),
+        screen.getByRole("heading", { name: "Active shares" }),
       ).toBeTruthy(),
     );
     expect(
-      screen.queryByRole("region", { name: "Share safety review" }),
+      screen.queryByRole("heading", { name: "Before you start" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "What are you sharing?" }),
     ).toBeNull();
   });
+
 
   it("retries transient foreground publish failures and tracks backoff metadata", async () => {
     mockGetState.mockResolvedValueOnce({
@@ -939,13 +1042,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Review Share/i }));
-    expect(
-      await screen.findByRole("region", { name: "Share safety review" }),
-    ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: /Confirm & Share Location/i }),
-    );
+    await openShareReviewStep();
+    fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
 
     await waitFor(() => expect(mockStoreEnvelope).toHaveBeenCalledTimes(2));
     expect(mockTrackEvent).toHaveBeenCalledWith(
@@ -1017,23 +1115,39 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(await screen.findByText(/1 person selected/i)).toBeTruthy();
+    await openSharePersonStep();
+    // No recipient is auto-selected anymore — select Trusted B explicitly first
+    // so the multi-select ordering remains ["user_b", "user_d"].
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Investor D from One Network/i,
+        name: /Select Trusted B for private sharing/i,
       }),
     );
-    expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: /Review Share/i }),
-    );
     expect(
-      await screen.findByRole("region", { name: "Share safety review" }),
+      await screen.findByRole("button", {
+        name: /Deselect Trusted B for private sharing/i,
+      }),
     ).toBeTruthy();
     fireEvent.click(
-      screen.getByRole("button", { name: /Confirm & Share Location/i }),
+      screen.getByRole("button", {
+        name: /Select Investor D for private sharing/i,
+      }),
     );
+    expect(
+      await screen.findByRole("button", {
+        name: /Deselect Investor D for private sharing/i,
+      }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "What are you sharing?" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Review share/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Before you start" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
 
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(2));
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
@@ -1081,21 +1195,14 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Advisor C from One Network/i,
-      }),
-    );
-
+    await openSharePersonStep();
+    expect(screen.getByText("Advisor C")).toBeTruthy();
     expect(
-      await screen.findByText(
-        /need to open One Location once before private sharing/i,
-      ),
+      screen.getByText("Invite first to enable sharing"),
     ).toBeTruthy();
-    const shareButton = screen.getByRole("button", {
-      name: /Review Share/i,
-    }) as HTMLButtonElement;
-    expect(shareButton.disabled).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: /Select Advisor C/i }),
+    ).toBeNull();
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
@@ -1109,11 +1216,22 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("tab", { name: "request" }));
-    fireEvent.change(screen.getByPlaceholderText("Optional reason"), {
-      target: { value: "Need pickup coordination" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Send Request/i }));
+    await openAskFlow();
+    // No owner is auto-selected anymore — pick Trusted B explicitly first.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Hey, can you share your location until we meet?",
+      ),
+      {
+        target: { value: "Need pickup coordination" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     expect(mockRequestAccess).toHaveBeenCalledWith({
@@ -1136,15 +1254,9 @@ describe("OneLocationAgentPage", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByText(
-          "Select one or more One users before requesting location access.",
-        ),
+        screen.getByRole("heading", { name: "One Location" }),
       ).toBeTruthy(),
     );
-    expect(
-      (screen.getByPlaceholderText("Optional reason") as HTMLTextAreaElement)
-        .value,
-    ).toBe("");
   });
 
   it("renders my requests with safe labels instead of raw owner ids", async () => {
@@ -1166,7 +1278,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.getByText("My requests")).toBeTruthy();
+    await switchLocationTab("Inbox", "Needs your review");
+    expect(screen.getByRole("heading", { name: "Sent by you" })).toBeTruthy();
     expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
     expect(screen.queryByText("user_b")).toBeNull();
     expect(screen.queryByText("request_1")).toBeNull();
@@ -1182,14 +1295,30 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("tab", { name: "request" }));
+    await openAskFlow();
+    // No owner is auto-selected anymore — select Trusted B explicitly first so
+    // the multi-select ordering remains ["user_b", "user_d"].
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Investor D from One Network/i,
+        name: /Select Trusted B for location request/i,
       }),
     );
-    expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Send Request/i }));
+    expect(
+      await screen.findByRole("button", {
+        name: /Deselect Trusted B for location request/i,
+      }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Investor D for location request/i,
+      }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: /Deselect Investor D for location request/i,
+      }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
     expect(
@@ -1209,7 +1338,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("adds mobile contact matches as a ranking reason without showing phone digits", async () => {
+  it("syncs mobile contact matches without showing phone digits", async () => {
     mockUseRequireAuth.mockReturnValue({
       loading: false,
       isAuthenticated: true,
@@ -1236,6 +1365,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await switchLocationTab("People", "Trusted Circle");
     fireEvent.click(screen.getByRole("button", { name: /Sync Contacts/i }));
 
     await waitFor(() =>
@@ -1243,7 +1373,7 @@ describe("OneLocationAgentPage", () => {
         idToken: "id-token",
       }),
     );
-    expect(await screen.findByText("In your contacts")).toBeTruthy();
+    expect(screen.getByText("Investor D")).toBeTruthy();
     expect(screen.queryByText(/9911|8012|4455/)).toBeNull();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_contact_signal_synced",
@@ -1263,6 +1393,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await switchLocationTab("People", "Trusted Circle");
     fireEvent.click(screen.getByRole("button", { name: /Share to Contacts/i }));
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
@@ -1306,10 +1437,11 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openShareDetailsStep();
     const shareButton = screen.getByRole("button", {
-      name: /Review Share/i,
+      name: /Review share/i,
     }) as HTMLButtonElement;
-    fireEvent.click(shareButton);
+    expect(shareButton.disabled).toBe(true);
     await waitFor(() => expect(mockCaptureCurrentPosition).not.toHaveBeenCalled());
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
@@ -1346,7 +1478,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
-  it("keeps One Network section empty states visible when no candidates exist", async () => {
+  it("keeps People empty states visible when no candidates exist", async () => {
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       recipients: [],
@@ -1357,14 +1489,19 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.getByText("One Network is empty")).toBeTruthy();
+    await switchLocationTab("People", "Trusted Circle");
+    expect(screen.getByText("No ready people yet")).toBeTruthy();
+    expect(
+      screen.getByText("Invite someone to your Circle to start private sharing."),
+    ).toBeTruthy();
     expect(screen.queryByText(/No approvals waiting/)).toBeNull();
     expect(screen.queryByText(/No trusted matches yet/)).toBeNull();
     expect(screen.queryByText(/No professional signals yet/)).toBeNull();
     expect(screen.queryByText(/No ready One users yet/)).toBeNull();
     expect(screen.queryByText(/No setup blockers/)).toBeNull();
+    await switchLocationTab("Links", "Links");
     expect(
-      screen.getByRole("button", { name: /Create public link/i }),
+      screen.getByRole("button", { name: /Create public location link/i }),
     ).toBeTruthy();
   });
 
@@ -1377,9 +1514,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByText(
-        "Unlock your vault before loading location sharing.",
-      ),
+      await screen.findByText("Unlock your vault before loading location sharing."),
     ).toBeTruthy();
     expect(mockRegisterKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();

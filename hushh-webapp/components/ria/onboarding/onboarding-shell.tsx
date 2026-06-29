@@ -46,7 +46,7 @@ export function OnboardingShell({
             )}
             aria-label="Go back"
           >
-            <ArrowLeft aria-hidden="true" className="h-5 w-5" />
+            <ArrowLeft className="h-5 w-5" />
           </button>
 
           <span
@@ -68,7 +68,7 @@ export function OnboardingShell({
             />
           ))}
         </div>
-        <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        <span role="status" aria-atomic="true" className="sr-only">
           {`Step ${currentStepIndex + 1} of ${totalSteps}`}
         </span>
 
@@ -97,19 +97,16 @@ export function OnboardingShell({
             )}
           >
             {saving ? (
-              <>
-                <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
-                <span className="sr-only">Saving</span>
-              </>
+              <Loader2 className="h-5 w-5 animate-spin" />
             ) : isLastStep && advisoryAccessReady ? (
               <>
                 Continue to Dashboard
-                <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4" />
               </>
             ) : (
               <>
                 Continue
-                <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4" />
               </>
             )}
           </button>

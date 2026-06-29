@@ -122,13 +122,13 @@ function ProfileAvatar({
       className={cn(
         "flex h-14 w-14 items-center justify-center rounded-[20px] border shadow-[0_20px_50px_-34px_rgba(15,23,42,0.28)]",
         kind === "ria"
-          ? "border-sky-500/15 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]"
+          ? "border-accent-border bg-[radial-gradient(circle_at_top,rgba(212,165,116,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]"
           : "border-emerald-500/15 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]",
         className
       )}
     >
       <div className="flex flex-col items-center justify-center gap-1">
-        <Icon className={cn("h-4 w-4", kind === "ria" ? "text-sky-700" : "text-emerald-700")} />
+        <Icon className={cn("h-4 w-4", kind === "ria" ? "text-accent-strong" : "text-emerald-700")} />
         <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/72">
           {initials || (kind === "ria" ? "RIA" : "INV")}
         </span>
@@ -892,12 +892,12 @@ export default function MarketplacePage() {
         current.includes(investorId) ? current : [...current, investorId]
       );
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Information request sent", {
-        description: "They can review the request in Connect.",
+      toast.success("Connection request sent", {
+        description: "The investor can review it in their pending connections.",
       });
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send information request");
+      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -920,12 +920,12 @@ export default function MarketplacePage() {
           duration_hours: 168,
         },
       });
-      toast.success("Information request sent", {
-        description: "They can review the request in Connect.",
+      toast.success("Connection request sent", {
+        description: "The advisor can review it in their pending connections.",
       });
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send information request");
+      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -1089,9 +1089,9 @@ export default function MarketplacePage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="People and permissions"
+          eyebrow="SEBI-registered network"
           title="Connect"
-          description="Find people, request information, and keep every share consent-scoped."
+          description="Find a registered advisor. Connect with consent."
           icon={Compass}
           accent="marketplace"
           actions={
@@ -1121,7 +1121,7 @@ export default function MarketplacePage() {
                 aria-label="Toggle search"
                 onClick={() => setSearchOpen((current) => !current)}
               >
-                <Search className="h-4 w-4" aria-hidden="true" />
+                <Search className="h-4 w-4" />
               </button>
               <Button
                 variant="none"
@@ -1172,14 +1172,10 @@ export default function MarketplacePage() {
           {searchOpen ? (
             <div className="mt-2">
               <div className="relative">
-                <Search
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden="true"
-                />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  aria-label="Search marketplace"
                   placeholder={searchPlaceholder}
                   className="min-h-11 rounded-[22px] border-0 bg-card pl-10 text-sm"
                 />
@@ -1358,11 +1354,11 @@ export default function MarketplacePage() {
                             : "Demo"
                           : Boolean(discoveryCardUserId(swipeCard)) &&
                               actionLoadingUserId === discoveryCardUserId(swipeCard)
-                            ? "Requesting..."
+                            ? "Connecting..."
                             : currentPersona === "investor"
-                              ? "Request RIA info"
+                              ? "Request advisory"
                               : swipeCard.canConnect
-                                ? "Request info"
+                                ? "Send request"
                                 : swipeCard.kind === "investor" &&
                                     isMarketplaceInvestorShortlistable(
                                       swipeCard.profile as MarketplaceInvestor
@@ -1391,11 +1387,11 @@ export default function MarketplacePage() {
                 </p>
               ) : null}
               <div className="flex flex-wrap justify-center gap-2">
-                <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
+                <Button variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
                   <RotateCcw className="mr-2 h-4 w-4" />
                   {directoryKind === "investors" ? "Refresh deck" : "Start over"}
                 </Button>
-                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
+                <Button variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
                   <List className="mr-2 h-4 w-4" />
                   Switch to list
                 </Button>
@@ -1436,7 +1432,7 @@ export default function MarketplacePage() {
                         </span>
                       ) : null}
                       {isPublicSecInvestor ? (
-                        <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700">
+                        <span className="rounded-full border border-accent-border bg-accent-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-strong">
                           Public SEC
                         </span>
                       ) : null}
@@ -1467,11 +1463,11 @@ export default function MarketplacePage() {
                         ? "Open workspace"
                         : "Demo"
                       : Boolean(userId) && actionLoadingUserId === userId
-                        ? "Requesting..."
+                        ? "Connecting..."
                         : currentPersona === "investor"
-                          ? "Request RIA info"
+                          ? "Request advisory"
                           : item.canConnect
-                            ? "Request info"
+                            ? "Send request"
                             : item.kind === "investor" &&
                                 isMarketplaceInvestorShortlistable(
                                   item.profile as MarketplaceInvestor
@@ -1518,9 +1514,9 @@ export default function MarketplacePage() {
         description={
           selectedProfile?.kind === "ria"
             ? selectedAdvisor?.headline ||
-              "Review this advisor profile before requesting RIA information."
+              "Review this advisor profile before you decide whether to connect."
             : selectedInvestor?.headline ||
-              "Review this investor profile before requesting information."
+              "Review this investor profile before you decide whether to connect."
         }
       >
         <div className="space-y-4">
@@ -1573,8 +1569,8 @@ export default function MarketplacePage() {
                     {selectedInjectedRia
                       ? "Demo"
                       : actionLoadingUserId === selectedAdvisor.user_id
-                        ? "Requesting..."
-                        : "Request RIA info"}
+                        ? "Connecting..."
+                        : "Request advisory"}
                   </Button>
                 ) : null}
                 {selectedAdvisor.disclosures_url ? (
@@ -1608,7 +1604,7 @@ export default function MarketplacePage() {
                     </span>
                   ) : null}
                   {isPublicSecMarketplaceInvestor(selectedInvestor) ? (
-                    <span className="inline-flex rounded-full border border-sky-500/20 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">
+                    <span className="inline-flex rounded-full border border-accent-border bg-accent-surface px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-strong">
                       Public SEC profile
                     </span>
                   ) : null}
@@ -1632,7 +1628,7 @@ export default function MarketplacePage() {
                 <p className="mt-3 text-sm leading-7 text-foreground">
                   {selectedInvestor.strategy_summary ||
                     (selectedInvestorConnectable
-                      ? "This investor has opted into discovery and can review scoped information requests."
+                      ? "This investor has opted into discovery and is available for a connection flow."
                       : "This public investor profile is available for discovery review. Direct consent requests require a verified Hushh investor account.")}
                 </p>
               </RiaSurface>
@@ -1710,9 +1706,9 @@ export default function MarketplacePage() {
                     ? "Open workspace"
                     : Boolean(selectedInvestorUserId) &&
                         actionLoadingUserId === selectedInvestorUserId
-                      ? "Requesting..."
+                      ? "Connecting..."
                       : selectedInvestorConnectable
-                        ? "Request info"
+                        ? "Send request"
                         : selectedInvestorShortlistable
                           ? selectedInvestorIsShortlisted
                             ? "Saved lead"

@@ -52,10 +52,7 @@ import {
   savePlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import {
-  PlaidPortfolioService,
-  requirePlaidLinkTokenReady,
-} from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -2640,9 +2637,7 @@ export function KaiFlow({
           return;
         }
 
-        if (process.env.NODE_ENV !== "production") {
-          console.error("[KaiFlow] Import error:", err);
-        }
+        console.error("[KaiFlow] Import error:", err);
         const rawErrorMessage =
           err instanceof Error ? String(err.message || "") : String(err || "");
         const isTransientNetworkLoss =
@@ -2773,9 +2768,7 @@ export function KaiFlow({
         userId,
         vaultOwnerToken: effectiveVaultOwnerToken,
       }).catch((cancelError) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("[KaiFlow] Failed to cancel import run on backend:", cancelError);
-        }
+        console.warn("[KaiFlow] Failed to cancel import run on backend:", cancelError);
       });
     }
     if (abortControllerRef.current) {
@@ -2942,12 +2935,14 @@ export function KaiFlow({
         redirectUri,
       });
 
-      const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
-      if (readyLinkToken.resume_session_id) {
+      if (!linkToken.configured || !linkToken.link_token) {
+        throw new Error("Plaid is not configured for this environment.");
+      }
+      if (linkToken.resume_session_id) {
         savePlaidOAuthResumeSession({
           version: 1,
           userId,
-          resumeSessionId: readyLinkToken.resume_session_id,
+          resumeSessionId: linkToken.resume_session_id,
           returnPath: ROUTES.KAI_DASHBOARD,
           startedAt: new Date().toISOString(),
         });
@@ -2963,14 +2958,14 @@ export function KaiFlow({
         };
 
         const handler = Plaid.create({
-          token: readyLinkToken.link_token,
+          token: linkToken.link_token,
           onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
             void PlaidPortfolioService.exchangePublicToken({
               userId,
               publicToken,
               vaultOwnerToken: effectiveVaultOwnerToken,
               metadata,
-              resumeSessionId: readyLinkToken.resume_session_id || null,
+              resumeSessionId: linkToken.resume_session_id || null,
             })
               .then((status) => {
                 clearPlaidOAuthResumeSession();
@@ -3123,9 +3118,7 @@ export function KaiFlow({
       setError(null);
       toast.success("Sample brokerage data loaded. Review and save to Vault.");
     } catch (preloadError) {
-      if (process.env.NODE_ENV !== "production") {
-        console.error("[KaiFlow] Failed to preload schema data:", preloadError);
-      }
+      console.error("[KaiFlow] Failed to preload schema data:", preloadError);
       toast.error("Could not load sample data. Please try again.");
     } finally {
       setPendingSchemaPreload(false);

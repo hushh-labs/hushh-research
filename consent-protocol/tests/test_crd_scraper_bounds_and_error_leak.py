@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.middleware import require_firebase_auth
 from api.routes import crd_scraper
 
 
@@ -43,7 +42,6 @@ def _build_app(svc=None) -> FastAPI:
     app.include_router(crd_scraper.router)
     if svc is not None:
         app.dependency_overrides[crd_scraper.get_crd_scrape_proxy_service] = lambda: svc
-    app.dependency_overrides[require_firebase_auth] = lambda: "test-firebase-uid"
     return app
 
 

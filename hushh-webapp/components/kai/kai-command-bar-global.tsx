@@ -809,7 +809,6 @@ export function KaiCommandBarGlobal() {
       appRuntimeState={appRuntimeState}
       voiceContext={voiceContext}
       surfaceVariant={useRiaActionBar ? "ria" : "kai"}
-      showAgent={localVoiceReady}
       portfolioTickers={portfolioTickers}
     />
   );

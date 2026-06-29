@@ -287,7 +287,7 @@ def get_db_engine() -> Engine:
             # Cloud SQL Unix socket path must be passed in query host param.
             encoded_socket = quote_plus(db_unix_socket)
             database_url = (
-                f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@/{db_name}?host={encoded_socket}"
+                f"postgresql+psycopg2://{db_user}:{db_password}@/{db_name}?host={encoded_socket}"
             )
             target = db_unix_socket
         else:
@@ -296,7 +296,7 @@ def get_db_engine() -> Engine:
                 if ("supabase.com" in str(db_host) or "pooler.supabase" in str(db_host))
                 else ""
             )
-            database_url = f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
+            database_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
             target = f"{db_host}:{db_port}/{db_name}"
 
         connect_args: dict[str, Any] = {
@@ -315,7 +315,7 @@ def get_db_engine() -> Engine:
             )
 
         use_null_pool = _env_truthy("DB_SQLALCHEMY_USE_NULL_POOL", False)
-        logger.info("Initializing database connection to %s", target)
+        logger.info(f"Initializing database connection to {target}")
         if use_null_pool:
             _engine = create_engine(
                 database_url,
@@ -572,7 +572,7 @@ class TableQuery:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error("Database error: %s", e)
+            logger.error(f"Database error: {e}")
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
@@ -824,7 +824,7 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error("Raw SQL error: %s", e)
+            logger.error(f"Raw SQL error: {e}")
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
@@ -870,7 +870,7 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error("RPC error: %s", e)
+            logger.error(f"RPC error: {e}")
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<rpc>",

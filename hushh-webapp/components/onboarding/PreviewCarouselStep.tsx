@@ -6,19 +6,21 @@ import {
   Carousel,
   CarouselContent,
   CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
 } from "@/components/ui/carousel";
-import { ChevronLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/lib/morphy-ux/button";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { cn } from "@/lib/utils";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { prefersReducedMotion, getGsap } from "@/lib/morphy-ux/gsap";
 import { ensureMorphyGsapReady, getMorphyEaseName } from "@/lib/morphy-ux/gsap-init";
 import { getMotionCssVars } from "@/lib/morphy-ux/motion";
-import { KAI_EXPERIENCE_CONTRACT } from "@/lib/kai/experience-contract";
 
-import { KycPreviewCompact } from "@/components/onboarding/previews/KycPreviewCompact";
-import { PortfolioPreviewCompact } from "@/components/onboarding/previews/PortfolioPreviewCompact";
-import { DecisionPreviewCompact } from "@/components/onboarding/previews/DecisionPreviewCompact";
+import { VaultPreviewCompact } from "@/components/onboarding/previews/VaultPreviewCompact";
+import { WorkflowsPreviewCompact } from "@/components/onboarding/previews/WorkflowsPreviewCompact";
+import { ConsentPreviewCompact } from "@/components/onboarding/previews/ConsentPreviewCompact";
 
 type Slide = {
   title: string;
@@ -29,7 +31,7 @@ type Slide = {
 
 export function PreviewCarouselStep({
   onContinue,
-  onBack: _onBack,
+  onBack,
 }: {
   onContinue: () => void;
   onBack?: () => void;
@@ -37,22 +39,25 @@ export function PreviewCarouselStep({
   const slides: Slide[] = useMemo(
     () => [
       {
-        title: "Verified in",
-        accent: "minutes",
-        subtitle: "Your identity, confirmed securely.",
-        preview: <KycPreviewCompact />,
+        title: "Unified memory,",
+        accent: "only yours",
+        subtitle:
+          "Your memory lives in an encrypted vault. The server only ever holds ciphertext, only you hold the key.",
+        preview: <VaultPreviewCompact />,
       },
       {
-        title: KAI_EXPERIENCE_CONTRACT.portfolioClarity.carouselTitle,
-        accent: KAI_EXPERIENCE_CONTRACT.portfolioClarity.carouselAccent,
-        subtitle: "Value and today's movers, always up to date.",
-        preview: <PortfolioPreviewCompact />,
+        title: "Unified memory,",
+        accent: "every app",
+        subtitle:
+          "Finance, Gmail, and location all draw on one private memory, no silos.",
+        preview: <WorkflowsPreviewCompact />,
       },
       {
-        title: KAI_EXPERIENCE_CONTRACT.decisionConviction.carouselTitle,
-        accent: KAI_EXPERIENCE_CONTRACT.decisionConviction.carouselAccent,
-        subtitle: "Clear calls, the moment they matter.",
-        preview: <DecisionPreviewCompact />,
+        title: "Shared only",
+        accent: "with your consent",
+        subtitle:
+          "Nothing is released without your yes: scoped, temporary, and audited every time.",
+        preview: <ConsentPreviewCompact />,
       },
     ],
     []
@@ -66,14 +71,10 @@ export function PreviewCarouselStep({
 
   useEffect(() => {
     if (!api) return;
-
-    const sync = () => {
-      setSelectedIndex(api.selectedScrollSnap());
-    };
+    const sync = () => setSelectedIndex(api.selectedScrollSnap());
     sync();
     api.on("select", sync);
     api.on("reInit", sync);
-
     return () => {
       api.off("select", sync);
       api.off("reInit", sync);
@@ -82,13 +83,10 @@ export function PreviewCarouselStep({
 
   const isLast = selectedIndex === slides.length - 1;
 
-  // Step entrance animation: this is what you feel when clicking "Get Started"
-  // and transitioning from Step 1 -> Step 2 without a route change.
+  // Page entrance (felt when arriving on this route).
   useEffect(() => {
     const el = mountRef.current;
-    if (!el) return;
-    if (prefersReducedMotion()) return;
-
+    if (!el || prefersReducedMotion()) return;
     let cancelled = false;
     void (async () => {
       await ensureMorphyGsapReady();
@@ -113,19 +111,15 @@ export function PreviewCarouselStep({
     };
   }, []);
 
-  // Animate header text changes to avoid a jump-cut when the slide index changes.
-  // We fade out the old copy, swap the index, then fade in.
+  // Crossfade the header copy on slide change (no jump-cut).
   useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
-
     if (prefersReducedMotion()) {
       setDisplayIndex(selectedIndex);
       return;
     }
-
     let cancelled = false;
-
     void (async () => {
       await ensureMorphyGsapReady();
       const gsap = await getGsap();
@@ -173,105 +167,98 @@ export function PreviewCarouselStep({
     api?.scrollNext();
   }
 
-  function handleBack() {
-    api?.scrollPrev();
-  }
-
   return (
     <main
       ref={mountRef}
-      className={cn(
-        "min-h-[100dvh] w-full overflow-hidden bg-transparent"
-      )}
+      className="min-h-[100dvh] w-full bg-transparent"
     >
-      <div className="grid min-h-[100dvh] w-full grid-rows-[auto_minmax(0,1fr)_auto] px-4 pb-[var(--app-screen-footer-pad)] pt-[calc(12px+var(--app-safe-area-top-effective,0px))]">
-        <div className="relative mx-auto grid h-full w-full grid-rows-[auto_minmax(0,1fr)_auto]">
-          <div className="relative z-10 flex h-10 items-center justify-start px-0 sm:px-1">
-            <button
-              type="button"
-              aria-label="Back"
-              aria-hidden={selectedIndex === 0}
-              tabIndex={selectedIndex > 0 ? 0 : -1}
-              className={cn(
-                "grid h-9 w-9 place-items-center rounded-full border border-black/10 bg-[#f5f5f7] text-[#1d1d1f] transition-[opacity,transform,color,background-color] active:scale-90 dark:border-white/10 dark:bg-white/10 dark:text-[#f5f5f7]",
-                selectedIndex > 0
-                  ? "pointer-events-auto opacity-100"
-                  : "pointer-events-none opacity-0"
-              )}
-              onClick={handleBack}
-            >
-              <ChevronLeft className="h-[17px] w-[17px]" strokeWidth={2.2} />
-            </button>
-            <button
-              type="button"
-              className="absolute left-1/2 top-1/2 min-h-10 -translate-x-1/2 -translate-y-1/2 rounded-full px-4 text-[15px] font-medium tracking-normal text-muted-foreground transition-colors hover:text-foreground"
-              onClick={completeAndContinue}
-            >
-              Skip
-            </button>
-          </div>
-
+      {/* Normal-flow, centered column. Scrolls naturally if a short viewport
+          can't fit it: no height-locked flex distribution, no clipping.
+          Top padding clears the FIXED top controls (back button + theme pill,
+          ~8px offset + 36px tall) so the title never tucks under them. */}
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-6 pb-[calc(24px+var(--app-safe-area-bottom-effective,0px))] pt-[calc(60px+var(--app-safe-area-top-effective,0px))]">
+        {/* Top bar: back button. Fixed + offset to sit on the exact same top
+            line as the lean theme pill (navbar uses the same fixed top + px-4).
+            Uses the shared ShellActionSurface primitive so it stays in lockstep
+            with every other top-app-bar control (size, roundness, track). */}
+        {onBack ? (
           <div
-            ref={headerRef}
-            className={cn(
-              "w-full mx-auto text-center flex flex-col justify-end gap-2",
-              // Keep copy + spacing responsive without clipping on larger screens.
-              "min-h-[clamp(94px,14dvh,140px)] pt-3",
-              "sm:max-w-lg"
-            )}
+            className="fixed left-0 top-0 z-50 flex px-4"
+            style={{ top: "calc(max(var(--app-safe-area-top-effective), 0.5rem))" }}
           >
-            <h2 className="text-[clamp(24px,7vw,34px)] font-medium tracking-normal leading-[1.08] text-[#1d1d1f] dark:text-[#f5f5f7]">
+            <ShellActionSurface
+              variant="icon"
+              aria-label="Go back"
+              onClick={onBack}
+            >
+              <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+            </ShellActionSurface>
+          </div>
+        ) : null}
+
+        {/* Center block grows to fill, keeping header+card+footer balanced.
+            Uses justify-start so a tall layout on a short viewport never clips
+            the title at the top, it simply scrolls. */}
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 py-4 max-[700px]:justify-start">
+          <div ref={headerRef} className="w-full text-center">
+            <h2 className="text-[clamp(24px,7vw,32px)] font-medium leading-[1.1] text-[#1d1d1f] dark:text-[#f5f5f7]">
               {slides[displayIndex]?.title}{" "}
               <br />
               <span>{slides[displayIndex]?.accent}</span>
             </h2>
-            <p className="type-callout mx-auto max-w-[20rem] text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
+            <p className="mx-auto mt-3 max-w-[20rem] text-[15px] leading-snug text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
               {slides[displayIndex]?.subtitle}
             </p>
           </div>
 
-          <div className="flex min-h-0 items-center py-3">
-            <Carousel
-              opts={{ align: "center", containScroll: "trimSnaps" }}
-              setApi={setApi}
-              className="w-full"
-              aria-label="Onboarding feature preview"
-            >
-              <CarouselContent className="items-center -ml-0">
-                {slides.map((slide, idx) => (
-                  <CarouselItem
-                    key={idx}
-                    aria-label={`Slide ${idx + 1} of ${slides.length}`}
-                    aria-current={idx === selectedIndex ? "step" : undefined}
-                    className="basis-full pl-0 flex items-center justify-center"
-                  >
-                    <div className="flex w-full items-center justify-center px-4 py-1 sm:px-6 md:px-8">
-                      <div
-                        aria-hidden="true"
-                        className="h-[clamp(18rem,42dvh,26rem)] w-full max-w-[21rem] sm:max-w-[23rem] md:max-w-[24rem] lg:max-w-[25rem]"
-                      >
-                        {slide.preview}
-                      </div>
-                    </div>
-                  </CarouselItem>
-                ))}
-              </CarouselContent>
-            </Carousel>
-          </div>
+          {/* Gold-standard shadcn carousel: w-full + max-w, items size to content,
+              arrows as children. Embla's viewport is overflow-hidden, so the card's
+              soft drop shadow must live INSIDE the padded area or it gets clipped
+              into a hard rectangular seam. Generous symmetric padding (with extra
+              room below for the downward shadow) keeps the elevation soft on every
+              edge. */}
+          <Carousel
+            setApi={setApi}
+            opts={{ align: "center" }}
+            className="w-full max-w-sm"
+            aria-label="What One can do"
+          >
+            <CarouselContent>
+              {slides.map((slide, idx) => (
+                <CarouselItem
+                  key={idx}
+                  aria-label={`Slide ${idx + 1} of ${slides.length}`}
+                  aria-current={idx === selectedIndex ? "step" : undefined}
+                >
+                  <div className="px-5 pb-7 pt-4">{slide.preview}</div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+            {/* Desktop arrows; auto-disable at the ends. Hidden on mobile (swipe). */}
+            <CarouselPrevious className="hidden sm:flex" />
+            <CarouselNext className="hidden sm:flex" />
+          </Carousel>
+        </div>
 
-          <div className="mt-2 flex flex-col justify-end gap-3 pb-[calc(8px+var(--app-safe-area-bottom-effective,0px))]">
-            <Dots count={slides.length} activeIndex={selectedIndex} />
-
-            <Button
-              size="lg"
-              fullWidth
-              className="mx-auto h-[52px] w-full max-w-[22rem] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
-              onClick={handlePrimary}
-              showRipple
-            >
-              {isLast ? "Sign in" : "Next"}
-            </Button>
-          </div>
+        {/* Footer pinned to the bottom of the flow. */}
+        <div className="flex shrink-0 flex-col items-center gap-3">
+          <Dots count={slides.length} activeIndex={selectedIndex} />
+          <Button
+            size="lg"
+            fullWidth
+            className="h-[52px] w-full max-w-[22rem] rounded-full bg-[#d4a574] text-[17px] font-medium !text-white shadow-none hover:opacity-90 dark:!text-white"
+            onClick={handlePrimary}
+            showRipple
+          >
+            {isLast ? "Sign in" : "Next"}
+          </Button>
+          <button
+            type="button"
+            onClick={completeAndContinue}
+            className="min-h-10 px-4 text-[15px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Skip
+          </button>
         </div>
       </div>
     </main>
@@ -281,12 +268,7 @@ export function PreviewCarouselStep({
 function Dots(props: { count: number; activeIndex: number }) {
   return (
     <div className="flex items-center justify-center gap-2">
-      <span
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className="sr-only"
-      >
+      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {`Slide ${props.activeIndex + 1} of ${props.count}`}
       </span>
       {Array.from({ length: props.count }).map((_, i) => (
@@ -295,7 +277,7 @@ function Dots(props: { count: number; activeIndex: number }) {
           className={cn(
             "h-[7px] rounded-full transition-[width,background-color]",
             i === props.activeIndex
-              ? "w-6 bg-[#0071e3]"
+              ? "w-6 bg-[#d4a574]"
               : "w-[7px] bg-black/10 dark:bg-white/15"
           )}
           aria-hidden

@@ -27,10 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { clearPlaidOAuthResumeSession, savePlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import {
-  PlaidPortfolioService,
-  requirePlaidLinkTokenReady,
-} from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import type { PlaidFundingTradeIntentRef } from "@/lib/kai/brokerage/portfolio-sources";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
@@ -161,13 +158,15 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
         itemId: fundingItem?.item_id,
         redirectUri,
       });
-      const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
-      if (readyLinkToken.resume_session_id) {
+      if (!linkToken.configured || !linkToken.link_token) {
+        throw new Error("Plaid is not configured for this environment.");
+      }
+      if (linkToken.resume_session_id) {
         savePlaidOAuthResumeSession({
           version: 1,
           flowKind: "funding",
           userId,
-          resumeSessionId: readyLinkToken.resume_session_id,
+          resumeSessionId: linkToken.resume_session_id,
           returnPath: ROUTES.KAI_FUNDING_TRADE,
           startedAt: new Date().toISOString(),
         });
@@ -176,14 +175,14 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
       const Plaid = await loadPlaidLink();
       await new Promise<void>((resolve, reject) => {
         const handler = Plaid.create({
-          token: readyLinkToken.link_token,
+          token: linkToken.link_token!,
           onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
             void PlaidPortfolioService.exchangeFundingPublicToken({
               userId,
               publicToken,
               vaultOwnerToken,
               metadata,
-              resumeSessionId: readyLinkToken.resume_session_id || null,
+              resumeSessionId: linkToken.resume_session_id || null,
               consentTimestamp: new Date().toISOString(),
             })
               .then(() => resolve())

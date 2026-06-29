@@ -10,7 +10,6 @@ import {
   resolveInvestorActiveNav,
   resolveInvestorNavSlot,
   resolveOneActiveNav,
-  resolveOneNavSlot,
   resolveRiaActiveNav,
   resolveRiaNavSlot,
 } from "@/lib/navigation/app-bottom-nav";
@@ -41,22 +40,23 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavigationScope("/ria/clients", "ria")).toBe("ria");
   });
 
-  it("resolves One active mode and rotating middle slot by route", () => {
+  it("collapses One subroutes onto fixed parent tabs (finance-style)", () => {
+    // Dashboard parent stays highlighted for the dashboard and every subroute
+    // entered from it. Subroutes no longer surface their own bottom-nav entry.
     expect(resolveOneActiveNav("/")).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.ONE_HOME)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.ONE_LOCATION)).toBe("dashboard");
+    expect(resolveOneActiveNav("/consents?tab=active")).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.PKM)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("dashboard");
+    // Global destinations keep their own fixed tab; profile subroutes stay on
+    // the Profile tab.
     expect(resolveOneActiveNav(ROUTES.AGENT)).toBe("search");
     expect(resolveOneActiveNav(ROUTES.PROFILE)).toBe("profile");
-    expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
-    expect(resolveOneActiveNav(ROUTES.PROFILE_RECEIPTS)).toBe("gmail");
-    expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
-    expect(resolveOneActiveNav(ROUTES.ONE_LOCATION)).toBe("location");
-    expect(resolveOneActiveNav("/consents?tab=active")).toBe("guardian");
-    expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
-    expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
+    expect(resolveOneActiveNav(ROUTES.PROFILE_RECEIPTS)).toBe("profile");
     expect(resolveOneActiveNav(ROUTES.MARKETPLACE)).toBe("connect");
-    expect(resolveOneNavSlot(ROUTES.ONE_KYC)).toBe("email");
-    expect(resolveOneNavSlot(ROUTES.PROFILE)).toBe("pkm");
-    expect(resolveOneNavSlot(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
-    expect(resolveOneNavSlot(ROUTES.MARKETPLACE)).toBe("connect");
   });
 
   it("keeps global destinations out of contextual route-family slots", () => {
@@ -72,31 +72,29 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
   });
 
-  it("builds scoped bottom navigation without duplicating Search", () => {
+  it("keeps One bottom navigation as a fixed top-level set across subroutes", () => {
+    // The One scope is now a fixed list. Subroutes never inject their own tab.
+    const ONE_FIXED = ["dashboard", "connect", "profile"];
     expect(resolveBottomNavOptionKeys(ROUTES.CONNECTED_SYSTEMS, "one")).toEqual(
-      ["dashboard", "connected", "connect", "profile"],
+      ONE_FIXED,
     );
-    expect(resolveBottomNavOptionKeys(ROUTES.GMAIL, "one")).toEqual([
-      "dashboard",
-      "gmail",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.ONE_HOME, "one")).toEqual([
-      "dashboard",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.PROFILE, "one")).toEqual([
-      "dashboard",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one")).toEqual([
-      "dashboard",
-      "connect",
-      "profile",
-    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.GMAIL, "one")).toEqual(ONE_FIXED);
+    expect(resolveBottomNavOptionKeys(ROUTES.CONSENTS, "one")).toEqual(
+      ONE_FIXED,
+    );
+    expect(resolveBottomNavOptionKeys(ROUTES.PKM, "one")).toEqual(ONE_FIXED);
+    expect(resolveBottomNavOptionKeys(ROUTES.ONE_LOCATION, "one")).toEqual(
+      ONE_FIXED,
+    );
+    expect(resolveBottomNavOptionKeys(ROUTES.ONE_HOME, "one")).toEqual(
+      ONE_FIXED,
+    );
+    expect(resolveBottomNavOptionKeys(ROUTES.PROFILE, "one")).toEqual(
+      ONE_FIXED,
+    );
+    expect(resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one")).toEqual(
+      ONE_FIXED,
+    );
     expect(resolveBottomNavOptionKeys(ROUTES.KAI_ANALYSIS, "investor")).toEqual(
       ["finance", "portfolio", "analysis", "connect", "profile"],
     );
