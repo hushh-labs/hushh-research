@@ -567,6 +567,9 @@ def test_voice_capability_reports_rollout_and_execution_state(
     assert payload["tool_execution_disabled"] is True
     assert payload["tts_timeout_ms"] == 20000
     assert payload["tts_model"] == VOICE_ROUTES.voice_service.tts_model
+    # voice_lane mirrors realtime_enabled via the shared transport selector.
+    assert payload["voice_lane"] in ("realtime", "chained")
+    assert payload["voice_lane"] == ("realtime" if payload["realtime_enabled"] else "chained")
 
 
 def test_voice_plan_respects_canary_percent(

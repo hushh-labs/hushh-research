@@ -820,8 +820,22 @@ PATH_SUMMARIES: dict[str, str] = {
 }
 
 
+def _graphql_seconds_to_reset() -> int:
+    """Best-effort: seconds until the GraphQL pool resets (bounded). 0 on error."""
+    try:
+        completed = subprocess.run(
+            ["gh", "api", "rate_limit", "-q", ".resources.graphql.reset"],
+            capture_output=True, text=True, check=False, timeout=20,
+        )
+        reset = int((completed.stdout or "0").strip())
+        delta = reset - int(time.time())
+        return max(0, min(delta + 5, 900))
+    except Exception:
+        return 0
+
+
 def _run(cmd: list[str], timeout: int | None = None) -> str:
-    attempts = 3 if cmd and cmd[0] == "gh" else 1
+    attempts = 4 if cmd and cmd[0] == "gh" else 1
     last_message = ""
     for attempt in range(attempts):
         try:
@@ -841,10 +855,24 @@ def _run(cmd: list[str], timeout: int | None = None) -> str:
         if completed.returncode == 0:
             return completed.stdout
         last_message = completed.stderr.strip() or completed.stdout.strip() or "command failed"
-        retryable = "504" in last_message or "Gateway Timeout" in last_message
+        low = last_message.lower()
+        gateway = "504" in last_message or "Gateway Timeout" in last_message
+        rate_limited = (
+            "rate limit" in low
+            or "secondary rate limit" in low
+            or "abuse detection" in low
+            or "429" in last_message
+        )
+        retryable = gateway or rate_limited
         if not retryable or attempt == attempts - 1:
             break
-        time.sleep(1.5 * (attempt + 1))
+        if rate_limited:
+            # Wait for the GraphQL window to reset rather than a fixed backoff,
+            # so transient quota exhaustion doesn't surface as a hard error.
+            wait_s = _graphql_seconds_to_reset() or (10 * (attempt + 1))
+            time.sleep(wait_s)
+        else:
+            time.sleep(1.5 * (attempt + 1))
     raise RuntimeError(f"{' '.join(cmd)}: {last_message}")
 
 

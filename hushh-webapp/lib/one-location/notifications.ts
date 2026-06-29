@@ -1,6 +1,7 @@
 "use client";
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 
 export const ONE_LOCATION_GRANT_OPENED_EVENT = "hushh:one-location-grant-opened";
 export const ONE_LOCATION_NOTIFICATION_OPEN_PARAM = "locationNotification";
@@ -12,8 +13,22 @@ export const ONE_LOCATION_SUBMISSION_ID_PARAM = "submissionId";
 export const ONE_LOCATION_SECTION_PARAM = "section";
 
 const OPENED_GRANTS_KEY_PREFIX = "one_location_opened_grants_v1";
+// Persistent (localStorage) record of every One-Location notification event we
+// have ALREADY surfaced for this user, keyed by a stable event identity. This is
+// the single source of truth for de-duplication so a notification is created at
+// most once per real event - even across page refreshes, tab switches, and
+// fresh app sessions. (The background-task store persists to sessionStorage and
+// therefore forgets dismissed notifications on reload, which is what caused the
+// duplicate / "reappearing after refresh" spam.)
+const SEEN_NOTIFICATIONS_KEY_PREFIX = "one_location_seen_notifications_v1";
+// Persistent (localStorage) set of received grant ids the recipient has chosen
+// to stop watching ("Unwatch"). Stored per-user so it survives refreshes.
+const UNWATCHED_GRANTS_KEY_PREFIX = "one_location_unwatched_grants_v1";
 const LOCATION_SHARE_TASK_KIND = "one_location_share";
 const LOCATION_WORKFLOW_TASK_KIND = "one_location_workflow";
+
+export const ONE_LOCATION_GRANT_UNWATCHED_EVENT =
+  "hushh:one-location-grant-unwatched";
 
 export type OneLocationWorkflowNotificationType =
   | "location_share_created"
@@ -133,6 +148,152 @@ export function markOneLocationGrantOpened(userId: string | null | undefined, gr
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(ONE_LOCATION_GRANT_OPENED_EVENT, {
+        detail: { userId: normalizedUserId, grantId: normalizedGrantId },
+      }),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Persistent notification de-duplication ("seen" set)
+// ---------------------------------------------------------------------------
+// Every surfaced notification is keyed by a stable identity string so the same
+// real-world event never produces a second toast/bell entry. We persist this to
+// localStorage (survives refresh + new sessions), unlike the background-task
+// store which lives in sessionStorage.
+
+function seenNotificationsStorageKey(userId: string): string {
+  return `${SEEN_NOTIFICATIONS_KEY_PREFIX}:${userId}`;
+}
+
+function readSeenNotificationIds(userId: string): Set<string> {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return new Set();
+  const storage = safeLocalStorage();
+  if (!storage) return new Set();
+  try {
+    const raw = storage.getItem(seenNotificationsStorageKey(normalizedUserId));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(
+          parsed.map((item) => String(item || "").trim()).filter(Boolean),
+        )
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSeenNotificationIds(userId: string, ids: Set<string>): void {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return;
+  const storage = safeLocalStorage();
+  if (!storage) return;
+  try {
+    // Cap the stored history so it can never grow unbounded.
+    const MAX_SEEN = 500;
+    const all = Array.from(ids).filter(Boolean);
+    const trimmed = all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
+    storage.setItem(
+      seenNotificationsStorageKey(normalizedUserId),
+      JSON.stringify(trimmed),
+    );
+  } catch {
+    // Ignore storage write failures; backend still enforces access.
+  }
+}
+
+/** True if this exact notification event was already surfaced for the user. */
+export function hasSeenOneLocationNotification(
+  userId: string | null | undefined,
+  eventId: string,
+): boolean {
+  const normalizedEventId = String(eventId || "").trim();
+  if (!userId || !normalizedEventId) return false;
+  return readSeenNotificationIds(userId).has(normalizedEventId);
+}
+
+/** Mark a notification event as surfaced. Returns false if it was already seen. */
+export function markOneLocationNotificationSeen(
+  userId: string | null | undefined,
+  eventId: string,
+): boolean {
+  const normalizedUserId = String(userId || "").trim();
+  const normalizedEventId = String(eventId || "").trim();
+  if (!normalizedUserId || !normalizedEventId) return false;
+  const seen = readSeenNotificationIds(normalizedUserId);
+  if (seen.has(normalizedEventId)) return false;
+  seen.add(normalizedEventId);
+  writeSeenNotificationIds(normalizedUserId, seen);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Recipient-side "Unwatch" (local hide of a received share)
+// ---------------------------------------------------------------------------
+// A recipient cannot revoke an owner's grant server-side, but they can choose to
+// stop watching it. We persist the hidden grant ids per-user so the choice
+// survives refresh. The backend continues to enforce real access.
+
+function unwatchedGrantsStorageKey(userId: string): string {
+  return `${UNWATCHED_GRANTS_KEY_PREFIX}:${userId}`;
+}
+
+export function readUnwatchedGrantIds(
+  userId: string | null | undefined,
+): string[] {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return [];
+  const storage = safeLocalStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(unwatchedGrantsStorageKey(normalizedUserId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isOneLocationGrantUnwatched(
+  userId: string | null | undefined,
+  grantId: string,
+): boolean {
+  const normalizedGrantId = String(grantId || "").trim();
+  if (!userId || !normalizedGrantId) return false;
+  return readUnwatchedGrantIds(userId).includes(normalizedGrantId);
+}
+
+export function markOneLocationGrantUnwatched(
+  userId: string | null | undefined,
+  grantId: string,
+): void {
+  const normalizedUserId = String(userId || "").trim();
+  const normalizedGrantId = String(grantId || "").trim();
+  if (!normalizedUserId || !normalizedGrantId) return;
+  const current = readUnwatchedGrantIds(normalizedUserId);
+  if (!current.includes(normalizedGrantId)) {
+    const storage = safeLocalStorage();
+    if (storage) {
+      try {
+        storage.setItem(
+          unwatchedGrantsStorageKey(normalizedUserId),
+          JSON.stringify([...current, normalizedGrantId]),
+        );
+      } catch {
+        // Ignore storage write failures.
+      }
+    }
+  }
+  // Also dismiss any pending notification for this grant so it does not linger.
+  dismissOneLocationShareNotification(normalizedGrantId);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(ONE_LOCATION_GRANT_UNWATCHED_EVENT, {
         detail: { userId: normalizedUserId, grantId: normalizedGrantId },
       }),
     );
@@ -272,6 +433,38 @@ export function locationWorkflowNotificationCopy(params: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Consent-surface routing
+// ---------------------------------------------------------------------------
+// One Location is a CONSENT feature, so its lifecycle events (share, access
+// request, approve, deny, revoke, expire) must surface in the consent
+// notification icon (the shield "Pending consents" dropdown) and the consent
+// manager tabs (Requests / Active Access / History) - NOT the general bell
+// (DebateTaskCenter / AppBackgroundTaskService). Those consent surfaces read
+// from /api/consent/center/*, which now includes One Location rows via the
+// backend OneLocationCenterContributor merge. Dispatching this event nudges the
+// consent inbox + consent manager to refetch so the new row appears promptly
+// instead of waiting for the next poll.
+function notifyConsentSurfaceRefresh(
+  notificationType: string,
+  id: string,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
+        detail: {
+          source: "one_location_notification",
+          notificationType,
+          id,
+        },
+      }),
+    );
+  } catch {
+    // Best-effort: the consent surfaces also refresh on their own polling.
+  }
+}
+
 export function recordOneLocationShareNotification(params: {
   userId: string;
   grantId: string;
@@ -282,31 +475,17 @@ export function recordOneLocationShareNotification(params: {
   const userId = String(params.userId || "").trim();
   const grantId = String(params.grantId || "").trim();
   if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId)) return false;
+  // The recipient explicitly stopped watching this share - never re-notify.
+  if (isOneLocationGrantUnwatched(userId, grantId)) return false;
 
-  const taskId = oneLocationGrantTaskId(grantId);
-  const existing = AppBackgroundTaskService.getTask(taskId);
-  if (existing && !existing.dismissedAt) return false;
+  // Persistent de-dup: a given share event yields at most one transient toast,
+  // ever (survives refresh, tab change, new session via localStorage).
+  const eventId = `share:${grantId}`;
+  if (hasSeenOneLocationNotification(userId, eventId)) return false;
+  markOneLocationNotificationSeen(userId, eventId);
 
-  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
-  const description = locationShareNotificationDescription(ownerLabel);
-  AppBackgroundTaskService.startTask({
-    taskId,
-    userId,
-    kind: LOCATION_SHARE_TASK_KIND,
-    title: "Location shared",
-    description,
-    routeHref: buildOneLocationNotificationHref(grantId),
-    visibility: "primary",
-    groupLabel: "One Location",
-    autoClearAfterMs: 0,
-    metadata: {
-      grantId,
-      ownerLabel,
-      expiresAt: params.expiresAt || null,
-      durationHours: params.durationHours || null,
-    },
-  });
-  AppBackgroundTaskService.completeTask(taskId, description);
+  // Route to the consent surfaces (shield icon + consent manager), not the bell.
+  notifyConsentSurfaceRefresh("location_share_created", grantId);
   return true;
 }
 
@@ -323,27 +502,15 @@ export function recordOneLocationWorkflowNotification(params: {
   const id = String(params.id || "").trim();
   if (!userId || !id) return false;
 
-  const taskId = oneLocationWorkflowTaskId(params.notificationType, id);
-  const existing = AppBackgroundTaskService.getTask(taskId);
-  if (existing && !existing.dismissedAt) return false;
+  // Persistent de-dup keyed by (type, id): each consent event yields at most one
+  // transient toast, ever. This stops the "same notification again after refresh
+  // / tab change" spam (the seen-set lives in localStorage).
+  const eventId = `${params.notificationType}:${id}`;
+  if (hasSeenOneLocationNotification(userId, eventId)) return false;
+  markOneLocationNotificationSeen(userId, eventId);
 
-  AppBackgroundTaskService.startTask({
-    taskId,
-    userId,
-    kind: LOCATION_WORKFLOW_TASK_KIND,
-    title: params.title,
-    description: params.description,
-    routeHref: params.routeHref || "/one/location",
-    visibility: "primary",
-    groupLabel: "One Location",
-    autoClearAfterMs: 0,
-    metadata: {
-      notificationType: params.notificationType,
-      id,
-      ...(params.metadata || {}),
-    },
-  });
-  AppBackgroundTaskService.completeTask(taskId, params.description);
+  // Route to the consent surfaces (shield icon + consent manager), not the bell.
+  notifyConsentSurfaceRefresh(params.notificationType, id);
   return true;
 }
 

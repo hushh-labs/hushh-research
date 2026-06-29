@@ -3,49 +3,89 @@
 import Image from "next/image";
 import type { CSSProperties, ComponentType, SVGProps } from "react";
 import { OneLockup } from "@/components/app-ui/gold-period";
+import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   kaiAppHeroBodyClassName,
   kaiAppHeroTitleClassName,
 } from "@/components/kai/shared/kai-typography";
 
-function ShieldBadgeIcon(props: SVGProps<SVGSVGElement>) {
+// Inner glyph detail is "knocked out" to the icon's tinted background instead
+// of solid white, so the cutout reads as transparent against each tone and
+// matches the page aesthetic. Falls back to white if the var is unavailable.
+const INTRO_ICON_KNOCKOUT = "var(--intro-feature-bg, #ffffff)";
+
+// Vault: a private space only you can open (BYOK, encrypted even from us).
+function VaultLockIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <path d="M12 2.5 4.5 5.3v5.8c0 4.7 3.2 7.3 7.5 8.5 4.3-1.2 7.5-3.8 7.5-8.5V5.3L12 2.5Z" />
+      <rect x="4.2" y="10.2" width="15.6" height="11" rx="3.2" />
       <path
-        d="m8.4 12 2.3 2.3 4.9-4.9"
+        d="M7.6 10V7.6a4.4 4.4 0 0 1 8.8 0V10"
         fill="none"
-        stroke="#ffffff"
+        stroke="currentColor"
         strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.2"
+        strokeWidth="2"
+      />
+      <circle cx="12" cy="15" r="1.7" fill={INTRO_ICON_KNOCKOUT} />
+      <path
+        d="M12 15.6v2.1"
+        fill="none"
+        stroke={INTRO_ICON_KNOCKOUT}
+        strokeLinecap="round"
+        strokeWidth="2"
       />
     </svg>
   );
 }
 
-function HoldingsBarsIcon(props: SVGProps<SVGSVGElement>) {
+// Finance: One's money capability (Kai). Generic, explains a sub-app.
+// Drawn as a stroked coin + dollar glyph in the tone color (not a solid
+// filled disc) so it reads the same as the lock/mail glyphs and never looks
+// inverted next to them.
+function FinanceCapabilityIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <rect x="3.8" y="13.3" width="4.2" height="7.1" rx="1.3" />
-      <rect x="9.9" y="8.8" width="4.2" height="11.6" rx="1.3" />
-      <rect x="16" y="3.6" width="4.2" height="16.8" rx="1.3" />
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      {/* Correctly-oriented dollar glyph (matches lucide CircleDollarSign). */}
+      <path
+        d="M15 9.2H10.6a1.9 1.9 0 0 0 0 3.8h2.8a1.9 1.9 0 0 1 0 3.8H8.8"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M12 7.2v9.6"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.7"
+      />
     </svg>
   );
 }
 
-function SignalPulseIcon(props: SVGProps<SVGSVGElement>) {
+// Gmail / inbox: One's email capability. Generic, explains a sub-app.
+function InboxCapabilityIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <circle cx="12" cy="12" r="9.8" />
+      <rect x="3.2" y="5.4" width="17.6" height="13.2" rx="3" />
       <path
-        d="M6.3 12h2.2l1.7-3.5 2.5 6.5 1.9-3h3.1"
+        d="m4.6 7.6 7.4 5.3 7.4-5.3"
         fill="none"
-        stroke="#ffffff"
+        stroke={INTRO_ICON_KNOCKOUT}
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="1.9"
+        strokeWidth="1.8"
       />
     </svg>
   );
@@ -58,22 +98,22 @@ const INTRO_FEATURES: Array<{
   tone: "green" | "blue" | "orange";
 }> = [
   {
-    icon: ShieldBadgeIcon,
-    title: "Verified in minutes",
-    subtitle: "Seamless KYC, no paperwork",
-    tone: "green",
-  },
-  {
-    icon: HoldingsBarsIcon,
-    title: "Top holdings, at a glance",
-    subtitle: "Your portfolio, always live",
+    icon: VaultLockIcon,
+    title: "Your vault, guarded by consent",
+    subtitle: "Encrypted end to end, shared only when you say yes",
     tone: "blue",
   },
   {
-    icon: SignalPulseIcon,
-    title: "Buy, sell, hold",
-    subtitle: "Clear signals when they matter",
-    tone: "orange",
+    icon: FinanceCapabilityIcon,
+    title: "Finance, made personal",
+    subtitle: "Track and act on your money with Kai",
+    tone: "blue",
+  },
+  {
+    icon: InboxCapabilityIcon,
+    title: "Connect Gmail and more",
+    subtitle: "One works across your apps, with consent",
+    tone: "blue",
   },
 ];
 
@@ -89,13 +129,18 @@ function featureStyle(tone: "green" | "blue" | "orange", index: number): CSSProp
 export function IntroStep({
   onNext,
   onLogin,
+  onBack: _onBack,
 }: {
   onNext: () => void;
   onLogin?: () => void;
+  onBack?: () => void;
 }) {
   return (
-    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#000000] dark:text-[#f5f5f7]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-[#f5f5f7]">
+      {/* Reserve bottom room for the global agent bar (conversational voice
+          piece) which is anchored above the safe area on this intro screen, so
+          the footer CTAs never collide with it. */}
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(94px+var(--app-safe-area-bottom-effective,0px))]">
         <div className="flex min-h-0 flex-1 flex-col justify-center py-6">
           <section className="relative flex flex-none flex-col items-center text-center">
             <Image
@@ -113,13 +158,14 @@ export function IntroStep({
             <div
               role="heading"
               aria-level={1}
-              aria-label="Meet One, Your Personal Financial Advisor"
-              className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
+              aria-label="hushh One, a memory that's only yours"
+              className={`relative mt-2.5 flex items-baseline justify-center gap-2 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
             >
-              Meet <OneLockup />
+              <HushhWordmark className="h-[0.92em] w-auto translate-y-[0.06em]" />
+              <OneLockup />
             </div>
             <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
-              Your personal financial advisor.
+              A memory that&apos;s only yours.
             </p>
           </section>
 
@@ -157,23 +203,23 @@ export function IntroStep({
 
         <footer className="flex-none pt-3">
           <div className="space-y-4">
-            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
+            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.72)]">
               One is consent-first. Your knowledge and information are your
-              safewords — nothing leaves your vault without your approval.
+              safewords. Nothing leaves your vault without your approval.
             </p>
             <Button
               size="lg"
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
+              className="h-[50px] rounded-full bg-[#1d1d1f] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-black dark:bg-[#f5f5f7] dark:!text-[#1d1d1f] dark:hover:bg-white"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
+                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#b8894d] transition-colors hover:text-[#9a7038] dark:text-[#d4a574] dark:hover:text-[#e0bb8e]"
                 onClick={onLogin}
               >
                 Log in

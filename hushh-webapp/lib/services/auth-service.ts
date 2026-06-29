@@ -371,6 +371,23 @@ export class AuthService {
     const toastId = toast.loading("Signing in with Google...");
 
     try {
+      if (Capacitor.getPlatform() === "android") {
+        try {
+          const authResult = await this.nativeGoogleSignInWithHushhAuth();
+          toast.success("Signed in successfully", { id: toastId });
+          return authResult;
+        } catch (hushhAuthError) {
+          if (this.isUserCancelledAuth(hushhAuthError)) {
+            throw hushhAuthError;
+          }
+
+          this.debugError(
+            "⚠️ [AuthService] HushhAuth Google Sign-In failed, falling back to FirebaseAuthentication",
+            hushhAuthError
+          );
+        }
+      }
+
       this.debugLog("🍎 [AuthService] Calling FirebaseAuthentication.signInWithGoogle()...");
 
       const result = await FirebaseAuthentication.signInWithGoogle();
@@ -467,6 +484,34 @@ export class AuthService {
       this.debugError("❌ [AuthService] Native sign-in failed", error);
       throw error;
     }
+  }
+
+  private static async nativeGoogleSignInWithHushhAuth(): Promise<AuthResult> {
+    this.debugLog("🤖 [AuthService] Calling HushhAuth.signIn()...");
+
+    const result = await HushhAuth.signIn();
+
+    if (!result.user || !result.idToken) {
+      throw new Error("Invalid HushhAuth native Google response");
+    }
+
+    const user = auth.currentUser || this.createUserFromNative(result.user, result.idToken);
+
+    return {
+      user,
+      idToken: result.idToken,
+      accessToken: result.accessToken,
+    };
+  }
+
+  private static isUserCancelledAuth(error: unknown): boolean {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    const message = error instanceof Error ? error.message : String(error);
+
+    return code === "USER_CANCELLED" || /cancel/i.test(message);
   }
 
   /**

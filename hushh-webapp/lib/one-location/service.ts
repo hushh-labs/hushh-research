@@ -86,6 +86,34 @@ export class OneLocationService {
     });
   }
 
+  /**
+   * Start continuous, movement-driven location tracking. `onPoint` fires every
+   * time the device reports a new fix (as the user moves), powering true live
+   * location instead of a fixed-interval re-fetch. Returns a watch id; pass it
+   * to `clearLocationWatch` to stop. Foreground-only.
+   */
+  static async watchCurrentPosition(
+    onPoint: (point: PlainLocationPoint) => void,
+    onError?: (error: { message: string; code?: number }) => void,
+  ): Promise<string> {
+    return HushhLocation.watchPosition(
+      { enableHighAccuracy: true, timeoutMs: 20_000 },
+      (point, error) => {
+        if (point) {
+          onPoint(point);
+          return;
+        }
+        if (error && onError) onError(error);
+      },
+    );
+  }
+
+  static async clearLocationWatch(id: string): Promise<void> {
+    if (!id) return;
+    return HushhLocation.clearWatch({ id });
+  }
+
+
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;
     keyId: string;

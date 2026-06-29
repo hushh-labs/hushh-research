@@ -2,6 +2,16 @@
 
 These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
 
+## Project-Wide Runtime Telemetry Default
+
+When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
+
+- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local`, then `./bin/hushh backend --mode local --reload`, then `./bin/hushh web --mode local`. Run each as a background/async terminal so the agent keeps working while tailing per-component telemetry.
+- Native restart: rely on backend `--reload` hot-restart first; for a full restart, stop only the affected agent-managed terminal, confirm its port is free (`lsof -ti :6543` proxy / `:8000` backend / `:3000` frontend empty), relaunch that in-session command, and verify health (`./bin/hushh doctor --mode local`, web origin, backend `/docs`) before claiming success.
+- Use the visible-OS-terminal wrapper only when the developer explicitly wants to watch logs themselves, or for a detached session the agent does not need to read.
+
+Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md` ("Runtime Terminals" / "Native restart playbook").
+
 ## Project-Wide Premise Verification Gate
 
 Before accepting a premise, drafting a reply, proposing a plan, patching code, reviewing a PR, or merging work, run a quick repo-backed premise check.
@@ -45,9 +55,40 @@ For non-trivial planning, questions must be research-backed instead of bare choi
 
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 
+## Project-Wide Routing Gate
+
+Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.
+
+The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner.
+
+Run this detection sequence:
+
+1. Extract the intent and the concrete surfaces the request touches: paths, domains (consent, vault, PKM, Kai, Nav, MCP, IAM, backend, frontend, mobile, docs, comms, ops, analytics, security), and risk tags.
+2. Map intent to the owning contract in priority order:
+   - prefer a matching `workflow` over a bare skill, because workflows already compose owner plus spoke
+   - prefer the `default_spoke` over the `owner_skill` when both match the narrower surface
+   - fall back to the closest `owner_skill` only when no workflow or spoke fits
+3. Resolve ambiguity deterministically. When multiple skills score close, pick the spoke over the owner and the workflow over the bare skill. Do not improvise a blended lane.
+4. Read first. Open every composed `required_reads` entry before touching code, then follow the routed Workflow or Playbook section verbatim. That is the path the repo already decided works.
+5. Detect delegation lanes from the same routing pass, not as an afterthought. When intent or changed paths are not obvious, run the delegation router to surface specialist lanes:
+
+```bash
+python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow <workflow-id> --phase start --prompt "<user request>" --paths "<comma-separated paths>" --text
+```
+
+6. Hand off on drift. If the work expands past the routed scope, stop and re-route to the next entry in `handoff_chain` instead of stretching the current lane.
+7. Re-route mid-task when new evidence changes the surface, such as discovering a trust boundary, a generated contract, a schema migration, a duplicate runtime, or a cross-surface caller mismatch.
+
+Routing accuracy rules:
+
+- Never skip routing because the task feels familiar. Familiarity is the most common cause of landing in the wrong spoke.
+- Never invent a parallel skill, workflow, or agent. If the lane seems missing, classify it with the premise gate (`already_exists`, `partially_exists`, `missing`) and confirm against the `.codex/` tree before proposing anything new.
+- Keep routing and delegation as one decision. The lane you route to is the lane you delegate to or execute in, so the owner skill, the verification bundle, and any spawned agent stay aligned.
+- State the routed lane briefly for non-trivial work, for example: `Routed: workflow new-feature-tri-flow (owner frontend-architecture, spoke frontend-design-system).`
+
 ## Project-Wide Delegation Checkpoint
 
-At the start of every non-trivial request, run a quick delegation suitability checkpoint before choosing a local-only path.
+At the start of every non-trivial request, run a quick delegation suitability checkpoint as the second half of the routing pass above, before choosing a local-only path. Routing picks the lane; this checkpoint decides whether that lane runs in the parent session or in a read-only subagent.
 
 This applies to every non-trivial Codex task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
 
@@ -59,9 +100,11 @@ python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.p
 
 Delegation threshold is intentionally low for non-trivial work: if the router finds a concrete specialist evidence lane from the prompt or touched paths, prefer spawning that read-only lane unless the task is small, immediately blocked, or the runtime does not expose the role.
 
+Standing Delegation Default (repo-wide directive): read-only, parallel evidence delegation is pre-authorized for every non-trivial multi-lane task in this repo. Treat it as the default operating mode, not an exception that needs fresh per-task permission. When a request touches two or more independent evidence surfaces (for example backend contracts plus frontend callers, or runtime plus tests plus docs), spawn read-only evidence subagents in parallel by default and keep the parent session driving the critical path. Run independent read-only lanes concurrently rather than serially. Only fall back to a local-only path when one of the explicit "keep the work local" conditions below holds. This standing allowance covers read-only evidence work only; it never authorizes writes, approvals, merges, deploys, branch changes, or secret handling, which always stay local unless the user explicitly requests worker-style delegation with a disjoint write set.
+
 Use subagents when all of these are true:
 
-1. The user has explicitly allowed delegation, requested parallel/subagent work, or the active repo workflow has an approved delegation step.
+1. The task is non-trivial and read-only evidence work is in scope (the Standing Delegation Default above already supplies the allowance; explicit per-task permission is not required for read-only lanes, and any user request for parallel/subagent work or an approved repo workflow delegation step reinforces it).
 2. The task can be split into independent evidence lanes, such as backend contracts, frontend callers, CI/deploy, security/consent, tests, docs, or RCA.
 3. The next parent action is not blocked on the delegated result.
 4. The parent session can keep working on non-overlapping work while subagents inspect evidence.
@@ -71,9 +114,9 @@ Keep the work local when any of these are true:
 
 1. The task is small, single-surface, or faster to verify directly.
 2. The next action depends immediately on the result.
-3. The task involves branch switching, approval, merge, deploy, credential handling, or secrets.
-4. Parallel agents would duplicate effort or create inconsistent assumptions.
-5. The user has not allowed delegation.
+3. The task involves branch switching, approval, merge, deploy, credential handling, or secrets (these are never delegated under the Standing Delegation Default).
+4. Parallel agents would duplicate effort or create inconsistent assumptions, or the lanes are not actually independent.
+5. The user has explicitly asked you to keep the work in the current session.
 
 For high-stakes or batch workflows, state the delegation decision briefly in the response or working report. Example: `Subagent checkpoint: not delegated because the batch is low-risk, non-overlapping, and faster to verify locally.`
 
@@ -91,3 +134,16 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
+
+## Project-Wide Branch Discipline Gate (HARD RULE)
+
+This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+
+1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
+2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.
+3. NEVER end a task with the developer parked on a different branch than where they started, unless they explicitly asked for that final state. If branch switching happened during the task, switch back to the developer's branch before handoff and state that you did.
+4. ALWAYS delete temporary branches you created (local AND remote) once the work is safely preserved on the kept branches. Before deleting, verify every unique piece (commits/files) is represented on a branch you are keeping; only then delete. Close any throwaway PR opened from that temp branch.
+5. After cleanup, leave the tree clean: developer on their branch, no stray local temp branches, no stray remote temp branches, no dangling throwaway PRs. State the final branch and what was cleaned.
+6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
+
+This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.

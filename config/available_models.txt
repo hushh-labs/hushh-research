@@ -1,3 +1,6 @@
+models/gemini-3.5-flash
+models/gemini-3.1-pro-preview
+models/gemini-3.1-flash-lite
 models/gemini-3-pro-preview
 models/gemini-3-flash-preview
 models/gemini-3-pro-image-preview

@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SettingsSegmentedTabs } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
@@ -591,24 +592,23 @@ export function PkmDomainDetailPanel({
                       ) : null}
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {postureOptions.map((option) => {
-                      const active = permission.visibilityPosture === option.value;
-                      return (
-                        <Button
-                          key={option.value}
-                          type="button"
-                          variant={active ? "blue-gradient" : "none"}
-                          effect={active ? "fill" : "fade"}
-                          size="sm"
-                          disabled={disabled || active}
-                          onClick={() => onTogglePermission(permission, option.value)}
-                          aria-pressed={active}
-                        >
-                          {option.label}
-                        </Button>
-                      );
-                    })}
+                  <div
+                    className={cn(
+                      "mt-3",
+                      disabled && "pointer-events-none opacity-60",
+                    )}
+                  >
+                    <SettingsSegmentedTabs
+                      value={permission.visibilityPosture}
+                      onValueChange={(next) =>
+                        onTogglePermission(
+                          permission,
+                          next as PkmVisibilityPosture,
+                        )
+                      }
+                      options={postureOptions}
+                      mobileColumns={1}
+                    />
                   </div>
                 </div>
               );

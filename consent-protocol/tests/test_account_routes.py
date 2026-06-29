@@ -491,3 +491,50 @@ def test_export_account_data_maps_failure_to_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Account export failed"
+
+
+def test_reset_account_requires_vault_owner_token():
+    client = TestClient(_build_app())
+    response = client.post("/api/account/reset")
+
+    assert response.status_code == 401
+
+
+def test_reset_account_returns_reset_payload(monkeypatch):
+    async def _mock_reset(self, user_id: str):
+        assert user_id == "user_123"
+        return {
+            "success": True,
+            "account_deleted": False,
+            "account_reset": True,
+            "details": {"onboarding_reset": True},
+        }
+
+    app = _build_app()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(AccountService, "reset_account", _mock_reset)
+
+    client = TestClient(app)
+    response = client.post("/api/account/reset")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["account_deleted"] is False
+    assert payload["account_reset"] is True
+
+
+def test_reset_account_maps_failure_to_500(monkeypatch):
+    async def _mock_reset(self, user_id: str):
+        assert user_id == "user_123"
+        return {"success": False, "error": "account_reset_failed"}
+
+    app = _build_app()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(AccountService, "reset_account", _mock_reset)
+
+    client = TestClient(app)
+    response = client.post("/api/account/reset")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Account reset failed"

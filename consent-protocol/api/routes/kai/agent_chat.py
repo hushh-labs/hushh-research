@@ -32,6 +32,7 @@ class AgentChatStreamRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: Optional[str] = Field(default=None, max_length=128)
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
+    screen_context: Optional[dict] = Field(default=None)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
 
@@ -56,7 +57,11 @@ class AgentChatMessageModel(BaseModel):
     conversation_id: str = Field(..., max_length=256)
     role: str = Field(..., max_length=64)
     status: str = Field(..., max_length=64)
-    content: str = Field(..., max_length=8192)
+    # Assistant completions are stored in full and can be far larger than a user
+    # turn (long markdown answers, tables, code). An 8 KB cap here rejected real
+    # stored messages at serialization time and 500'd history loads, making the
+    # conversation unrecoverable. Allow up to 128 KB, well above any single turn.
+    content: str = Field(..., max_length=131072)
     model: Optional[str] = Field(default=None, max_length=128)
     created_at: Optional[str] = Field(default=None, max_length=64)
     completed_at: Optional[str] = Field(default=None, max_length=64)
@@ -168,6 +173,7 @@ async def stream_agent_chat(
             runtime_client=runtime.client,
             runtime_model=runtime.model,
             pkm_context=body.pkm_context,
+            screen_context=body.screen_context,
         )
     except AgentRuntimeContractError as error:
         logger.warning(

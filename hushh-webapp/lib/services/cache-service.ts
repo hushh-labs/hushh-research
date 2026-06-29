@@ -168,6 +168,7 @@ class CacheService {
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
+      CACHE_KEYS.ACCOUNT_IDENTITY(userId),
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       CACHE_KEYS.ACTIVE_CONSENTS(userId),
       CACHE_KEYS.PENDING_CONSENTS(userId),
@@ -204,6 +205,7 @@ class CacheService {
         key.startsWith(`ria_clients_${userId}_`) ||
         key.startsWith(`ria_client_detail_${userId}_`) ||
         key.startsWith(`ria_workspace_${userId}_`) ||
+        key.startsWith(`agent_welcome_suggestions_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
         key.startsWith(`marketplace_investors_`)
       ) {
@@ -272,6 +274,7 @@ export const CACHE_KEYS = {
   DOMAIN_MANIFEST: (userId: string, domain: string) => `domain_manifest_${userId}_${domain}`,
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
+  ACCOUNT_IDENTITY: (userId: string) => `account_identity_${userId}`,
   PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,
   DEVELOPER_ACCESS: (userId: string) => `developer_access_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,
@@ -323,6 +326,8 @@ export const CACHE_KEYS = {
     `kai_dashboard_profile_picks_${userId}_${symbolsKey}_${limit}`,
   MARKETPLACE_RIAS_SEARCH: (queryKey: string) => `marketplace_rias_${queryKey}`,
   MARKETPLACE_INVESTORS_SEARCH: (queryKey: string) => `marketplace_investors_${queryKey}`,
+  AGENT_WELCOME_SUGGESTIONS: (userId: string, routeKey: string, persona: string) =>
+    `agent_welcome_suggestions_${userId}_${routeKey}_${persona}`,
 } as const;
 
 // TTL constants

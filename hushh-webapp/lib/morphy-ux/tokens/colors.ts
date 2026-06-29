@@ -2,29 +2,30 @@
  * Hussh brand color tokens
  *
  * Single source of truth for all morphy-ux colors.
- * Based on Apple-inspired blue palette (hushh.ai rebrand).
+ * Based on the Foundation gold palette (hushh design bible).
  *
  * NOTE: These tokens should match the CSS variables in globals.css
  * The CSS variables are the runtime source of truth.
  */
 
 // =============================================================================
-// PRIMARY BRAND COLORS - HUSHH (Apple Blue)
+// PRIMARY BRAND COLORS - HUSHH (Foundation gold)
 // =============================================================================
 
 export const hushhColors = {
-  // Primary - Apple Blue family
+  // Primary - Foundation gold family (the `blue` key name is retained for
+  // backward-compat with existing references; values are Foundation gold).
   blue: {
-    50: "#EFF6FF",
-    100: "#DBEAFE",
-    200: "#BFDBFE",
-    300: "#93C5FD",
-    400: "#60A5FA",
-    500: "#0071E3", // Primary - Apple Blue
-    600: "#005BB5",
-    700: "#004587",
-    800: "#002F5A",
-    900: "#00192D",
+    50: "#FAF6F0",
+    100: "#F7F1E8",
+    200: "#EFE4D2",
+    300: "#E8D8BF",
+    400: "#D9B98A",
+    500: "#D4A574", // Foundation gold accent
+    600: "#B8894D", // Foundation gold deep
+    700: "#9A7038",
+    800: "#6F4F26",
+    900: "#4A3418",
   },
   // Secondary - Extended Blue family
   secondary: {
@@ -32,12 +33,12 @@ export const hushhColors = {
     100: "#DBEAFE",
     200: "#BFDBFE",
     300: "#93C5FD",
-    400: "#60A5FA",
-    500: "#3B82F6", // Secondary Blue
-    600: "#2563EB",
-    700: "#1D4ED8",
-    800: "#1E40AF",
-    900: "#1E3A8A",
+    400: "#D9B98A",
+    500: "#C8995F", // Secondary gold
+    600: "#B8894D",
+    700: "#9A7038",
+    800: "#6F4F26",
+    900: "#4A3418",
   },
   // Neutral - Silver for subtle backgrounds
   silver: {

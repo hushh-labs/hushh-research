@@ -24,7 +24,8 @@
   "required_reads": [
     "docs/reference/architecture/architecture.md",
     "docs/reference/architecture/api-contracts.md",
-    "consent-protocol/docs/README.md"
+    "consent-protocol/docs/README.md",
+    ".codex/skills/backend-runtime-governance/references/async-runtime-performance.md"
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/services -q",
@@ -57,6 +58,8 @@
   "risk_tags": [
     "runtime-boundary-drift",
     "service-test-drift",
-    "python-toolchain-drift"
+    "python-toolchain-drift",
+    "event-loop-blocking",
+    "cache-invalidation-drift"
   ]
 }

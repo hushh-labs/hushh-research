@@ -792,7 +792,32 @@ export interface HushhLocationPlugin {
     capturedAt: string;
     sourcePlatform: "web" | "ios" | "android" | "native";
   }>;
+  /**
+   * Continuous, movement-driven location tracking. The callback fires every
+   * time the device reports a new position (e.g. as the user walks/drives),
+   * powering true live location instead of a fixed-interval re-fetch. Returns a
+   * watch id to pass back to `clearWatch`. Foreground-only.
+   */
+  watchPosition(
+    options: {
+      enableHighAccuracy?: boolean;
+      timeoutMs?: number;
+    },
+    callback: (
+      point: {
+        latitude: number;
+        longitude: number;
+        accuracyM: number | null;
+        capturedAt: string;
+        sourcePlatform: "web" | "ios" | "android" | "native";
+      } | null,
+      error?: { message: string; code?: number } | null,
+    ) => void,
+  ): Promise<string>;
+  /** Stop a `watchPosition` subscription started with the returned id. */
+  clearWatch(options: { id: string }): Promise<void>;
 }
+
 
 export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
   web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),

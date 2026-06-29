@@ -17,6 +17,12 @@ import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
 import {
+  buildOneLocationNotificationHref,
+  buildOneLocationWorkflowHref,
+  oneLocationSectionForWorkflowNotificationType,
+  type OneLocationWorkflowNotificationType,
+} from "@/lib/one-location/notifications";
+import {
   assignWindowLocation,
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
@@ -76,6 +82,40 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer | null): string {
     binary += String.fromCharCode(byte);
   });
   return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function isOneLocationWorkflowNotificationType(
+  value: unknown,
+): value is OneLocationWorkflowNotificationType {
+  return (
+    value === "location_share_created" ||
+    value === "location_access_approved" ||
+    value === "location_share_revoked" ||
+    value === "location_share_expired" ||
+    value === "location_access_request" ||
+    value === "location_access_denied" ||
+    value === "location_referral_invite" ||
+    value === "location_public_invite_submitted"
+  );
+}
+
+function buildNativeOneLocationTarget(data: Record<string, unknown>): string {
+  const type = String(data.type || "").trim();
+  const grantId = String(data.grant_id || data.grantId || data.approved_grant_id || "").trim();
+  if (grantId && (type === "location_share_created" || type === "location_access_approved")) {
+    return buildOneLocationNotificationHref(grantId);
+  }
+  if (!isOneLocationWorkflowNotificationType(type)) {
+    return ROUTES.ONE_LOCATION;
+  }
+  return buildOneLocationWorkflowHref({
+    grantId,
+    requestId: String(data.request_id || data.requestId || "").trim(),
+    referralId: String(data.referral_id || data.referralId || "").trim(),
+    submissionId: String(data.submission_id || data.submissionId || "").trim(),
+    section: oneLocationSectionForWorkflowNotificationType(type),
+    openGrant: type === "location_access_approved" && Boolean(grantId),
+  });
 }
 
 function base64UrlToArrayBuffer(value: string): ArrayBuffer {
@@ -711,6 +751,26 @@ async function initializeWebFCM(
         detail: "token_subscribe_failed",
       };
     }
+    // Push registration being denied/aborted by the browser (incognito, denied
+    // permission, unsupported Push API) is an expected, non-fatal outcome. Log
+    // it as a warning instead of an error so it does not surface as a red
+    // console error / Next.js dev overlay alarm. App functionality (vault,
+    // consent, agent) does not depend on web push.
+    const errorName = error instanceof Error ? error.name : "";
+    const isExpectedPushDenial =
+      errorName === "AbortError" ||
+      errorName === "NotAllowedError" ||
+      /permission denied|push service|registration failed/i.test(errorMessage);
+    if (isExpectedPushDenial) {
+      console.warn(
+        "[FCM] Web push unavailable (permission denied / unsupported). Continuing without push notifications.",
+        errorMessage || errorName
+      );
+      return {
+        status: "push_blocked",
+        detail: "push_permission_denied",
+      };
+    }
     console.error("[FCM] ❌ Web initialization failed:", error);
     return {
       status: "push_failed",
@@ -774,6 +834,15 @@ function setupNativeListeners(): void {
           ) {
             requestInternalAppNavigation({
               href: ROUTES.KAI_DASHBOARD,
+              scroll: false,
+            });
+          } else if (
+            data &&
+            typeof data.type === "string" &&
+            String(data.type).startsWith("location_")
+          ) {
+            requestInternalAppNavigation({
+              href: buildNativeOneLocationTarget(data),
               scroll: false,
             });
           } else {

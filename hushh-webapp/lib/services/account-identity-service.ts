@@ -9,6 +9,17 @@ import {
 } from "@/lib/services/api-service";
 
 export class AccountIdentityService {
+  private static verifiedPhoneHints = new Map<string, boolean | null>();
+
+  static primeVerifiedPhoneHint(
+    userId: string | null | undefined,
+    phoneVerified: boolean | null | undefined,
+  ): void {
+    const normalizedUserId = String(userId ?? "").trim();
+    if (!normalizedUserId) return;
+    this.verifiedPhoneHints.set(normalizedUserId, phoneVerified ?? null);
+  }
+
   static hasVerifiedPhone(identity: AccountIdentity | null | undefined): boolean {
     return identity?.phone_verified === true;
   }
@@ -115,8 +126,7 @@ export class AccountIdentityService {
       return null;
     }
 
-    const [, identityResult] = await Promise.allSettled([
-      ApiService.createSession({
+    await ApiService.createSession({
         userId: user.uid,
         email: user.email || "",
         idToken,
@@ -124,14 +134,9 @@ export class AccountIdentityService {
         photoUrl: user.photoURL || undefined,
         emailVerified: user.emailVerified,
         phoneNumber: user.phoneNumber || undefined,
-      }),
-      ApiService.refreshAccountIdentityShadow(idToken),
-    ]);
+      });
 
-    if (identityResult.status === "fulfilled") {
-      return this.identityFromResponse(identityResult.value);
-    }
-
-    return null;
+    const response = await ApiService.refreshAccountIdentityShadow(idToken);
+    return this.identityFromResponse(response);
   }
 }

@@ -754,7 +754,7 @@ function AgentPopoverWindowControls({
         aria-label="Close Agent"
         title="Close Agent"
       >
-        <X className="h-3.5 w-3.5" />
+        <X aria-hidden="true" className="h-3.5 w-3.5" />
       </Button>
     </div>
   );

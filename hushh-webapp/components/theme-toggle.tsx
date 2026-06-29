@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Moon, Monitor, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
+import { Check, Moon, Monitor, Sun } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 
 import {
   DropdownMenu,
@@ -102,6 +102,135 @@ export function ThemeToggle({ className }: { className?: string }) {
 }
 
 /**
+ * Size intents for {@link ThemeToggleLean}. Surfaces pick a named intent
+ * instead of hand-coding widths so the control stays visually identical
+ * wherever it appears.
+ *
+ * - `expanded`: full labeled pill (Light / Dark / System) used on the landing
+ *   page and onboarding so a new user sees one consistent, legible control.
+ * - `compact`: icon-only narrow pill for tight in-app top bars sitting next to
+ *   other icon actions.
+ */
+export type ThemeToggleLeanSize = "expanded" | "compact";
+
+const THEME_TOGGLE_LEAN_SIZE: Record<
+  ThemeToggleLeanSize,
+  { width: string; showLabels: boolean }
+> = {
+  expanded: { width: "w-[162px] sm:w-[240px]", showLabels: true },
+  compact: { width: "w-[108px]", showLabels: false },
+};
+
+/**
+ * Lean segmented theme toggle — icon-forward, mobile-perfect.
+ *
+ * Used on the landing page, at the top of onboarding, and in Profile ›
+ * Preferences. Three equal segments (Light / Dark / System) with icons always
+ * visible and labels that appear only when there's room (sm+). The active
+ * segment slides via a single animated thumb rather than per-button borders.
+ *
+ * Prefer the `size` intent over a custom width so every surface renders the
+ * same control. `showLabels` and `className` remain available for fine-tuning
+ * but default to the chosen `size`.
+ */
+export function ThemeToggleLean({
+  className,
+  size = "expanded",
+  showLabels,
+}: {
+  className?: string;
+  size?: ThemeToggleLeanSize;
+  showLabels?: boolean;
+}) {
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const sizeIntent = THEME_TOGGLE_LEAN_SIZE[size];
+  const resolvedShowLabels = showLabels ?? sizeIntent.showLabels;
+
+  const activeTheme = resolveActiveTheme(theme);
+  const isDark = resolvedTheme === "dark";
+  const activeIndex = Math.max(
+    0,
+    THEME_OPTIONS.findIndex((o) => o.value === activeTheme)
+  );
+
+  // Reserve height to avoid layout shift before mount/hydration.
+  if (!mounted) {
+    return (
+      <div
+        className={cn("h-9", sizeIntent.width, className)}
+        aria-hidden="true"
+      />
+    );
+  }
+
+  return (
+    <div
+      data-theme-control
+      role="radiogroup"
+      aria-label="Theme"
+      className={cn(
+        "relative grid h-9 grid-cols-3 items-center rounded-full p-[3px]",
+        sizeIntent.width,
+        isDark ? "bg-white/[0.07]" : "bg-black/[0.05]",
+        className
+      )}
+    >
+      {/* Sliding active thumb */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-y-[3px] left-[3px] w-[calc((100%-6px)/3)] rounded-full transition-transform duration-200 ease-out",
+          isDark
+            ? "bg-neutral-800 shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
+            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
+        )}
+        style={{ transform: `translateX(${activeIndex * 100}%)` }}
+      />
+      {THEME_OPTIONS.map((option) => {
+        const isActive = option.value === activeTheme;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-label={option.label}
+            title={option.label}
+            onClick={() => {
+              if (option.value === activeTheme) return;
+              setTheme(option.value);
+            }}
+            className={cn(
+              "relative z-10 flex h-full min-w-0 items-center justify-center gap-1 rounded-full px-0.5 transition-colors duration-150",
+              isActive
+                ? isDark
+                  ? "text-white"
+                  : "text-slate-950"
+                : isDark
+                  ? "text-zinc-400 hover:text-zinc-200"
+                  : "text-slate-500 hover:text-slate-800"
+            )}
+          >
+            <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
+            {resolvedShowLabels ? (
+              <span className="hidden text-xs font-medium leading-none sm:inline">
+                {option.label}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * Compact icon-only theme switcher for tight surfaces
  */
 export function ThemeToggleCompact({ className }: { className?: string }) {
@@ -146,7 +275,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
             >
               <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
               <span className="flex-1">{option.label}</span>
-              {isActive && <span className="text-xs">✓</span>}
+              {isActive ? <Check aria-hidden size={12} /> : null}
             </DropdownMenuItem>
           );
         })}

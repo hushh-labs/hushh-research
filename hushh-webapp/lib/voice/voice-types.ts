@@ -351,6 +351,12 @@ export type VoiceCapabilityResponse = {
   bucket?: number | null;
   canary_percent?: number | null;
   realtime_enabled?: boolean;
+  /**
+   * Resolved voice transport lane for this account.
+   * `"realtime"` when the brain has a native full-duplex API and realtime is
+   * enabled by rollout/killswitch; `"chained"` (STT -> brain -> TTS) otherwise.
+   */
+  voice_lane?: "realtime" | "chained";
   tts_enabled?: boolean;
   tts_timeout_ms?: number;
   tts_model?: string;

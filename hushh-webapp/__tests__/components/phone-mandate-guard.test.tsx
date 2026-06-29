@@ -33,9 +33,20 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => authValue,
 }));
 
+// Return the resolved hostname synchronously so the localhost bypass is
+// deterministic from the first render. Non-localhost environments are still
+// distinguished by NEXT_PUBLIC_APP_ENV (uat vs development), so this does not
+// affect the non-bypass test cases.
+vi.mock("@/lib/hooks/use-hostname", () => ({
+  useHostname: () => "localhost",
+}));
+
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: {
     checkVault: checkVaultMock,
+    // Cold cache by default so the guard falls through to the async checkVault
+    // mock, preserving the existing test expectations.
+    peekVaultPresence: () => null,
   },
 }));
 
@@ -44,12 +55,19 @@ vi.mock("@/lib/services/account-identity-service", () => ({
     refreshCurrentUserIdentity: refreshCurrentUserIdentityMock,
     hasVerifiedPhone: (identity: { phone_verified?: boolean } | null | undefined) =>
       identity?.phone_verified === true,
+    // Cold cache so the guard performs its async identity read via getIdentitySwr,
+    // which here resolves from the same refresh mock the tests drive.
+    peekCachedIdentity: () => null,
+    getIdentitySwr: async () => ({
+      identity: await refreshCurrentUserIdentityMock(),
+      isStale: false,
+    }),
   },
 }));
 
 describe("PhoneMandateGuard", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     replace.mockReset();
     checkVaultMock.mockReset();
     refreshCurrentUserIdentityMock.mockReset();
@@ -104,6 +122,10 @@ describe("PhoneMandateGuard", () => {
       phoneNumber: "+16505550101",
     };
     checkVaultMock.mockResolvedValue(false);
+    refreshCurrentUserIdentityMock.mockResolvedValue({
+      phone_verified: true,
+      phone_number: "+16505550101",
+    });
 
     render(
       <PhoneMandateGuard>
@@ -115,6 +137,29 @@ describe("PhoneMandateGuard", () => {
       expect(screen.getByText("kai content")).toBeTruthy();
     });
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("redirects users when backend phone verification is false even if Firebase has a phone", async () => {
+    authValue = {
+      user: { uid: "user-verified-in-firebase-only" },
+      loading: false,
+      phoneNumber: "+16505550101",
+    };
+    checkVaultMock.mockResolvedValue(false);
+    refreshCurrentUserIdentityMock.mockResolvedValue({
+      phone_verified: false,
+      phone_number: "+16505550101",
+    });
+
+    render(
+      <PhoneMandateGuard>
+        <div>kai content</div>
+      </PhoneMandateGuard>
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fprofile");
+    });
   });
 
   it("does not redirect users with a backend-verified phone claim", async () => {
@@ -162,8 +207,8 @@ describe("PhoneMandateGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("keeps localhost development users in the app without requiring phone verification", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+  it("does not bypass phone verification for localhost UAT users", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     checkVaultMock.mockResolvedValue(false);
 
     render(
@@ -173,9 +218,7 @@ describe("PhoneMandateGuard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("profile content")).toBeTruthy();
+      expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fprofile");
     });
-    expect(replace).not.toHaveBeenCalled();
-    expect(checkVaultMock).not.toHaveBeenCalled();
   });
 });

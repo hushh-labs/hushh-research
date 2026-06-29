@@ -67,7 +67,7 @@ class ConversationHistoryResponse(BaseModel):
     """Response for conversation history endpoint."""
 
     conversation_id: str = Field(..., max_length=256)
-    messages: list[dict] = Field(default_factory=list)
+    messages: list[dict] = Field(default_factory=list, max_length=1000)
 
 
 @router.post("/chat", response_model=KaiChatResponseModel)
@@ -140,7 +140,7 @@ async def kai_chat(
 
 @router.get("/chat/history/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
-    conversation_id: str = Path(..., max_length=128),
+    conversation_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> ConversationHistoryResponse:
@@ -171,10 +171,10 @@ async def get_conversation_history(
 
 @router.get("/chat/conversations/{user_id}")
 async def list_user_conversations(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=20, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=10_000),
 ) -> dict:
     """
     List all conversations for a user.
@@ -225,7 +225,7 @@ class InitialChatStateResponse(BaseModel):
 
 @router.get("/chat/initial-state/{user_id}", response_model=InitialChatStateResponse)
 async def get_initial_chat_state(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> InitialChatStateResponse:
     """
@@ -280,11 +280,13 @@ async def get_initial_chat_state(
 class AnalyzeLoserRequest(BaseModel):
     """Request body for analyze-loser endpoint."""
 
-    user_id: str = Field(..., description="User's Firebase UID")
+    user_id: str = Field(..., description="User's Firebase UID", min_length=1, max_length=128)
     symbol: str = Field(
         ..., description="Stock ticker symbol to analyze", min_length=1, max_length=10
     )
-    conversation_id: Optional[str] = Field(default=None, description="Existing conversation ID")
+    conversation_id: Optional[str] = Field(
+        None, description="Existing conversation ID", max_length=128
+    )
 
 
 class AnalyzeLoserResponse(BaseModel):

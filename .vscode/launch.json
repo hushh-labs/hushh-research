@@ -30,10 +30,10 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Runtime: Visible Local Stack",
+      "name": "Runtime: Visible Local Proxy",
       "type": "node-terminal",
       "request": "launch",
-      "command": "./bin/hushh terminal stack --mode local",
+      "command": "./bin/hushh terminal proxy --mode local",
       "cwd": "${workspaceFolder}"
     },
     {
@@ -55,6 +55,7 @@
     {
       "name": "Runtime: Visible Local Dev",
       "configurations": [
+        "Runtime: Visible Local Proxy",
         "Runtime: Visible Local Backend",
         "Runtime: Visible Local Frontend"
       ],

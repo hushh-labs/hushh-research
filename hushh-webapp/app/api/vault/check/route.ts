@@ -27,6 +27,9 @@ export const dynamic = "force-dynamic";
 const PYTHON_API_URL = getPythonApiUrl();
 const ROUTE_CACHE_TTL_MS = 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
+// Extended budget for the single retry, sized to absorb a cold backend /
+// database connection pool warm-up on the first request after idle.
+const VAULT_CHECK_RETRY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 const vaultCheckCache = new Map<
   string,
   { hasVault: boolean; cachedAt: number }
@@ -115,15 +118,39 @@ export async function GET(request: NextRequest) {
     }
 
     const load = (async () => {
-      const response = await fetch(`${PYTHON_API_URL}/db/vault/check`, {
-        method: "POST",
-        headers: createUpstreamHeaders(requestId, {
-          "Content-Type": "application/json",
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        }),
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        body: JSON.stringify({ userId }),
-      });
+      // Retry once on a cold backend: the first request after idle can exceed
+      // a single timeout while the DB pool warms up. Only timeouts (AbortError)
+      // and 5xx responses are retried; 404 and 4xx return immediately.
+      const attempt = async (timeoutMs: number) =>
+        fetch(`${PYTHON_API_URL}/db/vault/check`, {
+          method: "POST",
+          headers: createUpstreamHeaders(requestId, {
+            "Content-Type": "application/json",
+            ...(authHeader ? { Authorization: authHeader } : {}),
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+          body: JSON.stringify({ userId }),
+        });
+
+      let response: Response;
+      try {
+        response = await attempt(UPSTREAM_TIMEOUT_MS);
+        if (response.status >= 500) {
+          console.warn(
+            `[API] request_id=${requestId} vault_check backend ${response.status}; retrying with extended timeout`
+          );
+          response = await attempt(VAULT_CHECK_RETRY_TIMEOUT_MS);
+        }
+      } catch (firstError) {
+        if ((firstError as Error)?.name === "AbortError") {
+          console.warn(
+            `[API] request_id=${requestId} vault_check timed out after ${UPSTREAM_TIMEOUT_MS}ms; retrying with extended timeout`
+          );
+          response = await attempt(VAULT_CHECK_RETRY_TIMEOUT_MS);
+        } else {
+          throw firstError;
+        }
+      }
 
       const payload = await response
         .json()

@@ -6,14 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { JsonLd } from "@/components/seo/json-ld";
+import { buildFaqGraph } from "@/lib/seo/structured-data";
+import { HOME_FAQ } from "@/lib/seo/faq-data";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
-import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
 
-type HomeStep = "intro" | "preview";
+type HomeStep = "intro";
 
 function HomeContent() {
   const router = useRouter();
@@ -22,6 +24,9 @@ function HomeContent() {
   const loginUrl = redirectPath
     ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
     : ROUTES.LOGIN;
+  const gettingStartedUrl = redirectPath
+    ? `${ROUTES.GETTING_STARTED}?redirect=${encodeURIComponent(redirectPath)}`
+    : ROUTES.GETTING_STARTED;
 
   const { user, loading } = useAuth();
   const [step, setStep] = useState<HomeStep | null>(null);
@@ -69,13 +74,19 @@ function HomeContent() {
 
       const hasSeen = await OnboardingLocalService.hasSeenMarketing();
       if (cancelled) return;
-      setStep(hasSeen ? "preview" : "intro");
+      // Returning visitors who already saw the intro skip straight to the
+      // getting-started carousel route; first-timers see the intro.
+      if (hasSeen) {
+        router.replace(gettingStartedUrl);
+        return;
+      }
+      setStep("intro");
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [loading, user, router, forceOnboardingInDev]);
+  }, [loading, user, router, forceOnboardingInDev, gettingStartedUrl]);
 
   if (loading || (!user && step === null)) {
     return <HushhLoader label="Loading..." variant="fullscreen" />;
@@ -95,32 +106,20 @@ function HomeContent() {
           dataState="loaded"
         />
         <IntroStep
-          onNext={() => setStep("preview")}
+          onNext={() => router.push(gettingStartedUrl)}
           onLogin={() => router.push(loginUrl)}
         />
       </>
     );
   }
 
-  if (step === "preview") {
-    return (
-      <>
-        <NativeTestBeacon
-          routeId="/"
-          marker="native-route-home"
-          authState={user ? "authenticated" : "anonymous"}
-          dataState="loaded"
-        />
-        <PreviewCarouselStep onContinue={() => router.push(loginUrl)} />
-      </>
-    );
-  }
   return null;
 }
 
 export default function Home() {
   return (
     <>
+      <JsonLd data={buildFaqGraph(HOME_FAQ)} />
       <NativeRouteMarker
         routeId="/"
         marker="native-route-home"

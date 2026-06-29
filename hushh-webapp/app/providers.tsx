@@ -59,6 +59,7 @@ import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-sta
 import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  normalizeInternalAppNavigationHref,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
 
@@ -214,8 +215,8 @@ function AppShellFrame({ children }: ProvidersProps) {
   useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
       const customEvent = event as CustomEvent<InternalAppNavigationRequest>;
-      const href = String(customEvent.detail?.href || "").trim();
-      if (!href.startsWith("/")) {
+      const href = normalizeInternalAppNavigationHref(customEvent.detail?.href);
+      if (!href) {
         return;
       }
       const replace = Boolean(customEvent.detail?.replace);

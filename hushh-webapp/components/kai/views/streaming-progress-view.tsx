@@ -412,10 +412,10 @@ export function StreamingProgressView({
           {quantMetrics && <MetricsGrid metrics={quantMetrics} title="Quantitative Metrics" />}
 
           {isNonEmptyString(businessMoat) && (
-            <div className="p-2 rounded-lg bg-blue-500/5 border border-blue-500/20">
+            <div className="p-2 rounded-lg bg-accent-surface border border-accent-border">
               <div className="flex items-center gap-1.5 mb-0.5">
-                <Icon icon={Shield} size={12} className="text-blue-500" />
-                <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Business Moat</span>
+                <Icon icon={Shield} size={12} className="text-accent-strong" />
+                <span className="text-[10px] font-semibold text-accent-strong">Business Moat</span>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">{businessMoat}</p>
             </div>

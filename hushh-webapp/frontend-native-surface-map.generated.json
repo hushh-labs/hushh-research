@@ -870,7 +870,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/onboarding flow.",
+        "exemption_reason": "Compatibility redirect route only launches the canonical /one/onboarding flow.",
         "shell_verification_file": null,
         "shell_verification_includes": []
       },
@@ -1679,8 +1679,8 @@
       "page_file": "app/one/kai/onboarding/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "flow",
-        "exemption_reason": "Fullscreen onboarding flow owns its own shell and safe-area spacing.",
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route only launches the canonical /one/onboarding flow.",
         "shell_verification_file": null,
         "shell_verification_includes": []
       },
@@ -1700,8 +1700,8 @@
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -1965,7 +1965,7 @@
       "shell": {
         "app_page_shell": true,
         "page_header": true,
-        "settings_ui": true,
+        "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "route-local-check-required"
       },
@@ -1992,6 +1992,30 @@
         "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/onboarding",
+      "page_file": "app/one/onboarding/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Fullscreen onboarding flow owns its own shell and safe-area spacing.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],

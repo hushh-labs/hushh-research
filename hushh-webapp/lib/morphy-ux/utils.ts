@@ -241,11 +241,11 @@ export const getVariantStylesNoHover = (
 
     case "blue":
       if (effect === "fill") {
-        return "bg-gradient-to-r from-university-blue-600 to-university-blue-500 text-white shadow-md transition-all duration-200 dark:from-university-yellow-400 dark:to-university-yellow-500 dark:text-black";
+        return "bg-gradient-to-r from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] text-white shadow-md transition-all duration-200 dark:text-black";
       } else if (effect === "fade") {
         return "bg-gradient-to-r from-[var(--morphy-primary-start)]/10 to-[var(--morphy-primary-end)]/10 border border-[var(--morphy-primary-start)]/20 text-[var(--morphy-primary-start)] transition-all duration-200";
       } else {
-        return "bg-[var(--activeGlassColor)] shadow-[0px_6px_16px_var(--activeShadowColor)] border border-university-blue-500/20 backdrop-blur-[6px] transition-all duration-200";
+        return "bg-[var(--activeGlassColor)] shadow-[0px_6px_16px_var(--activeShadowColor)] border border-[var(--morphy-primary-start)]/20 backdrop-blur-[6px] transition-all duration-200";
       }
 
     case "blue-gradient":
@@ -372,7 +372,7 @@ export const getIconColor = (
       if (effect === "fill") {
         return "text-white";
       } else {
-        return "text-university-blue-500";
+        return "text-[var(--morphy-primary-start)]";
       }
 
     case "yellow":
@@ -653,7 +653,7 @@ export const getRippleGradient = (variant: ColorVariant): string => {
       return "from-white/20 to-white/10";
     case "blue":
     case "blue-gradient":
-      return "from-blue-400/30 to-blue-400/15";
+      return "from-[var(--morphy-primary-start)]/30 to-[var(--morphy-primary-end)]/15";
     case "purple":
     case "purple-gradient":
       return "from-purple-400/30 to-purple-400/15";

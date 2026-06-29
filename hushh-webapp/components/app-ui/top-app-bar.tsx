@@ -203,6 +203,20 @@ function normalizeTopBarPathname(pathname: string): string {
   return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
 }
 
+function pathnameFromTopShellHref(href: string): string {
+  const rawHref = String(href || "").trim();
+  if (!rawHref) return "";
+  try {
+    return normalizeTopBarPathname(new URL(rawHref, "https://one.hushh.local").pathname);
+  } catch {
+    return normalizeTopBarPathname(rawHref);
+  }
+}
+
+function shouldReplaceTopShellBackNavigation(pathname: string, backHref: string): boolean {
+  return pathnameFromTopShellHref(pathname) === pathnameFromTopShellHref(backHref);
+}
+
 function roleSwitcherLabel(activePersona: Persona): string {
   return activePersona === "ria" ? "RIA" : "Investor";
 }
@@ -597,6 +611,15 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       variant="icon"
                       aria-label="Go back"
                       onClick={() => {
+                        if (
+                          shouldReplaceTopShellBackNavigation(
+                            pathname,
+                            topShellBreadcrumb.backHref,
+                          )
+                        ) {
+                          router.replace(topShellBreadcrumb.backHref);
+                          return;
+                        }
                         router.push(topShellBreadcrumb.backHref);
                       }}
                     >
@@ -829,7 +852,9 @@ function OnboardingRouteActions() {
       await signOut();
       router.push(ROUTES.HOME);
     } catch (error) {
-      console.error("[TopAppBar] Failed to sign out:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[TopAppBar] Failed to sign out:", error);
+      }
       toast.error("Couldn't sign out. Please retry.");
     }
   }

@@ -18,17 +18,27 @@ from typing import Any
 
 from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
+from hushh_mcp.runtime_settings import (
+    get_connector_kdf_iterations,
+    get_connector_kdf_salt,
+    get_connector_secrets_key,
+)
 from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemConfigurationError,
     ConnectedSystemDefinition,
 )
 from hushh_mcp.types import EncryptedPayload
-from hushh_mcp.vault.encrypt import decrypt_data
+from hushh_mcp.vault.encrypt import (
+    PBKDF2_CBC_ALGORITHM,
+    decrypt_data,
+    decrypt_data_pbkdf2_cbc,
+)
 
 logger = logging.getLogger(__name__)
 
 EXTERNAL_CRM_TRANSPORT = "external_crm_streamable_mcp"
 REGISTRY_SOURCE = "enterprise_crm_registry"
+GCM_ALGORITHM = "aes-256-gcm"
 
 # Maps the row's auth_header_style to the header keys carrying each credential.
 _AUTH_HEADER_STYLES: dict[str, tuple[str, str]] = {
@@ -41,7 +51,7 @@ def _vault_key_hex() -> str:
     return VAULT_DATA_KEY
 
 
-def _decrypt_envelope(
+def _decrypt_gcm_envelope(
     *, ciphertext: Any, iv: Any, tag: Any, algorithm: str, key_hex: str, label: str
 ) -> str:
     try:
@@ -61,6 +71,78 @@ def _decrypt_envelope(
             f"Failed to decrypt CRM registry {label}.",
             code="CONNECTED_SYSTEM_REGISTRY_DECRYPT_FAILED",
         ) from None
+
+
+def _decrypt_pbkdf2_cbc_blob(
+    *, blob: Any, password: str, salt: Any, iterations: Any, label: str
+) -> str:
+    """Decrypt a MuleSoft-published PBKDF2-AES256-CBC credential blob."""
+    try:
+        return decrypt_data_pbkdf2_cbc(str(blob or ""), password, str(salt or ""), int(iterations))
+    except Exception:  # noqa: BLE001 - fail closed, never leak plaintext/cause
+        raise ConnectedSystemConfigurationError(
+            f"Failed to decrypt CRM registry {label}.",
+            code="CONNECTED_SYSTEM_REGISTRY_DECRYPT_FAILED",
+        ) from None
+
+
+def _decrypt_credentials(row: dict[str, Any]) -> tuple[str, str]:
+    """Return (client_id, client_secret) by branching on encryption_algorithm.
+
+    Two interop shapes are supported:
+      * aes-256-gcm                    — Hushh-written envelope (ciphertext/iv/tag)
+      * pbkdf2-hmacsha256-aes256-cbc   — MuleSoft-written JCE blob (base64 iv||ct)
+    """
+    algorithm = str(row.get("encryption_algorithm") or GCM_ALGORITHM).strip().lower()
+
+    if algorithm == PBKDF2_CBC_ALGORITHM:
+        password = get_connector_secrets_key()
+        # KDF params are constant across MuleSoft CRMs → resolve from config when
+        # the row omits them (the common case after migration 073). A row MAY
+        # still override with its own kdf_salt / kdf_iterations.
+        salt = row.get("kdf_salt") or get_connector_kdf_salt()
+        iterations = row.get("kdf_iterations") or get_connector_kdf_iterations()
+        if not salt or not iterations:
+            raise ConnectedSystemConfigurationError(
+                "CRM registry PBKDF2 row is missing kdf_salt / kdf_iterations "
+                "and no connector KDF config is set.",
+                code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+            )
+        client_id = _decrypt_pbkdf2_cbc_blob(
+            blob=row.get("crm_client_id_blob"),
+            password=password,
+            salt=salt,
+            iterations=iterations,
+            label="client_id",
+        )
+        client_secret = _decrypt_pbkdf2_cbc_blob(
+            blob=row.get("crm_client_secret_blob"),
+            password=password,
+            salt=salt,
+            iterations=iterations,
+            label="client_secret",
+        )
+        return client_id, client_secret
+
+    # Default / GCM path (unchanged).
+    key_hex = _vault_key_hex()
+    client_id = _decrypt_gcm_envelope(
+        ciphertext=row.get("crm_client_id_ciphertext"),
+        iv=row.get("crm_client_id_iv"),
+        tag=row.get("crm_client_id_tag"),
+        algorithm=algorithm,
+        key_hex=key_hex,
+        label="client_id",
+    )
+    client_secret = _decrypt_gcm_envelope(
+        ciphertext=row.get("crm_client_secret_ciphertext"),
+        iv=row.get("crm_client_secret_iv"),
+        tag=row.get("crm_client_secret_tag"),
+        algorithm=algorithm,
+        key_hex=key_hex,
+        label="client_secret",
+    )
+    return client_id, client_secret
 
 
 def _tool_catalog_from_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
@@ -113,25 +195,9 @@ def load_active_definition(
             code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
         )
 
-    key_hex = _vault_key_hex()
-    algorithm = str(row.get("encryption_algorithm") or "aes-256-gcm")
-
-    client_id = _decrypt_envelope(
-        ciphertext=row.get("crm_client_id_ciphertext"),
-        iv=row.get("crm_client_id_iv"),
-        tag=row.get("crm_client_id_tag"),
-        algorithm=algorithm,
-        key_hex=key_hex,
-        label="client_id",
-    )
-    client_secret = _decrypt_envelope(
-        ciphertext=row.get("crm_client_secret_ciphertext"),
-        iv=row.get("crm_client_secret_iv"),
-        tag=row.get("crm_client_secret_tag"),
-        algorithm=algorithm,
-        key_hex=key_hex,
-        label="client_secret",
-    )
+    # Decrypt credentials, branching on the row's encryption_algorithm
+    # (GCM for Hushh-written rows, PBKDF2-CBC for MuleSoft-published rows).
+    client_id, client_secret = _decrypt_credentials(row)
 
     style = str(row.get("auth_header_style") or "client_id_secret_headers")
     header_keys = _AUTH_HEADER_STYLES.get(style)
@@ -173,4 +239,7 @@ def load_active_definition(
         registry_source=REGISTRY_SOURCE,
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
+        delete_transport_endpoint=(
+            str(row.get("crm_delete_endpoint")).strip() if row.get("crm_delete_endpoint") else None
+        ),
     )

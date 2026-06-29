@@ -10,7 +10,7 @@ interface ComingSoonCardProps {
   color?: string;
 }
 
-export function ComingSoonCard({ title, description, icon: Icon, color = 'text-blue-500' }: ComingSoonCardProps) {
+export function ComingSoonCard({ title, description, icon: Icon, color = 'text-accent-strong' }: ComingSoonCardProps) {
   return (
     <Card className="glass">
       <CardHeader>
@@ -31,7 +31,7 @@ export function ComingSoonCard({ title, description, icon: Icon, color = 'text-b
             🚧 This domain is under development
           </p>
         </div>
-        <Button variant="gradient" effect="glass" className="w-full" disabled showRipple>
+        <Button type="button" variant="gradient" effect="glass" className="w-full" disabled showRipple>
           Notify Me When Ready
         </Button>
       </CardContent>

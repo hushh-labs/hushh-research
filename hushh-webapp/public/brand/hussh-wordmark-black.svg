@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" role="img" aria-label="hussh">
+  <title>hussh</title>
+
+  <text x="300" y="135" text-anchor="middle"
+        font-family="SF Pro Display, SF Pro, Helvetica Neue, Inter, system-ui, sans-serif"
+        font-weight="700" font-size="160" letter-spacing="-5.6"
+        fill="#1d1d1f">hussh</text>
+</svg>

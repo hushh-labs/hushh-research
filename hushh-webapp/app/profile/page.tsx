@@ -448,41 +448,6 @@ function buildProfileHref(params: {
   return query ? `${ROUTES.PROFILE}?${query}` : ROUTES.PROFILE;
 }
 
-function normalizeProfileVaultReturnTo(value: string | null): string | null {
-  const normalized = String(value ?? "").trim();
-  if (!normalized) return null;
-  if (normalized.startsWith(`${ROUTES.ONE_LOCATION}/invite/`)) {
-    return normalized;
-  }
-  return null;
-}
-
-function _formatProfileInventoryBadge(
-  summary: ReturnType<typeof buildPkmProfileSummaryPresentation> | null,
-  params: { loading: boolean; ready: boolean; failed: boolean },
-) {
-  if (!params.ready) {
-    if (params.failed) return "Unavailable";
-    return params.loading ? "Loading" : "Checking";
-  }
-  const itemCount = summary?.totalAttributes ?? 0;
-  const sourceCount = summary?.totalSourceCount ?? 0;
-  return `${itemCount} items · ${sourceCount} sources`;
-}
-
-function _formatProfileAccessBadge(params: {
-  activeGrantCount: number;
-  loading: boolean;
-  ready: boolean;
-  failed: boolean;
-}) {
-  if (!params.ready) {
-    if (params.failed) return "Unavailable";
-    return params.loading ? "Loading" : "Checking";
-  }
-  return `${params.activeGrantCount} active`;
-}
-
 function getProvider(user: ReturnType<typeof useAuth>["user"]) {
   if (!user?.providerData || user.providerData.length === 0) {
     return { name: "Unknown", id: "unknown" };
@@ -831,13 +796,6 @@ function ProfilePageContent() {
   const shouldLoadProfileWorkspaceData =
     profileRouteNeedsWorkspaceData(activePanel);
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
-  const vaultReturnTo = normalizeProfileVaultReturnTo(searchParams.get("return_to"));
-  const vaultReturnToRef = useRef<string | null>(vaultReturnTo);
-  useEffect(() => {
-    if (vaultReturnTo) {
-      vaultReturnToRef.current = vaultReturnTo;
-    }
-  }, [vaultReturnTo]);
   useScrollReset(
     `${pathname}:${activePanel ?? "root"}:${activeDetail ?? "root"}`,
     {
@@ -2410,7 +2368,9 @@ function ProfilePageContent() {
     if (hasVault) {
       requestVaultUnlock("profile_data");
     } else {
-      setShowVaultCreation(true);
+      toast.error(
+        "Create your vault first before unlocking secure profile data.",
+      );
     }
 
     router.replace(
@@ -4334,7 +4294,7 @@ function ProfilePageContent() {
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
                   stackTrailingOnMobile
-                  onClick={() => router.push("/profile/pkm-agent-lab")}
+                  onClick={() => router.push(ROUTES.PROFILE_PKM_AGENT_LAB)}
                 />
               ) : null}
             </SettingsGroup>
@@ -4390,16 +4350,6 @@ function ProfilePageContent() {
               }, 0);
               return;
             }
-            const returnTo = vaultReturnToRef.current;
-            if (returnTo) {
-              vaultReturnToRef.current = null;
-              router.replace(returnTo);
-              setTimeout(() => {
-                vaultUnlockCompletingRef.current = false;
-              }, 0);
-              toast.success("Vault unlocked.");
-              return;
-            }
             if (pendingProfileTarget) {
               updateProfileView(
                 {
@@ -4429,11 +4379,6 @@ function ProfilePageContent() {
             setShowVaultCreation(false);
             setHasVault(true);
             VaultService.setVaultCheckCache(user.uid, true);
-            const returnTo = vaultReturnToRef.current;
-            if (returnTo) {
-              vaultReturnToRef.current = null;
-              router.replace(returnTo);
-            }
             toast.success("Vault created and unlocked.");
           }}
         />

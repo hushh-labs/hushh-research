@@ -12,7 +12,7 @@ import io
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
 
@@ -60,7 +60,7 @@ class Portfolio:
 
     def __post_init__(self):
         if self.parsed_at is None:
-            self.parsed_at = datetime.utcnow()
+            self.parsed_at = datetime.now(UTC)
 
 
 class PortfolioParser:

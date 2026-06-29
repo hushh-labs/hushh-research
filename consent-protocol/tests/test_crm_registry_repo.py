@@ -170,3 +170,72 @@ def test_load_active_definition_does_not_log_plaintext(monkeypatch, caplog):
     joined = " ".join(record.getMessage() for record in caplog.records)
     assert CLIENT_SECRET not in joined
     assert CLIENT_ID not in joined
+
+
+# ---------------------------------------------------------------------------
+# MuleSoft interop: PBKDF2-HMACSHA256 + AES-256-CBC published rows.
+# ---------------------------------------------------------------------------
+
+CONNECTOR_PASSWORD = "a-real-random-connector-secret-not-mule123"
+KDF_SALT = "shared-connector-salt"
+KDF_ITERATIONS = 1000
+
+
+def _pbkdf2_row() -> dict:
+    """A row as MuleSoft would publish it: single blobs + KDF params, no GCM cols."""
+    from hushh_mcp.vault.encrypt import encrypt_data_pbkdf2_cbc
+
+    cid = encrypt_data_pbkdf2_cbc(CLIENT_ID, CONNECTOR_PASSWORD, KDF_SALT, KDF_ITERATIONS)
+    csec = encrypt_data_pbkdf2_cbc(CLIENT_SECRET, CONNECTOR_PASSWORD, KDF_SALT, KDF_ITERATIONS)
+    return {
+        "crm_id": "salesforce-fsc-customer0",
+        "crm_enterprise_name": "Macy's",
+        "crm_type": "Salesforce",
+        "environment": "sandbox",
+        "crm_base_url": "https://api.salesforce.com/platform",
+        "crm_token_url": None,
+        "crm_mcp_endpoint": MCP_ENDPOINT,
+        # GCM columns intentionally absent — this is a PBKDF2 row.
+        "crm_client_id_blob": cid,
+        "crm_client_secret_blob": csec,
+        "kdf_salt": KDF_SALT,
+        "kdf_iterations": KDF_ITERATIONS,
+        "encryption_algorithm": "pbkdf2-hmacsha256-aes256-cbc",
+        "auth_header_style": "client_id_secret_headers",
+        "supports_create": True,
+        "supports_read": True,
+        "supports_update": True,
+        "supports_delete": False,
+        "user_object_name": "Contact",
+        "is_active": True,
+    }
+
+
+def test_load_active_definition_decrypts_pbkdf2_cbc_row(monkeypatch):
+    """A MuleSoft-published PBKDF2-CBC row decrypts to the same headers as GCM."""
+    monkeypatch.setattr(crm_registry_repo, "get_connector_secrets_key", lambda: CONNECTOR_PASSWORD)
+    db = _FakeDb([_pbkdf2_row()], _operation_rows())
+
+    definition = crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
+
+    headers = dict(definition.transport_headers)
+    assert headers["client_id"] == CLIENT_ID
+    assert headers["client_secret"] == CLIENT_SECRET
+
+
+def test_pbkdf2_row_with_wrong_password_raises_configuration_error(monkeypatch):
+    monkeypatch.setattr(
+        crm_registry_repo, "get_connector_secrets_key", lambda: "the-wrong-password"
+    )
+    db = _FakeDb([_pbkdf2_row()], _operation_rows())
+    with pytest.raises(ConnectedSystemConfigurationError):
+        crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
+
+
+def test_pbkdf2_row_missing_kdf_params_raises_configuration_error(monkeypatch):
+    monkeypatch.setattr(crm_registry_repo, "get_connector_secrets_key", lambda: CONNECTOR_PASSWORD)
+    row = _pbkdf2_row()
+    row["kdf_salt"] = None
+    db = _FakeDb([row], _operation_rows())
+    with pytest.raises(ConnectedSystemConfigurationError):
+        crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)

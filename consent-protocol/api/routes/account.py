@@ -29,7 +29,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
@@ -41,15 +41,30 @@ from hushh_mcp.services.actor_identity_service import (
 
 logger = logging.getLogger(__name__)
 
+# RFC 5322-simplified email pattern — rejects obviously invalid addresses
+# without requiring the email-validator package.
+_EMAIL_RE = re.compile(
+    r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+"
+    r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
+)
+
 router = APIRouter(prefix="/api/account", tags=["Account"])
 
 
 @router.post("/identity/refresh")
 async def refresh_account_identity(
     firebase_uid: str = Depends(require_firebase_auth),
+    force: bool = True,
 ):
-    """Refresh the backend account identity shadow from Firebase Auth."""
-    identity = await ActorIdentityService().sync_from_firebase(firebase_uid, force=True)
+    """Refresh the backend account identity shadow from Firebase Auth.
+
+    When ``force`` is false the cached identity shadow is returned if it is
+    fresh, avoiding a synchronous Firebase Auth round-trip and DB upsert. This
+    keeps read-only callers (such as the phone-mandate guard) fast while
+    callers that need guaranteed freshness keep the default forced refresh.
+    """
+    identity = await ActorIdentityService().sync_from_firebase(firebase_uid, force=force)
     return {
         "success": True,
         "user_id": firebase_uid,
@@ -67,10 +82,24 @@ class DeleteAccountRequest(BaseModel):
 class EmailAliasVerificationStartRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email address format")
+        return v
+
 
 class EmailAliasVerificationConfirmRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     verification_code: str = Field(min_length=1, max_length=64)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email address format")
+        return v
 
 
 class PhoneClaimRequest(BaseModel):
@@ -539,14 +568,49 @@ async def delete_account(
         details = result.get("details")
         if not isinstance(details, dict):
             details = {}
-        details["firebase_auth_user"] = await _delete_firebase_auth_user(user_id)
+        firebase_auth_status = await _delete_firebase_auth_user(user_id)
+        details["firebase_auth_user"] = firebase_auth_status
         details[
             "firebase_phone_orphan_user"
         ] = await _delete_safe_phone_only_firebase_user_by_phone(
             phone_number=verified_phone_number,
             protected_uid=user_id,
         )
+        # Fail-loud on Firebase identity orphan: the encrypted account is already
+        # gone, so we keep the 200, but surface the incomplete cleanup so callers can
+        # alert/retry instead of silently treating the identity as removed.
+        if firebase_auth_status == "failed":
+            details["firebase_auth_user_deletion_incomplete"] = True
+            logger.error(
+                "Account deletion completed in DB but Firebase Auth identity remains "
+                "orphaned for user=%s",
+                user_id,
+            )
         result["details"] = details
+
+    return result
+
+
+@router.post("/reset")
+async def reset_account(
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Reset the logged-in user's One account to a fresh, just-onboarded state.
+
+    Clears all personal data (PKM, finance, Gmail, connected systems, consents, KYC,
+    location, marketplace, relationships) while KEEPING the One identity: the Firebase
+    user, the encrypted vault keys + unlock methods, and the actor profile spine. The
+    user re-runs onboarding on next login. Requires VAULT_OWNER token.
+    """
+    user_id = token_data["user_id"]
+    logger.warning("Account reset requested for user %s", user_id)
+
+    service = AccountService()
+    result = await service.reset_account(user_id)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail="Account reset failed")
 
     return result
 

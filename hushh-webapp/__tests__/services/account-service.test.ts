@@ -115,6 +115,61 @@ describe("AccountService", () => {
     });
   });
 
+  describe("resetAccount", () => {
+    it("throws when no vault owner token is provided", async () => {
+      await expect(AccountService.resetAccount("")).rejects.toThrow(
+        "VAULT_OWNER token required"
+      );
+    });
+
+    it("calls the reset proxy with the VAULT_OWNER authorization header", async () => {
+      mockApiJson.mockResolvedValue({
+        success: true,
+        account_deleted: false,
+        account_reset: true,
+      });
+
+      const result = await AccountService.resetAccount("vault-token-abc");
+
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/account/reset",
+        expect.objectContaining({
+          method: "POST",
+          headers: { Authorization: "Bearer vault-token-abc" },
+        })
+      );
+      expect(result.account_reset).toBe(true);
+      expect(result.account_deleted).toBe(false);
+    });
+
+    it("tracks account_reset_requested and account_reset_completed on success", async () => {
+      mockApiJson.mockResolvedValue({ success: true, account_reset: true });
+
+      await AccountService.resetAccount("vault-token-abc");
+
+      expect(mockTrackEvent).toHaveBeenCalledWith("account_reset_requested", {
+        result: "success",
+      });
+      expect(mockTrackEvent).toHaveBeenCalledWith("account_reset_completed", {
+        result: "success",
+        status_bucket: "2xx",
+      });
+    });
+
+    it("tracks error event and rethrows on failure", async () => {
+      mockApiJson.mockRejectedValue(new Error("Network failure"));
+
+      await expect(AccountService.resetAccount("vault-token-abc")).rejects.toThrow(
+        "Network failure"
+      );
+
+      expect(mockTrackEvent).toHaveBeenCalledWith("account_reset_completed", {
+        result: "error",
+        status_bucket: "5xx",
+      });
+    });
+  });
+
   describe("exportData", () => {
     it("throws when no vault owner token is provided", async () => {
       await expect(AccountService.exportData("")).rejects.toThrow("VAULT_OWNER token required");

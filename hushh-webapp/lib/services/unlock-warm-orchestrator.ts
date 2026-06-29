@@ -7,8 +7,14 @@ import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import {
+  ConsentCenterService,
+  CONSENT_CENTER_PAGE_SIZE,
+} from "@/lib/services/consent-center-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
@@ -158,11 +164,35 @@ export class UnlockWarmOrchestrator {
     });
   }
 
+  private static locationKeyBootstrappedByUser = new Set<string>();
+
+  // Eagerly provision the One Location recipient key right after vault unlock so
+  // EVERY signed-in user (new or returning) can receive and request location
+  // without ever opening the One Location page first. The key is an ECDH P-256
+  // keypair held on-device; this only registers the public half. Idempotent:
+  // ensureLocationRecipientKey reuses the device key and the backend upserts on
+  // (user_id, key_id), so it is safe to attempt once per session.
+  private static queueLocationRecipientKeyBootstrap(params: {
+    userId: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (this.locationKeyBootstrappedByUser.has(params.userId)) return;
+    this.locationKeyBootstrappedByUser.add(params.userId);
+    void bootstrapCurrentUserLocationRecipientKey({
+      userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => {
+      // Never block unlock warming; allow a later retry this session.
+      this.locationKeyBootstrappedByUser.delete(params.userId);
+    });
+  }
+
   private static queueConsentExportRefresh(params: {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
+
     void ConsentExportRefreshOrchestrator.ensureRunning({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -209,6 +239,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
     routePath?: string;
+    firebaseIdToken?: string;
   }): Promise<UnlockWarmResult> {
     const warmPriority = resolveWarmPriority(params.routePath);
     const tokenSignature = params.vaultOwnerToken.slice(0, 24);
@@ -251,6 +282,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
     routePath?: string;
+    firebaseIdToken?: string;
   }): Promise<UnlockWarmResult> {
     const startedAtMs = nowMs();
     const cache = CacheService.getInstance();
@@ -452,6 +484,43 @@ export class UnlockWarmOrchestrator {
       result.consentsWarmed = true;
     }
 
+    // Warm the exact cache keys the /consents page reads (consent center
+    // summary + list). The legacy ACTIVE/PENDING/AUDIT writes above feed other
+    // surfaces but do NOT match the consent center page keys, so without this
+    // step /consents always lands cold after unlock. ConsentCenterService
+    // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
+    // so calling it here populates the page-read keys directly. Requires a
+    // Firebase ID token (the consent center proxy is Firebase-authenticated).
+    if (shouldWarmConsents && params.firebaseIdToken) {
+      const idToken = params.firebaseIdToken;
+      await Promise.allSettled([
+        ConsentCenterService.getSummary({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+        }),
+        ConsentCenterService.listEntries({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+          surface: "pending",
+          q: "",
+          page: 1,
+          limit: CONSENT_CENTER_PAGE_SIZE,
+        }),
+        ConsentCenterService.listEntries({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+          surface: "active",
+          q: "",
+          page: 1,
+          limit: CONSENT_CENTER_PAGE_SIZE,
+        }),
+      ]);
+      result.consentsWarmed = true;
+    }
+
     if (
       shouldWarmFinancial &&
       !financialHydrated &&
@@ -499,9 +568,17 @@ export class UnlockWarmOrchestrator {
     }
 
     this.queuePkmUpgrade(params);
+    // Provision the One Location recipient key for every user on every unlock,
+    // regardless of which route they unlocked on, so receiving/requesting
+    // location never requires visiting the One Location page first.
+    this.queueLocationRecipientKeyBootstrap({
+      userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
     if (warmPriority === "consents") {
       this.queueConsentExportRefresh(params);
     }
+
     const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
     trackEvent("startup_readiness_warmup_completed", {
       result: "success",

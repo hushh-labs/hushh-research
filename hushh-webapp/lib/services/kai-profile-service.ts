@@ -7,7 +7,7 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 
 const FINANCIAL_DOMAIN = "financial";
-const SCHEMA_VERSION = 2 as const;
+const SCHEMA_VERSION = 3 as const;
 const FINANCIAL_SCHEMA_VERSION = 3 as const;
 const FINANCIAL_CONTRACT_VERSION = currentDomainContractVersion(FINANCIAL_DOMAIN);
 const FINANCIAL_INTENT_MAP = [
@@ -42,27 +42,35 @@ export type KaiPreferences = {
   risk_profile_selected_at: string | null;
 };
 
-export type KaiOnboardingState = {
+export type KaiSetupState = {
   completed: boolean;
   completed_at: string | null;
   skipped_preferences: boolean;
-  nav_tour_completed_at: string | null;
-  nav_tour_skipped_at: string | null;
-  version: 2;
+  nav_completed_at: string | null;
+  nav_skipped_at: string | null;
+  version: 3;
 };
 
+/** @deprecated Use {@link KaiSetupState}. Kept as an alias during migration. */
+export type KaiOnboardingState = KaiSetupState;
+
 export type KaiProfileV2 = {
-  schema_version: 2;
+  schema_version: 3;
+  setup: KaiSetupState;
+  /** @deprecated Use `setup`. Kept for legacy onboarding callers. */
   onboarding: KaiOnboardingState;
   preferences: KaiPreferences;
   updated_at: string;
 };
 
-export type KaiOnboardingCompletion = {
+export type KaiSetupCompletion = {
   completed: boolean;
   completedAt: string | null;
   skippedPreferences: boolean;
 };
+
+/** @deprecated Use {@link KaiSetupCompletion}. */
+export type KaiOnboardingCompletion = KaiSetupCompletion;
 
 export type KaiPreferencesUpdate = Partial<
   Pick<
@@ -167,16 +175,18 @@ export function resolveHorizonAnchorAt(params: {
 
 function createDefaultProfile(now?: Date): KaiProfileV2 {
   const iso = nowIso(now);
+  const setup: KaiSetupState = {
+    completed: false,
+    completed_at: null,
+    skipped_preferences: false,
+    nav_completed_at: null,
+    nav_skipped_at: null,
+    version: 3,
+  };
   return {
     schema_version: SCHEMA_VERSION,
-    onboarding: {
-      completed: false,
-      completed_at: null,
-      skipped_preferences: false,
-      nav_tour_completed_at: null,
-      nav_tour_skipped_at: null,
-      version: 2,
-    },
+    setup,
+    onboarding: setup,
     preferences: {
       investment_horizon: null,
       investment_horizon_selected_at: null,
@@ -193,12 +203,29 @@ function createDefaultProfile(now?: Date): KaiProfileV2 {
   };
 }
 
+function withOnboardingAlias(
+  profile: Omit<KaiProfileV2, "onboarding"> & {
+    onboarding?: KaiOnboardingState;
+  }
+): KaiProfileV2 {
+  return {
+    ...profile,
+    onboarding: profile.setup,
+  };
+}
+
 function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
   const fallback = createDefaultProfile();
-  const onboardingRaw =
-    raw.onboarding && typeof raw.onboarding === "object" && !Array.isArray(raw.onboarding)
-      ? (raw.onboarding as Record<string, unknown>)
-      : {};
+  // READ-COMPAT: schema v3 stores the block under `setup`; older v2 blobs stored
+  // it under `onboarding`. Accept either so existing encrypted profiles upgrade
+  // transparently on the next read/write.
+  const setupRaw =
+    raw.setup && typeof raw.setup === "object" && !Array.isArray(raw.setup)
+      ? (raw.setup as Record<string, unknown>)
+      : raw.onboarding && typeof raw.onboarding === "object" && !Array.isArray(raw.onboarding)
+        ? (raw.onboarding as Record<string, unknown>)
+        : {};
+  const onboardingRaw = setupRaw;
 
   const prefsRaw =
     raw.preferences && typeof raw.preferences === "object" && !Array.isArray(raw.preferences)
@@ -223,15 +250,20 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
 
   const risk_profile = normalizeRiskProfile(prefsRaw.risk_profile);
 
-  return {
+  return withOnboardingAlias({
     schema_version: SCHEMA_VERSION,
-    onboarding: {
+    setup: {
       completed,
       completed_at: normalizeOptionalIso(onboardingRaw.completed_at),
       skipped_preferences: skipped,
-      nav_tour_completed_at: normalizeOptionalIso(onboardingRaw.nav_tour_completed_at),
-      nav_tour_skipped_at: normalizeOptionalIso(onboardingRaw.nav_tour_skipped_at),
-      version: 2,
+      // READ-COMPAT: accept new nav_* keys, falling back to legacy nav_tour_* keys.
+      nav_completed_at:
+        normalizeOptionalIso(onboardingRaw.nav_completed_at) ??
+        normalizeOptionalIso(onboardingRaw.nav_tour_completed_at),
+      nav_skipped_at:
+        normalizeOptionalIso(onboardingRaw.nav_skipped_at) ??
+        normalizeOptionalIso(onboardingRaw.nav_tour_skipped_at),
+      version: 3,
     },
     preferences: {
       investment_horizon,
@@ -256,7 +288,7 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
       ),
     },
     updated_at: normalizeOptionalIso(raw.updated_at) ?? fallback.updated_at,
-  };
+  });
 }
 
 function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
@@ -264,16 +296,16 @@ function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
   const introSeen = raw.intro_seen === true;
   const investment_horizon = normalizeInvestmentHorizon(raw.investment_horizon);
 
-  return {
+  return withOnboardingAlias({
     schema_version: SCHEMA_VERSION,
-    onboarding: {
+    setup: {
       completed: introSeen,
       completed_at: null,
       // Older users may not have completed the original PKM questionnaire.
       skipped_preferences: introSeen,
-      nav_tour_completed_at: null,
-      nav_tour_skipped_at: null,
-      version: 2,
+      nav_completed_at: null,
+      nav_skipped_at: null,
+      version: 3,
     },
     preferences: {
       investment_horizon,
@@ -288,7 +320,7 @@ function normalizeProfileLegacy(raw: Record<string, unknown>): KaiProfileV2 {
       risk_profile_selected_at: null,
     },
     updated_at: normalizeOptionalIso(raw.updated_at) ?? fallback.updated_at,
-  };
+  });
 }
 
 function normalizeProfile(raw: unknown): KaiProfileV2 {
@@ -319,17 +351,17 @@ function profileFromFinancialSummaryRoot(
   }
 
   const base = normalizeProfileLegacy(financialRecord);
-  const completed = summaryCompleted || base.onboarding.completed;
-  const skipped = summarySkipped || base.onboarding.skipped_preferences;
+  const completed = summaryCompleted || base.setup.completed;
+  const skipped = summarySkipped || base.setup.skipped_preferences;
   const completedAt =
-    base.onboarding.completed_at ??
+    base.setup.completed_at ??
     normalizeOptionalIso(financialRecord.last_updated) ??
     normalizeOptionalIso(financialRecord.updated_at);
 
   return {
     ...base,
-    onboarding: {
-      ...base.onboarding,
+    setup: {
+      ...base.setup,
       completed,
       skipped_preferences: skipped,
       completed_at: completed ? completedAt : null,
@@ -391,20 +423,20 @@ function selectProfileFromFinancialDomain(financialValue: unknown): KaiProfileV2
       const legacySummary = profileFromFinancialSummaryRoot(financialRecord);
       if (
         legacySummary &&
-        legacySummary.onboarding.completed &&
-        !normalized.onboarding.completed
+        legacySummary.setup.completed &&
+        !normalized.setup.completed
       ) {
         return {
           ...normalized,
-          onboarding: {
-            ...normalized.onboarding,
+          setup: {
+            ...normalized.setup,
             completed: true,
             skipped_preferences:
-              normalized.onboarding.skipped_preferences ||
-              legacySummary.onboarding.skipped_preferences,
+              normalized.setup.skipped_preferences ||
+              legacySummary.setup.skipped_preferences,
             completed_at:
-              normalized.onboarding.completed_at ??
-              legacySummary.onboarding.completed_at,
+              normalized.setup.completed_at ??
+              legacySummary.setup.completed_at,
           },
         };
       }
@@ -463,8 +495,8 @@ function buildProfileSummary(profile: KaiProfileV2): Record<string, unknown> {
   return {
     domain_contract_version: FINANCIAL_CONTRACT_VERSION,
     intent_map: [...FINANCIAL_INTENT_MAP],
-    profile_completed: profile.onboarding.completed,
-    profile_skipped_preferences: profile.onboarding.skipped_preferences,
+    profile_completed: profile.setup.completed,
+    profile_skipped_preferences: profile.setup.skipped_preferences,
     risk_profile: profile.preferences.risk_profile,
     risk_score: profile.preferences.risk_score,
     has_investment_horizon: Boolean(profile.preferences.investment_horizon),
@@ -503,11 +535,11 @@ function recomputeDerived(
 
 export function resolveKaiOnboardingCompletion(
   profile: KaiProfileV2 | null | undefined
-): KaiOnboardingCompletion {
+): KaiSetupCompletion {
   return {
-    completed: profile?.onboarding.completed === true,
-    completedAt: profile?.onboarding.completed_at ?? null,
-    skippedPreferences: profile?.onboarding.skipped_preferences === true,
+    completed: profile?.setup.completed === true,
+    completedAt: profile?.setup.completed_at ?? null,
+    skippedPreferences: profile?.setup.skipped_preferences === true,
   };
 }
 
@@ -563,9 +595,9 @@ export class KaiProfileService {
     const next: KaiProfileV2 = {
       ...current,
       schema_version: SCHEMA_VERSION,
-      onboarding: {
-        ...current.onboarding,
-        version: 2,
+      setup: {
+        ...current.setup,
+        version: 3,
         // Saving preferences implies "not skipped".
         skipped_preferences: false,
       },
@@ -621,6 +653,7 @@ export class KaiProfileService {
     }
 
     next.preferences = recomputeDerived(next.preferences, iso);
+    next.onboarding = next.setup;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
@@ -660,15 +693,16 @@ export class KaiProfileService {
     const next: KaiProfileV2 = {
       ...current,
       schema_version: SCHEMA_VERSION,
-      onboarding: {
-        ...current.onboarding,
+      setup: {
+        ...current.setup,
         completed: true,
         completed_at: iso,
         skipped_preferences: params.skippedPreferences,
-        version: 2,
+        version: 3,
       },
       updated_at: iso,
     };
+    next.onboarding = next.setup;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
@@ -709,20 +743,21 @@ export class KaiProfileService {
     const next: KaiProfileV2 = {
       ...current,
       schema_version: SCHEMA_VERSION,
-      onboarding: {
-        ...current.onboarding,
-        nav_tour_completed_at:
+      setup: {
+        ...current.setup,
+        nav_completed_at:
           params.completedAt !== undefined
             ? params.completedAt
-            : current.onboarding.nav_tour_completed_at,
-        nav_tour_skipped_at:
+            : current.setup.nav_completed_at,
+        nav_skipped_at:
           params.skippedAt !== undefined
             ? params.skippedAt
-            : current.onboarding.nav_tour_skipped_at,
-        version: 2,
+            : current.setup.nav_skipped_at,
+        version: 3,
       },
       updated_at: iso,
     };
+    next.onboarding = next.setup;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
@@ -736,7 +771,7 @@ export class KaiProfileService {
         }),
         summary: {
           ...buildProfileSummary(next),
-          nav_tour_completed: Boolean(next.onboarding.nav_tour_completed_at),
+          nav_tour_completed: Boolean(next.setup.nav_completed_at),
         },
       }),
     });
@@ -779,9 +814,9 @@ export class KaiProfileService {
     const next: KaiProfileV2 = {
       ...current,
       schema_version: SCHEMA_VERSION,
-      onboarding: {
-        ...current.onboarding,
-        version: 2,
+      setup: {
+        ...current.setup,
+        version: 3,
       },
       preferences: { ...current.preferences },
       updated_at: iso,
@@ -792,15 +827,15 @@ export class KaiProfileService {
         params.onboarding.completedAt !== undefined
           ? params.onboarding.completedAt
           : params.onboarding.completed
-            ? current.onboarding.completed_at ?? iso
+            ? current.setup.completed_at ?? iso
             : null;
 
-      next.onboarding = {
-        ...next.onboarding,
+      next.setup = {
+        ...next.setup,
         completed: params.onboarding.completed,
         completed_at: onboardingCompletedAt,
         skipped_preferences: params.onboarding.skippedPreferences,
-        version: 2,
+        version: 3,
       };
 
       const answers = params.onboarding.answers;
@@ -824,18 +859,19 @@ export class KaiProfileService {
     }
 
     if (params.navTour) {
-      next.onboarding = {
-        ...next.onboarding,
-        nav_tour_completed_at:
+      next.setup = {
+        ...next.setup,
+        nav_completed_at:
           params.navTour.completedAt !== undefined
             ? params.navTour.completedAt
-            : next.onboarding.nav_tour_completed_at,
-        nav_tour_skipped_at:
+            : next.setup.nav_completed_at,
+        nav_skipped_at:
           params.navTour.skippedAt !== undefined
             ? params.navTour.skippedAt
-            : next.onboarding.nav_tour_skipped_at,
+        : next.setup.nav_skipped_at,
       };
     }
+    next.onboarding = next.setup;
 
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
@@ -850,7 +886,7 @@ export class KaiProfileService {
         }),
         summary: {
           ...buildProfileSummary(next),
-          nav_tour_completed: Boolean(next.onboarding.nav_tour_completed_at),
+          nav_tour_completed: Boolean(next.setup.nav_completed_at),
         },
       }),
     });

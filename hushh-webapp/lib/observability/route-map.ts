@@ -3,6 +3,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 export const ROUTE_ID_VALUES = [
   "one_dashboard",
   "developers",
+  "getting_started",
   "login",
   "logout",
   "phone_mandate",
@@ -25,6 +26,7 @@ export const ROUTE_ID_VALUES = [
   "one_location",
   "one_location_public_request",
   "one_location_circle_invite",
+  "one_setup",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -52,6 +54,7 @@ export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) return "one_dashboard";
   if (pathname === ROUTES.DEVELOPERS) return "developers";
+  if (pathname === ROUTES.GETTING_STARTED) return "getting_started";
   if (pathname === ROUTES.LOGIN) return "login";
   if (pathname === ROUTES.LOGOUT) return "logout";
   if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
@@ -94,6 +97,9 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
   if (pathname.startsWith("/one/location/invite/")) return "one_location_circle_invite";
+  if (pathname === ROUTES.ONE_SETUP || pathname.startsWith(`${ROUTES.ONE_SETUP}/`)) {
+    return "one_setup";
+  }
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";

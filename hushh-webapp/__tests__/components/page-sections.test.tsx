@@ -5,6 +5,15 @@ import { describe, expect, it } from "vitest";
 import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
 
 describe("PageHeader", () => {
+  it("renders the page header data-slot contract", () => {
+    const { container } = render(<PageHeader title="Dashboard" />);
+
+    const header = container.querySelector('[data-slot="page-header"]');
+
+    expect(header).toBeTruthy();
+    expect(header?.getAttribute("data-page-primary")).toBe("true");
+  });
+
   it("uses the shared mobile stacking and description clamp slots", () => {
     const { container } = render(
       <PageHeader

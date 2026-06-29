@@ -1,18 +1,22 @@
 # consent-protocol/db/db_client.py
 """
-Database Client - SQLAlchemy Session Pooler
+Database Client - SQLAlchemy (synchronous)
 
-This module provides a unified database access layer using SQLAlchemy with
-Supabase's session pooler for direct PostgreSQL connections.
+This module provides a unified, SYNCHRONOUS database access layer using
+SQLAlchemy + psycopg2 over Google Cloud SQL (Postgres). Supabase has been
+removed; Cloud SQL is the only datastore. Connectivity matches db.connection:
+the Cloud SQL Auth Proxy locally (127.0.0.1:CLOUDSQL_PROXY_PORT) and the Cloud
+SQL Unix socket on Cloud Run.
 
 Architecture:
-  API Route → Service Layer (validates consent) → DB Client → PostgreSQL
+  API Route → Service Layer (validates consent) → DB Client → Cloud SQL
 
-Benefits over REST API:
-  - Direct PostgreSQL connection (lower latency)
-  - Full SQL power (transactions, CTEs, raw queries)
-  - Single connection method for all operations
-  - Consistent with migration scripts
+IMPORTANT — blocking I/O:
+  Every execute()/execute_raw() here is a BLOCKING psycopg2 call. When called
+  from an async (FastAPI) request handler it MUST be wrapped in
+  ``starlette.concurrency.run_in_threadpool`` (or asyncio.to_thread); otherwise
+  it stalls the event loop and serialises all concurrent requests. Prefer the
+  async asyncpg pool in db.connection for new async code paths.
 """
 
 import json
@@ -283,7 +287,7 @@ def get_db_engine() -> Engine:
             # Cloud SQL Unix socket path must be passed in query host param.
             encoded_socket = quote_plus(db_unix_socket)
             database_url = (
-                f"postgresql+psycopg2://{db_user}:{db_password}@/{db_name}?host={encoded_socket}"
+                f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@/{db_name}?host={encoded_socket}"
             )
             target = db_unix_socket
         else:
@@ -292,7 +296,7 @@ def get_db_engine() -> Engine:
                 if ("supabase.com" in str(db_host) or "pooler.supabase" in str(db_host))
                 else ""
             )
-            database_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
+            database_url = f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
             target = f"{db_host}:{db_port}/{db_name}"
 
         connect_args: dict[str, Any] = {
@@ -311,7 +315,7 @@ def get_db_engine() -> Engine:
             )
 
         use_null_pool = _env_truthy("DB_SQLALCHEMY_USE_NULL_POOL", False)
-        logger.info(f"Initializing database connection to {target}")
+        logger.info("Initializing database connection to %s", target)
         if use_null_pool:
             _engine = create_engine(
                 database_url,
@@ -568,7 +572,7 @@ class TableQuery:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Database error: {e}")
+            logger.error("Database error: %s", e)
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
@@ -820,7 +824,7 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Raw SQL error: {e}")
+            logger.error("Raw SQL error: %s", e)
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
@@ -866,7 +870,7 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"RPC error: {e}")
+            logger.error("RPC error: %s", e)
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<rpc>",

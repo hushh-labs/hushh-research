@@ -51,9 +51,9 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   marketplace: {
-    eyebrow: "text-sky-700 dark:text-sky-300",
-    icon: "border border-sky-500/12 bg-sky-500/[0.06] text-sky-700 shadow-[var(--shadow-xs)] dark:border-sky-400/16 dark:bg-sky-400/[0.08] dark:text-sky-200",
-    divider: "bg-sky-300/50 dark:bg-sky-400/30",
+    eyebrow: "text-accent-strong",
+    icon: "border border-accent-border bg-accent-surface text-accent-strong shadow-[var(--shadow-xs)]",
+    divider: "bg-accent/40",
   },
   developers: {
     eyebrow: "text-rose-700 dark:text-rose-300",
@@ -145,6 +145,7 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
+  id,
   testId = "page-header",
 }: {
   eyebrow?: string;
@@ -157,11 +158,13 @@ export function PageHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  id?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
     <header
+      id={id}
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-slot="page-header"
       data-page-primary="true"
@@ -265,7 +268,12 @@ export function SectionHeader({
   return (
     <div
       id={id}
-      className={cn("space-y-[var(--section-header-stack-gap)]", className)}
+      className={cn(
+        // Design-system default: a little extra vertical breathing room around
+        // every section heading (Workflows, Memory, Access, etc.).
+        "space-y-[var(--section-header-stack-gap)] py-1 sm:py-1.5",
+        className,
+      )}
       data-testid={testId}
     >
       <div className="flex items-stretch gap-3">
@@ -294,7 +302,8 @@ export function SectionHeader({
               <div
                 role="heading"
                 aria-level={2}
-                className="text-[15px] font-medium leading-tight tracking-normal text-foreground sm:text-[16px]"
+                data-slot="section-header-title"
+                className="text-[13px] font-medium leading-tight tracking-normal text-foreground sm:text-[14px]"
               >
                 {title}
               </div>

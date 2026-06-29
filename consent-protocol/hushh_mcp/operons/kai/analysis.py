@@ -67,7 +67,7 @@ def analyze_fundamentals(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Fundamental Operon] TrustLink validation failed: {reason}")
+        logger.error("[Fundamental Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
@@ -134,7 +134,7 @@ def analyze_sentiment(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Sentiment Operon] TrustLink validation failed: {reason}")
+        logger.error("[Sentiment Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
@@ -205,7 +205,7 @@ def analyze_valuation(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Valuation Operon] TrustLink validation failed: {reason}")
+        logger.error("[Valuation Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:

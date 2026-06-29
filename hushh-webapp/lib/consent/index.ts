@@ -12,3 +12,4 @@ export {
   type ConsentMutationDetail,
   type PendingConsent,
 } from "./use-consent-actions";
+export { useOneLocationConsentActions } from "./use-one-location-consent-actions";

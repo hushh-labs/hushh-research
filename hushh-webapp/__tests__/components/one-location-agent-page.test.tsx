@@ -20,7 +20,6 @@ const {
   mockRevokeGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
-  mockCreateCircleInvite,
   mockGetActivity,
   mockGetState,
   mockSyncCurrentUser,
@@ -47,7 +46,6 @@ const {
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
-  mockCreateCircleInvite: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
@@ -85,18 +83,6 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
   VaultLockGuard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("@/components/vault/vault-flow", () => ({
-  VaultFlow: ({
-    onSuccess,
-  }: {
-    onSuccess: (meta?: { mode: string }) => void;
-  }) => (
-    <button type="button" onClick={() => onSuccess({ mode: "passphrase" })}>
-      Mock Vault Flow
-    </button>
-  ),
-}));
-
 vi.mock("@/lib/one-location/encryption", () => ({
   ensureLocationRecipientKey: mockEnsureKey,
   encryptLocationForRecipient: mockEncryptLocationForRecipient,
@@ -122,9 +108,7 @@ vi.mock("@/lib/one-location/service", () => ({
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
-    createCircleInvite: mockCreateCircleInvite,
     revokePublicInvite: vi.fn(),
-    revokeCircleInvite: vi.fn(),
   },
 }));
 
@@ -692,14 +676,12 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("renders public and private invite controls", async () => {
+  it("renders a public location link control", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByText("Invite to One")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create Circle Invite/i })).toBeTruthy();
     expect(screen.getByText("Create public link")).toBeTruthy();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
@@ -844,7 +826,9 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     expect(screen.queryByText(longPublicUrl)).toBeNull();
-    const publicLinkPreview = await screen.findByText(`${longPublicUrl.slice(0, 52)}...`);
+    const publicLinkPreview = await screen.findByText(
+      "https://uat.kai.hushh.ai/one/location/request/aQluqH...",
+    );
     expect(publicLinkPreview.getAttribute("title")).toBe(longPublicUrl);
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
@@ -1374,7 +1358,9 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByText("Unlock your vault before loading location sharing."),
+      await screen.findByText(
+        "Unlock your vault before loading location sharing.",
+      ),
     ).toBeTruthy();
     expect(mockRegisterKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();

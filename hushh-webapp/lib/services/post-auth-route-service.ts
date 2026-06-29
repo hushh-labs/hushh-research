@@ -3,11 +3,7 @@
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { RiaService } from "@/lib/services/ria-service";
-import {
-  buildPhoneMandateRoute,
-  buildProfileVaultRoute,
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
 import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
 import type { PreVaultOnboardingAnswers } from "@/lib/services/pre-vault-onboarding-service";
 
@@ -31,26 +27,6 @@ function hasCompletePreVaultAnswers(
       answers?.drawdown_response &&
       answers?.volatility_preference,
   );
-}
-
-function isOneLocationInviteRedirect(path: string): boolean {
-  return (
-    path === ROUTES.ONE_LOCATION ||
-    path.startsWith(`${ROUTES.ONE_LOCATION}?`) ||
-    path.startsWith(`${ROUTES.ONE_LOCATION}/invite/`)
-  );
-}
-
-function inviteRedirectTargetFor(path: string): string | null {
-  if (isOneLocationInviteRedirect(path)) return path;
-  try {
-    const url = new URL(path, "https://one.local");
-    if (url.pathname !== ROUTES.PROFILE) return null;
-    const returnTo = url.searchParams.get("return_to");
-    return returnTo && isOneLocationInviteRedirect(returnTo) ? returnTo : null;
-  } catch {
-    return null;
-  }
 }
 
 export class PostAuthRouteService {
@@ -89,7 +65,6 @@ export class PostAuthRouteService {
 
     if (remoteState.hasVault) {
       const onboardingResolved = PreVaultUserStateService.isOnboardingResolved(remoteState);
-      const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
       if (
         remoteState.preOnboardingCompleted === false &&
         !onboardingResolved
@@ -103,18 +78,6 @@ export class PostAuthRouteService {
         onboardingResolved
       ) {
         return DEFAULT_HOME_ROUTE;
-      }
-      if (
-        inviteRedirectTarget &&
-        shouldRequirePhoneMandate({
-          phoneNumber: params.phoneNumber,
-          phoneVerified: params.phoneVerified,
-          hasVault: true,
-          hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
-          pathname: fallbackRoute,
-        })
-      ) {
-        return buildPhoneMandateRoute(fallbackRoute);
       }
       return fallbackRoute;
     }
@@ -152,22 +115,20 @@ export class PostAuthRouteService {
       }
     }
 
-    const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
-    const resolvedNoVaultRoute = inviteRedirectTarget
-      ? buildProfileVaultRoute(inviteRedirectTarget)
-      : onboardingResolved
-        ? NO_VAULT_DEFAULT_ROUTE
-        : PRE_VAULT_ROUTE;
+    const resolvedNoVaultRoute = onboardingResolved
+      ? NO_VAULT_DEFAULT_ROUTE
+      : PRE_VAULT_ROUTE;
 
     if (
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         phoneVerified: params.phoneVerified,
         hasVault: false,
-        hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+        hostname:
+          params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
       })
     ) {
-      return buildPhoneMandateRoute(inviteRedirectTarget ?? resolvedNoVaultRoute);
+      return buildPhoneMandateRoute(resolvedNoVaultRoute);
     }
 
     return resolvedNoVaultRoute;

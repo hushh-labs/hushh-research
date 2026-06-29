@@ -898,6 +898,26 @@ export class VaultService {
   }
 
   /**
+   * Synchronously read the cached vault-presence value (memory -> session ->
+   * bootstrap) without issuing a network call. Returns null when no cached
+   * value exists. Lets guards hydrate their first paint from the shared cache
+   * instead of maintaining their own module-level Maps.
+   */
+  static peekVaultPresence(userId: string): boolean | null {
+    const cached = CacheService.getInstance().get<boolean>(
+      CACHE_KEYS.VAULT_CHECK(userId)
+    );
+    if (cached !== null && cached !== undefined) {
+      return cached;
+    }
+    const sessionCached = this.readSessionVaultCheck(userId);
+    if (sessionCached !== null) {
+      return sessionCached;
+    }
+    return this.readBootstrapVaultCheck(userId);
+  }
+
+  /**
    * Set vault check cache to true (call after create or unlock so subsequent checks skip API).
    */
   static setVaultCheckCache(userId: string, exists: boolean): void {

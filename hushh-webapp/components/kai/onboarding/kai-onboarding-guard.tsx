@@ -19,12 +19,12 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, isOneSetupWizardRoute } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 
-const KAI_ONBOARDING_COMPLETION_SESSION_PREFIX = "kai_onboarding_complete";
+const KAI_ONBOARDING_COMPLETION_SESSION_PREFIX = "hushh_setup_complete";
 
 function onboardingCompletionSessionKey(userId: string): string {
   return `${KAI_ONBOARDING_COMPLETION_SESSION_PREFIX}:${userId}`;
@@ -41,7 +41,17 @@ function writeOnboardingCompletionHint(userId: string, completed: boolean): void
   setSessionItem(onboardingCompletionSessionKey(userId), completed ? "1" : "0");
 }
 
-export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) {
+/**
+ * OneOnboardingGuard: the hard gate for the One onboarding surface.
+ *
+ * Mounted on `/one/*` (and the legacy `/kai/*`), it ensures a user who has not
+ * resolved the root setup gate cannot reach any One/Kai surface other than
+ * the setup flow. Incomplete users are redirected to the canonical
+ * `/one/setup` hub; resolved users who land on the investor-preferences WIZARD
+ * (`/one/setup/kai`) are bounced home. The `/one/setup` hub itself stays
+ * browsable after setup, so resolved users are NOT bounced off it.
+ */
+export function OneOnboardingGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
@@ -55,10 +65,26 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     let cancelled = false;
     const chromeState = getKaiChromeState(pathname);
+    // Allow-through: any setup surface (the /one/setup hub OR the
+    // /one/setup/kai wizard) so incomplete users are not redirect-looped.
     const onOnboardingRoute = chromeState.isOnboardingRoute;
+    // Resolved-bounce only off the WIZARD, never off the browsable setup hub.
+    const onOnboardingWizardRoute = isOneSetupWizardRoute(pathname);
     const preserveOnboardingAuditRoute =
       nativeTestConfig.enabled &&
-      nativeTestConfig.expectedRoute === ROUTES.ONE_ONBOARDING;
+      nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_KAI;
+    // Intentional re-entry: a resolved user who deliberately reopens the
+    // investor-preferences wizard (e.g. tapping the Finance tile from the setup
+    // hub, which forwards with a `from` param, or an explicit `edit=1`) must NOT
+    // be bounced home. Only the *automatic* post-completion bounce is suppressed
+    // here; first-run gating is unchanged.
+    const wizardReentryRequested = (() => {
+      if (typeof window === "undefined") return false;
+      const params = new URLSearchParams(window.location.search);
+      return params.has("from") || params.get("edit") === "1";
+    })();
+    const suppressWizardBounce =
+      preserveOnboardingAuditRoute || wizardReentryRequested;
 
     async function run() {
       if (authLoading) return;
@@ -91,12 +117,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           const remoteState = await PreVaultUserStateService.bootstrapState(user.uid);
           if (cancelled) return;
 
-          let onboardingIncomplete = !PreVaultUserStateService.isOnboardingResolved(remoteState);
+          let onboardingIncomplete = !PreVaultUserStateService.isSetupResolved(remoteState);
           if (onboardingIncomplete) {
             const remoteUnset =
-              remoteState.preOnboardingCompleted === null &&
-              remoteState.preOnboardingSkipped === null &&
-              remoteState.preOnboardingCompletedAt === null;
+              remoteState.setupCompleted === null &&
+              remoteState.setupSkipped === null &&
+              remoteState.setupCompletedAt === null;
             if (remoteUnset) {
               const pending = await PreVaultOnboardingService.load(user.uid).catch(
                 () => null
@@ -109,14 +135,14 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
                     : Date.now();
                 try {
                   await PreVaultUserStateService.updatePreVaultState(user.uid, {
-                    preOnboardingCompleted: true,
-                    preOnboardingSkipped: pending.skipped,
-                    preOnboardingCompletedAt: completedAtMs,
+                    setupCompleted: true,
+                    setupSkipped: pending.skipped,
+                    setupCompletedAt: completedAtMs,
                   });
                   onboardingIncomplete = false;
                 } catch (bridgeError) {
                   console.warn(
-                    "[KaiOnboardingGuard] Failed local->remote pre-vault bridge:",
+                    "[OneOnboardingGuard] Failed local->remote pre-vault bridge:",
                     bridgeError
                   );
                 }
@@ -127,13 +153,13 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
 
           if (onboardingIncomplete && !onOnboardingRoute) {
-            router.replace(ROUTES.ONE_ONBOARDING);
+            router.replace(ROUTES.ONE_SETUP);
             return;
           }
 
-          if (!onboardingIncomplete && onOnboardingRoute) {
-            if (!preserveOnboardingAuditRoute) {
-              router.replace(ROUTES.KAI_HOME);
+          if (!onboardingIncomplete && onOnboardingWizardRoute) {
+            if (!suppressWizardBounce) {
+              router.replace(ROUTES.ONE_HOME);
               return;
             }
           }
@@ -156,20 +182,20 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
             return;
           }
 
-          const onboardingResolved = PreVaultUserStateService.isOnboardingResolved(remoteState);
+          const onboardingResolved = PreVaultUserStateService.isSetupResolved(remoteState);
           const onboardingExplicitlyIncomplete =
-            remoteState.preOnboardingCompleted === false && !onboardingResolved;
+            remoteState.setupCompleted === false && !onboardingResolved;
 
           setOnboardingRequiredCookie(onboardingExplicitlyIncomplete);
           writeOnboardingCompletionHint(user.uid, onboardingResolved);
 
           if (!onOnboardingRoute && onboardingExplicitlyIncomplete) {
-            router.replace(ROUTES.ONE_ONBOARDING);
+            router.replace(ROUTES.ONE_SETUP);
             return;
           }
-          if (onboardingResolved && onOnboardingRoute) {
-            if (!preserveOnboardingAuditRoute) {
-              router.replace(ROUTES.KAI_HOME);
+          if (onboardingResolved && onOnboardingWizardRoute) {
+            if (!suppressWizardBounce) {
+              router.replace(ROUTES.ONE_HOME);
               return;
             }
           }
@@ -202,7 +228,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
               vaultOwnerToken,
             }).catch((syncError) => {
               console.warn(
-                "[KaiOnboardingGuard] Deferred onboarding sync failed, retrying later:",
+                "[OneOnboardingGuard] Deferred onboarding sync failed, retrying later:",
                 syncError
               );
             });
@@ -214,15 +240,15 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
             () => null
           );
           if (cancelled) return;
-          if (!PreVaultUserStateService.isOnboardingResolved(remoteState)) {
-            void PreVaultUserStateService.syncKaiOnboardingState({
+          if (!PreVaultUserStateService.isSetupResolved(remoteState)) {
+            void PreVaultUserStateService.syncKaiSetupState({
               userId: user.uid,
               completed: true,
               skipped: completion.skippedPreferences,
               completedAt: completion.completedAt,
             }).catch((syncError) => {
               console.warn(
-                "[KaiOnboardingGuard] Failed vault->remote onboarding bridge:",
+                "[OneOnboardingGuard] Failed vault->remote onboarding bridge:",
                 syncError
               );
             });
@@ -232,7 +258,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
 
         if (onboardingIncomplete && !onOnboardingRoute) {
-          router.replace(ROUTES.ONE_ONBOARDING);
+          router.replace(ROUTES.ONE_SETUP);
           return;
         }
 
@@ -242,14 +268,14 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           setOnboardingFlowActiveCookie(false);
         }
 
-        if (!onboardingIncomplete && onOnboardingRoute) {
-          if (!preserveOnboardingAuditRoute) {
-            router.replace(ROUTES.KAI_HOME);
+        if (!onboardingIncomplete && onOnboardingWizardRoute) {
+          if (!suppressWizardBounce) {
+            router.replace(ROUTES.ONE_HOME);
             return;
           }
         }
       } catch (error) {
-        console.warn("[KaiOnboardingGuard] Failed to check onboarding state:", error);
+        console.warn("[OneOnboardingGuard] Failed to check onboarding state:", error);
         if (!cancelled) {
           setGuardError("Unable to load onboarding state. Please retry.");
         }
@@ -263,9 +289,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
     return () => {
       cancelled = true;
     };
+    // Depend on `user?.uid` (stable identity) rather than the whole `user`
+    // object: Firebase mints a new User reference on every token refresh, which
+    // would otherwise re-run this entire gate (and its network reads) needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     authLoading,
-    user,
     user?.uid,
     isVaultUnlocked,
     vaultKey,
@@ -303,3 +332,9 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
 
   return <>{children}</>;
 }
+
+/**
+ * @deprecated Use {@link OneOnboardingGuard}. Retained so the legacy
+ * `/kai` layout keeps compiling during the route consolidation.
+ */
+export const KaiOnboardingGuard = OneOnboardingGuard;

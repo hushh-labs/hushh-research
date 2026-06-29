@@ -1,6 +1,6 @@
 # consent-protocol/api/routes/pkm_routes_shared.py
 """
-Shared PKM request/response models and route handlers.
+Shared PKM request/response models and route handlers with bounded path parameters (CWE-400).
 
 Implements the current PKM architecture:
 - pkm_blobs: encrypted per-domain payloads
@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _Domain = Annotated[str, Path(min_length=1, max_length=200)]
+_RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
@@ -328,6 +329,23 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
         return []
 
 
+class SegmentBlob(BaseModel):
+    """Single-level encrypted blob for one segment of a PKM domain payload.
+
+    Intentionally non-recursive: the server only reads one level of segments
+    (see get_domain_data below), so accepting arbitrarily nested EncryptedBlob
+    trees via Pydantic would let a caller force unbounded recursive validation
+    depth on every store-domain call (CWE-400).
+    """
+
+    ciphertext: str = Field(
+        ..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data"
+    )
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
+
+
 class EncryptedBlob(BaseModel):
     """Encrypted data blob."""
 
@@ -340,8 +358,9 @@ class EncryptedBlob(BaseModel):
     # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.
     tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
     algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
-    segments: dict[str, "EncryptedBlob"] = Field(
+    segments: dict[str, SegmentBlob] = Field(
         default_factory=dict,
+        max_length=50,
         description="Optional segmented PKM ciphertext payloads keyed by segment id",
     )
 
@@ -443,9 +462,6 @@ class StoreDomainResponse(BaseModel):
     conflict: bool = False
     data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
     updated_at: Optional[str] = Field(default=None, max_length=64)
-
-
-EncryptedBlob.model_rebuild()
 
 
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
@@ -642,7 +658,7 @@ async def get_domain_data(
             tag=data["tag"],
             algorithm=data.get("algorithm", "aes-256-gcm"),
             segments={
-                segment_id: EncryptedBlob(
+                segment_id: SegmentBlob(
                     ciphertext=segment_blob["ciphertext"],
                     iv=segment_blob["iv"],
                     tag=segment_blob["tag"],
@@ -777,7 +793,7 @@ class DefaultAvailableProjectionResponse(BaseModel):
 
 @router.post("/domains/{domain}/scope-exposure", response_model=ScopeExposureResponse)
 async def update_scope_exposure(
-    domain: str,
+    domain: _Domain,
     request: ScopeExposureRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -1076,8 +1092,8 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
 
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
-    user_id: str,
-    token_data: dict,
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """
     Get user's PKM metadata for UI display.
@@ -1462,7 +1478,7 @@ async def _maybe_reconcile_upgrade_status(
 
 @router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
 async def get_upgrade_status(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != user_id:
@@ -1498,8 +1514,8 @@ async def start_or_resume_upgrade(
 
 @router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_run_status(
+    run_id: _RunId,
     request: UpdateUpgradeRunRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1523,9 +1539,9 @@ async def update_upgrade_run_status(
 
 @router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_step(
+    run_id: _RunId,
+    domain: _Domain,
     request: UpdateUpgradeStepRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
-    domain: str = Path(..., min_length=1, max_length=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1551,8 +1567,8 @@ async def update_upgrade_step(
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
 async def complete_upgrade_run(
+    run_id: _RunId,
     request: StartOrResumeUpgradeRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1575,8 +1591,8 @@ async def complete_upgrade_run(
 
 @router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
 async def fail_upgrade_run(
+    run_id: _RunId,
     request: UpdateUpgradeRunRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1666,7 +1682,7 @@ async def get_domain_registry(
 
 @router.get("/scopes/{user_id}", response_model=UserScopesResponse)
 async def get_user_scopes(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """

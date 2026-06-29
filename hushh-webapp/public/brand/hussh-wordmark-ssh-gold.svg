@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="73 8 460 146" role="img" aria-label="hussh">
+  <title>hussh</title>
+
+  <!-- Wordmark with the "ssh" emphasized in the hussh deep gold accent for
+       readability against white. "hu" stays ink; "ssh" uses the site's deep
+       accent token (hussh gold deep #b8894d). The viewBox is tightened to the
+       glyph ink bounds so the wordmark optically centers on the nav tab line. -->
+  <text x="300" y="135" text-anchor="middle"
+        font-family="SF Pro Display, SF Pro, Helvetica Neue, Inter, system-ui, sans-serif"
+        font-weight="700" font-size="160" letter-spacing="-5.6">
+    <tspan fill="#1d1d1f">hu</tspan><tspan fill="#b8894d">ssh</tspan>
+  </text>
+</svg>

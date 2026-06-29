@@ -157,6 +157,7 @@ class _FakeAgentChatService:
         runtime_client,
         runtime_model: str,
         pkm_context: str | None = None,
+        screen_context: dict | None = None,
     ):
         assert user_message == "Hello Agent"
         assert history == []

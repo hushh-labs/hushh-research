@@ -25,6 +25,7 @@ import {
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 const analysisRootClassName = cn(
@@ -37,8 +38,8 @@ const analysisRootClassName = cn(
   "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
   "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
-  "[--one-blue:#0071e3] [--one-link:#0066cc] [--one-blue-t:rgba(0,113,227,0.10)]",
-  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff] dark:[--one-blue-t:rgba(10,132,255,0.18)]",
+  "[--one-blue:#d4a574] [--one-link:#b8894d] [--one-blue-t:rgba(212,165,116,0.10)]",
+  "dark:[--one-blue:#d4a574] dark:[--one-link:#d4a574] dark:[--one-blue-t:rgba(212,165,116,0.18)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
@@ -407,6 +408,7 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            autoComplete="off"
             placeholder="Message Kai..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
@@ -559,7 +561,9 @@ export function KaiAnalysisPreviewView() {
               event.preventDefault();
               const query = stockQuery.trim();
               if (query) {
-                openAnalysisHref(`/kai/analysis?preview=analysis&q=${encodeURIComponent(query)}`);
+                openAnalysisHref(
+                  `${ROUTES.KAI_ANALYSIS}?preview=analysis&q=${encodeURIComponent(query)}`
+                );
               }
             }}
             className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
@@ -567,6 +571,7 @@ export function KaiAnalysisPreviewView() {
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
               type="text"
+              autoComplete="off"
               placeholder="Analyze any stock"
               value={stockQuery}
               onChange={(event) => setStockQuery(event.target.value)}

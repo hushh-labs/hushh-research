@@ -39,11 +39,13 @@ export class RouteErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error(
-      "[RouteErrorBoundary] Uncaught error:",
-      error,
-      errorInfo.componentStack,
-    );
+    if (process.env.NODE_ENV !== "production") {
+      console.error(
+        "[RouteErrorBoundary] Uncaught error:",
+        error,
+        errorInfo.componentStack,
+      );
+    }
   }
 
   private handleRetry = () => {

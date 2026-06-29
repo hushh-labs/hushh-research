@@ -16,7 +16,7 @@ Use this reference for execution after `pr-train-review-sop.md` and
 9. Produce the operator dossier from `operator-batch-output-contract.md`.
 10. Execute approved GitHub writes by editing existing maintainer records first.
 11. Exclude PRs just handled by a current standardized maintainer record until fresh contributor or GitHub state changes.
-12. Run a post-changes repass train for green PRs with contributor activity after a maintainer changes-requested record.
+12. Run a post-changes repass train for PRs the contributor has addressed since the maintainer changes-requested record. Detect "addressed" by EITHER signal: (a) contributor commit/comment newer than the latest maintainer CR review, OR (b) HEAD-DRIFT — the current head SHA differs from the `commit_id` that review was pinned to. Head-drift is timestamp-immune and is the authoritative signal: a rebase keeps an old `committedDate` and an edited review body keeps an old `submittedAt`, so timestamp-only detection silently misses genuinely-fixed PRs. Never leave a head-drifted PR sitting on a stale block record.
 13. For merges, apply the Exact-Head Queue Safety gate, enqueue only the current verified head SHA, and monitor queue and smoke.
 14. Refresh live report and contributor-impact dashboard.
 15. Return the parent worktree to the recorded developer branch after temporary checkout, worktree, detached HEAD, or queue-monitoring branch changes.

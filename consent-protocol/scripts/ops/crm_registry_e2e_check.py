@@ -22,14 +22,21 @@ os.environ.setdefault("OFFLINE_DB_PATH", "/tmp/crm_e2e_offline.db")
 os.environ["CRM_REGISTRY_DB_ENABLED"] = "true"
 
 from db.db_client import get_db  # noqa: E402
-from hushh_mcp.config import VAULT_DATA_KEY  # noqa: E402
+from hushh_mcp.runtime_settings import (  # noqa: E402
+    get_connector_kdf_iterations,
+    get_connector_kdf_salt,
+    get_connector_secrets_key,
+)
 from hushh_mcp.services import crm_registry_repo  # noqa: E402
 from hushh_mcp.services.connected_systems_service import (  # noqa: E402  # noqa: E402
     CONNECTED_SYSTEM_SALESFORCE_ID,
     ConnectedSystemsService,
     InMemoryConnectedSystemIntentStore,
 )
-from hushh_mcp.vault.encrypt import encrypt_data  # noqa: E402
+from hushh_mcp.vault.encrypt import (  # noqa: E402
+    PBKDF2_CBC_ALGORITHM,
+    encrypt_data_pbkdf2_cbc,
+)
 
 CRM_ID = CONNECTED_SYSTEM_SALESFORCE_ID
 ENDPOINT = os.environ["CRM_E2E_MCP_ENDPOINT"]
@@ -48,14 +55,19 @@ def _create_tables(db) -> None:
           crm_base_url TEXT NOT NULL,
           crm_token_url TEXT,
           crm_mcp_endpoint TEXT NOT NULL,
-          crm_client_id_ciphertext TEXT NOT NULL,
-          crm_client_id_iv TEXT NOT NULL,
-          crm_client_id_tag TEXT NOT NULL,
-          crm_client_secret_ciphertext TEXT NOT NULL,
-          crm_client_secret_iv TEXT NOT NULL,
-          crm_client_secret_tag TEXT NOT NULL,
-          encryption_algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm',
-          key_id TEXT NOT NULL DEFAULT 'vault_data_key_v1',
+          crm_delete_endpoint TEXT,
+          crm_client_id_ciphertext TEXT,
+          crm_client_id_iv TEXT,
+          crm_client_id_tag TEXT,
+          crm_client_secret_ciphertext TEXT,
+          crm_client_secret_iv TEXT,
+          crm_client_secret_tag TEXT,
+          crm_client_id_blob TEXT,
+          crm_client_secret_blob TEXT,
+          kdf_salt TEXT,
+          kdf_iterations INTEGER,
+          encryption_algorithm TEXT NOT NULL DEFAULT 'pbkdf2-hmacsha256-aes256-cbc',
+          key_id TEXT NOT NULL DEFAULT 'connector_secrets_key_v1',
           auth_header_style TEXT NOT NULL DEFAULT 'client_id_secret_headers',
           supports_create INTEGER NOT NULL DEFAULT 1,
           supports_read INTEGER NOT NULL DEFAULT 1,
@@ -91,8 +103,16 @@ def _create_tables(db) -> None:
 
 
 def _seed(db) -> None:
-    cid = encrypt_data(CLIENT_ID, VAULT_DATA_KEY)
-    csec = encrypt_data(CLIENT_SECRET, VAULT_DATA_KEY)
+    password = get_connector_secrets_key()
+    salt = get_connector_kdf_salt()
+    iterations = get_connector_kdf_iterations()
+    if not password or not salt:
+        raise SystemExit(
+            "CONNECTOR_SECRETS_KEY and CONNECTOR_KDF_SALT must be set for the "
+            "MuleSoft-native PBKDF2 e2e check."
+        )
+    cid_blob = encrypt_data_pbkdf2_cbc(CLIENT_ID, password, salt, iterations)
+    csec_blob = encrypt_data_pbkdf2_cbc(CLIENT_SECRET, password, salt, iterations)
     db.execute_raw("DELETE FROM enterprise_crm_registry WHERE crm_id = :id", {"id": CRM_ID})
     db.execute_raw("DELETE FROM crm_operation_endpoints WHERE crm_id = :id", {"id": CRM_ID})
     db.execute_raw(
@@ -100,28 +120,23 @@ def _seed(db) -> None:
         INSERT INTO enterprise_crm_registry (
           crm_id, crm_enterprise_name, crm_type, environment,
           crm_base_url, crm_mcp_endpoint,
-          crm_client_id_ciphertext, crm_client_id_iv, crm_client_id_tag,
-          crm_client_secret_ciphertext, crm_client_secret_iv, crm_client_secret_tag,
+          crm_client_id_blob, crm_client_secret_blob,
           encryption_algorithm, key_id, auth_header_style,
           supports_delete, user_object_name, is_active
         ) VALUES (
           :id, 'Macys', 'Salesforce', 'sandbox',
           'https://api.salesforce.com/platform', :endpoint,
-          :cid_ct, :cid_iv, :cid_tag,
-          :csec_ct, :csec_iv, :csec_tag,
-          'aes-256-gcm', 'vault_data_key_v1', 'client_id_secret_headers',
+          :cid_blob, :csec_blob,
+          :algorithm, 'connector_secrets_key_v1', 'client_id_secret_headers',
           0, 'Contact', 1
         )
         """,
         {
             "id": CRM_ID,
             "endpoint": ENDPOINT,
-            "cid_ct": cid.ciphertext,
-            "cid_iv": cid.iv,
-            "cid_tag": cid.tag,
-            "csec_ct": csec.ciphertext,
-            "csec_iv": csec.iv,
-            "csec_tag": csec.tag,
+            "cid_blob": cid_blob,
+            "csec_blob": csec_blob,
+            "algorithm": PBKDF2_CBC_ALGORITHM,
         },
     )
     for op, tool in (

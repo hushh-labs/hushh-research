@@ -82,11 +82,12 @@ Forbidden:
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
 4. Shared shell and surface layout tokens live in `hushh-webapp/app/globals.css`.
-5. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
+5. Color identity is the **Foundation** system: gold (`--color-accent-*` / `text-accent-strong`) is emphasis/accent ONLY, ink (`--primary`) carries primary, gray carries support. Use semantic accent tokens, never raw hex or off-palette `blue-*`/`sky-*`/`indigo-*`/`cyan-*`. The full Foundation Color Contract (the gold law, the brand-accent-vs-semantic-status rule, and the blue→gold sweep mapping) lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
+6. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
    - `--app-shell-reading`
    - `--app-shell-standard`
    - `--app-shell-expanded`
-6. Use shared gutter tokens instead of route-local page padding:
+7. Use shared gutter tokens instead of route-local page padding:
    - `--page-inline-gutter-standard`
    - `--page-surface-overscan`
 

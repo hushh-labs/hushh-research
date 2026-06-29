@@ -283,7 +283,7 @@ export function HistoryDetailView({
       <Card variant="none" effect="glass">
         <CardContent className="p-3 sm:p-4">
           <div className="flex items-center gap-2 text-xs text-zinc-400">
-            <Icon icon={Clock} size="xs" className="text-blue-400" />
+            <Icon icon={Clock} size="xs" className="text-accent-strong" />
             <span className="font-sans">
               Stored result from {formatTimestamp(entry.timestamp)} — not a live analysis
             </span>

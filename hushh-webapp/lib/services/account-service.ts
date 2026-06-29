@@ -16,6 +16,14 @@ export interface AccountDeletionResult {
   details?: Record<string, unknown>;
 }
 
+export interface AccountResetResult {
+  success: boolean;
+  account_deleted?: boolean;
+  account_reset?: boolean;
+  error?: string;
+  details?: Record<string, unknown>;
+}
+
 export interface AccountDataExportResult {
   success: boolean;
   exported_at?: string;
@@ -125,6 +133,49 @@ export class AccountServiceImpl {
     } catch (error) {
       console.error("Account deletion failed:", error);
       trackEvent("account_delete_completed", {
+        result: "error",
+        status_bucket: "5xx",
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Reset the One account to a fresh, just-onboarded state.
+   *
+   * Clears all personal data (PKM, finance, Gmail, connected systems, consents,
+   * KYC, location, marketplace, relationships) but KEEPS the One identity: the
+   * Firebase user, encrypted vault keys + unlock methods, and the actor profile.
+   * The user re-runs onboarding on next login.
+   *
+   * SECURITY: Token must be passed explicitly from useVault() hook.
+   *
+   * @param vaultOwnerToken - The VAULT_OWNER consent token (REQUIRED)
+   */
+  async resetAccount(vaultOwnerToken: string): Promise<AccountResetResult> {
+    if (!vaultOwnerToken) {
+      throw new Error("VAULT_OWNER token required - vault must be unlocked");
+    }
+
+    trackEvent("account_reset_requested", {
+      result: "success",
+    });
+
+    try {
+      const result = await apiJson<AccountResetResult>("/api/account/reset", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${vaultOwnerToken}`,
+        },
+      });
+      trackEvent("account_reset_completed", {
+        result: result.success ? "success" : "error",
+        status_bucket: result.success ? "2xx" : "5xx",
+      });
+      return result;
+    } catch (error) {
+      console.error("Account reset failed:", error);
+      trackEvent("account_reset_completed", {
         result: "error",
         status_bucket: "5xx",
       });

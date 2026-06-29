@@ -10,6 +10,7 @@ export type {
   UseStreamingTextReturn,
 } from "./use-streaming-text";
 export { usePageEnterAnimation } from "./use-page-enter";
+export { useRouteTransition } from "./use-route-transition";
 export { useFadeInOnReady } from "./use-fade-in-on-ready";
 export { useCarouselDeckFocus } from "./use-carousel-deck-focus";
 export { useFeatureRailTrail } from "./use-feature-rail-trail";

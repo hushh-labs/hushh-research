@@ -285,3 +285,43 @@ def test_one_kyc_workflow_consent_exports_uses_vault_user_without_consent_token(
     assert response.json()["exports"][0]["scope"] == "attr.identity.*"
     assert "consent_token" not in response.text
     assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]
+
+
+def test_redraft_llm_route_forwards_to_service(monkeypatch):
+    # Arrange: stub the service method the route calls.
+    import api.routes.one.email as email_mod
+
+    captured = {}
+
+    class _StubService:
+        async def redraft_llm(
+            self, *, user_id, workflow_id, tokenized_template, instruction, consent_token
+        ):
+            captured.update(
+                user_id=user_id,
+                workflow_id=workflow_id,
+                tokenized_template=tokenized_template,
+                instruction=instruction,
+            )
+            return {"rewritten_template": "Hi {{F0}}"}
+
+    monkeypatch.setattr(email_mod, "_service", lambda: _StubService())
+
+    client = _build_app(user_id="u1")
+
+    # Act
+    resp = client.post(
+        "/api/one/kyc/workflows/wf-1/redraft-llm",
+        json={
+            "user_id": "u1",
+            "tokenized_template": "Hi {{F0}}, ref {{F1}}.",
+            "instruction": "warmer tone",
+        },
+    )
+
+    # Assert
+    assert resp.status_code == 200
+    assert resp.json() == {"rewritten_template": "Hi {{F0}}"}
+    assert captured["workflow_id"] == "wf-1"
+    assert captured["tokenized_template"] == "Hi {{F0}}, ref {{F1}}."
+    assert captured["instruction"] == "warmer tone"

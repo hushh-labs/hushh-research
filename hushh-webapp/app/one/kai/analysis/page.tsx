@@ -196,7 +196,7 @@ function KaiAnalysisPageContent() {
         params.set("debate_id", nextDebateId);
       }
       const query = params.toString();
-      router.replace(query ? `/kai/analysis?${query}` : "/kai/analysis");
+      router.replace(query ? `${ROUTES.KAI_ANALYSIS}?${query}` : ROUTES.KAI_ANALYSIS);
     },
     [router]
   );
@@ -352,7 +352,7 @@ function KaiAnalysisPageContent() {
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
-      router.push(
+      router.replace(
         buildKaiAnalysisPreviewRoute({
           ticker: normalizedTicker,
           pickSource: previewPickSource,
@@ -405,7 +405,7 @@ function KaiAnalysisPageContent() {
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       setDebateIdParam(null);
-      router.push(
+      router.replace(
         buildKaiAnalysisPreviewRoute({
           ticker: normalizedTicker,
           pickSource: previewPickSource,
@@ -990,7 +990,7 @@ function KaiAnalysisPageContent() {
     return (
       <AppPageShell as="div" width="standard" className="flex min-h-96 items-center justify-center">
         <NativeTestBeacon
-          routeId="/kai/analysis"
+          routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
           authState={user ? "authenticated" : "pending"}
           dataState="loading"
@@ -1004,7 +1004,7 @@ function KaiAnalysisPageContent() {
     return (
       <AppPageShell as="div" width="reading">
         <NativeTestBeacon
-          routeId="/kai/analysis"
+          routeId={ROUTES.KAI_ANALYSIS}
           marker="native-route-kai-analysis"
           authState={user ? "authenticated" : "pending"}
           dataState="unavailable-valid"
@@ -1041,7 +1041,7 @@ function KaiAnalysisPageContent() {
       {showWorkspace ? (
         <AppPageShell as="div" width="expanded" data-testid="kai-analysis-primary">
           <NativeTestBeacon
-            routeId="/kai/analysis"
+            routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"
             authState={user ? "authenticated" : "pending"}
             dataState="loaded"
@@ -1250,7 +1250,7 @@ function KaiAnalysisPageContent() {
       ) : !resolvingEntry ? (
         <AppPageShell as="div" width="expanded" data-testid="kai-analysis-primary">
           <NativeTestBeacon
-            routeId="/kai/analysis"
+            routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"
             authState={user ? "authenticated" : "pending"}
             dataState={stockPreviewLoading ? "loading" : "loaded"}

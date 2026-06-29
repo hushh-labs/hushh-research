@@ -27,7 +27,13 @@ type Slide = {
   preview: React.ReactNode;
 };
 
-export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) {
+export function PreviewCarouselStep({
+  onContinue,
+  onBack: _onBack,
+}: {
+  onContinue: () => void;
+  onBack?: () => void;
+}) {
   const slides: Slide[] = useMemo(
     () => [
       {

@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 
@@ -31,29 +31,31 @@ _REALTIME_SERVER_VAD_THRESHOLD = 0.72
 _REALTIME_SERVER_VAD_PREFIX_PADDING_MS = 450
 _REALTIME_SERVER_VAD_SILENCE_MS = 800
 _AGENT_REALTIME_INSTRUCTIONS = (
-    "You are Agent, a concise assistant inside Hussh. This demo supports text and "
-    "voice conversation, but has no tools, memory, portfolio access, PKM context, or "
-    "app context yet. Answer plainly and do not claim access to private user data or "
-    "app actions."
+    "You are One, the personal agent inside Hussh. You hold the relationship layer and "
+    "speak warmly and concisely. In this realtime voice conversation you have no tools, "
+    "memory, portfolio access, PKM context, or app actions, so do not claim access to "
+    "private user data or perform app actions. For finance defer to Kai, for privacy and "
+    "consent defer to Nav, and for identity defer to KYC, and let the user know they can "
+    "switch to typed chat for those workflows. Answer plainly in English."
 )
 
 
 class AgentRealtimeSessionRequest(BaseModel):
-    user_id: str
-    voice: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    voice: str | None = Field(default=None, max_length=128)
 
 
 class AgentRealtimeSessionResponse(BaseModel):
-    session_id: str | None = None
-    client_secret: str
-    client_secret_expires_at: int | None = None
-    model: str
-    voice: str
-    transcription_model: str
-    transcription_language: str
-    transcription_prompt: str
+    session_id: str | None = Field(default=None, max_length=256)
+    client_secret: str = Field(..., max_length=2048)
+    client_secret_expires_at: int | None = Field(default=None, ge=0)
+    model: str = Field(..., max_length=128)
+    voice: str = Field(..., max_length=128)
+    transcription_model: str = Field(..., max_length=128)
+    transcription_language: str = Field(..., max_length=64)
+    transcription_prompt: str = Field(..., max_length=2048)
     server_vad_enabled: bool = True
-    silence_duration_ms: int
+    silence_duration_ms: int = Field(..., ge=0, le=10000)
 
 
 def _safe_user_ref(user_id: str) -> str:

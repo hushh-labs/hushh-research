@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8").replace(/\r\n/g, "\n");
 }
 
 describe("Top app bar responsive contract", () => {
@@ -51,6 +51,8 @@ describe("Top app bar responsive contract", () => {
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
+    expect(source).toContain("function shouldReplaceTopShellBackNavigation");
+    expect(source).toContain("router.replace(topShellBreadcrumb.backHref);");
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
   });
@@ -94,6 +96,8 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("topShellBreadcrumb.backHref");
+    expect(source).toContain("shouldReplaceTopShellBackNavigation");
+    expect(source).toContain("router.replace(topShellBreadcrumb.backHref);");
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("history.back()");
   });
@@ -106,9 +110,8 @@ describe("Top app bar responsive contract", () => {
 
     expect(chrome).toContain("export function TopShellDropdownContent");
     expect(chrome).toContain("centeredMobileAlignOffset");
-    expect(chrome).toContain(
-      'querySelectorAll<HTMLElement>(\n      \'[data-slot="dropdown-menu-trigger"][data-state="open"]\'',
-    );
+    expect(chrome).toContain("querySelectorAll<HTMLElement>(");
+    expect(chrome).toContain('[data-slot="dropdown-menu-trigger"][data-state="open"]');
     expect(chrome).toContain("max-md:w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("max-md:min-w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("max-md:max-w-[calc(100vw-1.5rem)]");
@@ -136,4 +139,17 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("selected: null");
     expect(source).toContain("notificationAction: null");
   });
+
+  it("covers notification loading icon and status live region semantics", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("<DebateTaskCenter");
+    expect(source).toContain('aria-label="Notifications"');
+    expect(source).toContain("activeCount > 0");
+    expect(source).toContain('className="h-5 w-5 animate-spin text-sky-500"');
+    expect(source).toContain('aria-hidden="true"');
+    expect(source).toContain('role="status"');
+    expect(source).toContain('aria-live="polite"');
+    expect(source).toContain('aria-atomic="true"');
   });
+});

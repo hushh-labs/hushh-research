@@ -20,18 +20,18 @@ This repo now runs on a dedicated PR-train branch, a protected promotion branch,
 
 | Lane | Purpose | Default policy |
 |---|---|---|
-| `integration/pr-train` | Normal PR intake and async train landing | Effective landing base for every normal feature/fix/docs PR |
-| `main` | Promotion branch for deployable history | Only `integration/pr-train` may open normal promotion PRs into `main` |
+| `integration/pr-train` | Normal non-maintainer PR intake and async train landing | Effective landing base for non-maintainer feature/fix/docs PRs |
+| `main` | Promotion branch for deployable history | Governed maintainers may open direct PRs into `main` from branches created from `origin/main`; everyone else rides `integration/pr-train` |
 | UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
-1. Start all maintainer/developer branches from the current `integration/pr-train` unless an isolated `main` hotfix is explicitly required.
+1. Merge-to-main lane is decided by author. Governed maintainers branch from `origin/main` and PR directly into `main`; `scripts/ci/verify-pr-base-policy.py` authorizes that path by actor identity. Non-maintainers use `integration/pr-train`.
 2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
 3. Merge all normal feature/fix/docs work into `integration/pr-train`.
-4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
-5. Do not merge direct feature, contributor, or agent PRs into `main`; CI blocks them unless the head branch is `integration/pr-train`.
+4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean when the work followed the train lane.
+5. Do not merge direct non-maintainer feature, contributor, or agent PRs into `main`; CI blocks them unless they ride the train lane.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
 8. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.

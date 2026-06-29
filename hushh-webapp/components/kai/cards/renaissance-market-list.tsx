@@ -373,6 +373,7 @@ export function RiaPicksList({
                       <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
+                        aria-label="Search symbol, company, sector, or thesis"
                         placeholder="Search symbol, company, sector, or thesis"
                         autoComplete="off"
                         autoCorrect="off"
@@ -519,6 +520,7 @@ export function RiaPicksList({
                     <Input
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
+                      aria-label="Search symbol, company, sector, or thesis"
                       placeholder="Search symbol, company, sector, or thesis"
                       autoComplete="off"
                       autoCorrect="off"
@@ -586,7 +588,6 @@ export function RiaPicksList({
         ) : (
           <div
             className={cn("touch-pan-y", isMobile && "space-y-2 px-3 py-3", !isMobile && "")}
-            data-no-route-swipe
           >
             {currentPageRows.map((row) => {
               const changePct =
@@ -608,7 +609,6 @@ export function RiaPicksList({
                 <button
                   key={`${row.symbol}-${row.tier || "tierless"}`}
                   type="button"
-                  data-no-route-swipe
                   onClick={() => setSelectedRow(row)}
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
@@ -690,10 +690,7 @@ export function RiaPicksList({
         )}
 
         {filteredRows.length > pageSize ? (
-          <div
-            className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
-            data-no-route-swipe
-          >
+          <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
             <div className="space-y-1">
               <p className="text-xs leading-5 text-muted-foreground">
                 Page {page} of {totalPages}

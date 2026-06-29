@@ -804,7 +804,7 @@ class DynamicScopeGenerator:
 
             return candidate_path in domain_paths or candidate_path in domain_wildcards
         except Exception as e:
-            logger.error(f"Error validating scope {scope}: {e}")
+            logger.error("Error validating scope %s: %s", scope, e)
             return False
 
     async def get_available_scopes(

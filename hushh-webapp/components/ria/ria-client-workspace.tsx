@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
@@ -269,6 +269,7 @@ export function RiaClientWorkspace({
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [requestReason, setRequestReason] = useState("");
+  const requestAccessButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -348,6 +349,9 @@ export function RiaClientWorkspace({
       await refreshWorkspace();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send access request");
+      window.requestAnimationFrame(() => {
+        requestAccessButtonRef.current?.focus({ preventScroll: true });
+      });
     } finally {
       setRequestingAccess(false);
     }
@@ -728,11 +732,11 @@ export function RiaClientWorkspace({
                         {availableScopeOptions.map((scope) => {
                           const checked = selectedScopes.includes(scope.scope);
                           return (
-                            <label htmlFor="ria-client-input-1"
+                            <label htmlFor={`ria-scope-${scope.scope}`}
                               key={scope.scope}
                               className="flex items-start gap-3 rounded-[20px] border border-border/60 bg-background/70 px-4 py-3"
                             >
-                              <Checkbox id="ria-client-input-1"
+                              <Checkbox id={`ria-scope-${scope.scope}`}
                                 checked={checked}
                                 onCheckedChange={(next) => {
                                   const shouldCheck = Boolean(next);
@@ -764,11 +768,11 @@ export function RiaClientWorkspace({
                           activeAccountBranches.map((branch) => {
                             const checked = selectedAccountIds.includes(branch.branch_id);
                             return (
-                              <label htmlFor="ria-client-input-2"
+                              <label htmlFor={`ria-branch-${branch.branch_id}`}
                                 key={branch.branch_id}
                                 className="flex items-start gap-3 px-4 py-3"
                               >
-                                <Checkbox id="ria-client-input-2"
+                                <Checkbox id={`ria-branch-${branch.branch_id}`}
                                   checked={checked}
                                   onCheckedChange={(next) => {
                                     const shouldCheck = Boolean(next);
@@ -815,6 +819,7 @@ export function RiaClientWorkspace({
 
                     <div className="flex flex-wrap gap-2">
                       <Button type="button"
+                        ref={requestAccessButtonRef}
                         variant="blue-gradient"
                         effect="fill"
                         data-voice-control-id="ria_client_workspace_send_request"

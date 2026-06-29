@@ -186,13 +186,24 @@ export function useStaleResource<T>({
     [cache, cacheKey, enabled, label]
   );
 
+  // Keep the latest refresh in a ref so the auto-load effect below can run it
+  // without listing `refresh` in its dependency array. `refresh` changes
+  // identity whenever cacheKey/label change, and including it would re-fire the
+  // load on every benign re-key (e.g. URL-normalization churn) even when the
+  // cached value is still fresh. The effect is intentionally keyed only on the
+  // semantic inputs: enabled, cacheKey, and refreshKey.
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
+
   useEffect(() => {
     if (!enabled) {
       setLoading(false);
       return;
     }
-    void refresh();
-  }, [enabled, refresh, refreshKey]);
+    void refreshRef.current();
+  }, [enabled, cacheKey, refreshKey]);
 
   return {
     data,

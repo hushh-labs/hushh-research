@@ -54,6 +54,24 @@ class AccountService:
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
+            "kai_location_access_requests": text(
+                "DELETE FROM kai_location_access_requests WHERE owner_user_id = :user_id"
+            ),
+            "kai_location_contacts": text(
+                "DELETE FROM kai_location_contacts WHERE owner_user_id = :user_id"
+            ),
+            "kai_location_events": text(
+                "DELETE FROM kai_location_events WHERE owner_user_id = :user_id"
+            ),
+            "kai_location_latest": text(
+                "DELETE FROM kai_location_latest WHERE owner_user_id = :user_id"
+            ),
+            "kai_location_shares": text(
+                "DELETE FROM kai_location_shares WHERE owner_user_id = :user_id"
+            ),
+            "kai_location_update_sessions": text(
+                "DELETE FROM kai_location_update_sessions WHERE owner_user_id = :user_id"
+            ),
             "kai_funding_ach_relationships": text(
                 "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
             ),
@@ -424,6 +442,288 @@ class AccountService:
             requested_target=requested_target,
         )
 
+    def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
+        """Clear all per-user data tables EXCEPT the account spine.
+
+        Shared by full-account deletion and account reset. Deletes finance, Gmail,
+        PKM, connected systems, consent audit, KYC, location, marketplace, and
+        relationship rows. Does NOT touch vault_keys, vault_key_wrappers,
+        actor_profiles, actor_identity_cache, or actor_verified_email_aliases so the
+        One identity and vault survive a reset.
+        """
+        params = {"user_id": user_id}
+        self._delete_optional_user_tables(
+            conn,
+            table_names=[
+                "kai_funding_trade_events",
+                "kai_funding_trade_intents",
+                "kai_funding_transfer_events",
+                "kai_funding_support_escalations",
+                "kai_funding_transfers",
+                "kai_funding_ach_relationships",
+                "kai_funding_consent_records",
+                "kai_funding_plaid_accounts",
+                "kai_funding_plaid_items",
+                "kai_funding_brokerage_accounts",
+                "kai_funding_alpaca_connect_sessions",
+                "kai_funding_reconciliation_runs",
+                "kai_gmail_receipts",
+                "kai_gmail_sync_runs",
+                "kai_gmail_connections",
+                "kai_receipt_memory_artifacts",
+                "kai_portfolio_source_preferences",
+                "consent_export_refresh_jobs",
+                "consent_exports",
+                "connected_system_audit_events",
+                "connected_system_record_bindings",
+                "connected_system_intents",
+                "pkm_default_available_projections",
+                "pkm_upgrade_steps",
+                "pkm_upgrade_runs",
+            ],
+            params=params,
+            results=results,
+        )
+        conn.execute(text("DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"), params)
+        results["plaid_refresh_runs"] = True
+        conn.execute(text("DELETE FROM kai_plaid_link_sessions WHERE user_id = :user_id"), params)
+        results["plaid_link_sessions"] = True
+        conn.execute(text("DELETE FROM kai_plaid_items WHERE user_id = :user_id"), params)
+        results["plaid_items"] = True
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="kai_plaid_user_profile_cache", params=params
+        )
+        results["plaid_profile_cache"] = True
+        conn.execute(text("DELETE FROM pkm_events WHERE user_id = :user_id"), params)
+        results["pkm_events"] = True
+        conn.execute(text("DELETE FROM pkm_scope_registry WHERE user_id = :user_id"), params)
+        results["pkm_scope_registry"] = True
+        conn.execute(text("DELETE FROM pkm_manifest_paths WHERE user_id = :user_id"), params)
+        results["pkm_manifest_paths"] = True
+        conn.execute(text("DELETE FROM pkm_manifests WHERE user_id = :user_id"), params)
+        results["pkm_manifests"] = True
+        conn.execute(text("DELETE FROM pkm_blobs WHERE user_id = :user_id"), params)
+        results["pkm_blobs"] = True
+        conn.execute(text("DELETE FROM pkm_index WHERE user_id = :user_id"), params)
+        results["pkm_index"] = True
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="world_model_index_v2", params=params
+        )
+        results["world_model_index_v2"] = True
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="pkm_migration_state", params=params
+        )
+        results["pkm_migration_state"] = True
+        self._delete_user_rows_if_table_exists(conn, table_name="pkm_data", params=params)
+        results["pkm_data"] = True
+        conn.execute(
+            text(
+                """
+                DELETE FROM ria_client_invites
+                WHERE target_investor_user_id = :user_id
+                   OR accepted_by_user_id = :user_id
+                """
+            ),
+            params,
+        )
+        results["invite_links"] = True
+        if self._table_exists(conn, "relationship_share_events"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM relationship_share_events
+                    WHERE provider_user_id = :user_id
+                       OR receiver_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+        results["relationship_share_events"] = True
+        if self._table_exists(conn, "relationship_share_grants"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM relationship_share_grants
+                    WHERE provider_user_id = :user_id
+                       OR receiver_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+        results["relationship_share_grants"] = True
+        if self._table_exists(conn, "ria_pick_share_artifacts"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM ria_pick_share_artifacts
+                    WHERE provider_user_id = :user_id
+                       OR receiver_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+        results["ria_pick_share_artifacts"] = True
+        if self._table_exists(conn, "ria_pick_uploads"):
+            if self._table_exists(conn, "ria_profiles"):
+                conn.execute(
+                    text(
+                        """
+                        DELETE FROM ria_pick_uploads
+                        WHERE uploaded_by_user_id = :user_id
+                           OR ria_profile_id IN (
+                             SELECT id FROM ria_profiles WHERE user_id = :user_id
+                           )
+                        """
+                    ),
+                    params,
+                )
+            else:
+                conn.execute(
+                    text("DELETE FROM ria_pick_uploads WHERE uploaded_by_user_id = :user_id"),
+                    params,
+                )
+        results["ria_pick_uploads"] = True
+        if self._table_exists(conn, "advisor_investor_relationships"):
+            if self._table_exists(conn, "ria_profiles"):
+                conn.execute(
+                    text(
+                        """
+                        DELETE FROM advisor_investor_relationships
+                        WHERE investor_user_id = :user_id
+                           OR ria_profile_id IN (
+                             SELECT id FROM ria_profiles WHERE user_id = :user_id
+                           )
+                        """
+                    ),
+                    params,
+                )
+            else:
+                conn.execute(
+                    text(
+                        "DELETE FROM advisor_investor_relationships WHERE investor_user_id = :user_id"
+                    ),
+                    params,
+                )
+        results["relationships"] = True
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="marketplace_investor_actions", params=params
+        )
+        results["marketplace_investor_actions"] = True
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="marketplace_public_profiles", params=params
+        )
+        results["marketplace_profile"] = True
+        conn.execute(text("DELETE FROM consent_audit WHERE user_id = :user_id"), params)
+        results["consent_audit"] = True
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="internal_access_events", params=params
+        )
+        results["internal_access_events"] = True
+        self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
+        results["push_tokens"] = True
+        self._delete_user_rows_if_table_exists(conn, table_name="one_kyc_workflows", params=params)
+        results["one_kyc_workflows"] = True
+        for table_name in (
+            "one_location_events",
+            "one_location_referrals",
+            "one_location_public_invite_submissions",
+            "one_location_public_invites",
+            "one_location_circle_invites",
+            "one_location_network_connections",
+            "one_location_access_requests",
+            "one_location_envelopes",
+            "one_location_share_grants",
+            "one_location_recipient_keys",
+        ):
+            self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
+            results[table_name] = True
+
+    async def reset_account(self, user_id: str) -> Dict[str, Any]:
+        """Reset the One account to a fresh, just-onboarded state.
+
+        Clears all personal data (PKM, finance, Gmail, connected systems, consents,
+        KYC, location, marketplace, relationships) but KEEPS the One identity: the
+        Firebase user, vault_keys + vault_key_wrappers (unlock methods), and the
+        actor_profiles spine. The dashboard re-provisions lazily on next use, and the
+        user re-runs onboarding.
+        """
+        logger.warning("♻️ ACCOUNT RESET requested for %s", user_id)
+        results: dict[str, bool] = {}
+        try:
+            with get_db_connection() as conn:
+                params = {"user_id": user_id}
+                self._clear_user_data_tables(conn, user_id, results)
+
+                # Re-seed the profile spine to a clean One default so the dashboard
+                # rebuilds from a known state.
+                conn.execute(
+                    text(
+                        """
+                        UPDATE actor_profiles
+                        SET personas = ARRAY['investor']::text[],
+                            last_active_persona = 'investor',
+                            investor_marketplace_opt_in = FALSE,
+                            updated_at = NOW()
+                        WHERE user_id = :user_id
+                        """
+                    ),
+                    params,
+                )
+                results["actor_profile_reset"] = True
+                conn.execute(
+                    text(
+                        """
+                        UPDATE runtime_persona_state
+                        SET last_active_persona = 'investor',
+                            updated_at = NOW()
+                        WHERE user_id = :user_id
+                        """
+                    ),
+                    params,
+                )
+                results["runtime_persona_state"] = True
+
+                # Reset setup progress so the user re-runs setup. Keeps the
+                # vault row (identity + unlock methods) intact; only clears the
+                # setup/tour flags carried on it.
+                conn.execute(
+                    text(
+                        """
+                        UPDATE vault_keys
+                        SET setup_completed = NULL,
+                            setup_skipped = NULL,
+                            setup_completed_at = NULL,
+                            nav_setup_completed_at = NULL,
+                            nav_setup_skipped_at = NULL,
+                            setup_state_updated_at = :now_ms,
+                            updated_at = :now_ms
+                        WHERE user_id = :user_id
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "now_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    },
+                )
+                results["onboarding_reset"] = True
+
+            logger.info("✅ ACCOUNT RESET completed for %s", user_id)
+            return {
+                "success": True,
+                "account_deleted": False,
+                "account_reset": True,
+                "details": results,
+            }
+        except Exception:
+            logger.exception("❌ Account reset failed for %s", user_id)
+            return {
+                "success": False,
+                "error": "account_reset_failed",
+                "account_deleted": False,
+                "account_reset": False,
+                "details": results,
+            }
+
     async def _delete_full_account(
         self,
         user_id: str,
@@ -485,6 +785,12 @@ class AccountService:
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "kai_location_access_requests": False,
+            "kai_location_contacts": False,
+            "kai_location_events": False,
+            "kai_location_latest": False,
+            "kai_location_shares": False,
+            "kai_location_update_sessions": False,
             "one_location_events": False,
             "one_location_referrals": False,
             "one_location_access_requests": False,
@@ -531,6 +837,12 @@ class AccountService:
                         "pkm_default_available_projections",
                         "pkm_upgrade_steps",
                         "pkm_upgrade_runs",
+                        "kai_location_access_requests",
+                        "kai_location_events",
+                        "kai_location_latest",
+                        "kai_location_update_sessions",
+                        "kai_location_shares",
+                        "kai_location_contacts",
                     ],
                     params=params,
                     results=results,

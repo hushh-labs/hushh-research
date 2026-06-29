@@ -129,7 +129,7 @@ export function ConsentDialog({
       >
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
-            <div className="h-12 w-12 rounded-full bg-linear-to-br from-blue-500 to-purple-600 flex items-center justify-center text-2xl shadow-lg">
+            <div className="h-12 w-12 rounded-full bg-linear-to-br from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] flex items-center justify-center text-2xl shadow-lg">
               {request.agentIcon || "🤖"}
             </div>
             <div>
@@ -146,7 +146,7 @@ export function ConsentDialog({
           <div
             ref={scopeInfoRef}
             tabIndex={-1}
-            className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40 focus:outline-none"
+            className="flex items-start gap-3 p-3 rounded-xl bg-accent-surface dark:bg-accent-surface border border-accent-border dark:border-accent-border focus:outline-none"
             style={scopeInfo.colorHex ? {
               backgroundColor: `${scopeInfo.colorHex}08`,
               borderColor: `${scopeInfo.colorHex}20`,
@@ -161,7 +161,7 @@ export function ConsentDialog({
               <Icon
                 icon={Shield}
                 size="md"
-                className="text-blue-500"
+                className="text-accent-strong"
                 style={scopeInfo.colorHex ? { color: scopeInfo.colorHex } : undefined}
               />
             </div>
@@ -217,7 +217,7 @@ export function ConsentDialog({
           <Button
             onClick={handleGrant}
             disabled={isGranting || loading}
-            className="flex-1 bg-linear-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+            className="flex-1 bg-linear-to-r from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] hover:opacity-90"
           >
             {isGranting ? (
               <>
