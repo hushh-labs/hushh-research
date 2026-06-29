@@ -1168,7 +1168,10 @@ class PersonalKnowledgeModelService:
             if merged.get("risk_score") in (None, ""):
                 merged["risk_score"] = profile_summary.get("risk_score")
             if merged.get("profile_completed") in (None, ""):
-                merged["profile_completed"] = profile_summary.get("onboarding_completed")
+                merged["profile_completed"] = profile_summary.get(
+                    "profile_completed",
+                    profile_summary.get("onboarding_completed"),
+                )
             for key in (
                 "has_investment_horizon",
                 "has_drawdown_response",

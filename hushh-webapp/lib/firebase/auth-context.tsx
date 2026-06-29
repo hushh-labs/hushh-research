@@ -87,7 +87,16 @@ interface AuthContextType {
     options?: { resendCode?: boolean }
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneReplacement: (otp: string) => Promise<User>;
-  signOut: (options?: { redirectTo?: string }) => Promise<void>;
+  signOut: (options?: {
+    redirectTo?: string;
+    /**
+     * Skip client-side FCM token cleanup (backend unregister + native/web
+     * deleteToken). Used by the account-deletion flow, where the backend
+     * already destroys the account and its push tokens, so doing the cleanup
+     * client-side is redundant work on the critical path the user waits on.
+     */
+    skipFcmCleanup?: boolean;
+  }) => Promise<void>;
   checkAuth: () => Promise<void>; // Manually trigger auth check (e.g. after native login)
   setNativeUser: (user: User | null) => void; // Helper to manually set user state
   refreshUser: () => Promise<User | null>;
@@ -297,12 +306,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [applyAuthUser, checkAuth]); // Do not depend on `user`; that would re-run auth init on every user state update.
 
   // Sign out
-  const signOut = useCallback(async (options?: { redirectTo?: string }): Promise<void> => {
+  const signOut = useCallback(async (options?: {
+    redirectTo?: string;
+    skipFcmCleanup?: boolean;
+  }): Promise<void> => {
     const currentUid = user?.uid ?? null;
     const redirectTo = options?.redirectTo || ROUTES.HOME;
     try {
-      // Delete FCM token before signing out (requires auth)
-      if (currentUid) {
+      // Delete FCM token before signing out (requires auth). Skipped for the
+      // account-deletion flow: the backend already removes the account and its
+      // push tokens, so this would only add a redundant network round-trip to
+      // the wait before redirect.
+      if (currentUid && !options?.skipFcmCleanup) {
         try {
           const idToken = await user?.getIdToken();
           const { deleteFCMToken } = await import("@/lib/notifications/fcm-service");

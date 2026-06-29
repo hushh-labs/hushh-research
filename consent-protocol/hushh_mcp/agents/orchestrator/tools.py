@@ -102,16 +102,23 @@ def classify_specialist_domain(message: str) -> Optional[tuple[str, str]]:
     return None
 
 
+# Deprecated delegate shims (food / professional profile) from older roadmap
+# experiments. They are NOT routed by the live classifier (no _SPECIALIST_ROUTES
+# entries) and the ontology has no such specialists. They are retained on
+# purpose as @hushh_tool fixtures for the hushh_adk manifest-loader tests
+# (tests/test_hushh_adk_from_manifest.py, tests/test_hushh_adk_manifest_and_factory.py),
+# which import them by dotted path to exercise manifest binding. Do not delete
+# these without first updating those tests.
 @hushh_tool(scope="agent.one.orchestrate", name="delegate_to_food_agent")
 def delegate_to_food_agent() -> Dict[str, Any]:
-    """Deprecated compatibility delegate for older roadmap experiments."""
+    """Deprecated delegate shim; retained only as a manifest-loader test fixture."""
     ctx = HushhContext.current()
     return _create_delegation_response("food_dining", "agent_food_dining", ctx)
 
 
 @hushh_tool(scope="agent.one.orchestrate", name="delegate_to_professional_agent")
 def delegate_to_professional_agent() -> Dict[str, Any]:
-    """Deprecated compatibility delegate for older roadmap experiments."""
+    """Deprecated delegate shim; retained only as a manifest-loader test fixture."""
     ctx = HushhContext.current()
     return _create_delegation_response("professional_profile", "agent_professional_profile", ctx)
 

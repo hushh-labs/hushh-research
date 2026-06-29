@@ -310,7 +310,7 @@ function ChartPanel({
   return (
     <div className="rounded-[1.35rem] border border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-4 text-foreground md:p-5">
       <div className="mb-4 flex items-center gap-2">
-        <Icon icon={icon} size="xs" className={cn("text-sky-700 dark:text-sky-300", accentClassName)} />
+        <Icon icon={icon} size="xs" className={cn("text-accent-strong", accentClassName)} />
         <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-foreground/80 dark:text-foreground/78">
           {title}
         </span>
@@ -427,7 +427,7 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
   };
 
   return (
-    <ChartPanel title="Agent votes" icon={Scale} accentClassName="text-sky-700 dark:text-sky-300">
+    <ChartPanel title="Agent votes" icon={Scale} accentClassName="text-accent-strong">
       <ChartContainer config={voteChartConfig} className="h-[240px] w-full">
         <BarChart
           accessibilityLayer
@@ -942,7 +942,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
         {pickSourceDisplayLabel ? (
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-default-solid)] px-4 py-3">
-            <Badge variant="outline" className="border-sky-500/25 bg-transparent text-sky-700 dark:text-sky-300">
+            <Badge variant="outline" className="border-accent-border bg-transparent text-accent-strong">
               Debate source
             </Badge>
             <p className="text-sm font-medium text-foreground">{pickSourceDisplayLabel}</p>
@@ -997,7 +997,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {rawCard?.fundamental_insight?.business_moat && (
             <div className={DETAIL_PANEL_CLASSNAME}>
                 <div className="flex items-center gap-2 mb-2">
-                <Icon icon={Shield} size="xs" className="text-sky-700 dark:text-sky-300" />
+                <Icon icon={Shield} size="xs" className="text-accent-strong" />
                 <span className={DETAIL_LABEL_CLASSNAME}>Moat</span>
                 </div>
                 <p className="text-xs text-muted-foreground">{rawCard.fundamental_insight.business_moat}</p>
@@ -1017,7 +1017,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
                     <>
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                        <Icon icon={BarChart3} size="xs" className="text-sky-600 dark:text-sky-300" />
+                        <Icon icon={BarChart3} size="xs" className="text-accent-strong" />
                         <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/80 dark:text-foreground/80">Sentiment</span>
                     </div>
                     <Badge variant="outline" className="border-border/40 bg-muted/30 text-[10px] font-mono text-foreground/85 dark:text-foreground/85">
@@ -1168,14 +1168,14 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {synthesisActionPlan.length > 0 && (
               <div className={DETAIL_PANEL_CLASSNAME}>
                 <p className={cn(DETAIL_LABEL_CLASSNAME, "mb-2 flex items-center gap-1.5")}>
-                  <Icon icon={Target} size="xs" className="text-sky-700 dark:text-sky-300" />
+                  <Icon icon={Target} size="xs" className="text-accent-strong" />
                   Action Plan
                 </p>
                 <ul className="space-y-2">
                   {synthesisActionPlan.map((step, idx) => (
                     <li
                       key={`${step}-${idx}`}
-                      className="text-xs text-muted-foreground pl-3 border-l-2 border-blue-500/30"
+                      className="text-xs text-muted-foreground pl-3 border-l-2 border-accent-border"
                     >
                       {step}
                     </li>

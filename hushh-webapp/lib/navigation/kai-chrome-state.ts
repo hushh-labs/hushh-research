@@ -1,6 +1,6 @@
 import {
   ROUTES,
-  isKaiOnboardingRoute,
+  isOneSetupSurfaceRoute,
   isRiaOnboardingRoute,
 } from "@/lib/navigation/routes";
 import { isOnboardingFlowActiveCookieEnabled } from "@/lib/services/onboarding-route-cookie";
@@ -28,7 +28,7 @@ export function getKaiChromeState(
   },
 ): KaiChromeState {
   const path = pathname ?? "";
-  const isOnboardingRoute = isKaiOnboardingRoute(path);
+  const isOnboardingRoute = isOneSetupSurfaceRoute(path);
   const isImportRoute = isKaiImportRoute(path);
   const onboardingFlowActive =
     options?.onboardingFlowActive ?? isOnboardingFlowActiveCookieEnabled();

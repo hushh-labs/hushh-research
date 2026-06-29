@@ -56,6 +56,13 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: false,
   productionBrowserSourceMaps: false,
+  // Strip console.* from production client bundles (keep error/warn for triage).
+  // No effect on dev or on the server runtime.
+  compiler: {
+    removeConsole: isCapacitorBuild
+      ? false
+      : { exclude: ["error", "warn"] },
+  },
   experimental: {
     optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
     preloadEntriesOnStart: false,

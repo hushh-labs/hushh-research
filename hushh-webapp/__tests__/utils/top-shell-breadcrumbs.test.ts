@@ -32,26 +32,81 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("uses sanitized from params for Kai onboarding back navigation", () => {
+  it("uses sanitized from params for Kai setup wizard back navigation", () => {
     const params = new URLSearchParams();
     params.set("from", "/one?mode=finance");
 
-    expect(resolveTopShellBreadcrumb("/one/onboarding", params)).toEqual({
+    expect(resolveTopShellBreadcrumb("/one/setup/kai", params)).toEqual({
       backHref: "/one?mode=finance",
       width: "content",
       align: "center",
+      // Back is now always available on the wizard so the user is never trapped
+      // on the questionnaire; re-entry honors the `from` origin.
+      hideBack: false,
       items: [
         { label: "One", href: "/one" },
-        { label: "Setup" },
+        { label: "Setup", href: "/one/setup" },
+      ],
+    });
+
+    // Bare entry (no `from`) still shows back, falling to the setup hub rather
+    // than bypassing the gate to /one.
+    expect(resolveTopShellBreadcrumb("/one/setup/kai")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup", href: "/one/setup" },
       ],
     });
 
     const unsafeParams = new URLSearchParams();
     unsafeParams.set("from", "//evil.example/path");
 
-    expect(resolveTopShellBreadcrumb("/one/onboarding", unsafeParams)?.backHref).toBe(
-      "/one",
+    expect(resolveTopShellBreadcrumb("/one/setup/kai", unsafeParams)?.backHref).toBe(
+      "/one/setup",
     );
+  });
+
+  it("gives the setup hub a back affordance to One home", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup" },
+      ],
+    });
+  });
+
+  it("gives per-capability setup steps a back affordance to the hub", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup", href: "/one/setup" },
+        { label: "Finance" },
+      ],
+    });
+
+    expect(resolveTopShellBreadcrumb("/one/setup/connected-systems")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup", href: "/one/setup" },
+        { label: "Connected Systems" },
+      ],
+    });
   });
 
   it("treats the PKM agent lab as a profile privacy surface", () => {

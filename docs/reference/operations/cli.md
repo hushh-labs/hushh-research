@@ -25,7 +25,9 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh codex data-model-audit
 <repo-root>/bin/hushh web
 <repo-root>/bin/hushh web --mode uat
-<repo-root>/bin/hushh stack --mode local
+<repo-root>/bin/hushh proxy --mode local
+<repo-root>/bin/hushh backend --mode local --reload
+<repo-root>/bin/hushh terminal proxy --mode local
 <repo-root>/bin/hushh terminal backend --mode local --reload
 <repo-root>/bin/hushh terminal web --mode local
 <repo-root>/bin/hushh terminal web --mode uat
@@ -77,8 +79,8 @@ Use package-local commands only when you are working inside a package on purpose
 - Keep helper output and runbooks aligned with this CLI.
 - Contributor and agent onboarding should start with `./bin/hushh codex onboard`, not direct internal script paths.
 - `./bin/hushh web` defaults to `local`; use `--mode uat` or `--mode prod` only when you explicitly want a hosted backend target.
-- Use `./bin/hushh terminal backend --mode local --reload` and `./bin/hushh terminal web --mode <mode>` as the preferred visible-terminal dev flow.
-- Use `./bin/hushh terminal stack --mode local` only when you explicitly want one combined terminal window to own both processes.
+- Local runtime uses three separate terminals (one component each): `./bin/hushh proxy --mode local`, `./bin/hushh backend --mode local --reload`, and `./bin/hushh web --mode local`. There is no combined `stack` command.
+- Use `./bin/hushh terminal proxy|backend|web --mode <mode>` only when you explicitly want visible OS terminal windows instead of in-session terminals.
 - Use `./bin/hushh compose ...` only for opt-in local container support. It does not replace the default frontend/backend development flow.
 - The `dev` compose profile starts backend + Redis + Mailhog. The local Postgres profile is standalone unless an operator explicitly changes backend env values.
 - Use `uv` as the canonical Python install surface for `consent-protocol`; `requirements*.txt` are generated compatibility artifacts, not contributor commands.

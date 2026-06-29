@@ -88,6 +88,7 @@ import {
   listAgentChatConversations,
   renameAgentChatConversation,
   streamAgentChat,
+  streamAgentIntro,
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
@@ -96,7 +97,9 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
@@ -731,6 +734,10 @@ export function AgentChatWorkspace({
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
+  // Shared single source of truth for the agent runtime snapshot. The chat
+  // workspace consumes this base and overlays only the fields it uniquely owns
+  // (background-task tracking and its local voice state) below.
+  const sharedRuntime = useAgentRuntimeStateOptional();
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
@@ -742,6 +749,11 @@ export function AgentChatWorkspace({
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Just-in-time vault unlock: the agent prompts to unlock in place (the same
+  // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
+  // instead of bouncing the user to /profile. Opened only when a vault-gated
+  // operation is requested while the vault is locked.
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
@@ -848,8 +860,11 @@ export function AgentChatWorkspace({
     personas.add(primaryNavPersona);
     return Array.from(personas);
   }, [activePersona, primaryNavPersona, riaSwitchAvailable]);
-  const appRuntimeState = useMemo<AppRuntimeState>(
-    () => ({
+  const appRuntimeState = useMemo<AppRuntimeState>(() => {
+    // Base snapshot from the shared provider (auth/vault/route/persona). When
+    // the provider is unavailable (e.g. isolated test mounts) we fall back to
+    // computing the same shape locally.
+    const base: AppRuntimeState = sharedRuntime?.appRuntimeState ?? {
       auth: {
         signed_in: Boolean(user?.uid),
         user_id: user?.uid ?? null,
@@ -865,16 +880,12 @@ export function AgentChatWorkspace({
         subview: routeInfo.subview ?? null,
       },
       runtime: {
-        analysis_active:
-          Boolean(busyOperations["stock_analysis_active"]) ||
-          Boolean(busyOperations["stock_analysis_stream"]) ||
-          Boolean(activeAnalysisTask),
-        analysis_ticker: activeAnalysisTicker || analysisParams?.ticker || null,
-        analysis_run_id: activeAnalysisTask?.taskId || null,
-        import_active:
-          Boolean(busyOperations["portfolio_import_stream"]) || Boolean(runningImportTask),
-        import_run_id: runningImportTask?.taskId || null,
-        busy_operations: Object.keys(busyOperations).filter((key) => busyOperations[key]),
+        analysis_active: false,
+        analysis_ticker: null,
+        analysis_run_id: null,
+        import_active: false,
+        import_run_id: null,
+        busy_operations: [],
       },
       portfolio: {
         has_portfolio_data: hasPortfolioData,
@@ -888,42 +899,63 @@ export function AgentChatWorkspace({
         ria_setup_available: riaSetupAvailable,
       },
       voice: {
-        available: voiceActive,
-        tts_playing: voiceState === "speaking",
+        available: false,
+        tts_playing: false,
         last_tool_name: null,
         last_ticker: null,
       },
-    }),
-    [
-      activePersona,
-      activeAnalysisTask,
-      activeAnalysisTicker,
-      analysisParams,
-      availablePersonas,
-      busyOperations,
-      hasPortfolioData,
-      isVaultUnlocked,
-      pathnameWithQuery,
-      personaTransitionTarget,
-      primaryNavPersona,
-      riaSetupAvailable,
-      riaSwitchAvailable,
-      runningImportTask,
-      routeInfo.screen,
-      routeInfo.subview,
-      tokenIsFresh,
-      user?.uid,
-      vaultOwnerToken,
-      voiceActive,
-      voiceState,
-    ]
-  );
+    };
+    // Overlay the workspace-owned enrichment: background-task tracking and the
+    // local voice state, which only this component observes.
+    return {
+      ...base,
+      runtime: {
+        ...base.runtime,
+        analysis_active:
+          base.runtime.analysis_active || Boolean(activeAnalysisTask),
+        analysis_ticker:
+          base.runtime.analysis_ticker || activeAnalysisTicker || analysisParams?.ticker || null,
+        analysis_run_id: activeAnalysisTask?.taskId || base.runtime.analysis_run_id,
+        import_active: base.runtime.import_active || Boolean(runningImportTask),
+        import_run_id: runningImportTask?.taskId || base.runtime.import_run_id,
+      },
+      voice: {
+        ...base.voice,
+        available: voiceActive,
+        tts_playing: voiceState === "speaking",
+      },
+    };
+  }, [
+    sharedRuntime,
+    activePersona,
+    activeAnalysisTask,
+    activeAnalysisTicker,
+    analysisParams,
+    availablePersonas,
+    hasPortfolioData,
+    isVaultUnlocked,
+    pathnameWithQuery,
+    personaTransitionTarget,
+    primaryNavPersona,
+    riaSetupAvailable,
+    riaSwitchAvailable,
+    runningImportTask,
+    routeInfo.screen,
+    routeInfo.subview,
+    tokenIsFresh,
+    user?.uid,
+    vaultOwnerToken,
+    voiceActive,
+    voiceState,
+  ]);
   const appRuntimeStateRef = useRef(appRuntimeState);
   useEffect(() => {
     appRuntimeStateRef.current = appRuntimeState;
   }, [appRuntimeState]);
+  // The single agent bar can always send text: with vault access it runs the
+  // full agent, otherwise it runs the pre-vault informational tier. Voice and
+  // vault-backed tools stay gated separately by hasChatAccess.
   const canSend =
-    hasChatAccess &&
     !isChatLoading &&
     !isLoadingHistory &&
     !isVoiceConnecting &&
@@ -2289,9 +2321,179 @@ export function AgentChatWorkspace({
     }
   };
 
+  /**
+   * Pre-vault informational turn for the single agent bar.
+   *
+   * Runs before the vault is unlocked (including anonymous onboarding
+   * visitors). It only talks to the lower-privilege informational backend
+   * tier, never sends PKM/vault data, is not persisted, and only executes
+   * pure navigation (route.*) actions. Anything that needs the vault prompts
+   * an in-place unlock instead.
+   */
+  const runIntroTurn = async (textInput: string) => {
+    const text = textInput.trim();
+    if (!text || isChatLoading || isStreaming) return;
+
+    const turnId = Date.now();
+    const assistantMessageId = `msg-${turnId}-assistant`;
+    const executedNavCalls = new Set<string>();
+    const timestamp = formatNow();
+    let assistantHasToken = false;
+
+    // rAF-coalesce streamed tokens so the pre-vault intro tier renders as
+    // smoothly as the full agent tier (one commit per frame, not per token).
+    let pendingAssistantDelta = "";
+    let assistantFlushFrame: number | null = null;
+    const flushAssistantDelta = () => {
+      assistantFlushFrame = null;
+      const delta = pendingAssistantDelta;
+      pendingAssistantDelta = "";
+      if (!delta) return;
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text: `${message.text}${delta}`,
+        status: "streaming",
+      }));
+    };
+    const queueAssistantDelta = (delta: string) => {
+      pendingAssistantDelta += delta;
+      if (assistantFlushFrame !== null) return;
+      assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
+    };
+    const cancelAssistantFlush = () => {
+      if (assistantFlushFrame !== null) {
+        window.cancelAnimationFrame(assistantFlushFrame);
+        assistantFlushFrame = null;
+      }
+      pendingAssistantDelta = "";
+    };
+
+    const userMessage: AgentMessage = {
+      id: `msg-${turnId}-user`,
+      role: "user",
+      text,
+      timestamp,
+    };
+    const assistantMessage: AgentMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      timestamp,
+      status: "streaming",
+    };
+    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setInput("");
+    setIsChatLoading(true);
+    setIsStreaming(true);
+
+    const streamAbortController = new AbortController();
+    streamAbortControllerRef.current?.abort();
+    streamAbortControllerRef.current = streamAbortController;
+
+    const runIntroNavigation = (toolEvent: AgentChatToolEvent) => {
+      if (toolEvent.execution !== "frontend" || !toolEvent.actionId) return;
+      // The informational tier only forwards route.* actions, but guard anyway.
+      if (!toolEvent.actionId.startsWith("route.")) return;
+      const callKey = toolEvent.callId || `${toolEvent.actionId}-${turnId}`;
+      if (executedNavCalls.has(callKey)) return;
+      executedNavCalls.add(callKey);
+      void executeAgentGatewayAction({
+        actionId: toolEvent.actionId,
+        slots: toolEvent.slots,
+        userId: user?.uid ?? "",
+        router,
+        appRuntimeState: appRuntimeStateRef.current,
+        surfaceMetadata: getVoiceSurfaceMetadata(),
+        hasPortfolioData,
+        busyOperations,
+        setAnalysisParams,
+      })
+        .then((result) => {
+          if (shouldMinimizeForNavigationResult(result)) {
+            onNavigationActionComplete?.(result);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    try {
+      await streamAgentIntro({
+        message: text,
+        screenContext: buildStructuredScreenContext({
+          appRuntimeState: appRuntimeStateRef.current,
+        }) as unknown as Record<string, unknown>,
+        signal: streamAbortController.signal,
+        handlers: {
+          onToken: (delta) => {
+            if (streamAbortController.signal.aborted) return;
+            assistantHasToken = true;
+            queueAssistantDelta(delta);
+          },
+          onToolWaiting: runIntroNavigation,
+          onComplete: () => {
+            if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              text:
+                message.text ||
+                (assistantHasToken
+                  ? message.text
+                  : "I couldn't generate a response. Please try again."),
+              status: "done",
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+          onError: (message) => {
+            if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
+            updateMessage(assistantMessageId, (current) => ({
+              ...current,
+              text: current.text || message,
+              status: "error",
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+        },
+      });
+    } catch (error) {
+      cancelAssistantFlush();
+      if (streamAbortController.signal.aborted) {
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: message.text || "Agent turn canceled.",
+          status: "done",
+        }));
+      } else {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent chat request failed.";
+        updateMessage(assistantMessageId, (current) => ({
+          ...current,
+          text: current.text || message,
+          status: "error",
+        }));
+      }
+      setIsChatLoading(false);
+      setIsStreaming(false);
+    } finally {
+      if (streamAbortControllerRef.current === streamAbortController) {
+        streamAbortControllerRef.current = null;
+      }
+    }
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await runAgentTurn(input, { source: "typed" });
+    if (hasChatAccess) {
+      await runAgentTurn(input, { source: "typed" });
+      return;
+    }
+    // Pre-vault / anonymous: single bar degrades to the informational tier.
+    await runIntroTurn(input);
   };
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
@@ -2759,12 +2961,20 @@ export function AgentChatWorkspace({
     }
   }, [conversationReady, tryStartPendingConversation]);
 
+  // The single agent bar always works. Before the vault is unlocked it runs the
+  // informational tier (help + navigation), so the access banner is a soft,
+  // non-blocking affordance, not a wall. It only surfaces when the user is
+  // signed in but the vault is locked, offering an in-place unlock to upgrade
+  // to the full agent. Anonymous visitors get a quiet sign-in nudge instead.
+  const needsVaultUnlock = Boolean(
+    user?.uid && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
+  );
   const accessMessage = authLoading
-    ? "Checking access..."
+    ? null
     : !user?.uid
-      ? "Sign in to use Agent."
-      : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
-        ? "Unlock your vault to use Agent."
+      ? "You're chatting with One. Sign in and unlock your vault for personalized help."
+      : needsVaultUnlock
+        ? "You're chatting with One. Unlock your vault to work with your private information."
         : null;
   const accessAction = authLoading
     ? null
@@ -2774,11 +2984,13 @@ export function AgentChatWorkspace({
           icon: LogIn,
           onClick: () => router.push(ROUTES.LOGIN),
         }
-      : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
+      : needsVaultUnlock
         ? {
             label: "Unlock vault",
             icon: KeyRound,
-            onClick: () => router.push(ROUTES.PROFILE),
+            // Just-in-time unlock in place via the shared dialog, instead of
+            // navigating away to /profile and losing the agent context.
+            onClick: () => setVaultDialogOpen(true),
           }
         : null;
   const displayName = useMemo(
@@ -2811,6 +3023,13 @@ export function AgentChatWorkspace({
     }
     setPkmReviews([]);
     setPkmActivity([]);
+    // Pre-vault / anonymous turns go through the informational intro tier, which
+    // runAgentTurn early-returns on (no vault access). Route the retry to the
+    // same tier the original turn used so the button is not a no-op there.
+    if (!hasChatAccess) {
+      void runIntroTurn(retryText);
+      return;
+    }
     void runAgentTurn(retryText, {
       source: "typed",
       appendUserMessage: false,
@@ -3068,10 +3287,10 @@ export function AgentChatWorkspace({
                 </div>
               ) : null}
 
-              {!accessMessage && !hasStartedConversation ? (
+              {!hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
-                  disabled={!hasChatAccess || isChatLoading || isStreaming}
+                  disabled={isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />
               ) : null}
@@ -3198,7 +3417,7 @@ export function AgentChatWorkspace({
                         event.currentTarget.form?.requestSubmit();
                       }
                     }}
-                    disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
+                    disabled={isLoadingHistory || isVoiceConnecting}
                     placeholder="Message One..."
                     rows={1}
                     className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
@@ -3234,6 +3453,16 @@ export function AgentChatWorkspace({
           </form>
         </section>
       </div>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultDialogOpen}
+          onOpenChange={setVaultDialogOpen}
+          title="Unlock Vault to use Agent"
+          description="Unlock your Vault so the agent can work with your private information."
+          onSuccess={() => setVaultDialogOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

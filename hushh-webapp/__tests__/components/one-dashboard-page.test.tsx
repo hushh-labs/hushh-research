@@ -86,7 +86,9 @@ describe("OneDashboardPage", () => {
     // Resolver-driven consumer labels (plain language, no system nouns).
     expect(screen.getByText("Set up")).toBeTruthy(); // finance not-started
     expect(screen.getAllByText("Connect to set up")).toHaveLength(2); // gmail + connected
-    expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location
+    // email + location are real vault-gated workflows (not explore-only), so a
+    // completed status reads "Ready", not "Explored".
+    expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed
     expect(screen.getByText("Unlock to see")).toBeTruthy(); // pkm vault-gated
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
     expect(screen.getByText("2 consents pending")).toBeTruthy(); // header badge
@@ -111,7 +113,11 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    expect(screen.getAllByText("Ready")).toHaveLength(7);
+    // finance + gmail + email + location + pkm + connected-systems are real
+    // workflows and read "Ready" when completed; only consent is explore-only
+    // and reads "Explored".
+    expect(screen.getAllByText("Ready")).toHaveLength(6);
+    expect(screen.getByText("Explored")).toBeTruthy();
     expect(screen.getByText("No pending consents")).toBeTruthy();
   });
 

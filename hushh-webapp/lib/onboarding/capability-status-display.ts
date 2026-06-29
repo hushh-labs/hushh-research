@@ -39,18 +39,32 @@ const STATE_TONE: Record<CapabilitySetupState, CapabilityStatusTone> = {
  * rather than a misleading "Setup needed".
  */
 export function getCapabilityStatusDisplay(
-  status: CapabilityStatus
+  status: CapabilityStatus,
+  options?: { isExploreOnly?: boolean }
 ): CapabilityStatusDisplay {
   const tone = STATE_TONE[status.state];
+  const isExploreOnly = options?.isExploreOnly === true;
 
   switch (status.state) {
     case "completed":
-      return { label: "Ready", tone, isActionable: false };
+      // Explore-only capabilities are "set up" by looking once, so a completed
+      // one reads "Explored" rather than "Ready" — it was never configured, it
+      // was explored.
+      return {
+        label: isExploreOnly ? "Explored" : "Ready",
+        tone,
+        isActionable: false,
+      };
     case "skipped":
       return { label: "Set up later", tone, isActionable: true };
     case "not-started":
     case "in-progress":
-      return { label: "Set up", tone, isActionable: true };
+      // Explore-only and not yet explored: invite a look, not a setup step.
+      return {
+        label: isExploreOnly ? "Explore" : "Set up",
+        tone,
+        isActionable: true,
+      };
     case "needs-attention":
       return {
         label:

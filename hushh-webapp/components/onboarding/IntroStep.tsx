@@ -3,6 +3,7 @@
 import Image from "next/image";
 import type { CSSProperties, ComponentType, SVGProps } from "react";
 import { OneLockup } from "@/components/app-ui/gold-period";
+import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   kaiAppHeroBodyClassName,
@@ -106,13 +107,13 @@ const INTRO_FEATURES: Array<{
     icon: FinanceCapabilityIcon,
     title: "Finance, made personal",
     subtitle: "Track and act on your money with Kai",
-    tone: "green",
+    tone: "blue",
   },
   {
     icon: InboxCapabilityIcon,
     title: "Connect Gmail and more",
     subtitle: "One works across your apps, with consent",
-    tone: "orange",
+    tone: "blue",
   },
 ];
 
@@ -133,8 +134,11 @@ export function IntroStep({
   onLogin?: () => void;
 }) {
   return (
-    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#000000] dark:text-[#f5f5f7]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-[#f5f5f7]">
+      {/* Reserve bottom room for the global agent bar (conversational voice
+          piece) which is anchored above the safe area on this intro screen, so
+          the footer CTAs never collide with it. */}
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(94px+var(--app-safe-area-bottom-effective,0px))]">
         <div className="flex min-h-0 flex-1 flex-col justify-center py-6">
           <section className="relative flex flex-none flex-col items-center text-center">
             <Image
@@ -152,10 +156,11 @@ export function IntroStep({
             <div
               role="heading"
               aria-level={1}
-              aria-label="Meet One, a memory that's only yours"
-              className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
+              aria-label="hushh One, a memory that's only yours"
+              className={`relative mt-2.5 flex items-baseline justify-center gap-2 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
             >
-              Meet <OneLockup />
+              <HushhWordmark className="h-[0.92em] w-auto translate-y-[0.06em]" />
+              <OneLockup />
             </div>
             <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
               A memory that&apos;s only yours.
@@ -196,7 +201,7 @@ export function IntroStep({
 
         <footer className="flex-none pt-3">
           <div className="space-y-4">
-            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
+            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.72)]">
               One is consent-first. Your knowledge and information are your
               safewords. Nothing leaves your vault without your approval.
             </p>
@@ -205,14 +210,14 @@ export function IntroStep({
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
+              className="h-[50px] rounded-full bg-[#1d1d1f] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-black dark:bg-[#f5f5f7] dark:!text-[#1d1d1f] dark:hover:bg-white"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="type-subhead mx-auto block min-h-10 px-4 text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
+                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#b8894d] transition-colors hover:text-[#9a7038] dark:text-[#d4a574] dark:hover:text-[#e0bb8e]"
                 onClick={onLogin}
               >
                 Log in

@@ -40,7 +40,7 @@ function activityEventToneClassName(kind: OneLocationActivityKind): string {
     return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
   }
   if (kind === "request") {
-    return "bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]";
+    return "bg-[#f7f1e8] text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]";
   }
   return "bg-[#fff3e6] text-[#ff9500] dark:bg-orange-400/15 dark:text-orange-200";
 }
@@ -128,7 +128,7 @@ export function OneLocationActivityDashboard({
       <div className={cn(activityPanelClassName, "space-y-4 p-4")}>
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f7f1e8] text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]">
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
@@ -217,7 +217,7 @@ export function OneLocationActivityDashboard({
                         ) : null}
                         {bucket.requests > 0 ? (
                           <span
-                            className="block bg-[#007aff]"
+                            className="block bg-[#b8894d]"
                             style={{ flexGrow: bucket.requests, minHeight: 3 }}
                           />
                         ) : null}
@@ -242,7 +242,7 @@ export function OneLocationActivityDashboard({
                 Shares
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-[#007aff]" />
+                <span className="h-2 w-2 rounded-full bg-[#b8894d]" />
                 Requests
               </span>
               <span className="inline-flex items-center gap-1">

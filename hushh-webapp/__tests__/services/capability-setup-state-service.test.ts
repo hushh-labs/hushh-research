@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isCapabilitySetupActionable,
+  isCapabilitySetupComplete,
   resolveAllCapabilitySetupStates,
   resolveCapabilitySetupState,
   shouldSkipCapabilityStep,
@@ -19,29 +20,32 @@ function makePreVaultState(overrides: Partial<PreVaultUserState> = {}): PreVault
     firstLoginAt: 1,
     lastLoginAt: 2,
     loginCount: 3,
-    preOnboardingCompleted: null,
-    preOnboardingSkipped: null,
-    preOnboardingCompletedAt: null,
-    preNavTourCompletedAt: null,
-    preNavTourSkippedAt: null,
-    preStateUpdatedAt: null,
+    setupCompleted: null,
+    setupSkipped: null,
+    setupCompletedAt: null,
+    navSetupCompletedAt: null,
+    navSetupSkippedAt: null,
+    setupStateUpdatedAt: null,
+    phoneVerified: null,
+    setupCapabilityIds: [],
+    setupCapabilitiesUpdatedAt: null,
     ...overrides,
   };
 }
 
 function makeKaiProfile(
-  onboarding: Partial<KaiProfileV2["onboarding"]> = {}
+  setup: Partial<KaiProfileV2["setup"]> = {}
 ): KaiProfileV2 {
   return {
-    schema_version: 2,
-    onboarding: {
+    schema_version: 3,
+    setup: {
       completed: false,
       completed_at: null,
       skipped_preferences: false,
-      nav_tour_completed_at: null,
-      nav_tour_skipped_at: null,
-      version: 2,
-      ...onboarding,
+      nav_completed_at: null,
+      nav_skipped_at: null,
+      version: 3,
+      ...setup,
     },
     preferences: {
       investment_horizon: null,
@@ -123,13 +127,13 @@ describe("resolveCapabilitySetupState — finance", () => {
   it("falls back to the coarse pre-vault mirror before unlock", () => {
     const completed = resolveCapabilitySetupState(
       "finance",
-      baseInputs({ preVaultState: makePreVaultState({ preOnboardingCompleted: true }) })
+      baseInputs({ preVaultState: makePreVaultState({ setupCompleted: true }) })
     );
     expect(completed.state).toBe("completed");
 
     const skipped = resolveCapabilitySetupState(
       "finance",
-      baseInputs({ preVaultState: makePreVaultState({ preOnboardingSkipped: true }) })
+      baseInputs({ preVaultState: makePreVaultState({ setupSkipped: true }) })
     );
     expect(skipped.state).toBe("skipped");
   });
@@ -139,8 +143,8 @@ describe("resolveCapabilitySetupState — finance", () => {
       "finance",
       baseInputs({
         preVaultState: makePreVaultState({
-          preOnboardingCompleted: false,
-          preOnboardingSkipped: false,
+          setupCompleted: false,
+          setupSkipped: false,
         }),
       })
     );
@@ -149,22 +153,34 @@ describe("resolveCapabilitySetupState — finance", () => {
   });
 });
 
-describe("resolveCapabilitySetupState — consent", () => {
-  it("is completed when there are no pending requests", () => {
+describe("resolveCapabilitySetupState — consent (explore-only)", () => {
+  it("is not-started when there are no pending requests and it has not been explored", () => {
     const status = resolveCapabilitySetupState("consent", baseInputs({ pendingConsents: 0 }));
+    expect(status.state).toBe("not-started");
+    expect(status.pendingCount).toBe(0);
+  });
+
+  it("is completed once explored with no pending requests", () => {
+    const status = resolveCapabilitySetupState(
+      "consent",
+      baseInputs({ pendingConsents: 0, exploredCapabilityIds: new Set(["consent"]) })
+    );
     expect(status.state).toBe("completed");
     expect(status.pendingCount).toBe(0);
   });
 
-  it("needs attention with an accurate pending count", () => {
-    const status = resolveCapabilitySetupState("consent", baseInputs({ pendingConsents: 3 }));
+  it("needs attention with an accurate pending count regardless of explored state", () => {
+    const status = resolveCapabilitySetupState(
+      "consent",
+      baseInputs({ pendingConsents: 3, exploredCapabilityIds: new Set(["consent"]) })
+    );
     expect(status.state).toBe("needs-attention");
     expect(status.pendingCount).toBe(3);
   });
 
-  it("clamps negative/fractional pending counts", () => {
+  it("clamps negative/fractional pending counts and stays explore-gated", () => {
     const status = resolveCapabilitySetupState("consent", baseInputs({ pendingConsents: -5 }));
-    expect(status.state).toBe("completed");
+    expect(status.state).toBe("not-started");
     expect(status.pendingCount).toBe(0);
   });
 });
@@ -208,10 +224,22 @@ describe("resolveCapabilitySetupState — oauth-gated (gmail, connected-systems)
   });
 });
 
-describe("resolveCapabilitySetupState — ungated (email, location)", () => {
-  it("is completed once authenticated", () => {
-    expect(resolveCapabilitySetupState("email", baseInputs()).state).toBe("completed");
-    expect(resolveCapabilitySetupState("location", baseInputs()).state).toBe("completed");
+describe("resolveCapabilitySetupState — vault-gated (email, location)", () => {
+  it("is unknown with vault prerequisite while locked", () => {
+    for (const id of ["email", "location"]) {
+      const status = resolveCapabilitySetupState(id, baseInputs({ isVaultUnlocked: false }));
+      expect(status.state).toBe("unknown");
+      expect(status.prerequisite).toBe("vault");
+      expect(status.requiresUnlock).toBe(true);
+    }
+  });
+
+  it("stays unknown (not fabricated) after unlock until a real signal is wired", () => {
+    for (const id of ["email", "location"]) {
+      const status = resolveCapabilitySetupState(id, baseInputs({ isVaultUnlocked: true }));
+      expect(status.state).toBe("unknown");
+      expect(status.requiresUnlock).toBe(true);
+    }
   });
 });
 
@@ -238,5 +266,18 @@ describe("skip-vs-continue semantics", () => {
     expect(isCapabilitySetupActionable({ id: "x", state: "in-progress", pendingCount: 0, prerequisite: null, requiresUnlock: false })).toBe(true);
     expect(isCapabilitySetupActionable({ id: "x", state: "needs-attention", pendingCount: 2, prerequisite: null, requiresUnlock: false })).toBe(true);
     expect(isCapabilitySetupActionable({ id: "x", state: "completed", pendingCount: 0, prerequisite: null, requiresUnlock: false })).toBe(false);
+  });
+
+  it("counts only completed/skipped as genuinely set up", () => {
+    expect(isCapabilitySetupComplete({ id: "x", state: "completed", pendingCount: 0, prerequisite: null, requiresUnlock: false })).toBe(true);
+    expect(isCapabilitySetupComplete({ id: "x", state: "skipped", pendingCount: 0, prerequisite: null, requiresUnlock: false })).toBe(true);
+  });
+
+  it("never counts blocked or unknown as set up (they still need the user)", () => {
+    // The bug behind "5 of 7 ready" on a fresh account: blocked (needs an OAuth
+    // connection) and unknown (needs a vault unlock) must NOT read as ready.
+    expect(isCapabilitySetupComplete({ id: "x", state: "blocked", pendingCount: 0, prerequisite: "oauth", requiresUnlock: false })).toBe(false);
+    expect(isCapabilitySetupComplete({ id: "x", state: "unknown", pendingCount: 0, prerequisite: "vault", requiresUnlock: true })).toBe(false);
+    expect(isCapabilitySetupComplete({ id: "x", state: "not-started", pendingCount: 0, prerequisite: null, requiresUnlock: false })).toBe(false);
   });
 });

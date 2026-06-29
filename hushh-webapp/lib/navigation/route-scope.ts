@@ -19,7 +19,7 @@ export function getRouteScope(pathname: string): RouteScope {
   if (!pathname) return "unknown";
 
   if (
-    isRoute(pathname, ROUTES.ONE_ONBOARDING) ||
+    isRoute(pathname, ROUTES.ONE_SETUP) ||
     isRoute(pathname, ROUTES.LEGACY_ONE_KAI_ONBOARDING) ||
     isRoute(pathname, ROUTES.LEGACY_KAI_ONBOARDING) ||
     isRoute(pathname, ROUTES.RIA_ONBOARDING)

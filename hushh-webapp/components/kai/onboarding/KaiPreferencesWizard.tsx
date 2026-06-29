@@ -77,7 +77,6 @@ export function KaiPreferencesWizard(props: {
   initialAnswers?: Partial<WizardAnswers>;
   onAnswersChange?: (answers: WizardAnswers) => void | Promise<void>;
   onBack?: () => void;
-  onSkip?: () => void;
   onComplete: (payload: WizardCompletePayload) => void | Promise<void>;
 }) {
   const total = QUESTIONS.length;
@@ -169,7 +168,11 @@ export function KaiPreferencesWizard(props: {
       : "Next";
 
   const reserveBackSlot = props.mode === "onboarding";
-  const showBack = props.mode === "onboarding" && step > 0;
+  // In onboarding the Back control is always available: on step 0 it returns to
+  // the One setup hub (resuming the main onboarding) via props.onBack; on later
+  // steps it walks back through the questions. This replaces the old intra-step
+  // "Skip" button so a sub-step can never satisfy or skip the root flow.
+  const showBack = props.mode === "onboarding" && Boolean(props.onBack || step > 0);
   const canGoPrevious = step > 0;
   const isPageLayout = layout === "page";
 
@@ -306,24 +309,6 @@ export function KaiPreferencesWizard(props: {
                 {isSubmitting ? "Saving..." : primaryLabel}
                 {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
               </Button>
-
-              {props.mode === "onboarding" && props.onSkip && (
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fill"
-                  size="lg"
-                  fullWidth
-                  onClick={props.onSkip}
-                  disabled={isSubmitting}
-                  loading={isSubmitting}
-                  showRipple
-                  className="h-11 rounded-full !bg-primary/10 text-[15px] font-medium !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
-                >
-                  {isSubmitting ? "Saving..." : "Skip"}
-                  {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
-                </Button>
-              )}
             </div>
           </div>
         </div>

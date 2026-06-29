@@ -47,6 +47,10 @@ import java.util.TimeZone
 )
 class HushhLocationPlugin : Plugin() {
 
+    // Active continuous-tracking watches keyed by the saved callback id returned
+    // to JS. Each holds its LocationListener so clearWatch can detach it.
+    private val activeWatches = HashMap<String, LocationListener>()
+
     @PluginMethod
     fun getPermissionState(call: PluginCall) {
         call.resolve(permissionPayload())
@@ -104,6 +108,26 @@ class HushhLocationPlugin : Plugin() {
         captureCurrentPosition(call)
     }
 
+    @PluginMethod(returnType = PluginMethod.RETURN_CALLBACK)
+    fun watchPosition(call: PluginCall) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            requestPermissionForAlias("location", call, "watchPermissionCallback")
+            return
+        }
+        startWatch(call)
+    }
+
+    @PluginMethod
+    fun clearWatch(call: PluginCall) {
+        val id = call.getString("id")
+        if (id.isNullOrEmpty()) {
+            call.reject("A watch id is required to clear a location watch.")
+            return
+        }
+        stopWatch(id)
+        call.resolve()
+    }
+
     @PermissionCallback
     private fun locationPermissionStateCallback(call: PluginCall) {
         call.resolve(permissionPayload())
@@ -116,6 +140,15 @@ class HushhLocationPlugin : Plugin() {
             return
         }
         captureCurrentPosition(call)
+    }
+
+    @PermissionCallback
+    private fun watchPermissionCallback(call: PluginCall) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            call.reject("Location permission was not granted.")
+            return
+        }
+        startWatch(call)
     }
 
     private fun permissionPayload(): JSObject {
@@ -203,6 +236,76 @@ class HushhLocationPlugin : Plugin() {
                 call.reject("Precise location unavailable before timeout.")
             }
         }, timeoutMs.toLong())
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startWatch(call: PluginCall) {
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val enableHighAccuracy = call.getBoolean("enableHighAccuracy", true) ?: true
+        val providers = preferredProviders(locationManager, enableHighAccuracy)
+
+        if (providers.isEmpty()) {
+            call.reject("Location services are unavailable on this device.")
+            return
+        }
+
+        // Keep the call alive so the callback channel can fire on every fix. The
+        // resolved point becomes the JS callback's first arg; a reject becomes
+        // the second (error) arg, matching the web shim's (point, error) shape.
+        call.setKeepAlive(true)
+        bridge.saveCall(call)
+        val watchId = call.callbackId
+
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                val saved = bridge.getSavedCall(watchId) ?: return
+                saved.resolve(locationPayload(location))
+            }
+
+            @Deprecated("Deprecated in Android API, still invoked on older devices.")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+            override fun onProviderEnabled(provider: String) = Unit
+
+            override fun onProviderDisabled(provider: String) = Unit
+        }
+
+        activeWatches[watchId] = listener
+
+        val mainHandler = Handler(Looper.getMainLooper())
+        mainHandler.post {
+            try {
+                for (provider in providers) {
+                    locationManager.requestLocationUpdates(
+                        provider,
+                        2_000L,
+                        0f,
+                        listener,
+                        Looper.getMainLooper()
+                    )
+                }
+            } catch (error: Exception) {
+                stopWatch(watchId)
+                val saved = bridge.getSavedCall(watchId)
+                saved?.reject("Precise location unavailable: ${error.message}")
+                bridge.releaseCall(watchId)
+            }
+        }
+    }
+
+    private fun stopWatch(id: String) {
+        val listener = activeWatches.remove(id) ?: run {
+            // Still release any saved call so we never leak a kept-alive call.
+            bridge.releaseCall(id)
+            return
+        }
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        try {
+            locationManager.removeUpdates(listener)
+        } catch (_: Exception) {
+            // Removing an already-detached listener is safe to ignore.
+        }
+        bridge.releaseCall(id)
     }
 
     private fun preferredProviders(

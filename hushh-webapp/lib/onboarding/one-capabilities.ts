@@ -52,6 +52,25 @@ export interface OneCapability {
   icon: LucideIcon;
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
+  /**
+   * True when this capability collects NOTHING from the user — there is no data
+   * to enter or connection to authorize, the tab is usable as soon as it opens.
+   * Such capabilities are "set up" by taking a one-time look (an Explore tour)
+   * rather than by a configuration step. The resolver treats them as
+   * `not-started` ("Explore") until the person has explored them once, then
+   * `completed` ("Explored"). This keeps the "N of M ready" count honest: an
+   * un-explored tab is genuinely "left to set up", never a fabricated "Ready".
+   */
+  isExploreOnly?: boolean;
+  /**
+   * True when this capability's real workspace reads or writes vault-backed
+   * personal data and therefore needs an UNLOCKED vault to be usable. The setup
+   * STEP itself collects nothing and renders pre-vault; this flag only lets the
+   * step set honest "you'll unlock your vault next" expectations and lets the
+   * destination's own guard own the actual unlock prompt. Consent Guardian is
+   * the only capability that does not read vault-backed data here.
+   */
+  requiresVault?: boolean;
 }
 
 /**
@@ -67,6 +86,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: ChartNoAxesCombined,
     tone: "finance",
     group: "workflow",
+    requiresVault: true,
   },
   {
     id: "gmail",
@@ -77,6 +97,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: Mail,
     tone: "gmail",
     group: "memory",
+    requiresVault: true,
   },
   {
     id: "email",
@@ -86,6 +107,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: MailCheck,
     tone: "email",
     group: "workflow",
+    requiresVault: true,
   },
   {
     id: "location",
@@ -96,6 +118,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: MapPin,
     tone: "location",
     group: "workflow",
+    requiresVault: true,
   },
   {
     id: "pkm",
@@ -105,6 +128,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: FolderSearch,
     tone: "pkm",
     group: "memory",
+    requiresVault: true,
   },
   {
     id: "consent",
@@ -114,6 +138,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: ShieldCheck,
     tone: "consent",
     group: "access",
+    isExploreOnly: true,
   },
   {
     id: "connected-systems",
@@ -123,6 +148,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: Database,
     tone: "connected",
     group: "workflow",
+    requiresVault: true,
   },
 ] as const;
 
@@ -138,9 +164,9 @@ export function getOneCapability(id: string): OneCapability | undefined {
 export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<OneCapabilityTone, string> = {
   finance: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
   gmail: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
-  email: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+  email: "bg-accent-surface text-accent-strong",
   location: "bg-teal-500/12 text-teal-700 dark:text-teal-300",
   pkm: "bg-amber-500/12 text-amber-700 dark:text-amber-300",
   consent: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
-  connected: "bg-cyan-500/12 text-cyan-700 dark:text-cyan-300",
+  connected: "bg-slate-500/12 text-slate-700 dark:text-slate-300",
 };

@@ -35,6 +35,7 @@ import {
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { AsyncActionStatus } from "@/components/system/async-action-status";
+import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import {
   AlertDialog,
@@ -1517,6 +1518,7 @@ function OneKycWorkspace() {
         dataState: showInitialLoading ? "loading" : error ? "error" : "loaded",
       }}
     >
+      <CapabilityExploreCard capabilityId="email" />
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="One"

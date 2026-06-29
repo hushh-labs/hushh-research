@@ -174,12 +174,14 @@ These tables exist only for the bounded encrypted-user cutover window. No new pr
 - `first_login_at` (`bigint`)
 - `last_login_at` (`bigint`)
 - `login_count` (`integer`)
-- `pre_onboarding_completed` (`boolean`)
-- `pre_onboarding_skipped` (`boolean`)
-- `pre_onboarding_completed_at` (`bigint`)
-- `pre_nav_tour_completed_at` (`bigint`)
-- `pre_nav_tour_skipped_at` (`bigint`)
-- `pre_state_updated_at` (`bigint`)
+- `setup_completed` (`boolean`)
+- `setup_skipped` (`boolean`)
+- `setup_completed_at` (`bigint`)
+- `setup_capability_ids` (`jsonb`)
+- `setup_capabilities_updated_at` (`bigint`)
+- `nav_setup_completed_at` (`bigint`)
+- `nav_setup_skipped_at` (`bigint`)
+- `setup_state_updated_at` (`bigint`)
 
 ## Core Application Functions Observed
 

@@ -16,10 +16,10 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     bootstrapState: bootstrapStateMock,
     updatePreVaultState: updatePreVaultStateMock,
-    isOnboardingResolved: (state: {
-      preOnboardingCompleted?: boolean | null;
-      preOnboardingCompletedAt?: number | null;
-    }) => state?.preOnboardingCompleted === true,
+    isSetupResolved: (state: {
+      setupCompleted?: boolean | null;
+      setupCompletedAt?: number | null;
+    }) => state?.setupCompleted === true,
   },
 }));
 
@@ -53,23 +53,23 @@ describe("PostAuthRouteService", () => {
     getPersonaStateMock.mockRejectedValue(new Error("persona not requested"));
   });
 
-  it("routes vault users with unresolved onboarding to onboarding", async () => {
+  it("routes vault users with unresolved onboarding to the setup hub", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
-      preOnboardingCompleted: false,
-      preOnboardingCompletedAt: null,
+      setupCompleted: false,
+      setupCompletedAt: null,
     });
 
     await expect(
       PostAuthRouteService.resolveAfterLogin({ userId: "user_123" })
-    ).resolves.toBe(ROUTES.ONE_ONBOARDING);
+    ).resolves.toBe(ROUTES.ONE_SETUP);
   });
 
   it("keeps vault users on the requested route when onboarding is resolved", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
+      setupCompleted: true,
+      setupCompletedAt: 1,
     });
 
     await expect(
@@ -182,14 +182,14 @@ describe("PostAuthRouteService", () => {
   it("does not send completed vault users back into onboarding from a stale redirect", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
+      setupCompleted: true,
+      setupCompletedAt: 1,
     });
 
     await expect(
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
-        redirectPath: ROUTES.ONE_ONBOARDING,
+        redirectPath: ROUTES.ONE_SETUP_KAI,
       })
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
@@ -197,9 +197,9 @@ describe("PostAuthRouteService", () => {
   it("bridges completed pre-vault onboarding before sending no-vault users home", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: null,
-      preOnboardingCompletedAt: null,
-      preOnboardingSkipped: null,
+      setupCompleted: null,
+      setupCompletedAt: null,
+      setupSkipped: null,
     });
     loadPendingOnboardingMock.mockResolvedValue({
       completed: true,
@@ -222,12 +222,12 @@ describe("PostAuthRouteService", () => {
     expect(updatePreVaultStateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps interrupted pre-vault onboarding on the setup route after restart", async () => {
+  it("keeps interrupted pre-vault onboarding on the setup hub after restart", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: null,
-      preOnboardingCompletedAt: null,
-      preOnboardingSkipped: null,
+      setupCompleted: null,
+      setupCompletedAt: null,
+      setupSkipped: null,
     });
     loadPendingOnboardingMock.mockResolvedValue({
       completed: false,
@@ -245,16 +245,16 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       })
-    ).resolves.toBe(ROUTES.ONE_ONBOARDING);
+    ).resolves.toBe(ROUTES.ONE_SETUP);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
   it("does not bridge malformed completed local onboarding without skip or full answers", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: null,
-      preOnboardingCompletedAt: null,
-      preOnboardingSkipped: null,
+      setupCompleted: null,
+      setupCompletedAt: null,
+      setupSkipped: null,
     });
     loadPendingOnboardingMock.mockResolvedValue({
       completed: true,
@@ -272,16 +272,16 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       })
-    ).resolves.toBe(ROUTES.ONE_ONBOARDING);
+    ).resolves.toBe(ROUTES.ONE_SETUP);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
   it("bridges explicit skipped pre-vault onboarding before sending no-vault users home", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: null,
-      preOnboardingCompletedAt: null,
-      preOnboardingSkipped: null,
+      setupCompleted: null,
+      setupCompletedAt: null,
+      setupSkipped: null,
     });
     loadPendingOnboardingMock.mockResolvedValue({
       completed: true,
@@ -307,9 +307,9 @@ describe("PostAuthRouteService", () => {
   it("routes no-vault users without a verified phone to the phone mandate before onboarding", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: false,
-      preOnboardingCompletedAt: null,
-      preOnboardingSkipped: null,
+      setupCompleted: false,
+      setupCompletedAt: null,
+      setupSkipped: null,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -318,15 +318,15 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
       })
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_ONBOARDING));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP));
   });
 
   it("routes no-vault users without a verified phone to the phone mandate before home", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -341,9 +341,9 @@ describe("PostAuthRouteService", () => {
   it("does not route no-vault users with a verified phone through the phone mandate", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -358,9 +358,9 @@ describe("PostAuthRouteService", () => {
   it("does not route backend phone-verified users back to the phone mandate", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -376,9 +376,9 @@ describe("PostAuthRouteService", () => {
   it("routes phone-verified no-vault Invite to One users through the shared vault flow", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -396,9 +396,9 @@ describe("PostAuthRouteService", () => {
   it("keeps the Invite to One token when a no-vault user must verify phone first", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -418,9 +418,9 @@ describe("PostAuthRouteService", () => {
   it("preserves Invite to One return targets that are already inside the profile vault handoff", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -439,8 +439,8 @@ describe("PostAuthRouteService", () => {
   it("routes Invite to One redirects through phone verification before claim", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
+      setupCompleted: true,
+      setupCompletedAt: 1,
     });
 
     const inviteRedirect = "/one/location/invite/invite_token_123";
@@ -497,9 +497,9 @@ describe("PostAuthRouteService", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -515,9 +515,9 @@ describe("PostAuthRouteService", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      preOnboardingCompleted: true,
-      preOnboardingCompletedAt: 1,
-      preOnboardingSkipped: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -538,8 +538,8 @@ describe("PostAuthRouteService", () => {
     it("routes a first-run vault user to setup when the gate is enabled and unseen", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
-        preOnboardingCompleted: true,
-        preOnboardingCompletedAt: 1,
+        setupCompleted: true,
+        setupCompletedAt: 1,
       });
 
       await expect(
@@ -554,9 +554,9 @@ describe("PostAuthRouteService", () => {
     it("routes a first-run no-vault user to setup when the gate is enabled and unseen", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: false,
-        preOnboardingCompleted: true,
-        preOnboardingCompletedAt: 1,
-        preOnboardingSkipped: false,
+        setupCompleted: true,
+        setupCompletedAt: 1,
+        setupSkipped: false,
       });
       loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -573,8 +573,8 @@ describe("PostAuthRouteService", () => {
       OneSetupGateService.markSeen("user_gate");
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
-        preOnboardingCompleted: true,
-        preOnboardingCompletedAt: 1,
+        setupCompleted: true,
+        setupCompletedAt: 1,
       });
 
       await expect(
@@ -589,8 +589,8 @@ describe("PostAuthRouteService", () => {
     it("does not gate when the caller has not opted in", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
-        preOnboardingCompleted: true,
-        preOnboardingCompletedAt: 1,
+        setupCompleted: true,
+        setupCompletedAt: 1,
       });
 
       await expect(
@@ -604,8 +604,8 @@ describe("PostAuthRouteService", () => {
     it("does not gate when an explicit redirect target is present", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
-        preOnboardingCompleted: true,
-        preOnboardingCompletedAt: 1,
+        setupCompleted: true,
+        setupCompletedAt: 1,
       });
 
       await expect(
@@ -618,11 +618,11 @@ describe("PostAuthRouteService", () => {
       ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
     });
 
-    it("does not gate a user with unresolved onboarding", async () => {
+    it("routes a user with unresolved onboarding straight to the setup hub", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
-        preOnboardingCompleted: false,
-        preOnboardingCompletedAt: null,
+        setupCompleted: false,
+        setupCompletedAt: null,
       });
 
       await expect(
@@ -631,7 +631,7 @@ describe("PostAuthRouteService", () => {
           phoneVerified: true,
           enableFirstRunSetupGate: true,
         })
-      ).resolves.toBe(ROUTES.ONE_ONBOARDING);
+      ).resolves.toBe(ROUTES.ONE_SETUP);
     });
   });
 });

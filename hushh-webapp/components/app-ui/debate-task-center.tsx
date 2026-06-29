@@ -51,7 +51,7 @@ function statusLabel(task: DebateRunTask): string {
 
 function statusIcon(task: DebateRunTask) {
   if (task.status === "running") {
-    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" aria-hidden="true" />;
+    return <Icon icon={Loader2} size="sm" className="animate-spin text-accent-strong" aria-hidden="true" />;
   }
   if (task.status === "completed") {
     return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" aria-hidden="true" />;
@@ -71,7 +71,7 @@ function appTaskStatusLabel(task: AppBackgroundTask): string {
 
 function appTaskStatusIcon(task: AppBackgroundTask) {
   if (task.status === "running") {
-    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" aria-hidden="true" />;
+    return <Icon icon={Loader2} size="sm" className="animate-spin text-accent-strong" aria-hidden="true" />;
   }
   if (task.status === "completed") {
     return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" aria-hidden="true" />;
@@ -429,12 +429,12 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
             aria-label="Notifications"
           >
             {activeCount > 0 ? (
-              <Loader2 className="h-5 w-5 animate-spin text-sky-500" aria-hidden="true" />
+              <Loader2 className="h-5 w-5 animate-spin text-accent-strong" aria-hidden="true" />
             ) : (
               <Bell className="h-5 w-5" aria-hidden="true" />
             )}
             {badgeCount > 0 ? (
-              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
+              <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-[#1d1d1f]">
                 {badgeCount}
               </span>
             ) : null}

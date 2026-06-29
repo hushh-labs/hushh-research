@@ -92,6 +92,16 @@ a, button, input, select, textarea {
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  /* Foundation accent utilities — auto-generate bg-accent-surface, text-foundation-*,
+     border-accent-border, etc. Underlying vars flip in .dark, so these are theme-aware. */
+  --color-foundation-ink: var(--foundation-ink);
+  --color-foundation-dim: var(--foundation-dim);
+  --color-foundation-gold: var(--foundation-gold-accent);
+  --color-foundation-gold-deep: var(--foundation-gold-deep);
+  --color-accent-strong: var(--foundation-gold-deep);
+  --color-accent-surface: var(--foundation-accent-surface);
+  --color-accent-surface-strong: var(--foundation-accent-surface-strong);
+  --color-accent-border: var(--foundation-accent-border);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -156,6 +166,21 @@ a, button, input, select, textarea {
   --foundation-micro-weight: 600;
   --foundation-micro-tracking: 0.2em;
   --foundation-gold: #B8894D;
+
+  /* Foundation color system (light) — adopted verbatim from hushh-search-console
+     (the design bible). Gold = emphasis/markers ONLY; ink/gray carry the reading
+     hierarchy. Deep gold (#b8894d) is the TEXT-legible gold on light. */
+  --foundation-ink: #1d1d1f;
+  --foundation-dim: #86868b;
+  --foundation-off: #f5f5f7;
+  --foundation-surface: #ffffff;
+  --foundation-hairline: #e5e5ea;
+  --foundation-gold-accent: #d4a574;        /* fills / markers */
+  --foundation-gold-deep: #b8894d;          /* TEXT / icons on light */
+  --foundation-accent-surface: #f7f1e8;     /* warm cream */
+  --foundation-accent-surface-strong: #efe4d2;
+  --foundation-accent-border: #e8d8bf;
+  --foundation-crimson: #9a1b1b;
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
   --anchor-width: 16rem;
@@ -339,74 +364,73 @@ a, button, input, select, textarea {
   --motion-deck-scale-active: 1.14;
   --motion-deck-scale-adjacent: 0.9;
   --motion-deck-scale-other: 0.84;
-  /* Apple HIG: light bg is off-white #f5f5f7, shared surfaces sit on a softer table-like card */
-  --background: oklch(0.968 0.002 264);
-  --foreground: oklch(0 0 0);
-  --card: #f7f7fa;
-  --card-foreground: oklch(0 0 0);
-  --popover: #f7f7fa;
-  --popover-foreground: oklch(0 0 0);
-  --primary: oklch(0.55 0.18 250);
+  /* Foundation (bible): light bg off-white #f5f5f7, ink text #1d1d1f, white cards */
+  --background: oklch(0.971 0.003 286.4);
+  --foreground: oklch(0.232 0.004 286.1);
+  --card: #ffffff;
+  --card-foreground: oklch(0.232 0.004 286.1);
+  --popover: #ffffff;
+  --popover-foreground: oklch(0.232 0.004 286.1);
+  --primary: oklch(0.232 0.004 286.1);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.96 0.003 264);
   --secondary-foreground: oklch(0.2 0.01 264);
   --muted: oklch(0.96 0.003 264);
   --muted-foreground: oklch(0.6 0.005 264);
-  --accent: oklch(0.6 0.2 260);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.58 0.22 27);
+  --accent: oklch(0.754 0.085 67.1);
+  --accent-foreground: oklch(0.232 0.004 286.1);
+  --destructive: oklch(0.446 0.162 26.9);
   --destructive-foreground: oklch(1 0 0);
-  --critical-solid: oklch(0.58 0.22 27);
+  --critical-solid: oklch(0.446 0.162 26.9);
   --critical-foreground: oklch(0.98 0 0);
   --critical-soft-bg: oklch(0.95 0.03 26);
   --critical-soft-border: oklch(0.73 0.12 26);
   --critical-soft-text: oklch(0.48 0.16 26);
   --border: oklch(0.92 0.004 264);
   --input: oklch(0.87 0.006 264);
-  --ring: oklch(0.55 0.18 250);
-  --chart-1: oklch(0.55 0.18 250);
-  --chart-2: oklch(0.6 0.2 260);
+  --ring: oklch(0.663 0.096 71.6);
+  --chart-1: oklch(0.663 0.096 71.6);
+  --chart-2: oklch(0.754 0.085 67.1);
   --chart-3: oklch(0.62 0.19 155);
   --chart-4: oklch(0.75 0.15 80);
-  --chart-5: oklch(0.58 0.22 27);
+  --chart-5: oklch(0.446 0.162 26.9);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0.55 0.18 250);
+  --sidebar-primary: oklch(0.232 0.004 286.1);
   --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent: oklch(0.96 0.003 264);
   --sidebar-accent-foreground: oklch(0.2 0.01 264);
   --sidebar-border: oklch(0.92 0.004 264);
-  --sidebar-ring: oklch(0.55 0.18 250);
+  --sidebar-ring: oklch(0.663 0.096 71.6);
 
-  /* Primary Brand Theme - Apple Blue */
-  --brand-primary: #0071e3;
-  --brand-secondary: #3b82f6;
-  --brand-50: #eff6ff;
-  --brand-100: #dbeafe;
-  --brand-200: #bfdbfe;
-  --brand-300: #93c5fd;
-  --brand-400: #60a5fa;
-  --brand-500: #0071e3;
-  --brand-600: #005bb5;
-  --brand-700: #004587;
-  --brand-800: #002f5a;
-  --brand-900: #00192d;
+  /* Primary Brand Theme — Foundation gold scale (was Apple Blue). Gold is the
+     brand accent; ink carries primary. Scale tuned around #d4a574 / #b8894d. */
+  --brand-primary: #b8894d;
+  --brand-secondary: #d4a574;
+  --brand-50: #faf6f0;
+  --brand-100: #f7f1e8;
+  --brand-200: #efe4d2;
+  --brand-300: #e8d8bf;
+  --brand-400: #d9b98a;
+  --brand-500: #d4a574;
+  --brand-600: #b8894d;
+  --brand-700: #9a7038;
+  --brand-800: #6f4f26;
+  --brand-900: #4a3418;
 
-  /* Onboarding tri-tone chips / rail */
-  --tone-blue: #0063f7;
+  /* Onboarding tri-tone chips / rail. Semantic category colors (vault / finance /
+     inbox). The blue tone is re-pointed to Foundation gold so the vault/consent
+     feature carries the signature gold marker; green/finance + orange/inbox stay
+     as warm secondary accents (Foundation-compatible, not Google-blue). */
+  --tone-blue: #b8894d;
   --tone-green: #16a34a;
   --tone-orange: #f97316;
-  --tone-blue-bg: #dbeafe;
+  --tone-blue-bg: #f7f1e8;
   --tone-green-bg: #dcfce7;
   --tone-orange-bg: #ffedd5;
-  --tone-blue-glow: rgba(0, 99, 247, 0.3);
+  --tone-blue-glow: rgba(184, 137, 77, 0.3);
   --tone-green-glow: rgba(22, 163, 74, 0.26);
   --tone-orange-glow: rgba(249, 115, 22, 0.28);
-
-  /* Crystal Glass Effect */
-  --crystal-glass-bg: rgba(255, 255, 255, 0.12);
-  --crystal-glass-border: rgba(0, 113, 227, 0.2);
-  --crystal-glass-blur: 20px;
 
   /* App Background - Apple iCloud light: uniform off-white */
   --app-bg-start: #f5f5f7;
@@ -421,21 +445,21 @@ a, button, input, select, textarea {
   --activeShadowColor: var(--shadow1);
   --fadeGrey: #e5e7eb80;
 
-  /* Hussh Brand Color Tokens - Apple Blue */
-  --morphy-primary-start: #0071e3;
-  --morphy-primary-mid: #2d86ff;
-  --morphy-primary-end: #3b82f6;
+  /* Hussh Brand Color Tokens - Foundation gold (was Apple Blue) */
+  --morphy-primary-start: #b8894d;
+  --morphy-primary-mid: #c8995f;
+  --morphy-primary-end: #d4a574;
   --morphy-secondary-start: #c0c0c0;
   --morphy-secondary-end: #e8e8e8;
-  --morphy-glass-accent-a: rgba(55, 131, 255, 0.13);
-  --morphy-glass-accent-b: rgba(109, 175, 255, 0.11);
+  --morphy-glass-accent-a: rgba(184, 137, 77, 0.13);
+  --morphy-glass-accent-b: rgba(212, 165, 116, 0.11);
 
   /* CTA elevation (used by Morphy Button fill variants) */
-  --morphy-cta-shadow: rgba(0, 113, 227, 0.25);
+  --morphy-cta-shadow: rgba(184, 137, 77, 0.25);
 
   /* Accent gradient */
-  --morphy-accent-start: #0071e3;
-  --morphy-accent-end: #3b82f6;
+  --morphy-accent-start: #b8894d;
+  --morphy-accent-end: #d4a574;
 
   /* Pre-computed gradients */
   --morphy-primary-gradient: linear-gradient(
@@ -772,9 +796,9 @@ html.native-ios {
 .hushh-gradient-text {
   background-image: linear-gradient(
     98deg,
-    #0063d9 0%,
-    #2d86ff 52%,
-    #67b0ff 100%
+    #9a7038 0%,
+    #b8894d 52%,
+    #d4a574 100%
   );
   color: transparent;
   -webkit-background-clip: text;
@@ -784,9 +808,9 @@ html.native-ios {
 .dark .hushh-gradient-text {
   background-image: linear-gradient(
     98deg,
-    #67a8ff 0%,
-    #8ec2ff 52%,
-    #b8dcff 100%
+    #c8995f 0%,
+    #d4a574 52%,
+    #e0bb8e 100%
   );
 }
 
@@ -931,61 +955,58 @@ html.native-ios {
 
 /* Hussh Brand Text */
 .text-hushh-brand {
-  background: linear-gradient(135deg, #0071e3 0%, #3b82f6 100%);
+  background: linear-gradient(135deg, #b8894d 0%, #d4a574 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .dark {
-  /* Apple dark bg #1c1c1e, elevated card #2c2c2e */
-  --background: rgb(28 28 30);
-  --foreground: oklch(0.985 0 0);
-  --card: #2c2c2e;
-  --card-foreground: oklch(0.985 0 0);
-  --popover: #2c2c2e;
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.7 0.18 250);
-  --primary-foreground: oklch(0.15 0 0);
+  /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
+     Gold tuned BRIGHT (#d4a574) for legibility on black; deep gold is too faint. */
+  --background: oklch(0.146 0.004 285.9);
+  --foreground: oklch(0.971 0.003 286.4);
+  --card: oklch(0.199 0.014 285.1);
+  --card-foreground: oklch(0.971 0.003 286.4);
+  --popover: oklch(0.199 0.014 285.1);
+  --popover-foreground: oklch(0.971 0.003 286.4);
+  --primary: oklch(0.971 0.003 286.4);
+  --primary-foreground: oklch(0.232 0.004 286.1);
   --secondary: oklch(0.25 0.003 264);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.25 0.003 264);
-  --muted-foreground: oklch(0.71 0.005 264);
-  --accent: oklch(0.7 0.2 260);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.7 0.19 22);
+  --muted-foreground: oklch(0.879 0.012 286.1);
+  --accent: oklch(0.797 0.112 76.3);
+  --accent-foreground: oklch(0.232 0.004 286.1);
+  --destructive: oklch(0.636 0.172 26.8);
   --destructive-foreground: oklch(0.15 0 0);
-  --critical-solid: oklch(0.68 0.2 24);
+  --critical-solid: oklch(0.636 0.172 26.8);
   --critical-foreground: oklch(0.14 0 0);
   --critical-soft-bg: oklch(0.31 0.06 24);
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.7 0.18 250);
+  --ring: oklch(0.797 0.112 76.3);
   /* Chart colors - higher lightness for contrast on dark card */
-  --chart-1: oklch(0.7 0.18 250);
-  --chart-2: oklch(0.7 0.2 260);
+  --chart-1: oklch(0.797 0.112 76.3);
+  --chart-2: oklch(0.663 0.096 71.6);
   --chart-3: oklch(0.72 0.19 155);
   --chart-4: oklch(0.78 0.15 80);
   --chart-5: oklch(0.7 0.19 22);
-  --sidebar: oklch(0.14 0.002 264);
+  --sidebar: oklch(0.146 0.004 285.9);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.7 0.18 250);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.25 0.003 264);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.971 0.003 286.4);
+  --sidebar-primary-foreground: oklch(0.232 0.004 286.1);
+  --sidebar-accent: oklch(0.797 0.112 76.3);
+  --sidebar-accent-foreground: oklch(0.232 0.004 286.1);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.7 0.18 250);
+  --sidebar-ring: oklch(0.797 0.112 76.3);
 
-  /* Crystal Glass Effect - Dark Mode */
-  --crystal-glass-bg: rgba(0, 113, 227, 0.06);
-  --crystal-glass-border: rgba(0, 113, 227, 0.15);
-
-  /* App Background - Dark: seamless system dark surface */
-  --app-bg-start: rgb(28 28 30);
-  --app-bg-mid: rgb(28 28 30);
-  --app-bg-end: rgb(28 28 30);
+  /* App Background - Dark: PDF pitch-black surface */
+  --app-bg-start: oklch(0.146 0.004 285.9);
+  --app-bg-mid: oklch(0.146 0.004 285.9);
+  --app-bg-end: oklch(0.146 0.004 285.9);
 
   --glass1: #ffffff40 !important;
   --glass2: #6464643b !important;
@@ -995,28 +1016,29 @@ html.native-ios {
   --activeShadowColor: var(--shadow2);
   --fadeGrey: #e5e7eb80;
 
-  /* Morphy UI Color Tokens - Dark Mode */
-  --morphy-primary-start: #5a9fff;
-  --morphy-primary-mid: #82bcff;
-  --morphy-primary-end: #4f93ff;
-  --morphy-secondary-start: #60a5fa;
-  --morphy-secondary-end: #3b82f6;
-  --morphy-glass-accent-a: rgba(90, 159, 255, 0.16);
-  --morphy-glass-accent-b: rgba(130, 188, 255, 0.14);
+  /* Morphy UI Color Tokens - Dark Mode (Foundation gold) */
+  --morphy-primary-start: #d4a574;
+  --morphy-primary-mid: #e0bb8e;
+  --morphy-primary-end: #c8995f;
+  --morphy-secondary-start: #d4a574;
+  --morphy-secondary-end: #b8894d;
+  --morphy-glass-accent-a: rgba(212, 165, 116, 0.16);
+  --morphy-glass-accent-b: rgba(224, 187, 142, 0.14);
 
-  /* Onboarding tri-tone chips / rail (dark mode) */
-  --tone-blue: #60a5fa;
+  /* Onboarding tri-tone chips / rail (dark mode). Blue tone → Foundation gold
+     (vault/consent marker); green/orange stay warm semantic accents. */
+  --tone-blue: #d4a574;
   --tone-green: #4ade80;
   --tone-orange: #fb923c;
-  --tone-blue-bg: #1a2638;
+  --tone-blue-bg: #2a2114;
   --tone-green-bg: #182d24;
   --tone-orange-bg: #33241b;
-  --tone-blue-glow: rgba(96, 165, 250, 0.22);
+  --tone-blue-glow: rgba(212, 165, 116, 0.22);
   --tone-green-glow: rgba(74, 222, 128, 0.22);
   --tone-orange-glow: rgba(251, 146, 60, 0.24);
 
   /* CTA elevation (used by Morphy Button fill variants) */
-  --morphy-cta-shadow: rgba(96, 165, 250, 0.22);
+  --morphy-cta-shadow: rgba(212, 165, 116, 0.22);
 
   /* Ensure gradient colors are available immediately in dark mode */
   --morphy-secondary-gradient: linear-gradient(
@@ -1025,9 +1047,9 @@ html.native-ios {
     var(--morphy-secondary-end)
   );
 
-  /* Material 3 Expressive Ripple Tokens - Apple Blue */
-  --md-ripple-hover-color: #60a5fa;
-  --md-ripple-pressed-color: #3b82f6;
+  /* Material 3 Expressive Ripple Tokens - Foundation gold */
+  --md-ripple-hover-color: #d4a574;
+  --md-ripple-pressed-color: #b8894d;
   --md-ripple-hover-opacity: 0.08;
   --md-ripple-pressed-opacity: 0.12;
 
@@ -1318,7 +1340,7 @@ html.native-ios {
   }
   html.dark body,
   .dark body {
-    background-color: rgb(28, 28, 30) !important;
+    background-color: #0a0a0c !important;
   }
   html.native-ios body {
     padding-top: 0;
@@ -1998,97 +2020,6 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
   animation: ripple 0.6s linear;
 }
 
-/* ============================================================================
- * CRYSTAL GLASS EFFECT - iOS-inspired glassmorphism with gold accents
- * ============================================================================ */
-
-.crystal-glass {
-  background: var(--crystal-glass-bg);
-  backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
-  border: 1px solid var(--crystal-glass-border);
-  border-radius: var(--radius);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.1),
-    0 4px 30px rgba(0, 0, 0, 0.1);
-}
-
-/* Primary accent variant */
-.crystal-glass-gold {
-  background: linear-gradient(
-    135deg,
-    rgba(0, 113, 227, 0.1) 0%,
-    rgba(59, 130, 246, 0.05) 100%
-  );
-  border: 1px solid rgba(0, 113, 227, 0.25);
-  border-radius: var(--radius);
-  backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
-}
-
-.dark .crystal-glass-gold {
-  background: linear-gradient(
-    135deg,
-    rgba(96, 165, 250, 0.08) 0%,
-    rgba(59, 130, 246, 0.04) 100%
-  );
-  border: 1px solid rgba(96, 165, 250, 0.2);
-}
-
-/* Crystal button variants */
-.crystal-btn {
-  background: var(--crystal-glass-bg);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  border: 1px solid var(--crystal-glass-border);
-  border-radius: var(--radius);
-  transition: all 200ms ease-in-out;
-}
-
-.crystal-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(0, 113, 227, 0.3);
-}
-
-.dark .crystal-btn:hover {
-  background: rgba(96, 165, 250, 0.1);
-}
-
-.crystal-btn-gold {
-  background: linear-gradient(135deg, #0071e3 0%, #3b82f6 100%);
-  color: white;
-  font-weight: 600;
-  border: none;
-  border-radius: var(--radius);
-  box-shadow: 0 4px 15px rgba(0, 113, 227, 0.3);
-  transition: all 200ms ease-in-out;
-}
-
-.crystal-btn-gold:hover {
-  box-shadow: 0 6px 20px rgba(0, 113, 227, 0.4);
-  transform: translateY(-1px);
-}
-
-/* Crystal card */
-.crystal-card {
-  background: var(--crystal-glass-bg);
-  backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--crystal-glass-blur, 20px)) saturate(180%);
-  border: 1px solid var(--crystal-glass-border);
-  border-radius: calc(var(--radius) * 1.5);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.1),
-    0 4px 30px rgba(0, 0, 0, 0.1);
-  transition: all 200ms ease-in-out;
-}
-
-.crystal-card:hover {
-  border-color: rgba(0, 113, 227, 0.3);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.1),
-    0 8px 40px rgba(0, 0, 0, 0.15);
-}
-
 /* iOS-like radius utilities */
 @layer utilities {
   .rounded-ios {
@@ -2286,6 +2217,20 @@ html.dark .morphy-app-bg {
 
 .dark {
   --foundation-gold: #D4A574;
+
+  /* Foundation color system (dark) — PDF pitch-black surfaces, gold tuned BRIGHT
+     for legibility on black (deep gold #b8894d is too faint as text on dark). */
+  --foundation-ink: #f5f5f7;
+  --foundation-dim: #86868b;
+  --foundation-off: #0a0a0c;                  /* PDF pitch black */
+  --foundation-surface: #15151c;
+  --foundation-hairline: #2a2a36;
+  --foundation-gold-accent: #e6b366;          /* fills / markers — brightened for dark vibrancy */
+  --foundation-gold-deep: #e6b366;            /* TEXT on dark = BRIGHT gold (brighter+more saturated) */
+  --foundation-accent-surface: rgba(212, 165, 116, 0.12);
+  --foundation-accent-surface-strong: rgba(212, 165, 116, 0.20);
+  --foundation-accent-border: rgba(212, 165, 116, 0.28);
+  --foundation-crimson: #e0584f;
 }
 
 @layer utilities {
@@ -2390,7 +2335,8 @@ html.dark .morphy-app-bg {
   }
 
   .gold-period {
-    color: var(--foundation-gold);
+    /* deep gold (#b8894d) on light, bright gold (#d4a574) on dark — auto via token */
+    color: var(--foundation-gold-deep);
   }
 }
 

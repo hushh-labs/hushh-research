@@ -49,8 +49,8 @@ export function DurationSelector({
               className={cn(
                 "h-9 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
                 active
-                  ? "border-[#0a84ff] bg-[#0a84ff] text-white"
-                  : "border-border/70 bg-background text-foreground hover:border-[#0a84ff]/40",
+                  ? "border-[#d4a574] bg-[#d4a574] text-white"
+                  : "border-border/70 bg-background text-foreground hover:border-[#d4a574]/40",
               )}
             >
               {option.label}
@@ -105,7 +105,7 @@ export function LocationTypeSelector({
               className={cn(
                 SUBCARD_SURFACE,
                 "flex items-center justify-between p-3.5 text-left transition-colors",
-                active && "border-[#0a84ff]/50 ring-1 ring-[#0a84ff]/30",
+                active && "border-[#d4a574]/50 ring-1 ring-[#d4a574]/30",
               )}
             >
               <span>
@@ -120,7 +120,7 @@ export function LocationTypeSelector({
                 className={cn(
                   "flex h-5 w-5 items-center justify-center rounded-full border-2",
                   active
-                    ? "border-[#0a84ff] bg-[#0a84ff]"
+                    ? "border-[#d4a574] bg-[#d4a574]"
                     : "border-border",
                 )}
               >
@@ -174,8 +174,8 @@ export function ReasonChips({
               className={cn(
                 "h-9 rounded-full border px-3.5 text-sm font-medium transition-colors touch-manipulation",
                 active
-                  ? "border-[#0a84ff] bg-[#0a84ff]/10 text-[#0a84ff]"
-                  : "border-border/70 bg-background text-foreground hover:border-[#0a84ff]/40",
+                  ? "border-[#d4a574] bg-[#d4a574]/10 text-[#d4a574]"
+                  : "border-border/70 bg-background text-foreground hover:border-[#d4a574]/40",
               )}
             >
               {reason}
@@ -204,7 +204,7 @@ export function PersonSearchInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[#0a84ff]/25"
+        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[#d4a574]/25"
       />
     </div>
   );

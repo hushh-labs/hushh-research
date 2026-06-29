@@ -124,7 +124,7 @@ export function KaiNavTour() {
         );
         if (cancelled) return;
 
-        if (PreVaultUserStateService.isNavTourResolved(remoteState)) {
+        if (PreVaultUserStateService.isNavSetupResolved(remoteState)) {
           setOpen(false);
           return;
         }
@@ -137,8 +137,8 @@ export function KaiNavTour() {
           });
 
           if (cancelled) return;
-          const remoteCompletedAt = profile.onboarding.nav_tour_completed_at;
-          const remoteSkippedAt = profile.onboarding.nav_tour_skipped_at;
+          const remoteCompletedAt = profile.setup.nav_completed_at;
+          const remoteSkippedAt = profile.setup.nav_skipped_at;
           const remoteResolved = Boolean(remoteCompletedAt || remoteSkippedAt);
 
           if (remoteResolved) {
@@ -317,8 +317,8 @@ export function KaiNavTour() {
 
     try {
       await PreVaultUserStateService.updatePreVaultState(user.uid, {
-        preNavTourCompletedAt: payload.completedAt ? Date.parse(payload.completedAt) : null,
-        preNavTourSkippedAt: payload.skippedAt ? Date.parse(payload.skippedAt) : null,
+        navSetupCompletedAt: payload.completedAt ? Date.parse(payload.completedAt) : null,
+        navSetupSkippedAt: payload.skippedAt ? Date.parse(payload.skippedAt) : null,
       });
       await KaiNavTourLocalService.markSynced(user.uid);
     } catch (error) {

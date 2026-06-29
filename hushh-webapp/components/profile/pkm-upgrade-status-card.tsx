@@ -52,7 +52,7 @@ export function PkmUpgradeStatusCard({
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+              <Loader2 className="h-4 w-4 animate-spin text-accent-strong" />
             ) : status?.upgradeStatus === "current" ? (
               <ShieldCheck className="h-4 w-4 text-emerald-500" />
             ) : (

@@ -43,6 +43,15 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
+// CapabilityExploreCard reads useAuth from the firebase context directly, not
+// via the @/hooks/use-auth re-export, so it needs its own stub here.
+vi.mock("@/lib/firebase/auth-context", () => ({
+  useAuth: () => ({
+    user: { uid: "user-1", getIdToken: mocks.getIdToken },
+    loading: false,
+  }),
+}));
+
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     getVaultOwnerToken: mocks.getVaultOwnerToken,

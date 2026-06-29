@@ -154,8 +154,8 @@ const oneMarketRootClassName = cn(
   "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
   "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
-  "[--one-blue:#0071e3] [--one-link:#0066cc]",
-  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff]",
+  "[--one-blue:#d4a574] [--one-link:#b8894d]",
+  "dark:[--one-blue:#d4a574] dark:[--one-link:#d4a574]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
@@ -811,7 +811,7 @@ function OneMarketNotificationsSheet({
                   "grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px]",
                   item.tone === "up" && "bg-[color:var(--one-up-t)] text-[color:var(--one-up)]",
                   item.tone === "down" && "bg-[color:var(--one-down-t)] text-[color:var(--one-down)]",
-                  item.tone === "blue" && "bg-[#0071e3]/10 text-[color:var(--one-link)]"
+                  item.tone === "blue" && "bg-[#d4a574]/10 text-[color:var(--one-link)]"
                 )}
               >
                 <Icon className="h-[17px] w-[17px]" />

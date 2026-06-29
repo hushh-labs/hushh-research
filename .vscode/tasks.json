@@ -38,9 +38,9 @@
       "problemMatcher": []
     },
     {
-      "label": "Runtime: Visible Local Stack",
+      "label": "Runtime: Visible Local Proxy",
       "type": "shell",
-      "command": "./bin/hushh terminal stack --mode local",
+      "command": "./bin/hushh terminal proxy --mode local",
       "options": {
         "cwd": "${workspaceFolder}"
       },

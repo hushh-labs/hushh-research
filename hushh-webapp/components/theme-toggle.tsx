@@ -102,19 +102,44 @@ export function ThemeToggle({ className }: { className?: string }) {
 }
 
 /**
+ * Size intents for {@link ThemeToggleLean}. Surfaces pick a named intent
+ * instead of hand-coding widths so the control stays visually identical
+ * wherever it appears.
+ *
+ * - `expanded`: full labeled pill (Light / Dark / System) used on the landing
+ *   page and onboarding so a new user sees one consistent, legible control.
+ * - `compact`: icon-only narrow pill for tight in-app top bars sitting next to
+ *   other icon actions.
+ */
+export type ThemeToggleLeanSize = "expanded" | "compact";
+
+const THEME_TOGGLE_LEAN_SIZE: Record<
+  ThemeToggleLeanSize,
+  { width: string; showLabels: boolean }
+> = {
+  expanded: { width: "w-[162px] sm:w-[240px]", showLabels: true },
+  compact: { width: "w-[108px]", showLabels: false },
+};
+
+/**
  * Lean segmented theme toggle — icon-forward, mobile-perfect.
  *
- * Used at the top of onboarding and in Profile › Preferences. Three equal
- * segments (Light / Dark / System) with icons always visible and labels that
- * appear only when there's room (sm+), so it stays compact on a phone while
- * remaining fully labeled on wider surfaces. The active segment slides via a
- * single animated thumb rather than per-button borders.
+ * Used on the landing page, at the top of onboarding, and in Profile ›
+ * Preferences. Three equal segments (Light / Dark / System) with icons always
+ * visible and labels that appear only when there's room (sm+). The active
+ * segment slides via a single animated thumb rather than per-button borders.
+ *
+ * Prefer the `size` intent over a custom width so every surface renders the
+ * same control. `showLabels` and `className` remain available for fine-tuning
+ * but default to the chosen `size`.
  */
 export function ThemeToggleLean({
   className,
-  showLabels = true,
+  size = "expanded",
+  showLabels,
 }: {
   className?: string;
+  size?: ThemeToggleLeanSize;
   showLabels?: boolean;
 }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -123,6 +148,9 @@ export function ThemeToggleLean({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const sizeIntent = THEME_TOGGLE_LEAN_SIZE[size];
+  const resolvedShowLabels = showLabels ?? sizeIntent.showLabels;
 
   const activeTheme = resolveActiveTheme(theme);
   const isDark = resolvedTheme === "dark";
@@ -133,7 +161,12 @@ export function ThemeToggleLean({
 
   // Reserve height to avoid layout shift before mount/hydration.
   if (!mounted) {
-    return <div className={cn("h-9 w-full max-w-[220px]", className)} aria-hidden="true" />;
+    return (
+      <div
+        className={cn("h-9", sizeIntent.width, className)}
+        aria-hidden="true"
+      />
+    );
   }
 
   return (
@@ -142,7 +175,8 @@ export function ThemeToggleLean({
       role="radiogroup"
       aria-label="Theme"
       className={cn(
-        "relative grid h-9 w-full max-w-[260px] grid-cols-3 items-center rounded-full p-[3px]",
+        "relative grid h-9 grid-cols-3 items-center rounded-full p-[3px]",
+        sizeIntent.width,
         isDark ? "bg-white/[0.07]" : "bg-black/[0.05]",
         className
       )}
@@ -184,7 +218,7 @@ export function ThemeToggleLean({
             )}
           >
             <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
-            {showLabels ? (
+            {resolvedShowLabels ? (
               <span className="hidden text-xs font-medium leading-none sm:inline">
                 {option.label}
               </span>

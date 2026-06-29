@@ -51,9 +51,9 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   marketplace: {
-    eyebrow: "text-sky-700 dark:text-sky-300",
-    icon: "border border-sky-500/12 bg-sky-500/[0.06] text-sky-700 shadow-[var(--shadow-xs)] dark:border-sky-400/16 dark:bg-sky-400/[0.08] dark:text-sky-200",
-    divider: "bg-sky-300/50 dark:bg-sky-400/30",
+    eyebrow: "text-accent-strong",
+    icon: "border border-accent-border bg-accent-surface text-accent-strong shadow-[var(--shadow-xs)]",
+    divider: "bg-accent/40",
   },
   developers: {
     eyebrow: "text-rose-700 dark:text-rose-300",

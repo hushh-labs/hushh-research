@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, type LucideIcon } from "lucide-react";
+import { ListChecks, type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -13,8 +13,11 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { Button } from "@/components/ui/button";
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES } from "@/lib/navigation/routes";
+import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   CAPABILITY_SETUP_COPY,
   type CapabilitySetupCopy,
@@ -23,9 +26,11 @@ import {
   getOneCapability,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
 import {
   isCapabilitySetupActionable,
+  isCapabilitySetupComplete,
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { cn } from "@/lib/utils";
@@ -49,24 +54,85 @@ import { cn } from "@/lib/utils";
 export function OneSetupHub() {
   const router = useRouter();
   const { user } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { byId, isLoading } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
   });
-
-  const handleNotNow = () => {
-    if (user?.uid) {
-      OneSetupGateService.markSeen(user.uid);
-    }
-    router.push(ROUTES.ONE_HOME);
-  };
+  const [dismissing, setDismissing] = useState(false);
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
 
   const total = items.length;
-  const remaining = items.filter((item) => item.isActionable).length;
-  const done = total - remaining;
+  // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
+  // tile that still needs a connection or an unlock (blocked/unknown) is NOT
+  // ready, even though it is not directly tappable-into-setup — so we never
+  // count it as done. Everything that is not complete is "left to set up".
+  const done = items.filter((item) => isCapabilitySetupComplete(item.status)).length;
+  const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
+
+  // Publish screen context so the onboarding guide can describe the hub and
+  // navigate the person to any capability they ask for.
+  usePublishVoiceSurfaceMetadata({
+    screenId: "one_setup_hub",
+    title: "Set up One",
+    purpose:
+      "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
+    actions: CAPABILITY_SETUP_COPY.map((cap) => ({
+      id: cap.id,
+      label: cap.title,
+      purpose: cap.setupBlurb,
+    })),
+  });
+
+  // The MASTER setup acknowledgement is owned by this single hub control:
+  //   - 0 capabilities done  -> "Skip"     (master skip-resolved)
+  //   - 1..n capabilities done -> "Continue" (master completed, not skipped)
+  // Either way it SATISFIES the root setup gate so the hard gate on /one/* does
+  // not bounce the user back here. Per-capability tiles never touch this gate;
+  // they only record their own signal. We mark the server pre-vault gate
+  // (authoritative for the gate and PostAuthRouteService); when the vault is
+  // unlocked we also flip the vault profile so the unlocked path agrees. Both
+  // are awaited before navigating so the gate is consistent on the very next
+  // route resolve. Failures stay fail-open (we still navigate home).
+  const masterSkipped = done === 0;
+  const masterActionLabel = masterSkipped ? "Skip" : "Continue";
+
+  const handleMasterAck = async () => {
+    if (dismissing) return;
+    if (!user?.uid) {
+      router.push(ROUTES.ONE_HOME);
+      return;
+    }
+    setDismissing(true);
+    try {
+      await PreVaultUserStateService.syncKaiSetupState({
+        userId: user.uid,
+        completed: true,
+        skipped: masterSkipped,
+      });
+      if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
+        await KaiProfileService.setOnboardingCompleted({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+          skippedPreferences: masterSkipped,
+        }).catch((error) => {
+          console.warn(
+            "[OneSetupHub] Failed to mark vault profile setup completed:",
+            error,
+          );
+        });
+      }
+      OneSetupGateService.markSeen(user.uid);
+    } catch (error) {
+      console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
+    } finally {
+      setDismissing(false);
+      router.push(ROUTES.ONE_HOME);
+    }
+  };
 
   const summary = isLoading
     ? "Checking what's set up…"
@@ -91,17 +157,18 @@ export function OneSetupHub() {
           eyebrow="Set up One"
           title={allReady ? "You're all set" : "Finish setting up One"}
           description={summary}
-          icon={Sparkles}
+          icon={ListChecks}
           accent="neutral"
           actions={
             <Button
               type="button"
-              variant="ghost"
+              variant={masterSkipped ? "ghost" : "default"}
               size="sm"
-              onClick={handleNotNow}
-              data-testid="one-setup-not-now"
+              disabled={dismissing}
+              onClick={() => void handleMasterAck()}
+              data-testid="one-setup-master-ack"
             >
-              Not now
+              {masterActionLabel}
             </Button>
           }
         />
@@ -121,6 +188,7 @@ export function OneSetupHub() {
                 icon={item.icon}
                 tone={item.tone}
                 status={item.status}
+                isExploreOnly={item.isExploreOnly}
                 isCurrent={item.isCurrent}
               />
             </li>
@@ -138,6 +206,7 @@ interface SetupItem {
   icon: LucideIcon;
   tone: OneCapabilityTone;
   isActionable: boolean;
+  isExploreOnly: boolean;
   isCurrent: boolean;
 }
 
@@ -165,6 +234,7 @@ function buildSetupItems(
         icon: capability.icon,
         tone: capability.tone,
         isActionable: isCapabilitySetupActionable(status),
+        isExploreOnly: capability.isExploreOnly === true,
       },
     ];
   });

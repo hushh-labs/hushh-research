@@ -199,7 +199,94 @@ Rules:
 3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
 4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. The vault unlock methods (Vault Key, Passkey, Recovery Key) must all share one effect so the buttons read as a uniform set.
 5. Bars use the shared `.bar-glass` and `.bar-glass-top` surfaces; cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
-6. Focus state is the shared ring `focus-visible:ring-2 focus-visible:ring-sky-400/70`. Do not invent per-control focus styling.
+6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
+
+## Foundation Color Contract
+
+The app's color identity is the **Foundation** system, established in
+hushh-research by the `feat/foundation-design-unification` work (theme-aware
+wordmark, tokens, and the blue→gold sweep across shadcn/brand/morphy primitives
+and feature components). The CSS tokens live in `hushh-webapp/app/globals.css`
+(`--foundation-*`, `--color-accent-*`) and flip automatically in `.dark`. (The
+underlying gold/ink palette hexes were adopted from the hushh-search-console
+palette; see the note in `globals.css`.) This contract governs how those tokens
+are USED in component code so the palette stays consistent across every surface
+and engineer.
+
+### The Foundation law
+
+1. **Gold is emphasis / accent ONLY — never decoration and never primary.** Ink
+   (near-black, `--primary`/`text-foreground`) carries primary; gray
+   (`text-muted-foreground`) carries support. Gold marks the ONE thing that
+   deserves attention on a surface (active state, key metric, brand chrome).
+2. **Use semantic tokens, not raw hex.** Prefer `text-accent-strong`,
+   `bg-accent`, `bg-accent-surface`, `border-accent-border`, `ring-accent`,
+   `text-foreground`, `text-muted-foreground`, `bg-primary` over literal
+   `#b8894d`/`#d4a574` or `text-yellow-*`. The tokens are theme-aware; raw hex is
+   not and drifts in dark mode.
+3. **`text-accent-strong` already flips for dark** (it is
+   `var(--foundation-gold-deep)`: `#b8894d` light → `#e6b366` dark). Use it
+   WITHOUT a `dark:` variant — adding one fights the token.
+4. **No off-palette brand blue.** `blue-*`, `sky-*`, `indigo-*`, `cyan-*` Tailwind
+   classes and hardcoded blue hexes (`#0071e3`, `#0a84ff`, `#0066cc`, `#2997ff`,
+   `#3b82f6`, …) are NOT part of Foundation. New code must not introduce them as
+   brand accent; existing ones get swept to gold per the rule below.
+5. **Never `#FFD700` / garish gold.** Stay in the Foundation family
+   (`#b8894d`/`#d4a574` light, `#e6b366` dark) even when a vision critic pushes
+   for a brighter gold.
+
+### Brand-accent vs semantic-status (the one rule that governs every color sweep)
+
+When removing off-palette blue, every blue is EITHER brand chrome (→ gold) OR a
+semantic status/data-viz color (→ LEAVE IT). Gold-ifying a status blue actively
+breaks the color language because gold collides with the amber/warning semantic.
+
+- **Brand accent → GOLD:** buttons, links, active tab/indicator, focus ring,
+  brand gradient, a lone decorative panel/icon accent, a category "info" chip
+  that is NOT part of a status set.
+- **Semantic status / data-viz → LEAVE:** an "info" state sitting in a
+  success(green)/warning(amber)/error(red) set, a distinct chart-series color,
+  bullish/bearish/neutral, a tier/persona category color, an
+  in-progress/refreshing status (sky paired with emerald=done/rose=failed).
+- **The fast tell:** look at what the blue is grouped WITH in the same
+  map/ternary/object. Grouped with emerald+red+amber → STATUS → leave. The only
+  accent on a header/icon/border/active-indicator, or paired with category chips
+  → BRAND CHROME → gold. When unsure, LEAVE a clearly-semantic status blue: a
+  missed brand accent is cosmetic, a gold-ified status color is a broken semantic.
+
+### Mapping cheat-sheet
+
+| Off-palette (from) | Foundation (to) |
+|---|---|
+| `bg-blue-50`, `dark:bg-blue-950/40` | `bg-accent-surface` (no `dark:` needed) |
+| `text-blue-500/600/700` | `text-accent-strong` |
+| `bg-blue-500/600` accent fill | `bg-accent` (gold) — OR `bg-primary` (ink) if it's a PRIMARY CTA |
+| `hover:bg-blue-600` | `hover:opacity-90` |
+| `border-blue-*` | `border-accent-border` |
+| `ring-blue-*`, `focus:ring-blue-*` | `ring-accent` / `focus-visible:ring-accent/70` |
+| `from-blue-500 to-purple-600` brand gradient | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]` |
+| brand hex `#0071e3`/`#0066cc` (+ dark `#0a84ff`/`#2997ff`) | `#b8894d` text / `#d4a574` fill (dark → `#d4a574`/`#e6b366`) |
+
+NOTE: `MaterialRipple variant="blue"` and the `morphy-ux` `gradients.primary`
+already resolve to `var(--morphy-primary-*)` (gold) — these are legacy NAMES, not
+off-palette bugs; leave them unless renaming the whole API.
+
+### Verification + reporting for a color sweep
+
+1. Find hits: `rg -n -e 'blue-[0-9]' -e 'sky-[0-9]' -e 'indigo-[0-9]' -e 'cyan-[0-9]' -e '#0071e3' -e '#0066cc' -e '#3b82f6' <files>`.
+2. Edit with exact string replacement; colors only — never touch layout, spacing,
+   logic, or copy.
+3. Gate a className-only sweep with `npx tsc --noEmit` (exit 0, your files clean).
+   `npm run build` is NOT needed for color strings (it needs backend env). Do NOT
+   touch `app/globals.css` during a component sweep — the tokens are already done.
+4. Report per file: what you CHANGED, what you deliberately LEFT and WHY (name the
+   status set it belongs to), and any genuine uncertainty. A report that lists only
+   changes is incomplete — the LEFT list with semantic justification is the proof
+   judgment was applied rather than blind find-replace.
+
+The component-level playbook with the full CHANGED/LEFT catalog from the
+`components/kai/**` finance sweep lives in the `hushh-workspace-and-governance`
+skill at `references/foundation-design-system.md`.
 
 ## Overlay Backdrop Contract
 

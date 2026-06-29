@@ -11,7 +11,7 @@ import {
 } from "@/components/app-ui/surfaces";
 import { useAuth } from "@/hooks/use-auth";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { buildOneOnboardingRoute } from "@/lib/navigation/routes";
+import { buildOneSetupKaiRoute } from "@/lib/navigation/routes";
 import {
   RiaService,
   type RiaInviteResolution,
@@ -98,7 +98,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
   async function acceptInvite() {
     if (!user) {
       router.replace(
-        `/login?redirect=${encodeURIComponent(buildOneOnboardingRoute({ invite: inviteToken }))}`,
+        `/login?redirect=${encodeURIComponent(buildOneSetupKaiRoute({ invite: inviteToken }))}`,
       );
       return;
     }

@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
 from uuid import uuid4
 
 import yaml
@@ -541,6 +541,78 @@ def _is_google_provider_runtime_error(error: Exception) -> bool:
     return module_name.startswith(("google.", "google_")) or error.__class__.__name__ in {
         "DefaultCredentialsError",
     }
+
+
+# Transient Gemini status codes worth a short, jittered retry: rate limit (429),
+# and the overloaded/unavailable family (500/503). Auth/quota-config errors
+# (401/403/404) are deliberately excluded - retrying those is pointless.
+_RETRYABLE_GEMINI_STATUS = {429, 500, 503}
+
+
+def _is_retryable_gemini_error(error: Exception) -> bool:
+    status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
+    if isinstance(status_code, int) and status_code in _RETRYABLE_GEMINI_STATUS:
+        return True
+    status_value = str(getattr(error, "status", "") or "").upper()
+    return status_value in {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"}
+
+
+def _jittered_backoff_seconds(
+    attempt: int, *, base_delay: float = 0.5, max_delay: float = 8.0
+) -> float:
+    """Decorrelated jittered exponential backoff to avoid retry thundering-herd."""
+    import random
+
+    exponent = max(0, attempt - 1)
+    ceiling = min(base_delay * (2**exponent), max_delay)
+    # Jitter here is for retry timing only, not security; pseudo-random is fine.
+    return (
+        random.uniform(base_delay, ceiling)  # noqa: S311
+        if ceiling > base_delay
+        else base_delay
+    )
+
+
+async def _retry_transient_gemini(
+    operation: "Callable[[], Awaitable[Any]]",
+    *,
+    max_attempts: int = 3,
+    phase: str,
+) -> Any:
+    """Run an idempotent Gemini call with jittered backoff on transient errors.
+
+    Only safe for non-streaming, idempotent operations (e.g. action planning).
+    Never use for the token stream, where a retry would duplicate output.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await operation()
+        except genai_errors.APIError as error:
+            last_error = error
+            if attempt >= max_attempts or not _is_retryable_gemini_error(error):
+                raise
+        except Exception as error:  # noqa: BLE001 - bounded to provider errors below
+            last_error = error
+            if (
+                attempt >= max_attempts
+                or not _is_google_provider_runtime_error(error)
+                or not _is_retryable_gemini_error(error)
+            ):
+                raise
+        delay = _jittered_backoff_seconds(attempt)
+        logger.info(
+            "agent_chat_transient_retry phase=%s attempt=%d/%d delay=%.2fs error=%s",
+            phase,
+            attempt,
+            max_attempts,
+            delay,
+            last_error.__class__.__name__ if last_error else "unknown",
+        )
+        await asyncio.sleep(delay)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("retry loop exited without result")
 
 
 def _runtime_provider_error_code(detail: dict[str, Any]) -> str:
@@ -1373,25 +1445,31 @@ class AgentChatService:
             return deterministic_block
 
         try:
-            response = await runtime_client.aio.models.generate_content(
-                model=runtime_model,
-                contents=self._build_action_planning_contents(
-                    user_message=user_message,
-                    history=history,
-                    pkm_context=pkm_context,
-                ),
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=AGENT_ACTION_PLANNER_PROMPT,
-                    temperature=0.0,
-                    max_output_tokens=256,
-                    tools=[_agent_action_tool()],
-                    automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
-                        disable=True
+            # Action planning is a non-streaming, idempotent call, so a short
+            # jittered retry on transient 429/503 is safe (unlike the token
+            # stream, where a retry would duplicate output).
+            response = await _retry_transient_gemini(
+                lambda: runtime_client.aio.models.generate_content(
+                    model=runtime_model,
+                    contents=self._build_action_planning_contents(
+                        user_message=user_message,
+                        history=history,
+                        pkm_context=pkm_context,
                     ),
-                    tool_config=genai_types.ToolConfig(
-                        function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=AGENT_ACTION_PLANNER_PROMPT,
+                        temperature=0.0,
+                        max_output_tokens=256,
+                        tools=[_agent_action_tool()],
+                        automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                            disable=True
+                        ),
+                        tool_config=genai_types.ToolConfig(
+                            function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
+                        ),
                     ),
                 ),
+                phase="planner",
             )
             for function_call in self._function_calls_from_response(response):
                 action_plan = self._action_plan_from_function_call(function_call)

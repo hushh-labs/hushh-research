@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { apiJson } from "@/lib/services/api-client";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
@@ -14,22 +15,33 @@ export type PreVaultUserState = {
   firstLoginAt: number | null;
   lastLoginAt: number | null;
   loginCount: number;
-  preOnboardingCompleted: boolean | null;
-  preOnboardingSkipped: boolean | null;
-  preOnboardingCompletedAt: number | null;
-  preNavTourCompletedAt: number | null;
-  preNavTourSkippedAt: number | null;
-  preStateUpdatedAt: number | null;
+  setupCompleted: boolean | null;
+  setupSkipped: boolean | null;
+  setupCompletedAt: number | null;
+  navSetupCompletedAt: number | null;
+  navSetupSkippedAt: number | null;
+  // Per-capability setup mirror: ids the user has set up at least once. The
+  // client local store (CapabilityTourService) is the source of truth; this is
+  // the durable, cross-device echo. Always an array (never null) so callers can
+  // treat absent as "nothing set up".
+  setupCapabilityIds: string[];
+  setupCapabilitiesUpdatedAt: number | null;
+  setupStateUpdatedAt: number | null;
+  // Verified-phone claim folded in from the backend bootstrap call. null means
+  // "unknown" (older backend, or shadow lookup failed) so callers fall back to
+  // their own identity read rather than treating it as unverified.
+  phoneVerified: boolean | null;
 };
 
 type BootstrapStateResponse = Partial<PreVaultUserState>;
 
 type PreVaultStateUpdatePayload = {
-  preOnboardingCompleted?: boolean;
-  preOnboardingSkipped?: boolean;
-  preOnboardingCompletedAt?: number | null;
-  preNavTourCompletedAt?: number | null;
-  preNavTourSkippedAt?: number | null;
+  setupCompleted?: boolean;
+  setupSkipped?: boolean;
+  setupCompletedAt?: number | null;
+  navSetupCompletedAt?: number | null;
+  navSetupSkippedAt?: number | null;
+  setupCapabilityIds?: string[];
 };
 
 const bootstrapInflight = new Map<string, Promise<PreVaultUserState>>();
@@ -38,6 +50,17 @@ function toMillis(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (trimmed.length > 0) seen.add(trimmed);
+  }
+  return Array.from(seen).sort();
 }
 
 function toNullableBool(value: unknown): boolean | null {
@@ -61,12 +84,15 @@ function normalizeResponse(userId: string, payload: BootstrapStateResponse): Pre
     firstLoginAt: toMillis(payload.firstLoginAt),
     lastLoginAt: toMillis(payload.lastLoginAt),
     loginCount: Number(payload.loginCount || 0),
-    preOnboardingCompleted: toNullableBool(payload.preOnboardingCompleted),
-    preOnboardingSkipped: toNullableBool(payload.preOnboardingSkipped),
-    preOnboardingCompletedAt: toMillis(payload.preOnboardingCompletedAt),
-    preNavTourCompletedAt: toMillis(payload.preNavTourCompletedAt),
-    preNavTourSkippedAt: toMillis(payload.preNavTourSkippedAt),
-    preStateUpdatedAt: toMillis(payload.preStateUpdatedAt),
+    setupCompleted: toNullableBool(payload.setupCompleted),
+    setupSkipped: toNullableBool(payload.setupSkipped),
+    setupCompletedAt: toMillis(payload.setupCompletedAt),
+    navSetupCompletedAt: toMillis(payload.navSetupCompletedAt),
+    navSetupSkippedAt: toMillis(payload.navSetupSkippedAt),
+    setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
+    setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
+    setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
+    phoneVerified: toNullableBool(payload.phoneVerified),
   };
 }
 
@@ -118,6 +144,10 @@ export class PreVaultUserStateService {
         // Pre-vault bootstrap state changes infrequently and is updated by this service,
         // so keeping it warm for the session reduces repeated heavy bootstrap requests.
         CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SESSION);
+        // Fold the verified-phone hint from this same call into a cold identity
+        // cache so the phone-mandate guard can resolve without a separate
+        // identity/refresh round-trip on first paint.
+        AccountIdentityService.primeVerifiedPhoneHint(userId, normalized.phoneVerified);
         return normalized;
       })
       .finally(() => {
@@ -152,17 +182,32 @@ export class PreVaultUserStateService {
     return normalized;
   }
 
-  static isOnboardingResolved(state: PreVaultUserState | null | undefined): boolean {
+  static isSetupResolved(state: PreVaultUserState | null | undefined): boolean {
     if (!state) return false;
-    return state.preOnboardingCompleted === true;
+    return state.setupCompleted === true;
   }
 
-  static isNavTourResolved(state: PreVaultUserState | null | undefined): boolean {
+  static isNavSetupResolved(state: PreVaultUserState | null | undefined): boolean {
     if (!state) return false;
-    return Boolean(state.preNavTourCompletedAt || state.preNavTourSkippedAt);
+    return Boolean(state.navSetupCompletedAt || state.navSetupSkippedAt);
   }
 
-  static async syncKaiOnboardingState(params: {
+  /**
+   * Mirror the per-capability setup set to the durable backend store. The
+   * caller passes the FULL desired set (already merged with the local copy);
+   * the backend replaces its stored value. Best-effort at the call site — a
+   * failed mirror leaves the local copy authoritative for this device.
+   */
+  static async syncSetupCapabilities(
+    userId: string,
+    setupCapabilityIds: readonly string[]
+  ): Promise<PreVaultUserState> {
+    return this.updatePreVaultState(userId, {
+      setupCapabilityIds: toStringArray([...setupCapabilityIds]),
+    });
+  }
+
+  static async syncKaiSetupState(params: {
     userId: string;
     completed: boolean;
     skipped: boolean;
@@ -176,9 +221,9 @@ export class PreVaultUserStateService {
           : Date.now();
 
     return this.updatePreVaultState(params.userId, {
-      preOnboardingCompleted: params.completed,
-      preOnboardingSkipped: params.skipped,
-      preOnboardingCompletedAt:
+      setupCompleted: params.completed,
+      setupSkipped: params.skipped,
+      setupCompletedAt:
         params.completed && Number.isFinite(completedAtMs) ? completedAtMs : Date.now(),
     });
   }

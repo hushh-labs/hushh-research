@@ -2287,6 +2287,23 @@ class OneLocationAgentService:
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
+        # Eligibility for who can appear as a One Location recipient.
+        #
+        # A user is eligible when ANY of the following holds:
+        #   1. They share an active One Network connection with the owner
+        #      (explicit Circle-invite claim). This is explicit mutual consent
+        #      and always wins, even over marketplace visibility (below).
+        #   2. They are phone-verified (the broad verified-actor directory).
+        #   3. They are connected to the owner through the marketplace
+        #      ("Connect" tab) via an approved advisor<->investor relationship,
+        #      AND they are currently marketplace-discoverable.
+        #
+        # Privacy gate (mirrors the marketplace "Connect" tab): if a user turns
+        # their marketplace visibility OFF (marketplace_public_profiles
+        # .is_discoverable = FALSE) they disappear from the One Location
+        # directory too -- the SAME flag the Connect tab already filters on --
+        # UNLESS the owner has an explicit One Network connection with them.
+        # Users who never created a marketplace profile are unaffected.
         rows = self._execute_many(
             """
             SELECT
@@ -2303,8 +2320,7 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE a.user_id <> :owner_user_id
               AND (
-                a.phone_verified = TRUE
-                OR EXISTS (
+                EXISTS (
                   SELECT 1
                   FROM one_location_network_connections nc
                   WHERE nc.status = 'active'
@@ -2313,12 +2329,34 @@ class OneLocationAgentService:
                       OR (nc.user_b_id = :owner_user_id AND nc.user_a_id = a.user_id)
                     )
                 )
+                OR (
+                  (
+                    a.phone_verified = TRUE
+                    OR EXISTS (
+                      SELECT 1
+                      FROM advisor_investor_relationships air
+                      JOIN ria_profiles rp ON rp.id = air.ria_profile_id
+                      WHERE air.status = 'approved'
+                        AND (
+                          (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
+                          OR (rp.user_id = :owner_user_id AND air.investor_user_id = a.user_id)
+                        )
+                    )
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM marketplace_public_profiles mp
+                    WHERE mp.user_id = a.user_id
+                      AND mp.is_discoverable = FALSE
+                  )
+                )
               )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
             """,
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
+
         recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,

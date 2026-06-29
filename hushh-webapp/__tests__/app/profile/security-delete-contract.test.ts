@@ -41,11 +41,11 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).not.toContain('"Yes, Delete RIA"');
   });
 
-  it("offers a reset-account path that keeps the account and re-runs onboarding", () => {
+  it("offers a reset-account path that keeps the account and re-runs setup", () => {
     expect(profilePageSource).toContain("Reset your One account?");
     expect(profilePageSource).toContain('"Yes, reset my account"');
     expect(profilePageSource).toContain("AccountService.resetAccount(resolution.token)");
-    expect(profilePageSource).toContain("router.replace(ROUTES.ONE_ONBOARDING)");
+    expect(profilePageSource).toContain("router.replace(ROUTES.ONE_SETUP)");
     expect(profilePageSource).toContain("setOnboardingRequiredCookie(true)");
   });
 });

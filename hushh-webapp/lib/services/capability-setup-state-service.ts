@@ -1,7 +1,7 @@
 import type { KaiProfileV2 } from "@/lib/services/kai-profile-service";
 import type { PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 import { resolveKaiOnboardingCompletion } from "@/lib/services/kai-profile-service";
-import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
+import { ONE_CAPABILITIES, getOneCapability } from "@/lib/onboarding/one-capabilities";
 
 /**
  * CAPABILITY SETUP-STATE RESOLVER — single source of truth for "is this
@@ -26,7 +26,7 @@ import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
  *   needed". A network blip on the coarse mirror must never silently re-trigger
  *   a setup flow.
  * - `skipped` is distinct from `completed`. The user choosing "Not now" is a
- *   real, persisted decision (PreVault `preOnboardingSkipped` /
+ *   real, persisted decision (PreVault `setupSkipped` /
  *   KaiProfile `skipped_preferences`) and must not read as incomplete.
  */
 
@@ -103,10 +103,15 @@ export interface CapabilitySetupInputs {
    * are treated per the capability's own prerequisite rules.
    */
   oauthConnections?: Partial<Record<string, boolean>>;
+  /**
+   * Ids of explore-only capabilities (those that collect nothing) the user has
+   * explored at least once. An explore-only capability is `not-started`
+   * ("Explore") until its id appears here, then `completed` ("Explored"). Absent
+   * means "nothing explored yet".
+   */
+  exploredCapabilityIds?: ReadonlySet<string>;
 }
 
-/** Capabilities whose real configuration lives behind the encrypted vault. */
-const VAULT_GATED = new Set<string>(["finance", "pkm"]);
 /** Capabilities that require an OAuth connection to a third party. */
 const OAUTH_GATED = new Set<string>(["gmail", "connected-systems"]);
 
@@ -143,10 +148,10 @@ function resolveFinance(inputs: CapabilitySetupInputs): CapabilityStatus {
 
   // No decrypted profile yet. Fall back to the coarse pre-vault mirror.
   if (preVaultState) {
-    if (preVaultState.preOnboardingCompleted === true) {
+    if (preVaultState.setupCompleted === true) {
       return simple("finance", "completed");
     }
-    if (preVaultState.preOnboardingSkipped === true) {
+    if (preVaultState.setupSkipped === true) {
       return simple("finance", "skipped");
     }
     // Mirror resolved and says neither done nor skipped → genuinely not started.
@@ -164,7 +169,13 @@ function resolveFinance(inputs: CapabilitySetupInputs): CapabilityStatus {
   return unknown("finance", isVaultUnlocked ? null : "vault", !isVaultUnlocked);
 }
 
-/** Resolve the consent capability from the live pending-request count. */
+/**
+ * Resolve the consent capability. Pending requests always win as
+ * `needs-attention` (there is something to act on right now). With nothing
+ * pending it is an explore-only review surface: `not-started` ("Explore") until
+ * the person has looked once, then `completed` ("Explored"). This avoids a fresh
+ * account fabricating a "Ready" badge for a tab the user has never opened.
+ */
 function resolveConsent(inputs: CapabilitySetupInputs): CapabilityStatus {
   const pending = Math.max(0, Math.trunc(inputs.pendingConsents || 0));
   if (pending > 0) {
@@ -176,8 +187,19 @@ function resolveConsent(inputs: CapabilitySetupInputs): CapabilityStatus {
       requiresUnlock: false,
     };
   }
-  // No pending requests is a steady, healthy state — not "setup needed".
-  return simple("consent", "completed");
+  return resolveExploreOnly("consent", inputs);
+}
+
+/**
+ * Resolve an explore-only capability (one that collects nothing from the user).
+ * Its "setup" is a one-time look: `not-started` ("Explore") until the user has
+ * explored it once, then `completed` ("Explored"). Keeping un-explored tabs
+ * `not-started` makes the "N of M ready" count honest — an unseen tab is
+ * genuinely "left to set up", never a fabricated "Ready".
+ */
+function resolveExploreOnly(id: string, inputs: CapabilitySetupInputs): CapabilityStatus {
+  const explored = inputs.exploredCapabilityIds?.has(id) === true;
+  return simple(id, explored ? "completed" : "not-started");
 }
 
 /**
@@ -190,8 +212,8 @@ function resolveVaultGated(id: string, inputs: CapabilitySetupInputs): Capabilit
     return unknown(id, "vault", true);
   }
   // Post-unlock, no per-capability signal wired yet for non-finance vault
-  // capabilities (e.g. pkm). Report `unknown` honestly until a real signal is
-  // passed in, instead of fabricating "Ready".
+  // capabilities (e.g. pkm, email, location). Report `unknown` honestly until a
+  // real signal is passed in, instead of fabricating "Ready".
   return unknown(id, null, true);
 }
 
@@ -215,12 +237,31 @@ export function resolveCapabilitySetupState(
 
   if (id === "finance") return resolveFinance(inputs);
   if (id === "consent") return resolveConsent(inputs);
-  if (VAULT_GATED.has(id)) return resolveVaultGated(id, inputs);
   if (OAUTH_GATED.has(id)) return resolveOauthGated(id, inputs);
 
-  // Capabilities with no backend setup gate yet (email, location). These are
-  // usable without explicit configuration, so they are `completed` once the
-  // user is authenticated. Kept explicit so adding a real gate later is a
+  const capability = getOneCapability(id);
+
+  // Explore-only capabilities (e.g. consent fallthrough): no data to collect, so
+  // their "setup" is a one-time look. `not-started` ("Explore") until explored
+  // once, then `completed` ("Explored"). Declared via the catalog
+  // `isExploreOnly` flag so the set is explicit and testable.
+  if (capability?.isExploreOnly === true) {
+    return resolveExploreOnly(id, inputs);
+  }
+
+  // Vault-backed capabilities (finance handled separately above): their real
+  // configuration lives behind the encrypted vault. Without an unlocked vault we
+  // cannot read real state, so report `unknown` with the vault prerequisite
+  // rather than fabricating "Ready". Declared via the catalog `requiresVault`
+  // flag so the set is explicit and testable (finance, gmail, email, location,
+  // pkm, connected-systems). Note gmail/connected-systems are handled by the
+  // OAuth branch above, so this covers email, location, and pkm.
+  if (capability?.requiresVault === true) {
+    return resolveVaultGated(id, inputs);
+  }
+
+  // No backend setup gate and not declared explore-only or vault-backed: treat
+  // as usable once authenticated. Kept explicit so adding a real gate later is a
   // deliberate change, not an accident.
   return simple(id, "completed");
 }
@@ -239,6 +280,20 @@ export function isCapabilitySetupActionable(status: CapabilityStatus): boolean {
     status.state === "in-progress" ||
     status.state === "needs-attention"
   );
+}
+
+/**
+ * True when a capability is GENUINELY set up — i.e. the person has nothing left
+ * to do for it. This is the honest basis for any "N of M ready" summary.
+ *
+ * Deliberately NOT the inverse of {@link isCapabilitySetupActionable}: a tile
+ * can be non-actionable yet still un-ready (`blocked` needs an OAuth connection,
+ * `unknown` needs an unlock to even resolve). Those must read as "left to set
+ * up", never as "ready", or the headline count contradicts the per-tile badge
+ * ("Connect to set up" / "Unlock to see").
+ */
+export function isCapabilitySetupComplete(status: CapabilityStatus): boolean {
+  return status.state === "completed" || status.state === "skipped";
 }
 
 /**

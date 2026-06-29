@@ -155,7 +155,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
           isApple ? "min-w-0 p-0" : presetConfig.spacing,
           interactive ? "cursor-pointer" : "",
           fullHeight ? "h-full" : "",
-          selected ? "ring-1 ring-foreground/10 dark:ring-white/10" : "",
+          selected ? "ring-1 ring-accent/60 dark:ring-accent/50" : "",
           className
         )}
         {...props}

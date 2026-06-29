@@ -9,6 +9,7 @@ import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
 import { ROUTES } from "@/lib/navigation/routes";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function GettingStartedContent() {
   const router = useRouter();
@@ -19,6 +20,18 @@ function GettingStartedContent() {
     : ROUTES.LOGIN;
 
   const { user, loading } = useAuth();
+
+  // Publish screen context so the onboarding guide can welcome and orient a
+  // brand-new, signed-out person before they have an account or a vault.
+  usePublishVoiceSurfaceMetadata({
+    screenId: "getting_started",
+    title: "Welcome to One",
+    purpose:
+      "This is your welcome. Swipe through to see what One can do, then continue when you're ready.",
+    actions: [
+      { id: "continue", label: "Continue", purpose: "Move on to sign in and set up." },
+    ],
+  });
 
   // Authenticated users skip the marketing carousel entirely.
   useEffect(() => {
@@ -42,7 +55,10 @@ function GettingStartedContent() {
       />
       <PreviewCarouselStep
         onContinue={() => router.push(loginUrl)}
-        onBack={() => router.push(ROUTES.HOME)}
+        // Returning visitors (marketing already seen) get bounced from "/" back
+        // to this carousel, so routing back to "/" is a loop. Send back to the
+        // sign-in screen, the same place Continue/Skip lead, to avoid a dead end.
+        onBack={() => router.push(loginUrl)}
       />
     </>
   );

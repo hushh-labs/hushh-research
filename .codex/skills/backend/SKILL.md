@@ -56,7 +56,7 @@ Non-owned surfaces:
 2. Keep backend docs, tests, and boundary contracts aligned when the underlying rule changes.
 3. Route IAM, consent, vault, PKM, and audit-heavy issues into `security-audit` when those are the real ownership surface.
 4. If the user explicitly wants a visible OS terminal window, prefer `./bin/hushh terminal backend --mode local --reload` as the primary backend path.
-5. Use `./bin/hushh terminal stack --mode local` only when one combined visible terminal is explicitly preferred over separate backend/frontend terminals.
+5. Local runtime uses three separate terminals (no combined `stack` command): `./bin/hushh proxy --mode local`, `./bin/hushh backend --mode local --reload`, and `./bin/hushh web --mode local`. Use the `./bin/hushh terminal proxy|backend|web` wrappers only when a visible OS terminal window is explicitly preferred.
 
 ## Handoff Rules
 

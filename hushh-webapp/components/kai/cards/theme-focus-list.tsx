@@ -42,7 +42,7 @@ export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
             <div
               className={cn(
                 marketInsetClassName,
-                "grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#0071e3] dark:text-[#0a84ff]"
+                "grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#b8894d] dark:text-[#d4a574]"
               )}
             >
               <Icon

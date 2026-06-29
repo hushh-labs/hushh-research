@@ -335,7 +335,7 @@ export const Navbar = () => {
         }}
       >
         <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggleLean className="w-[162px] sm:w-[240px]" />
+          <ThemeToggleLean size="expanded" />
         </div>
       </nav>
     );
@@ -423,10 +423,13 @@ export const Navbar = () => {
               // Lean flat track matching the search button + top app bar
               // (ShellActionSurface): soft translucent surface, no shadow/blur.
               "bg-black/[0.05] shadow-none backdrop-blur-none dark:bg-white/[0.07]",
-              // Active segment: flat translucent highlight, no inherited
-              // shadow/blur from the shared primitive (keeps it lean + matched).
-              "[&_[aria-checked=true]]:text-primary",
-              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+              // Active segment: Foundation gold "you are here" marker, matching
+              // hushh-search-console's canonical active recipe (gold-tint fill +
+              // gold-deep ink). Active label uses the deep-gold accent token
+              // (auto-brightens in dark); the moving indicator is a warm gold
+              // tint instead of the old neutral black/white wash.
+              "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
+              "[&_[data-segment-indicator]]:bg-accent/20 [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-accent/25",
             )}
           />
         </div>

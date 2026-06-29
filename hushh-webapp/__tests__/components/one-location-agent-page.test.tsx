@@ -72,6 +72,12 @@ vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
 }));
 
+// CapabilityExploreCard (rendered on the location tab) reads useAuth from the
+// firebase auth context directly, so it needs its own stub in this harness.
+vi.mock("@/lib/firebase/auth-context", () => ({
+  useAuth: () => ({ user: { uid: "user_a" }, loading: false }),
+}));
+
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: mockUseVault,
 }));
@@ -115,6 +121,8 @@ vi.mock("@/lib/one-location/service", () => ({
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
+    watchCurrentPosition: vi.fn().mockResolvedValue(null),
+    clearWatch: vi.fn(),
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
     requestAccess: mockRequestAccess,
@@ -405,7 +413,7 @@ async function openAskFlow() {
 async function openTemporaryLinkFlow() {
   await switchLocationTab("Links", "Links");
   fireEvent.click(
-    screen.getByRole("button", { name: /Create temporary link/i }),
+    screen.getByRole("button", { name: /Create public location link/i }),
   );
   expect(
     await screen.findByRole("heading", { name: "Share outside your Circle" }),
@@ -772,9 +780,13 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: /Invite trusted person/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
+    // People tab exposes a search bar to filter ready people, and no longer
+    // renders a separate "Pending invites" list.
+    expect(screen.getByPlaceholderText("Search trusted people")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Pending invites" })).toBeNull();
     await switchLocationTab("Links", "Links");
-    expect(screen.getByRole("button", { name: /Create temporary link/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Active temporary link" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create public location link/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Active public location link" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Invite link" })).toBeTruthy();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
@@ -897,7 +909,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openTemporaryLinkFlow();
-    fireEvent.click(screen.getByRole("button", { name: /Review temporary link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Review public location link/i }));
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
@@ -921,7 +933,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.queryByText(longPublicUrl)).toBeNull();
     expect(
-      await screen.findByRole("heading", { name: "Temporary link active" }),
+      await screen.findByRole("heading", { name: "Public location link active" }),
     ).toBeTruthy();
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
@@ -1494,7 +1506,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/No setup blockers/)).toBeNull();
     await switchLocationTab("Links", "Links");
     expect(
-      screen.getByRole("button", { name: /Create temporary link/i }),
+      screen.getByRole("button", { name: /Create public location link/i }),
     ).toBeTruthy();
   });
 
