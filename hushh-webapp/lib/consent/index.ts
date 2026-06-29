@@ -18,4 +18,3 @@ export {
   useOneLocationConsentActions,
   type LocationConsentActionEntry,
 } from "./use-one-location-consent-actions";
-

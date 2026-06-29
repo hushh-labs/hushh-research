@@ -31,11 +31,26 @@ interface PortfolioMetricsCardProps {
 // =============================================================================
 
 const formatters = {
-  currency: (val: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val),
-  percent: (val: number) => `${val.toFixed(2)}%`
+  currency: (val: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(val),
+  percent: (val: number) => `${val.toFixed(2)}%`,
 };
 
-function MetricItem({ label, value, icon, color = "text-foreground" }: { label: string; value: string | number; icon: any; color?: string }) {
+function MetricItem({
+  label,
+  value,
+  icon,
+  color = "text-foreground",
+}: {
+  label: string;
+  value: string | number;
+  icon: any;
+  color?: string;
+}) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -51,33 +66,60 @@ function MetricItem({ label, value, icon, color = "text-foreground" }: { label: 
 // MAIN COMPONENT
 // =============================================================================
 
-export function PortfolioMetricsCard({ holdings, totalValue, className }: PortfolioMetricsCardProps) {
-
+export function PortfolioMetricsCard({
+  holdings,
+  totalValue,
+  className,
+}: PortfolioMetricsCardProps) {
   const metrics = useMemo(() => {
     if (!holdings.length || totalValue <= 0) return null;
 
     // HHI Calculation
-    const hhi = holdings.reduce((sum, h) => sum + Math.pow((h.market_value / totalValue) * 100, 2), 0);
-    const score = Math.round(Math.max(0, Math.min(100, ((10000 - hhi) / (10000 - 10000 / holdings.length)) * 100)));
+    const hhi = holdings.reduce(
+      (sum, h) => sum + Math.pow((h.market_value / totalValue) * 100, 2),
+      0,
+    );
+    const score = Math.round(
+      Math.max(0, Math.min(100, ((10000 - hhi) / (10000 - 10000 / holdings.length)) * 100)),
+    );
 
     // Yield Calculation
-    const yieldData = holdings.reduce((acc, h) => {
-      if (h.est_yield && h.est_yield > 0) {
-        acc.sum += h.est_yield * h.market_value;
-        acc.weight += h.market_value;
-      }
-      return acc;
-    }, { sum: 0, weight: 0 });
+    const yieldData = holdings.reduce(
+      (acc, h) => {
+        if (h.est_yield && h.est_yield > 0) {
+          acc.sum += h.est_yield * h.market_value;
+          acc.weight += h.market_value;
+        }
+        return acc;
+      },
+      { sum: 0, weight: 0 },
+    );
 
     return {
       diversification: {
         score,
-        label: score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Moderate" : score >= 20 ? "Low" : "Poor",
-        color: score >= 80 ? "text-emerald-500" : score >= 60 ? "text-blue-500" : score >= 40 ? "text-amber-500" : "text-red-500"
+        label:
+          score >= 80
+            ? "Excellent"
+            : score >= 60
+              ? "Good"
+              : score >= 40
+                ? "Moderate"
+                : score >= 20
+                  ? "Low"
+                  : "Poor",
+        color:
+          score >= 80
+            ? "text-emerald-500"
+            : score >= 60
+              ? "text-blue-500"
+              : score >= 40
+                ? "text-amber-500"
+                : "text-red-500",
       },
       avgYield: yieldData.weight > 0 ? yieldData.sum / yieldData.weight : null,
       costBasis: holdings.reduce((sum, h) => sum + (h.cost_basis || 0), 0),
-      sectorCount: new Set(holdings.map(h => h.sector || h.asset_type || "Other")).size
+      sectorCount: new Set(holdings.map((h) => h.sector || h.asset_type || "Other")).size,
     };
   }, [holdings, totalValue]);
 
@@ -89,7 +131,7 @@ export function PortfolioMetricsCard({ holdings, totalValue, className }: Portfo
     <Card variant="none" effect="glass" showRipple={false} className={cn("w-full", className)}>
       <CardHeader className="pb-1 pt-3 px-4">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Icon icon={BarChart3} size="md" className="text-primary" />
+          <Icon icon={BarChart3} size="md" className="text-primary" aria-hidden="true" />
           Metrics
         </CardTitle>
       </CardHeader>
@@ -103,7 +145,12 @@ export function PortfolioMetricsCard({ holdings, totalValue, className }: Portfo
           />
           <MetricItem label="Sectors" value={sectorCount} icon={Layers} />
           {avgYield !== null && (
-            <MetricItem label="Avg Yield" value={formatters.percent(avgYield)} icon={Percent} color="text-emerald-500" />
+            <MetricItem
+              label="Avg Yield"
+              value={formatters.percent(avgYield)}
+              icon={Percent}
+              color="text-emerald-500"
+            />
           )}
           <MetricItem label="Cost Basis" value={formatters.currency(costBasis)} icon={DollarSign} />
         </div>
