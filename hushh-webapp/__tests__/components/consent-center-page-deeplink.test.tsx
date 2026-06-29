@@ -58,6 +58,15 @@ vi.mock("@/lib/consent", () => ({
     isScopeBusy: (scope?: string | null) =>
       mocks.busyScopes.has(String(scope || "")),
   }),
+  useOneLocationConsentActions: () => ({
+    handleApprove: vi.fn(),
+    handleDeny: vi.fn(),
+    handleRevoke: vi.fn(),
+    activeAction: null,
+    activeActions: [],
+    isRequestBusy: () => false,
+    isScopeBusy: () => false,
+  }),
 }));
 
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({

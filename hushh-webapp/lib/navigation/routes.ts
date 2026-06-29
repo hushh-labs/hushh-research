@@ -348,7 +348,7 @@ export function isOneSetupWizardRoute(pathname: string): boolean {
  * unresolved.
  */
 export function isOneSetupSurfaceRoute(pathname: string): boolean {
-  return isOneSetupRoute(pathname);
+  return isOneSetupRoute(pathname) || isKaiOnboardingRoute(pathname);
 }
 
 export function isKaiOnboardingRoute(pathname: string): boolean {

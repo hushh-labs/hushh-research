@@ -57,6 +57,7 @@ import {
 } from "@/lib/consent/consent-events";
 import {
   useConsentActions,
+  useOneLocationConsentActions,
   type ConsentActionState,
   type ConsentMutationDetail,
   type PendingConsent,
@@ -72,6 +73,7 @@ import {
   emailHelperWorkflowHref,
   isEmailHelperConsent,
 } from "@/lib/consent/email-helper-consent";
+import { isLocationConsent } from "@/lib/consent/location-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -1256,12 +1258,33 @@ export function ConsentCenterPage() {
     handleApprove,
     handleDeny,
     handleRevoke,
-    activeAction,
-    isRequestBusy,
-    isScopeBusy,
+    activeAction: consentActiveAction,
+    isRequestBusy: isConsentRequestBusy,
+    isScopeBusy: isConsentScopeBusy,
   } = useConsentActions({
     userId: user?.uid,
   });
+  const {
+    handleApprove: handleLocationApprove,
+    handleDeny: handleLocationDeny,
+    handleRevoke: handleLocationRevoke,
+    activeAction: locationActiveAction,
+    isRequestBusy: isLocationRequestBusy,
+    isScopeBusy: isLocationScopeBusy,
+  } = useOneLocationConsentActions({
+    userId: user?.uid,
+  });
+  const activeAction = locationActiveAction ?? consentActiveAction;
+  const isRequestBusy = useCallback(
+    (requestId?: string | null) =>
+      isConsentRequestBusy(requestId) || isLocationRequestBusy(requestId),
+    [isConsentRequestBusy, isLocationRequestBusy],
+  );
+  const isScopeBusy = useCallback(
+    (scope?: string | null) =>
+      isConsentScopeBusy(scope) || isLocationScopeBusy(scope),
+    [isConsentScopeBusy, isLocationScopeBusy],
+  );
 
   const idTokenLoader = async () => user?.getIdToken();
 
@@ -2104,7 +2127,14 @@ export function ConsentCenterPage() {
                       size="sm"
                       disabled={isRequestBusy(selectedPendingConsent.id)}
                       onClick={() => {
-                        void handleApprove(selectedPendingConsent);
+                        if (
+                          selectedEntry &&
+                          isLocationConsent(selectedEntry.metadata, selectedEntry.scope)
+                        ) {
+                          void handleLocationApprove(selectedEntry);
+                        } else {
+                          void handleApprove(selectedPendingConsent);
+                        }
                         setParam({ notificationAction: null });
                       }}
                     >
@@ -2123,9 +2153,13 @@ export function ConsentCenterPage() {
                         selectedEntry.request_id || selectedEntry.id,
                       )}
                       onClick={() => {
-                        void handleDeny(
-                          selectedEntry.request_id || selectedEntry.id,
-                        );
+                        if (isLocationConsent(selectedEntry.metadata, selectedEntry.scope)) {
+                          void handleLocationDeny(selectedEntry);
+                        } else {
+                          void handleDeny(
+                            selectedEntry.request_id || selectedEntry.id,
+                          );
+                        }
                         setParam({ notificationAction: null });
                       }}
                     >
@@ -2204,12 +2238,26 @@ export function ConsentCenterPage() {
           <ConsentEntryDetail
             actor={actor}
             entry={selectedEntry}
-            onApprove={(entry, durationHours) =>
-              void handleApprove(toPendingConsent(entry, durationHours))
-            }
-            onDeny={(entry) => void handleDeny(entry.request_id || entry.id)}
+            onApprove={(entry, durationHours) => {
+              if (isLocationConsent(entry.metadata, entry.scope)) {
+                void handleLocationApprove(entry, durationHours);
+                return;
+              }
+              void handleApprove(toPendingConsent(entry, durationHours));
+            }}
+            onDeny={(entry) => {
+              if (isLocationConsent(entry.metadata, entry.scope)) {
+                void handleLocationDeny(entry);
+                return;
+              }
+              void handleDeny(entry.request_id || entry.id);
+            }}
             onRevoke={(entry) => {
               if (!entry.scope) return;
+              if (isLocationConsent(entry.metadata, entry.scope)) {
+                void handleLocationRevoke(entry);
+                return;
+              }
               void handleRevoke(entry.scope);
             }}
             onRevokeScope={(scope) => void handleRevoke(scope)}

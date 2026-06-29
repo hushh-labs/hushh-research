@@ -1615,6 +1615,65 @@ export function validateTokenIntegrity(
   return true;
 }
 
+export async function runLlmRedraft(params: {
+  localDraft: KycDraftBuildResult;
+  instruction: string;
+  workflow: OneKycWorkflow;
+  exportPayloads?: KycDraftExportPayload[];
+  llmRewrite: KycLlmRewriteCallable;
+}): Promise<
+  | { ok: true; draft: KycDraftBuildResult }
+  | { ok: false; errorCode: "TOKEN_INTEGRITY" | "FIELD_SET_CHANGED" }
+> {
+  const template = splitDraftTemplate({
+    body: params.localDraft.body,
+    renderModel: params.localDraft.renderModel,
+  });
+  const sourceBody = template.matched ? template.content : params.localDraft.body;
+  const { tokenizedTemplate, tokenMap } = redactDraftForLlm({
+    body: sourceBody,
+    approvedValues: params.localDraft.approvedValues,
+  });
+  const rewrittenTemplate = await params.llmRewrite(
+    tokenizedTemplate,
+    params.instruction
+  );
+
+  if (!validateTokenIntegrity(tokenizedTemplate, rewrittenTemplate, tokenMap)) {
+    return { ok: false, errorCode: "TOKEN_INTEGRITY" };
+  }
+
+  const revalidatedDraft = await OneKycClientZkService.buildDraft({
+    workflow: params.workflow,
+    exportPayloads: params.exportPayloads,
+  });
+  const originalFieldSet = Object.keys(params.localDraft.approvedValues).sort();
+  const revalidatedFieldSet = Object.keys(revalidatedDraft.approvedValues).sort();
+  if (originalFieldSet.join("\n") !== revalidatedFieldSet.join("\n")) {
+    return { ok: false, errorCode: "FIELD_SET_CHANGED" };
+  }
+
+  const rewrittenBodyCore = resubstituteDraft(rewrittenTemplate, tokenMap);
+  const body = template.matched
+    ? reassembleDraftTemplate({
+        opening: template.opening,
+        content: rewrittenBodyCore,
+        signature: template.signature,
+      })
+    : rewrittenBodyCore;
+  const renderModel = params.localDraft.renderModel;
+
+  return {
+    ok: true,
+    draft: {
+      ...params.localDraft,
+      body,
+      htmlBody: buildApprovedDisclosureHtml(renderModel),
+      draftHash: await sha256Hex(body),
+    },
+  };
+}
+
 /**
  * The fixed signature the renderer appends to every approved-disclosure draft.
  * Kept byte-identical to `buildApprovedDisclosurePlainText` (renderer) so that
