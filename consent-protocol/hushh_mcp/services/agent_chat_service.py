@@ -546,6 +546,7 @@ def create_managed_runtime_client(runtime_provider: str, managed_credential: str
     return build_managed_runtime_client(runtime_provider, managed_credential)
 
 
+
 def _redacted_runtime_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     def redact(value: Any) -> Any:
         if isinstance(value, dict):

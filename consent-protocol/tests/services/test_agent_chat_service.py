@@ -184,7 +184,7 @@ def test_create_managed_runtime_client_uses_vertex_adc(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
 
-    client = create_managed_runtime_client("gemini", " MANAGED_KEY ")
+    client = create_managed_runtime_client("gemini")
 
     assert client.kind == "client"
     assert calls == [{"vertexai": True, "project": "hushh-test", "location": "global"}]
