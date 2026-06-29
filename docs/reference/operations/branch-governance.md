@@ -75,7 +75,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 2. The workflow checks out that exact chosen green `main` SHA.
-3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`): `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, and `DamriaNeelesh`. This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart.
+3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`): `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, `DamriaNeelesh`, and `ahujagautam024`. This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 6. The canonical GitHub deployment environment for this lane is `uat`.
@@ -135,8 +135,8 @@ outside it, and the boundaries are enforced, not informal:
 
 | Ring | Who | Authority | Source of truth |
 |---|---|---|---|
-| Merge cohort | `allowed-maintainers-to-approve` team (6) | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
-| UAT deploy cohort | same 6 | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
+| Merge cohort | `allowed-maintainers-to-approve` team (7) | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
+| UAT deploy cohort | same 7 | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
 | Production deploy cohort | `kushaltrivedi5` only | dispatch production deploy | `production.manual_dispatch_users` |
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
@@ -202,8 +202,8 @@ Current operating note:
 - admin ownership does not count as an independent PR approval
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
-- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, and `DamriaNeelesh`
-- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 6 users only
+- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, `Jhumma-hushh`, `DamriaNeelesh`, and `ahujagautam024`
+- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 7 users only
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
