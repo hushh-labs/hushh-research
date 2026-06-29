@@ -41,7 +41,7 @@ export function useLocationChat(params: {
       setBusy(true);
       // Retry case: drop a trailing errored assistant bubble before re-asking.
       setMessages((prev) =>
-        prev.length && prev[prev.length - 1].errored ? prev.slice(0, -1) : prev,
+        prev.length && prev[prev.length - 1]?.errored ? prev.slice(0, -1) : prev,
       );
       try {
         const result = await OneLocationService.chat({
