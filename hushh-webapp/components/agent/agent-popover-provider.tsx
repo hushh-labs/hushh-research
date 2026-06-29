@@ -21,6 +21,7 @@ import { Grip, Maximize2, Minimize2, Minus, X } from "lucide-react";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AGENT_POPOVER_DEFAULT_SIZE_MODE,
   AGENT_POPOVER_PRESET_SIZES,
@@ -31,6 +32,7 @@ import {
   type AgentPopoverSize,
   type AgentPopoverSizeMode,
 } from "@/lib/agent/agent-popover-layout";
+import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
