@@ -107,7 +107,9 @@ export function PortfolioShareSheet({ open, onOpenChange, payload }: PortfolioSh
       if (isShareCancelError(error)) {
         return;
       }
-      console.error(`[PortfolioShareSheet] ${action} failed:`, error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error(`[PortfolioShareSheet] ${action} failed:`, error);
+      }
       const fallback =
         action === "snapshot"
           ? "Could not share snapshot."
