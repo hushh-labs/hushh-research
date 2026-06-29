@@ -279,6 +279,8 @@
         "one_location_access_requests",
         "one_location_envelopes",
         "one_location_events",
+        "one_location_circle_invites",
+        "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
         "one_location_recipient_keys",
@@ -365,6 +367,19 @@
       "trust_boundary": "Metadata-only audit evidence for external CRM actions. No vault data, raw PKM, full CRM payloads, credentials, or MCP tokens.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "connected_system_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["enterprise_crm_registry", "crm_operation_endpoints"],
+      "primary_access_path": "Connected Systems CRM registry, encrypted gateway credential lookup, and per-operation MCP tool catalog",
+      "retention_policy": "Retain active enterprise CRM definitions while the managed connector is enabled; rotate encrypted credentials and deactivate superseded registry rows.",
+      "deletion_behavior": "Not user-delete scoped; delete or deactivate only through connector lifecycle and incident-response operations.",
+      "trust_boundary": "Shared connector configuration and encrypted credential envelopes only. No user PKM, consent export payloads, raw MCP responses, or plaintext CRM credentials may persist here.",
+      "plaintext_posture": "reference_metadata_and_encrypted_credentials",
+      "expected_row_growth": "low_reference"
     },
     {
       "id": "developer_access",
