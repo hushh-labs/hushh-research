@@ -538,13 +538,24 @@ def create_runtime_client(
         vertex_project=vertex_project,
         vertex_location=vertex_location,
     )
+    
+    if resolved_project:
+        resolved_project = resolved_project.strip()
+
+    resolved_location = (
+        location
+        or os.getenv("GOOGLE_CLOUD_LOCATION")
+        or os.getenv("GCP_LOCATION")
+        or os.getenv("GOOGLE_CLOUD_REGION")
+        or "us-central1"
+    )
+    resolved_location = resolved_location.strip()
 
 
 def create_managed_runtime_client(runtime_provider: str, managed_credential: str = ""):
     """Hussh-managed runtime client for the chosen provider."""
 
     return build_managed_runtime_client(runtime_provider, managed_credential)
-
 
 
 def _redacted_runtime_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
