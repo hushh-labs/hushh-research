@@ -162,6 +162,25 @@ vi.mock("sonner", () => {
   };
 });
 
+// LocationChatPanel now renders unconditionally (locked stub when vault is locked).
+// Mock it here so its suggestion chips don't collide with the hub's own buttons
+// (e.g. "Ask someone") in tests that query by accessible name.
+vi.mock(
+  "@/components/one-location/redesign/location-chat-panel",
+  () => ({
+    LocationChatPanel: ({
+      vaultOwnerToken,
+    }: {
+      vaultOwnerToken: string | null;
+    }) =>
+      vaultOwnerToken ? null : (
+        <section data-testid="location-chat-panel">
+          <p>Unlock your vault to use the assistant.</p>
+        </section>
+      ),
+  }),
+);
+
 import OneLocationAgentPage from "@/app/one/location/page";
 
 if (!window.localStorage) {
