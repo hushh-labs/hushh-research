@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import {
   Card as MorphyCard,
   CardContent as MorphyCardContent,
