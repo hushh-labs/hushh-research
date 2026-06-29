@@ -95,7 +95,6 @@ export function PhoneMandateGuard({
           setBackendPhoneVerified(AccountIdentityService.hasVerifiedPhone(identity));
         }
       } catch (error) {
-        console.warn("[PhoneMandateGuard] Failed to check account phone claim:", error);
         if (!cancelled) {
           setBackendPhoneVerified(firebasePhoneVerified);
         }
