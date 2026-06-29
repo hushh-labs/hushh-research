@@ -8,6 +8,23 @@
 
 **Tech Stack:** TypeScript / Next.js (App Router) / React 18 client components / Tailwind v4 + shadcn-ui primitives / lucide-react / react-markdown + remark-gfm / **vitest** + @testing-library/react.
 
+## Visual Map
+
+```text
+useLocationChat (hook: messages, conversationId-ref, busy, send/retry/clear)
+   │
+   ├─ LocationChatPanel  (in-flow card on /one/location)
+   │     ├─ header: BotAvatar "One Location"  + ⤢ focus  + ↺ clear
+   │     ├─ SuggestionChips        (empty state)
+   │     ├─ ChatMessageList        (bubbles · markdown · typing · ✓Updated · retry)
+   │     └─ ChatComposer           (textarea + send)
+   │
+   └─ LocationChatOverlay (KaiControlSurface drawer/dialog — same hook instance)
+
+Turn:  user types → OneLocationService.chat → POST /api/one/location/chat
+       → on stateChanged: refresh() + dispatch consent-state-changed
+```
+
 ## Global Constraints
 
 Copied verbatim from the approved spec (`docs/superpowers/specs/2026-06-29-one-location-chat-ui-design.md`). Every task implicitly includes these:

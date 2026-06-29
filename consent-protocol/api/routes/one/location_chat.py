@@ -33,12 +33,13 @@ async def location_chat(
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     try:
-        return await _service().handle_turn(
+        result: dict[str, Any] = await _service().handle_turn(
             user_id=token_data["user_id"],
             message=request.message,
             consent_token=token_data.get("token", ""),
             conversation_id=request.conversation_id,
         )
+        return result
     except Exception:
         logger.exception("Location chat turn failed")
         raise HTTPException(status_code=500, detail="Location chat could not be processed")

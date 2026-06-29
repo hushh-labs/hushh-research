@@ -7,6 +7,34 @@
   (backend v1, **already shipped** through commit `3bc0a38e2`) and its plan
   `docs/superpowers/plans/2026-06-27-one-location-agent-chat.md`.
 
+## Visual Map
+
+```text
+/one/location  (max-w-[480px] column, dark-mode aware)
+┌──────────────────────────────────────────────┐
+│  Now   People   Links   Inbox                 │  ← hub tabs
+│  ┌────────────────────────────────────────┐   │
+│  │  Privacy status · Active shares · …     │   │  ← LocationRedesignHub
+│  └────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────┐   │
+│  │ 🤖 One Location                     ⤢ ↺ │   │  ← LocationChatPanel (in-flow card)
+│  │ Ask who can see you — or change by type │   │
+│  │ [Who can see me?][Stop sharing with…]   │   │  ← SuggestionChips (empty state)
+│  │ ───────────────────────────────────────│   │
+│  │ 🤖 Mom and Dad can see you.             │   │  ← assistant bubble (markdown)
+│  │                you: stop sharing w/ Mom │   │  ← user bubble
+│  │ 🤖 Stopped sharing with Mom.            │   │
+│  │    ✓ Updated — your sharing list refresh │   │  ← stateChanged → refresh() + consent-state-changed
+│  │ ┌─────────────────────────────────┐ [▶] │   │  ← ChatComposer (Enter sends)
+│  │ │ Ask about your location sharing…│      │   │
+│  └────────────────────────────────────────┘   │
+└──────────────────────────────────────────────┘
+        ⤢ → LocationChatOverlay (KaiControlSurface: drawer/dialog, same conversation)
+```
+
+State flows through one `useLocationChat` hook shared by the inline card and the
+overlay. Only network call: `OneLocationService.chat` → `POST /api/one/location/chat`.
+
 ## 1. Goal
 
 The One Location agent chat backend is done: `POST /api/one/location/chat`

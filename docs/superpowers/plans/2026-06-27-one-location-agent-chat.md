@@ -8,6 +8,22 @@
 
 **Tech Stack:** Python / FastAPI / Pydantic / pytest (backend, `consent-protocol/`); TypeScript / Next.js / React / Jest + React Testing Library (frontend, `hushh-webapp/`).
 
+## Visual Map
+
+```text
+POST /api/one/location/chat
+  → require_vault_owner_token  (token → user_id, consent_token)
+  → LocationChatService.handle_turn(user_id, message, consent_token, conversation_id?)
+       1. AgentChatService.prepare_turn        (persist user msg, AES-256-GCM at rest)
+       2. fold recent history → preamble
+       3. direct-Gemini function-calling loop INSIDE HushhContext
+            → 5 control-plane @hushh_tool (each re-validates scope)
+       4. AgentChatService.add_message(assistant)
+       5. → { conversationId, response, isComplete, stateChanged }
+
+Coordinates never enter this path. stateChanged=true only when a mutating tool ran.
+```
+
 ## Global Constraints
 
 These apply to **every** task. Copied from the approved spec (`docs/superpowers/specs/2026-06-27-one-location-agent-chat-design.md`):
