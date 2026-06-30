@@ -19,13 +19,19 @@ describe("Connect Ranking Module", () => {
     });
 
     it("should boost if query matches name or firmName", () => {
-      const result = computeQueryScore({
+      const resultName = computeQueryScore({
         query: "john",
         displayName: "John Doe",
+      });
+      expect(resultName.score).toBe(CONNECT_SCORES.QUERY_NAME_MATCH);
+      expect(resultName.reasons[0]?.code).toBe("query_match_name");
+
+      const resultFirm = computeQueryScore({
+        query: "capital",
         firmName: "Capital Ltd",
       });
-      expect(result.score).toBe(CONNECT_SCORES.QUERY_NAME_MATCH);
-      expect(result.reasons[0]?.code).toBe("query_match_name");
+      expect(resultFirm.score).toBe(CONNECT_SCORES.QUERY_NAME_MATCH);
+      expect(resultFirm.reasons[0]?.code).toBe("query_match_name");
     });
 
     it("should boost if query matches headline or summary and not name", () => {
@@ -37,6 +43,17 @@ describe("Connect Ranking Module", () => {
       });
       expect(result.score).toBe(CONNECT_SCORES.QUERY_HEADLINE_MATCH);
       expect(result.reasons[0]?.code).toBe("query_match_headline");
+    });
+
+    it("should only apply name match boost if query matches both name and headline", () => {
+      const result = computeQueryScore({
+        query: "john",
+        displayName: "John Doe",
+        headline: "John is a great advisor",
+      });
+      expect(result.score).toBe(CONNECT_SCORES.QUERY_NAME_MATCH);
+      expect(result.reasons).toHaveLength(1);
+      expect(result.reasons[0]?.code).toBe("query_match_name");
     });
   });
 
@@ -72,6 +89,18 @@ describe("Connect Ranking Module", () => {
     it("should add verified RIA boost", () => {
       const result = computeSourceScore(["marketplace_ria"], "ria", "active");
       expect(result.score).toBe(CONNECT_SCORES.VERIFIED_RIA + CONNECT_SCORES.VISIBLE_PROFILE);
+    });
+
+    it("should not add verified RIA boost if RIA is unverified", () => {
+      const result = computeSourceScore(["marketplace_ria"], "ria", "pending");
+      expect(result.score).toBe(CONNECT_SCORES.VISIBLE_PROFILE);
+      expect(result.reasons.some((r) => r.code === "ria_verified")).toBe(false);
+    });
+
+    it("should not add visible profile boost for non-discoverable sources", () => {
+      const result = computeSourceScore(["active_connection"], "hushh_user");
+      expect(result.score).toBe(0);
+      expect(result.reasons.some((r) => r.code === "visible_profile")).toBe(false);
     });
   });
 
