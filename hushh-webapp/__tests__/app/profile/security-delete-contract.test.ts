@@ -14,12 +14,12 @@ const topAppBarSource = readFileSync(
 const deleteFlowSource = readFileSync(
   join(process.cwd(), "lib/flows/delete-account.ts"),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 describe("profile security deletion contract", () => {
   it("keeps Security reachable before vault creation", () => {
-    expect(profilePageSource).toContain(
-      'vaultAccess.needsVaultCreation && panel !== "security"',
+    expect(profilePageSource).toMatch(
+      /vaultAccess\.needsVaultCreation\s*&&\s*panel\s*!==\s*['"]security['"]/,
     );
   });
 
