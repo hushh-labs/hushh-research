@@ -53,6 +53,7 @@ export function AuthStep({
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
   const autoReviewerLoginStartedRef = useRef(false);
+  const authNetworkFailuresRef = useRef(0);
   const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
     nativeTestConfig.autoReviewerLogin
   );
@@ -247,6 +248,15 @@ export function AuthStep({
         }
       })
       .catch((err) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes("network-request-failed")) {
+          authNetworkFailuresRef.current += 1;
+          if (authNetworkFailuresRef.current > 3) {
+            console.error("[AuthStep] Halting getRedirectResult loop due to repeated network failures.");
+            morphyToast.error("Cannot reach authentication servers.", { description: "Please check your network connection." });
+            return;
+          }
+        }
         debugError("[AuthStep] Redirect auth error", err);
       });
 
@@ -468,6 +478,15 @@ export function AuthStep({
         });
       }
     } catch (err: any) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("network-request-failed")) {
+        authNetworkFailuresRef.current += 1;
+        if (authNetworkFailuresRef.current > 3) {
+          console.error("[AuthStep] Halting handleGoogleLogin due to repeated network failures.");
+          morphyToast.error("Cannot reach authentication servers.", { description: "Please check your network connection." });
+          return;
+        }
+      }
       debugError("[AuthStep] Google login failed", err);
       trackEvent("auth_failed", {
         action: "google",

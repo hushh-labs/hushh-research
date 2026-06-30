@@ -25,6 +25,13 @@ import type {
   GeneratedVaultUnlockInput,
 } from "@/lib/services/vault-bootstrap-service";
 
+export class VaultNetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VaultNetworkError";
+  }
+}
+
 // Web must call same-origin Next.js API routes (/api/*) to avoid CORS issues when
 // accessed via different Cloud Run hostnames. (Native uses plugins / backend URL.)
 
@@ -848,6 +855,9 @@ export class VaultService {
             signal: AbortSignal.timeout(resolveSlowRequestTimeoutMs(20_000)),
           });
           if (!response.ok) {
+            if (response.status >= 500) {
+              throw new VaultNetworkError(`Vault check server error: ${response.status}`);
+            }
             const payload = await response.json().catch(() => undefined);
             const message =
               typeof (payload as { error?: unknown } | undefined)?.error ===
@@ -872,6 +882,15 @@ export class VaultService {
           const data = await response.json();
           hasVault = data.hasVault;
         } catch (error) {
+          if (error instanceof TypeError && (error.message.includes("fetch") || error.message.includes("network"))) {
+            throw new VaultNetworkError("Backend server is unreachable. Please check your network connection.");
+          }
+          if (error instanceof Error && error.name === "TimeoutError") {
+            throw new VaultNetworkError("Backend server request timed out.");
+          }
+          if (error instanceof VaultNetworkError) {
+            throw error;
+          }
           const fallbackHasVault = await this.resolveVaultCheckFallback(userId);
           if (fallbackHasVault === null) {
             console.error("❌ [VaultService] checkVault failed:", error);
@@ -974,8 +993,23 @@ export class VaultService {
         headers["Authorization"] = `Bearer ${authToken}`;
       }
 
-      const response = await fetch(url, { headers });
+      let response: Response;
+      try {
+        response = await fetch(url, { headers });
+      } catch (error) {
+        if (error instanceof TypeError) {
+          throw new VaultNetworkError("Backend server is unreachable. Please check your network connection.");
+        }
+        if (error instanceof Error && error.name === "TimeoutError") {
+          throw new VaultNetworkError("Backend server request timed out.");
+        }
+        throw error;
+      }
+
       if (!response.ok) {
+        if (response.status >= 500) {
+          throw new VaultNetworkError(`Failed to get vault: Server returned ${response.status}`);
+        }
         const errorPayload = (await response
           .json()
           .catch(async () => ({

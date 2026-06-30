@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { VaultService } from "@/lib/services/vault-service";
+import { VaultService, VaultNetworkError } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
@@ -69,6 +69,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [networkError, setNetworkError] = useState<boolean>(false);
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
   const nativeReplayAttemptedRef = useRef(false);
@@ -155,10 +156,15 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         if (!cancelled) {
           vaultPresenceCache.set(userId, exists);
           setHasVault(exists);
+          setNetworkError(false);
         }
       } catch (error) {
         console.warn("[VaultLockGuard] Failed to check vault existence:", error);
         if (!cancelled) {
+          if (error instanceof VaultNetworkError) {
+            setNetworkError(true);
+            return;
+          }
           // Fail closed on transient check failures to preserve existing secure behavior.
           vaultPresenceCache.set(userId, true);
           setHasVault(true);
@@ -205,8 +211,43 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     return <HushhLoader label="Checking session..." />;
   }
 
-  if (hasVault === null) {
+  if (hasVault === null && !networkError) {
     return <HushhLoader label="Checking vault..." />;
+  }
+
+  if (networkError) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-background px-4 text-center">
+        <div className="mb-4 rounded-full bg-destructive/10 p-4">
+          <svg
+            className="h-8 w-8 text-destructive"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 3l18 18M9.172 9.172a4 4 0 015.656 5.656M15 15a4 4 0 01-5.656-5.656"
+            />
+          </svg>
+        </div>
+        <h2 className="mb-2 text-xl font-semibold text-foreground">Server Unreachable</h2>
+        <p className="mb-6 max-w-sm text-sm text-muted-foreground">
+          We cannot reach the Hushh backend. Please check your internet connection and try again.
+        </p>
+        <button
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          onClick={() => {
+            setNetworkError(false);
+            setHasVault(null);
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   if (hasVault === false) {
