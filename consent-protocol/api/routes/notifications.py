@@ -19,6 +19,9 @@ router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 Platform = Literal["web", "ios", "android"]
 
+_PUSH_TOKEN_MAX_LEN = 4096  # generous ceiling above any real-world FCM/APNs token
+_USER_ID_MAX_LEN = 128  # generous ceiling above any Firebase UID
+
 
 @router.post("/register")
 async def register_push_token(request: Request):
@@ -45,6 +48,10 @@ async def register_push_token(request: Request):
             status_code=400,
             detail="user_id and token are required",
         )
+    if len(user_id) > _USER_ID_MAX_LEN:
+        raise HTTPException(status_code=422, detail="user_id exceeds maximum length")
+    if len(token) > _PUSH_TOKEN_MAX_LEN:
+        raise HTTPException(status_code=422, detail="token exceeds maximum length")
     if firebase_uid != user_id:
         raise HTTPException(
             status_code=403,
@@ -86,6 +93,8 @@ async def unregister_push_token(request: Request):
     user_id = body.get("user_id") or body.get("userId") or firebase_uid
     platform = body.get("platform")
 
+    if len(user_id) > _USER_ID_MAX_LEN:
+        raise HTTPException(status_code=422, detail="user_id exceeds maximum length")
     if firebase_uid != user_id:
         raise HTTPException(
             status_code=403,
