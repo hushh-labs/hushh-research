@@ -5,6 +5,7 @@ import {
   loadConnectPayload,
   loadContactMatches,
 } from "@/lib/connect/service";
+import { isIAMSchemaNotReadyError } from "@/lib/services/ria-service";
 
 const mockBuildMarketplaceContactLookups = vi.fn();
 const mockBuildMarketplaceContactLookupsFromQuery = vi.fn();
@@ -34,7 +35,7 @@ vi.mock("@/lib/services/ria-service", () => ({
     matchMarketplaceContacts: (...args: unknown[]) =>
       mockMatchMarketplaceContacts(...args),
   },
-  isIAMSchemaNotReadyError: () => false,
+  isIAMSchemaNotReadyError: vi.fn(() => false),
 }));
 
 describe("Connect service contact matching", () => {
@@ -49,6 +50,7 @@ describe("Connect service contact matching", () => {
       emailLookups: [],
     });
     mockListConsentEntries.mockResolvedValue({ items: [] });
+    vi.mocked(isIAMSchemaNotReadyError).mockReturnValue(false);
     window.localStorage.clear();
   });
 
@@ -188,6 +190,22 @@ describe("Connect service contact matching", () => {
     expect(hasLocalContactMatchFixture()).toBe(true);
   });
 
+  it("throws error if the local contact match fixture format is invalid", async () => {
+    mockBuildMarketplaceContactLookups.mockResolvedValue({
+      lookups: [{ hash: "b".repeat(64), last4: "2222", displayName: "Fixture Contact" }],
+      phoneLookups: [{ hash: "b".repeat(64), last4: "2222", displayName: "Fixture Contact" }],
+      emailLookups: [],
+      totalContacts: 1,
+      sourcePlatform: "web",
+    });
+    mockMatchMarketplaceContacts.mockRejectedValue(new Error("backend offline"));
+    window.localStorage.setItem("hushh:dev:marketplace-contact-matches", JSON.stringify("not an array"));
+
+    await expect(loadContactMatches("id-token")).rejects.toThrow(
+      "must be a JSON array"
+    );
+  });
+
   it("uses secure contact matching for exact email search without sending the raw query", async () => {
     const riaService = await import("@/lib/services/ria-service");
     vi.mocked(riaService.RiaService.searchRias).mockResolvedValue([]);
@@ -272,5 +290,64 @@ describe("Connect service contact matching", () => {
     expect(riaService.RiaService.searchInvestors).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 50 }),
     );
+  });
+
+  it("performs RIA deck search and actions listing for RIA persona", async () => {
+    const riaService = await import("@/lib/services/ria-service");
+    vi.mocked(riaService.RiaService.searchRias).mockResolvedValue([]);
+    vi.mocked(riaService.RiaService.searchInvestorDeck).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+      has_more: false,
+    });
+    vi.mocked(riaService.RiaService.listClients).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+      has_more: false,
+    });
+    vi.mocked(riaService.RiaService.listInvestorActions).mockResolvedValue([]);
+
+    await loadConnectPayload({
+      idToken: "id-token",
+      userId: "viewer",
+      persona: "ria",
+    });
+
+    expect(riaService.RiaService.searchInvestorDeck).toHaveBeenCalledWith(
+      "id-token",
+      expect.objectContaining({ persona: "ria", deck: "qualified" }),
+    );
+    expect(riaService.RiaService.listInvestorActions).toHaveBeenCalledWith(
+      "id-token",
+      expect.objectContaining({ limit: 100 }),
+    );
+  });
+
+  it("reports iamUnavailable as true if RIA search fails with an IAM schema error", async () => {
+    const riaService = await import("@/lib/services/ria-service");
+    vi.mocked(riaService.RiaService.searchRias).mockRejectedValue(new Error("schema check failed"));
+    vi.mocked(riaService.RiaService.searchInvestors).mockResolvedValue([]);
+    vi.mocked(riaService.RiaService.listClients).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+      has_more: false,
+    });
+    vi.mocked(riaService.RiaService.listInvestorActions).mockResolvedValue([]);
+    vi.mocked(isIAMSchemaNotReadyError).mockReturnValue(true);
+
+    const payload = await loadConnectPayload({
+      idToken: "id-token",
+      userId: "viewer",
+      persona: "investor",
+    });
+
+    expect(payload.iamUnavailable).toBe(true);
+    expect(payload.rias).toEqual([]);
   });
 });
