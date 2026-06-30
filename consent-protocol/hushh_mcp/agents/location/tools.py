@@ -242,6 +242,176 @@ async def revoke_public_link(invite_id: str) -> dict[str, Any]:
     return _service().revoke_public_invite(owner_user_id=context.user_id, invite_id=invite_id)
 
 
+def _expiry_hint(expires_at: Any) -> str | None:
+    return f"expires {expires_at}" if expires_at else None
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_recipient_choice")
+async def request_recipient_choice() -> dict[str, Any]:
+    """Ask the user to pick who to share with. Returns a coordinate-free select
+    prompt whose options carry real recipient ids. Call this when the user wants to
+    share but did not name a (single, unambiguous) recipient."""
+    context = _ctx()
+    recipients = _service().list_verified_recipients(owner_user_id=context.user_id)
+    options = [
+        {
+            "label": r.get("displayName") or "Someone",
+            "ref": {"recipientUserId": r.get("userId"), "recipientKeyId": r.get("keyId")},
+            "hint": None if r.get("canReceiveLocation") else "hasn't set up location yet",
+        }
+        for r in recipients
+    ]
+    options.append({"label": "Public link (anyone)", "ref": {"publicLink": True}, "hint": None})
+    return {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_recipient",
+            "question": "Who do you want to share your location with?",
+            "options": options,
+            "minSelections": 1,
+            "maxSelections": None,
+            "allowFreeText": True,
+        }
+    }
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REVOKE, name="request_active_share_choice")
+async def request_active_share_choice() -> dict[str, Any]:
+    """Ask the user which active outgoing share(s) to stop. Returns a coordinate-free
+    multi-select prompt whose options carry real grant ids, plus a 'Stop all' option.
+    Call this when the user wants to stop sharing but did not name a single share."""
+    context = _ctx()
+    state = _service().list_state(user_id=context.user_id)
+    active = [g for g in state.get("ownerGrants", []) if g.get("status") == "active"]
+    if not active:
+        return {"activeShares": []}
+    options = [
+        {
+            "label": g.get("recipientDisplayName") or "Someone",
+            "ref": {"grantId": g.get("id")},
+            "hint": _expiry_hint(g.get("expiresAt")),
+        }
+        for g in active
+    ]
+    options.append({"label": "Stop all", "ref": {"all": True}, "hint": None})
+    return {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_share",
+            "question": "Which sharing do you want to stop?",
+            "options": options,
+            "minSelections": 1,
+            "maxSelections": None,
+            "allowFreeText": True,
+            "confirmLabel": "Stop sharing",
+            "destructive": False,
+        }
+    }
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_duration_choice")
+async def request_duration_choice() -> dict[str, Any]:
+    """Ask the user how long a share should last. Coordinate-free single-select."""
+    _ctx()
+    return {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_duration",
+            "question": "How long should this share last?",
+            "options": [
+                {"label": "1 hour", "ref": {"hours": 1}, "hint": None},
+                {"label": "8 hours", "ref": {"hours": 8}, "hint": None},
+                {"label": "24 hours", "ref": {"hours": 24}, "hint": None},
+            ],
+            "minSelections": 1,
+            "maxSelections": 1,
+            "allowFreeText": True,
+        }
+    }
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REQUEST, name="request_request_choice")
+async def request_request_choice() -> dict[str, Any]:
+    """Ask the user which pending incoming access request to act on. Coordinate-free
+    single-select whose options carry real request ids."""
+    context = _ctx()
+    state = _service().list_state(user_id=context.user_id)
+    pending = [
+        r
+        for r in state.get("requests", [])
+        if r.get("status") == "pending" and r.get("ownerUserId") == context.user_id
+    ]
+    if not pending:
+        return {"pendingRequests": []}
+    options = [
+        {
+            "label": r.get("requesterDisplayName") or "Someone",
+            "ref": {"requestId": r.get("id")},
+            "hint": "wants to see your location",
+        }
+        for r in pending
+    ]
+    return {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_request",
+            "question": "Which request do you want to act on?",
+            "options": options,
+            "minSelections": 1,
+            "maxSelections": 1,
+            "allowFreeText": True,
+        }
+    }
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="request_incoming_choice")
+async def request_incoming_choice() -> dict[str, Any]:
+    """Ask the user whose incoming shared location to view. Coordinate-free
+    single-select whose options carry real grant ids."""
+    context = _ctx()
+    state = _service().list_state(user_id=context.user_id)
+    incoming = [g for g in state.get("receivedGrants", []) if g.get("status") == "active"]
+    if not incoming:
+        return {"incomingShares": []}
+    options = [
+        {
+            "label": g.get("ownerDisplayName") or "Someone",
+            "ref": {"grantId": g.get("id")},
+            "hint": _expiry_hint(g.get("expiresAt")),
+        }
+        for g in incoming
+    ]
+    return {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_incoming",
+            "question": "Whose location do you want to see?",
+            "options": options,
+            "minSelections": 1,
+            "maxSelections": 1,
+            "allowFreeText": True,
+        }
+    }
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_confirmation")
+async def request_confirmation(summary: str, destructive: bool = True) -> dict[str, Any]:
+    """Ask the user to confirm an irreversible or bulk action before it runs. Returns
+    a coordinate-free yes/no confirm prompt. Use before creating a public link,
+    sharing with everyone, or stopping all shares."""
+    _ctx()
+    return {
+        "prompt": {
+            "kind": "confirm",
+            "purpose": "confirm_action",
+            "question": str(summary or "Are you sure?"),
+            "confirmLabel": "Yes",
+            "cancelLabel": "Cancel",
+            "destructive": bool(destructive),
+        }
+    }
+
+
 LOCATION_AGENT_TOOLS = [
     list_location_recipients,
     list_active_location_shares,
@@ -288,4 +458,10 @@ V2_LOCATION_TOOLS = [
     propose_public_link,
     propose_location_view,
     revoke_public_link,
+    request_recipient_choice,
+    request_active_share_choice,
+    request_duration_choice,
+    request_request_choice,
+    request_incoming_choice,
+    request_confirmation,
 ]
