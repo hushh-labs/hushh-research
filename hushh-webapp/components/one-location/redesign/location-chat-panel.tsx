@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Maximize2, RotateCcw } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ActionConfirmCard } from "./action-confirm-card";
 import { BotAvatar } from "./location-chat-atoms";
 import { ChatComposer } from "./location-chat-composer";
 import { ChatMessageList } from "./location-chat-message-list";
@@ -103,6 +104,17 @@ export function LocationChatPanel(props: {
         </div>
       )}
 
+      {chat.pendingAction ? (
+        <div className="mb-3">
+          <ActionConfirmCard
+            action={chat.pendingAction}
+            busy={chat.busy}
+            onConfirm={chat.confirmAction}
+            onCancel={chat.cancelAction}
+          />
+        </div>
+      ) : null}
+
       <ChatComposer
         value={input}
         onChange={setInput}
@@ -120,6 +132,9 @@ export function LocationChatPanel(props: {
         onChange={setInput}
         onSend={submit}
         onRetry={chat.retry}
+        pendingAction={chat.pendingAction}
+        confirmAction={chat.confirmAction}
+        cancelAction={chat.cancelAction}
       />
     </section>
   );

@@ -7,12 +7,15 @@ import {
 } from "@/components/one-location/redesign/location-chat-suggestions";
 
 describe("SuggestionChips", () => {
-  it("exposes exactly the four control-plane prompts", () => {
+  it("exposes the control-plane prompts including the v2 chips", () => {
     expect(LOCATION_SUGGESTION_CHIPS.map((c) => c.label)).toEqual([
       "Who can see me?",
       "Stop sharing with…",
       "Ask someone to share",
       "Deny a request",
+      "Share my location with…",
+      "Show me where someone is",
+      "Make a public link",
     ]);
   });
 
