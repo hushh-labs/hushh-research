@@ -23,6 +23,7 @@
 
 const fs   = require("fs");
 const path = require("path");
+const os   = require("os");
 const { spawn } = require("child_process");
 const waitOn = require("wait-on");
 const { DESKTOP_PORT, BACKEND_PORT } = require("../../config/runtime");
@@ -61,8 +62,32 @@ const NODE_EXE = process.execPath;
 /** @type {import("child_process").ChildProcess | null} */
 let backendProc  = null;
 
+
+
 /** @type {import("child_process").ChildProcess | null} */
 let frontendProc = null;
+
+// ─── Logging ────────────────────────────────────────────────────────────────
+const LOG_DIR = path.join(process.env.LOCALAPPDATA || os.homedir(), "Hushh Desktop", "Logs");
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+const frontendLogStream = fs.createWriteStream(path.join(LOG_DIR, "frontend.log"), { flags: "a" });
+const backendLogStream = fs.createWriteStream(path.join(LOG_DIR, "backend.log"), { flags: "a" });
+const electronLogStream = fs.createWriteStream(path.join(LOG_DIR, "electron.log"), { flags: "a" });
+
+// Intercept console output to write to electron.log
+const originalLog = console.log;
+const originalError = console.error;
+console.log = function (...args) {
+  originalLog.apply(console, args);
+  electronLogStream.write(args.join(" ") + "\n");
+};
+console.error = function (...args) {
+  originalError.apply(console, args);
+  electronLogStream.write(args.join(" ") + "\n");
+};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -70,14 +95,17 @@ let frontendProc = null;
  * Pipe stdout/stderr of a ChildProcess to the Electron console with a label.
  * @param {import("child_process").ChildProcess} proc
  * @param {string} label
+ * @param {fs.WriteStream} logStream
  */
-function pipeOutput(proc, label) {
-  proc.stdout?.on("data", (chunk) =>
-    process.stdout.write(`[${label}] ${chunk}`)
-  );
-  proc.stderr?.on("data", (chunk) =>
-    process.stderr.write(`[${label}] ${chunk}`)
-  );
+function pipeOutput(proc, label, logStream) {
+  proc.stdout?.on("data", (chunk) => {
+    process.stdout.write(`[${label}] ${chunk}`);
+    logStream?.write(chunk);
+  });
+  proc.stderr?.on("data", (chunk) => {
+    process.stderr.write(`[${label}] ${chunk}`);
+    logStream?.write(chunk);
+  });
 }
 
 /**
@@ -127,7 +155,7 @@ function startBackend(isDev = true) {
     env: process.env,
   });
 
-  pipeOutput(backendProc, "BACKEND");
+  pipeOutput(backendProc, "BACKEND", backendLogStream);
 
   backendProc.on("exit", (code, signal) => {
     if (code !== 0 && signal !== "SIGTERM") {
@@ -172,7 +200,7 @@ function startFrontend(isDev = true) {
     env: { ...process.env, PORT: DESKTOP_PORT.toString() },
   });
 
-  pipeOutput(frontendProc, "FRONTEND");
+  pipeOutput(frontendProc, "FRONTEND", frontendLogStream);
 
   frontendProc.on("exit", (code, signal) => {
     if (code !== 0 && signal !== "SIGTERM") {
