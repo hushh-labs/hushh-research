@@ -1302,11 +1302,10 @@ export function KaiFlow({
             requireTerminal: true,
           }
         );
-      } catch (resumeError) {
-        if (resumeError instanceof Error && resumeError.name === "AbortError") {
+      } catch (_resumeError) {
+        if (_resumeError instanceof Error && _resumeError.name === "AbortError") {
           return;
         }
-        console.warn("[KaiFlow] Failed to resume import stream:", resumeError);
       } finally {
         abortControllerRef.current = null;
         resumeImportStreamInFlightRef.current = false;
