@@ -46,7 +46,7 @@ async def search_tickers(
         return results
     except Exception:
         logger.error("ticker.search.error", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ticker search is temporarily unavailable.")
+        raise HTTPException(status_code=500, detail="Ticker search is temporarily unavailable.") from None
 
 
 @router.get("/all", response_model=List[dict])
@@ -66,7 +66,7 @@ async def all_tickers(refresh: bool = Query(False)):
         return ticker_cache.all()
     except Exception:
         logger.error("ticker.all.error", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ticker listing is temporarily unavailable.")
+        raise HTTPException(status_code=500, detail="Ticker listing is temporarily unavailable.") from None
 
 
 @router.get("/cache-status")
@@ -104,4 +104,4 @@ async def sync_tickers_from_holdings(
         return {"success": True, **result}
     except Exception:
         logger.error("ticker.sync_holdings.error user_id=%s", user_id, exc_info=True)
-        raise HTTPException(status_code=500, detail="Ticker sync is temporarily unavailable.")
+        raise HTTPException(status_code=500, detail="Ticker sync is temporarily unavailable.") from None

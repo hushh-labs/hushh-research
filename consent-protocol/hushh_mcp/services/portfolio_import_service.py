@@ -2149,7 +2149,7 @@ Statement text (first 12000 chars):
 
             except Exception as e:
                 logger.error(f"Vertex AI init failed: {e}")
-                raise ValueError(f"Could not initialize Gemini client: {e}")
+                raise ValueError(f"Could not initialize Gemini client: {e}") from e
 
         # Encode PDF as base64
         pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")

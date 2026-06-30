@@ -115,7 +115,7 @@ async def _call_provider(coro: Any) -> CrdScrapeProviderResponse:
         raise HTTPException(
             status_code=422,
             detail={"code": "CRD_INVALID_REQUEST", "message": "Invalid request parameters."},
-        )
+        ) from None
     except CrdScrapeProxyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

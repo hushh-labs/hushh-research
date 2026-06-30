@@ -129,7 +129,7 @@ async def analyze_ticker(
         logger.error("[Kai] Analysis failed: %s", e)
         raise HTTPException(
             status_code=400, detail="Invalid analysis request. Check ticker and parameters."
-        )
+        ) from e
     except RealtimeDataUnavailable as e:
         logger.error("[Kai] Realtime dependency unavailable: %s", e.detail)
         raise HTTPException(
@@ -140,7 +140,7 @@ async def analyze_ticker(
                 "dependency": e.source,
                 "retryable": e.retryable,
             },
-        )
+        ) from e
     except Exception:
         logger.exception("[Kai] Unexpected error during analysis")
-        raise HTTPException(status_code=500, detail="Analysis is temporarily unavailable.")
+        raise HTTPException(status_code=500, detail="Analysis is temporarily unavailable.") from None

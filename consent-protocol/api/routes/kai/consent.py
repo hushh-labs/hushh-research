@@ -166,7 +166,7 @@ async def grant_consent(
             logger.warning(
                 "grant_consent.invalid_scope user_id=%s scope=%s", request.user_id, scope_str
             )
-            raise HTTPException(status_code=400, detail="Invalid scope requested.")
+            raise HTTPException(status_code=400, detail="Invalid scope requested.") from None
         except Exception as e:
             logger.error(
                 "grant_consent.token_issue_failed user_id=%s scope=%s: %s",
@@ -174,7 +174,7 @@ async def grant_consent(
                 scope_str,
                 e,
             )
-            raise HTTPException(status_code=500, detail="Failed to issue consent token.")
+            raise HTTPException(status_code=500, detail="Failed to issue consent token.") from e
 
     if not tokens:
         raise HTTPException(status_code=400, detail="No valid scopes provided")

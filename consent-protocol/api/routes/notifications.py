@@ -34,7 +34,7 @@ async def register_push_token(request: Request):
     try:
         body = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from None
 
     user_id = body.get("user_id") or body.get("userId")
     token = body.get("token")
@@ -61,7 +61,7 @@ async def register_push_token(request: Request):
         token_id = service.upsert_user_push_token(user_id=user_id, token=token, platform=platform)
     except Exception as e:
         logger.error("Push token registration failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to register token")
+        raise HTTPException(status_code=500, detail="Failed to register token") from e
 
     logger.info("Push token registered for user=%s platform=%s", user_id, platform)
     return {"ok": True, "user_id": user_id, "platform": platform, "id": token_id}
@@ -97,7 +97,7 @@ async def unregister_push_token(request: Request):
         deleted = service.delete_user_push_tokens(user_id=user_id, platform=platform)
     except Exception as e:
         logger.error("Push token unregister failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to unregister token(s)")
+        raise HTTPException(status_code=500, detail="Failed to unregister token(s)") from e
 
     logger.info(
         "Push token(s) unregistered for user=%s platform=%s deleted=%d", user_id, platform, deleted

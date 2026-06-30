@@ -554,7 +554,7 @@ async def approve_consent(
     try:
         _body = ConsentApprovalPayload.model_validate(await request.json())
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors(include_url=False))
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False)) from exc
 
     # Granular field-level validation: agent_id in payload must match
     # X-Client-Id header when both are supplied.  A mismatch indicates the
@@ -620,7 +620,7 @@ async def approve_consent(
         _consent_scope = resolve_scope_to_enum(requested_scope)
     except Exception as e:
         logger.error("consent.scope_resolution_failed scope=%r: %s", requested_scope, e)
-        raise HTTPException(status_code=400, detail="Invalid consent scope")
+        raise HTTPException(status_code=400, detail="Invalid consent scope") from e
 
     # Optional metadata on pending request (used for expiry hints)
     metadata = pending_request.get("metadata", {})
@@ -1284,7 +1284,7 @@ async def issue_vault_owner_token(request: Request):
         raise
     except Exception:
         logger.exception("vault_owner.issue_failed")
-        raise HTTPException(status_code=500, detail="Failed to issue vault owner token")
+        raise HTTPException(status_code=500, detail="Failed to issue vault owner token") from None
 
 
 @router.post("/revoke")
@@ -1399,7 +1399,7 @@ async def revoke_consent(
     except Exception as e:
         logger.error("consent.revoke_failed: %s", type(e).__name__)
         logger.exception("consent.revoke_failed_trace")
-        raise HTTPException(status_code=500, detail="Internal error")
+        raise HTTPException(status_code=500, detail="Internal error") from e
 
 
 @router.get("/data")

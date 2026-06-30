@@ -181,7 +181,7 @@ async def issue_app_review_mode_session(request: Request):
             status_code=500,
             detail="Failed to issue review session token",
             headers=NO_STORE_HEADERS,
-        )
+        ) from None
 
     client_ip = request.client.host if request.client else "unknown"
     logger.info(

@@ -335,7 +335,7 @@ async def vault_bootstrap_state(
     except ValueError:
         raise HTTPException(
             status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
-        )
+        ) from None
     except Exception as e:
         logger.error("vault/bootstrap-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
@@ -381,7 +381,7 @@ async def vault_pre_vault_state(
     except ValueError:
         raise HTTPException(
             status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
-        )
+        ) from None
     except Exception as e:
         logger.error("vault/pre-vault-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
@@ -474,7 +474,7 @@ async def vault_setup(
                     "error": message,
                     "code": "VAULT_ALREADY_EXISTS",
                 },
-            )
+            ) from e
         if "primaryMethod + primaryWrapperId" in message:
             raise HTTPException(
                 status_code=400,
@@ -482,10 +482,10 @@ async def vault_setup(
                     "error": message,
                     "code": "VAULT_PRIMARY_WRAPPER_NOT_FOUND",
                 },
-            )
+            ) from e
         raise HTTPException(
             status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
-        )
+        ) from e
     except Exception as e:
         logger.error(
             "vault/setup error user=%s wrappers=%s methods=%s: %s",
@@ -540,10 +540,10 @@ async def vault_wrapper_upsert(
             raise HTTPException(
                 status_code=400,
                 detail={"error": message, "code": "VAULT_PASSKEY_RP_MISMATCH"},
-            )
+            ) from e
         raise HTTPException(
             status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
-        )
+        ) from e
     except Exception as e:
         logger.error(
             "vault/wrapper/upsert error user=%s method=%s: %s",
@@ -604,7 +604,7 @@ async def vault_wrapper_delete(
             code = "VAULT_PASSPHRASE_REQUIRED"
         elif "Fallback primary method/wrapper" in message:
             code = "VAULT_PRIMARY_WRAPPER_NOT_FOUND"
-        raise HTTPException(status_code=400, detail={"error": message, "code": code})
+        raise HTTPException(status_code=400, detail={"error": message, "code": code}) from e
     except Exception as e:
         logger.error(
             "vault/wrapper/delete error user=%s method=%s: %s",
@@ -645,10 +645,10 @@ async def vault_primary_set(
             raise HTTPException(
                 status_code=400,
                 detail={"error": message, "code": "VAULT_PRIMARY_WRAPPER_NOT_FOUND"},
-            )
+            ) from e
         raise HTTPException(
             status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
-        )
+        ) from e
     except Exception as e:
         logger.error(
             "vault/primary/set error user=%s primary=%s: %s",
@@ -787,9 +787,9 @@ async def get_vault_status(
         return status
 
     except ValueError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized") from None
     except HTTPException:
         raise
     except Exception:
         logger.error("vault.status.error", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from None

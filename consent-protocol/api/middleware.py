@@ -157,7 +157,7 @@ async def require_firebase_auth(
         raise
     except Exception as e:
         logger.warning("Firebase auth failed: %s", e)
-        raise _auth_error("Invalid Firebase ID token")
+        raise _auth_error("Invalid Firebase ID token") from e
 
 
 def verify_user_id_match(firebase_uid: str, requested_user_id: str) -> None:

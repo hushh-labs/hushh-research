@@ -63,11 +63,11 @@ async def issue_session_token(
 
     except ValueError as e:
         logger.warning("session_token.invalid_token: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid token") from e
 
     except Exception as e:
         logger.error("session_token.internal_error: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     try:
         # Issue token with session scope
@@ -104,7 +104,7 @@ async def issue_session_token(
         )
     except Exception as e:
         logger.error("session_token.issue_failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to issue session token")
+        raise HTTPException(status_code=500, detail="Failed to issue session token") from e
 
 
 @router.post("/consent/logout")
@@ -159,7 +159,7 @@ async def logout_session(
         raise
     except Exception as e:
         logger.error("session.logout.failed user=%s error=%s", request.userId, e)
-        raise HTTPException(status_code=500, detail="Failed to revoke session tokens")
+        raise HTTPException(status_code=500, detail="Failed to revoke session tokens") from e
 
 
 @router.get("/consent/history")
@@ -204,7 +204,7 @@ async def get_consent_history(
         }
     except Exception as e:
         logger.error("consent_history.fetch_failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to fetch consent history")
+        raise HTTPException(status_code=500, detail="Failed to fetch consent history") from e
 
 
 @router.get("/consent/active")
@@ -248,7 +248,7 @@ async def get_active_consents(
         return {"grouped": grouped, "active": active_tokens}
     except Exception as e:
         logger.error("consent_active.fetch_failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to fetch active consents")
+        raise HTTPException(status_code=500, detail="Failed to fetch active consents") from e
 
 
 @router.get("/user/lookup")
@@ -353,4 +353,4 @@ async def lookup_user(
 
     except Exception as e:
         logger.error("user_lookup.error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to look up user")
+        raise HTTPException(status_code=500, detail="Failed to look up user") from e

@@ -25,7 +25,7 @@ def validate_key_hex(key_hex: str) -> None:
     try:
         bytes.fromhex(key_hex)
     except ValueError:
-        raise ValueError("AES-256 key must be valid hexadecimal")
+        raise ValueError("AES-256 key must be valid hexadecimal") from None
 
 
 def encrypt_data(plaintext: str, key_hex: str) -> EncryptedPayload:
@@ -49,7 +49,7 @@ def encrypt_data(plaintext: str, key_hex: str) -> EncryptedPayload:
             algorithm=ALGORITHM_NAME,
         )
     except Exception as e:
-        raise RuntimeError(f"Encryption failed: {str(e)}")
+        raise RuntimeError(f"Encryption failed: {str(e)}") from e
 
 
 # ==================== Decrypt ====================
@@ -71,6 +71,6 @@ def decrypt_data(payload: EncryptedPayload, key_hex: str) -> str:
         return decrypted.decode("utf-8")
 
     except InvalidTag:
-        raise ValueError("Decryption failed: Invalid authentication tag. Possible tampering.")
+        raise ValueError("Decryption failed: Invalid authentication tag. Possible tampering.") from None
     except Exception as e:
-        raise RuntimeError(f"Decryption failed: {str(e)}")
+        raise RuntimeError(f"Decryption failed: {str(e)}") from e

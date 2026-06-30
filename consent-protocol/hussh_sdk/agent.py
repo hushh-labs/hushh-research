@@ -221,7 +221,7 @@ class HusshAgent:
                         "data": {"domain": domain, "grant_id": grant_id},
                     }
                 )
-                raise ConsentRevokedError(domain)
+                raise ConsentRevokedError(domain) from error
             raise
         context = context_response.get("context", {}).get(domain)
         if context is None:

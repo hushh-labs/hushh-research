@@ -144,7 +144,7 @@ class KaiOrchestrator(HushhAgent):
 
         except asyncio.TimeoutError:
             logger.error(f"[Kai] Analysis timeout for {ticker}")
-            raise TimeoutError(f"Analysis exceeded {ANALYSIS_TIMEOUT}s timeout")
+            raise TimeoutError(f"Analysis exceeded {ANALYSIS_TIMEOUT}s timeout") from None
         except Exception as e:
             logger.error(f"[Kai] Analysis failed for {ticker}: {e}")
             raise

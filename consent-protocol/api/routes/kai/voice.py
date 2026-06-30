@@ -658,7 +658,7 @@ async def kai_voice_realtime_session(
             },
             finalize=True,
         )
-        raise HTTPException(status_code=error.status_code, detail=error.message)
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error
     except HTTPException:
         raise
     except Exception as error:
@@ -674,7 +674,7 @@ async def kai_voice_realtime_session(
             finalize=True,
         )
         logger.exception("[Kai Voice] realtime session failed turn_id=%s: %s", turn_id, error)
-        raise HTTPException(status_code=500, detail="Realtime session creation failed")
+        raise HTTPException(status_code=500, detail="Realtime session creation failed") from error
 
 
 @router.post("/voice/capability", response_model=VoiceCapabilityResponse)
@@ -1083,7 +1083,7 @@ async def kai_voice_plan(
             },
             finalize=True,
         )
-        raise HTTPException(status_code=error.status_code, detail=error.message)
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error
     except HTTPException as error:
         if error.status_code == 499:
             raise
@@ -1110,7 +1110,7 @@ async def kai_voice_plan(
             finalize=True,
         )
         logger.exception("[Kai Voice] planning failed turn_id=%s: %s", turn_id, error)
-        raise HTTPException(status_code=500, detail="Voice intent planning failed")
+        raise HTTPException(status_code=500, detail="Voice intent planning failed") from error
 
 
 @router.post("/voice/compose", response_model=VoiceComposeResponse)
@@ -1242,7 +1242,7 @@ async def kai_voice_compose(
             },
             finalize=True,
         )
-        raise HTTPException(status_code=error.status_code, detail=error.message)
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error
     except HTTPException as error:
         if error.status_code == 499:
             raise
@@ -1269,7 +1269,7 @@ async def kai_voice_compose(
             finalize=True,
         )
         logger.exception("[Kai Voice] composition failed turn_id=%s: %s", turn_id, error)
-        raise HTTPException(status_code=500, detail="Voice response composition failed")
+        raise HTTPException(status_code=500, detail="Voice response composition failed") from error
 
 
 @router.post("/voice/tts")
@@ -1732,7 +1732,7 @@ async def kai_voice_tts(
             },
             finalize=True,
         )
-        raise HTTPException(status_code=error.status_code, detail=error.message)
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error
     except Exception as error:
         _trace_voice_stage(
             turn_id,
@@ -1777,4 +1777,4 @@ async def kai_voice_tts(
             finalize=True,
         )
         logger.exception("[Kai Voice] TTS failed turn_id=%s: %s", turn_id, error)
-        raise HTTPException(status_code=500, detail="Voice synthesis failed")
+        raise HTTPException(status_code=500, detail="Voice synthesis failed") from error

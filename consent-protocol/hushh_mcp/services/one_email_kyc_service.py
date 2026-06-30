@@ -542,7 +542,7 @@ def _decode_workflow_cursor(cursor: str | None) -> tuple[str, str] | None:
             "Email request cursor is invalid.",
             status_code=400,
             code="ONE_KYC_CURSOR_INVALID",
-        )
+        ) from None
     created_at = _clean_text(payload.get("created_at") if isinstance(payload, dict) else None)
     workflow_id = _clean_text(payload.get("workflow_id") if isinstance(payload, dict) else None)
     if not created_at or not workflow_id:
