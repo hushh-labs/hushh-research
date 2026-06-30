@@ -27,6 +27,7 @@ import json
 import logging
 import sys
 import time
+from typing import Any, Callable, Dict
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -89,7 +90,7 @@ logger = logging.getLogger("hushh-mcp-server")
 
 server = Server("hushh-consent")
 
-HANDLERS = {
+HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
     # ── Consent / Privacy tools ───────────────────────────────────────────────
     "prepare_campaign_context": handle_prepare_campaign_context,
     "request_consent": handle_request_consent,
@@ -180,8 +181,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = await handler(arguments)
         end_time = time.perf_counter()
         elapsed_ms = (end_time - start_time) * 1000
-        logger.info(f"✅ Tool {name} completed successfully")
         logger.info(f"⏱️ Performance: Tool {name} execution took {elapsed_ms:.2f}ms")
+        if not isinstance(result, list):
+            raise ValueError(f"Tool {name} returned invalid type: {type(result)}")
         return result
     except Exception as e:
         end_time = time.perf_counter()
