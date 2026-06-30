@@ -328,9 +328,36 @@ export type OneLocationEncryptedEnvelope = {
   metadata?: Record<string, unknown>;
 };
 
+export interface ShareTarget {
+  grantId: string;
+  recipientUserId: string;
+  recipientKeyId: string;
+  label: string;
+}
+
+export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link";
+
+export interface ClientAction {
+  id: string;
+  type: ClientActionType;
+  shares?: ShareTarget[];
+  grantId?: string;
+  durationHours?: number;
+  summary: string;
+}
+
+export interface ActionResult {
+  id: string;
+  type: ClientActionType;
+  status: "completed" | "cancelled" | "failed";
+  publicUrl?: string;
+  detail?: string;
+}
+
 export interface LocationChatResponse {
   conversationId: string;
   response: string;
   isComplete: boolean;
   stateChanged: boolean;
+  clientAction?: ClientAction;
 }

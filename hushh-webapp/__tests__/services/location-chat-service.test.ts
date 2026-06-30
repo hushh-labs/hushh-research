@@ -52,7 +52,11 @@ describe("OneLocationService.chat", () => {
         Authorization: "Bearer vault-token",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ message: "stop sharing with Mom", conversationId: "conv-1" }),
+      body: JSON.stringify({
+        message: "stop sharing with Mom",
+        conversationId: "conv-1",
+        actionResult: null,
+      }),
     });
     expect(result.stateChanged).toBe(true);
   });
@@ -68,6 +72,29 @@ describe("OneLocationService.chat", () => {
     await OneLocationService.chat({ vaultOwnerToken: "t", message: "hi" });
 
     const body = JSON.parse((mockApiJson.mock.calls[0][1] as RequestInit).body as string);
-    expect(body).toEqual({ message: "hi", conversationId: null });
+    expect(body).toEqual({ message: "hi", conversationId: null, actionResult: null });
+  });
+});
+
+describe("OneLocationService.chat actionResult", () => {
+  beforeEach(() => mockApiJson.mockReset());
+
+  it("sends actionResult and omits message when reporting completion", async () => {
+    mockApiJson.mockResolvedValue({
+      conversationId: "c1",
+      response: "Done.",
+      isComplete: true,
+      stateChanged: true,
+    });
+
+    await OneLocationService.chat({
+      vaultOwnerToken: "tok",
+      conversationId: "c1",
+      actionResult: { id: "a1", type: "publish_share", status: "completed" },
+    });
+
+    const body = JSON.parse((mockApiJson.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.actionResult).toEqual({ id: "a1", type: "publish_share", status: "completed" });
+    expect(body.message ?? null).toBeNull();
   });
 });
