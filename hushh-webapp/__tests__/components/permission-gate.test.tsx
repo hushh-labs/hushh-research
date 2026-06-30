@@ -27,7 +27,7 @@ describe("PermissionGate", () => {
     expect(screen.queryByTestId("permission-locked-state")).toBeNull();
   });
 
-  it("routes missing vault permission to the current consent surface", () => {
+  it("routes missing vault permission to the current consent surface and renders descriptive rules", () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
       vaultOwnerToken: null,
@@ -41,10 +41,18 @@ describe("PermissionGate", () => {
 
     expect(screen.queryByRole("button", { name: "Connect Portfolio" })).toBeNull();
     expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+    expect(screen.getByText("Nav privacy guard")).toBeTruthy();
+    expect(screen.getByText("Vault permission required")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Unlock your vault and review consent before Kai uses portfolio data for personalized market context."
+      )
+    ).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
       buildConsentCenterHref("pending")
     );
   });
+
   it("preserves locked-state rendering when children are empty", () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
