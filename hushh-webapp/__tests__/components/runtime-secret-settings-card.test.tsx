@@ -316,4 +316,53 @@ describe("RuntimeSecretSettingsCard", () => {
     );
     expect(screen.getAllByText("Not set").length).toBeGreaterThan(0);
   });
+
+
+
+  it("shows an error toast if the save operation fails", async () => {
+    vi.spyOn(PersonalKnowledgeModelService, "loadRuntimeSecret").mockResolvedValue(null);
+    vi.spyOn(PersonalKnowledgeModelService, "storeRuntimeSecret").mockRejectedValue(
+      new Error("Cipher failure")
+    );
+    const toast = await import("sonner");
+
+    render(
+      <RuntimeSecretSettingsCard
+        userId="user-1"
+        vaultKey="vault-key-1"
+        vaultOwnerToken="vault-owner-token"
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Gemini API key"), {
+      target: { value: "my-key" },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+
+    await waitFor(() =>
+      expect(vi.mocked(toast.toast.error)).toHaveBeenCalledWith("Cipher failure")
+    );
+  });
+
+  it("routes users to vault creation when needsVaultCreation is true", () => {
+    const createVault = vi.fn();
+    render(
+      <RuntimeSecretSettingsCard
+        userId="user-1"
+        vaultKey={null}
+        vaultOwnerToken={null}
+        needsVaultCreation={true}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={createVault}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Create vault" })[0]);
+    expect(createVault).toHaveBeenCalledTimes(1);
+  });
 });
