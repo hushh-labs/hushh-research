@@ -34,6 +34,28 @@ describe("json-to-human", () => {
       expect(typeof result).toBe("string");
       expect(result.length).toBeGreaterThan(0);
     });
+
+    it("renders a nested object within an object section with indented bullet sub-fields", () => {
+      const output = formatCompleteJson({
+        ytd_metrics: {
+          realized_summary: {
+            net_realized: 2500,
+          },
+        },
+      });
+
+      expect(output).toContain(
+        "--- Year-to-Date Metrics ---",
+      );
+
+      expect(output).toContain(
+        "  Realized Summary:",
+      );
+
+      expect(output).toContain(
+        "    • Net Realized: $2,500.00",
+      );
+    });
   });
 
   describe("tryFormatComplete", () => {
