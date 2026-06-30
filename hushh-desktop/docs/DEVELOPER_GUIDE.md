@@ -42,11 +42,11 @@ Unlike a web app, the desktop app requires starting multiple servers simultaneou
 
 To run the full dev loop:
 ```bash
-npm run dev
+npm start
 ```
 
 ### Process Lifecycle Manager (`launcher.js`)
-When you start the application, Electron executes `main/launcher.js` which acts as our process supervisor. It performs the following sequence:
+When you start the application, Electron executes `electron/main/launcher.js` which acts as our process supervisor. It performs the following sequence:
 1. **Reads Environment Variables**: It parses `.env.local` and `.env.production` manually, merging them into `process.env`.
 2. **Launches the Python Backend**: Spawns `uvicorn server:app` on port 8000.
 3. **Launches the Next.js Standalone server**: Spawns the compiled `server.js` frontend.
