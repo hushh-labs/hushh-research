@@ -333,6 +333,23 @@ def _as_response_dict(result: Any) -> dict:
     return result if isinstance(result, dict) else {"result": result}
 
 
+def _selection_seed_text(selection_result: dict) -> str:
+    """Coordinate-free instruction the agent acts on for a selection turn."""
+    if str(selection_result.get("status")) == "cancelled":
+        return "I changed my mind — cancel that, take no action."
+    free = selection_result.get("free_text") or selection_result.get("freeText")
+    if free:
+        return str(free)
+    if str(selection_result.get("kind")) == "confirm":
+        return "Yes, go ahead." if selection_result.get("confirmed") else "No, do not proceed."
+    selected = selection_result.get("selected") or []
+    parts = [
+        "; ".join(f"{k}={v}" for k, v in ref.items()) for ref in selected if isinstance(ref, dict)
+    ]
+    refs = " | ".join(parts)
+    return f"I selected: {refs}. Use exactly these ids — do not guess — and proceed."
+
+
 class LocationChatService:
     def __init__(
         self,
@@ -386,6 +403,7 @@ class LocationChatService:
         consent_token: str,
         conversation_id: str | None = None,
         action_result: dict | None = None,
+        selection_result: dict | None = None,
     ) -> dict[str, Any]:
         # Branch: action-result confirmation turn (deterministic, no LLM, no coords).
         if action_result is not None:
@@ -393,6 +411,13 @@ class LocationChatService:
                 user_id=user_id,
                 conversation_id=conversation_id,
                 action_result=action_result,
+            )
+        if selection_result is not None:
+            return await self._handle_selection_result(
+                user_id=user_id,
+                consent_token=consent_token,
+                conversation_id=conversation_id,
+                selection_result=selection_result,
             )
 
         if not message:
@@ -643,6 +668,94 @@ class LocationChatService:
             "isComplete": not errored,
             "stateChanged": state_changed,
         }
+
+    async def _handle_selection_result(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        conversation_id: str | None,
+        selection_result: dict,
+    ) -> dict[str, Any]:
+        """Seed the Gemini loop with the user's choice (resolved refs) and act."""
+        conv_id = conversation_id or ""
+        if not conv_id:
+            return {
+                "conversationId": "",
+                "response": "Let's start again — what would you like to do with your location sharing?",
+                "isComplete": True,
+                "stateChanged": False,
+            }
+        if self._types is None or not self._ready():
+            await self._chat_store.add_message(
+                conversation_id=conv_id,
+                user_id=user_id,
+                role="assistant",
+                content=_UNAVAILABLE_MESSAGE,
+                status="error",
+            )
+            return {
+                "conversationId": conv_id,
+                "response": _UNAVAILABLE_MESSAGE,
+                "isComplete": False,
+                "stateChanged": False,
+            }
+
+        types = self._types
+        history = await self._chat_store.get_recent_messages(
+            conv_id, user_id=user_id, limit=_MAX_HISTORY
+        )
+        contents = _history_contents(history, types)
+        contents.append(
+            types.Content(
+                role="user", parts=[types.Part(text=_selection_seed_text(selection_result))]
+            )
+        )
+
+        try:
+            reply, errored, state_changed, directives, prompts = await self._run_tool_loop(
+                user_id=user_id, consent_token=consent_token, contents=contents
+            )
+        except Exception:
+            logger.exception("Location chat selection turn failed")
+            await self._chat_store.add_message(
+                conversation_id=conv_id,
+                user_id=user_id,
+                role="assistant",
+                content=_UNAVAILABLE_MESSAGE,
+                status="error",
+            )
+            return {
+                "conversationId": conv_id,
+                "response": _UNAVAILABLE_MESSAGE,
+                "isComplete": False,
+                "stateChanged": False,
+            }
+
+        client_prompt = self._build_client_prompt(prompts)
+        client_action = None if client_prompt is not None else self._build_client_action(directives)
+        if client_action is not None or client_prompt is not None:
+            state_changed = False
+        if not reply:
+            reply = "Done."
+        await self._chat_store.add_message(
+            conversation_id=conv_id,
+            user_id=user_id,
+            role="assistant",
+            content=reply,
+            status="error" if errored else "complete",
+        )
+        out: dict[str, Any] = {
+            "conversationId": conv_id,
+            "response": reply,
+            "isComplete": not errored,
+            "stateChanged": state_changed and not errored,
+        }
+        if client_action is not None:
+            out["clientAction"] = client_action
+        if client_prompt is not None:
+            out["clientPrompt"] = client_prompt
+        return out
 
     async def _finish(
         self,

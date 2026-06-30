@@ -253,3 +253,61 @@ async def test_approve_location_request_wrapped_grant_emits_publish_share():
     assert share["label"] == "Dad"
     # grant exists server-side but envelope not yet published -> no UI refresh
     assert out["stateChanged"] is False
+
+
+class _HistoryStore(_FakeStore):
+    async def get_recent_messages(self, conversation_id, *, user_id, limit=20):
+        return []
+
+
+async def test_selection_result_seeds_loop_and_acts_on_real_ids():
+    store = _HistoryStore()
+    calls: list[dict] = []
+    tools = [_fake_tool("revoke_location_share", calls, result={"status": "revoked"})]
+    svc = _service(
+        store,
+        responses=[
+            _fc_response("revoke_location_share", {"grant_id": "g1"}),
+            _text_response("Stopped sharing with Mom."),
+        ],
+        tools=tools,
+    )
+
+    out = await svc.handle_turn(
+        user_id="u",
+        consent_token="t",  # noqa: S106
+        conversation_id="conv-1",
+        selection_result={
+            "id": "prm-1",
+            "kind": "select",
+            "selected": [{"grantId": "g1"}],
+            "status": "answered",
+        },
+    )
+
+    assert out["conversationId"] == "conv-1"
+    assert out["response"] == "Stopped sharing with Mom."
+    assert out["stateChanged"] is True
+    assert calls[0]["args"] == {"grant_id": "g1"}  # exact id, never guessed
+
+
+async def test_selection_result_cancelled_makes_no_tool_call():
+    store = _HistoryStore()
+    calls: list[dict] = []
+    tools = [_fake_tool("revoke_location_share", calls, result={"status": "revoked"})]
+    svc = _service(
+        store,
+        responses=[_text_response("No problem — nothing changed.")],
+        tools=tools,
+    )
+
+    out = await svc.handle_turn(
+        user_id="u",
+        consent_token="t",  # noqa: S106
+        conversation_id="conv-1",
+        selection_result={"id": "prm-1", "kind": "select", "status": "cancelled"},
+    )
+
+    assert calls == []
+    assert out["stateChanged"] is False
+    assert out["isComplete"] is True
