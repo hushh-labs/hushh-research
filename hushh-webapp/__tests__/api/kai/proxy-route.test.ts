@@ -8,6 +8,7 @@ vi.mock("@/app/api/_utils/backend", () => ({
 type KaiRouteModule = {
   GET: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
   POST: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
+  PATCH: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
   DELETE: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 };
 
@@ -455,5 +456,68 @@ describe("/api/kai/[...path] proxy", () => {
       error: "Request cancelled",
       message: "The request was cancelled.",
     });
+  });
+
+  it("forwards Authorization header and parameters for DELETE requests", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/session", {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+      },
+    });
+
+    const res = await kaiRoute.DELETE(req, {
+      params: Promise.resolve({ path: ["session"] }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/session");
+    expect(options?.method).toBe("DELETE");
+    expect(options?.body).toBeUndefined();
+
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
+  });
+
+  it("forwards JSON body and headers for PATCH requests", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ updated: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/settings", {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ theme: "dark" }),
+    });
+
+    const res = await kaiRoute.PATCH(req, {
+      params: Promise.resolve({ path: ["settings"] }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/settings");
+    expect(options?.method).toBe("PATCH");
+    expect(options?.body).toBe(JSON.stringify({ theme: "dark" }));
+
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
+    expect(headers.get("Content-Type")).toBe("application/json");
   });
 });
