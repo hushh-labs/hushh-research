@@ -162,22 +162,31 @@ vi.mock("sonner", () => {
   };
 });
 
+// Capture the props passed to LocationChatPanel so we can assert on userId.
+let lastLocationChatPanelProps: {
+  vaultOwnerToken: string | null;
+  userId?: string;
+  onStateChanged?: () => void;
+} | null = null;
+
 // LocationChatPanel now renders unconditionally (locked stub when vault is locked).
 // Mock it here so its suggestion chips don't collide with the hub's own buttons
 // (e.g. "Ask someone") in tests that query by accessible name.
 vi.mock(
   "@/components/one-location/redesign/location-chat-panel",
   () => ({
-    LocationChatPanel: ({
-      vaultOwnerToken,
-    }: {
+    LocationChatPanel: (props: {
       vaultOwnerToken: string | null;
-    }) =>
-      vaultOwnerToken ? null : (
+      userId?: string;
+      onStateChanged?: () => void;
+    }) => {
+      lastLocationChatPanelProps = props;
+      return props.vaultOwnerToken ? null : (
         <section data-testid="location-chat-panel">
           <p>Unlock your vault to use the assistant.</p>
         </section>
-      ),
+      );
+    },
   }),
 );
 
@@ -553,6 +562,15 @@ describe("OneLocationAgentPage", () => {
       inviteCandidateCount: 0,
       sourcePlatform: "ios",
     });
+  });
+
+  it("passes userId into the location chat panel", async () => {
+    lastLocationChatPanelProps = null;
+    render(<OneLocationAgentPage />);
+    // The panel renders immediately (before the location entry flow), so props
+    // are captured synchronously on first render.
+    await waitFor(() => expect(lastLocationChatPanelProps).not.toBeNull());
+    expect(lastLocationChatPanelProps?.userId).toBe("user_a");
   });
 
   it("renders the One-owned encrypted location control surface", async () => {

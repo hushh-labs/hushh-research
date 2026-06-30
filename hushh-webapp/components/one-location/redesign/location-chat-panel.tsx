@@ -15,15 +15,17 @@ import { useLocationChat } from "./use-location-chat";
 
 export function LocationChatPanel(props: {
   vaultOwnerToken: string | null;
+  userId?: string;
   onStateChanged?: () => void;
 }) {
-  const { vaultOwnerToken, onStateChanged } = props;
+  const { vaultOwnerToken, userId, onStateChanged } = props;
   const [input, setInput] = useState("");
   const [overlayOpen, setOverlayOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const chat = useLocationChat({
     vaultOwnerToken: vaultOwnerToken ?? "",
+    userId,
     onStateChanged,
   });
 
@@ -112,6 +114,19 @@ export function LocationChatPanel(props: {
             onConfirm={chat.confirmAction}
             onCancel={chat.cancelAction}
           />
+        </div>
+      ) : null}
+
+      {chat.viewedPoint ? (
+        <div className="mb-3">
+          <a
+            href={`https://www.google.com/maps?q=${chat.viewedPoint.latitude},${chat.viewedPoint.longitude}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm underline"
+          >
+            Open the shared location on the map
+          </a>
         </div>
       ) : null}
 
