@@ -298,24 +298,8 @@ function AgentPopoverSurface({
     }, 120);
   }, [minimizeAgent]);
 
-  // Close the agent window whenever the route changes. The agent popover is a
-  // SINGLE app-root surface whose expanded state persists across client-side
-  // navigations, and it defaults to a fullscreen size. Without this, opening
-  // the agent on one screen and then navigating elsewhere (e.g. tapping into
-  // /one/location from the dashboard or bottom nav) left the fullscreen agent
-  // window mounted on top of the destination, hiding that page's real UI.
-  // Agent-driven navigations already minimize via handleNavigationActionComplete;
-  // this covers every OTHER navigation (nav bar, links, back/forward).
-  const previousPathnameRef = useRef(pathname);
-  useEffect(() => {
-    if (previousPathnameRef.current === pathname) return;
-    previousPathnameRef.current = pathname;
-    minimizeAgent();
-  }, [pathname, minimizeAgent]);
-
   const handleResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-
       if (isFullscreen) return;
       event.preventDefault();
       event.stopPropagation();

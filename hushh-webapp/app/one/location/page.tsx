@@ -8,8 +8,11 @@ import {
   useState,
   type ComponentProps,
   type MutableRefObject,
+  type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
+
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
@@ -73,6 +76,24 @@ const LOCATION_TAB_OPTIONS: { value: LocationTab; label: string }[] = [
 function normalizeLocationTab(value: string | null | undefined): LocationTab {
   return value === "activity" ? "activity" : "compose";
 }
+
+/**
+ * Renders children into a portal attached to document.body, escaping any
+ * ancestor stacking context. The app shell wraps page content in a
+ * `position: relative; z-10` scroll root (providers.tsx), which would otherwise
+ * trap a descendant overlay's z-index beneath the global chrome (agent bar /
+ * bottom nav). Mounting to <body> lets a full-screen takeover sit above all
+ * chrome. SSR-safe: renders nothing until mounted on the client.
+ */
+function BodyPortal({ children }: { children: ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  if (!mounted || typeof document === "undefined") return null;
+  return createPortal(children, document.body);
+}
+
 
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 
@@ -4110,18 +4131,31 @@ function OneLocationAgentPageContent() {
     Boolean(auth.userId && vaultOwnerToken);
 
   if (showLocationOnboarding) {
+    // Render the full-screen onboarding takeover through a portal to
+    // document.body. The page content is mounted INSIDE the app shell's scroll
+    // root (a `position: relative; z-10` stacking context in providers.tsx),
+    // which traps any descendant's z-index — so the overlay's `z-[540]` only
+    // competed *within* that context, while the global agent bar (z-[118]) and
+    // bottom nav (z-[120]/[505]) live in the shell's root context and painted
+    // OVER the onboarding footer, hiding the "Continue" button behind the
+    // "Ask your agent anything" bar. Portaling to <body> lifts the overlay into
+    // the document root so its z-index wins over all app chrome and the
+    // Continue / Allow Location button is always tappable.
     return (
-      <OneLocationOnboardingFlow
-        step={locationOnboardingStep}
-        busy={locationOnboardingBusy}
-        permission={permission}
-        nativeTest={nativeTestConfig}
-        onContinueIntro={handleContinueLocationOnboardingIntro}
-        onRequestPermission={handleLocationOnboardingPermission}
-        onSkip={handleSkipLocationOnboarding}
-      />
+      <BodyPortal>
+        <OneLocationOnboardingFlow
+          step={locationOnboardingStep}
+          busy={locationOnboardingBusy}
+          permission={permission}
+          nativeTest={nativeTestConfig}
+          onContinueIntro={handleContinueLocationOnboardingIntro}
+          onRequestPermission={handleLocationOnboardingPermission}
+          onSkip={handleSkipLocationOnboarding}
+        />
+      </BodyPortal>
     );
   }
+
 
   // ---------------------------------------------------------------------------
   // Mobile-first redesign (Figma: one_location_final_fixed_clean_navigation).
