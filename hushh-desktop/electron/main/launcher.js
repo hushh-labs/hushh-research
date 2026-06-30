@@ -24,6 +24,31 @@
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
+
+/**
+ * Basic .env parser since Next.js standalone doesn't automatically load .env files
+ * @param {string} filePath 
+ * @returns {Record<string, string>}
+ */
+function loadEnv(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  const content = fs.readFileSync(filePath, "utf8");
+  const env = {};
+  content.split("\n").forEach((line) => {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (match) {
+      let key = match[1];
+      let value = match[2] || "";
+      if (value.length > 0 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
+        value = value.replace(/\\n/gm, "\n").replace(/\\"/gm, '"').slice(1, -1);
+      } else if (value.length > 0 && value.charAt(0) === "'" && value.charAt(value.length - 1) === "'") {
+        value = value.slice(1, -1);
+      }
+      env[key] = value;
+    }
+  });
+  return env;
+}
 const { spawn } = require("child_process");
 const waitOn = require("wait-on");
 const { DESKTOP_PORT, BACKEND_PORT } = require("../../config/runtime");
@@ -179,10 +204,14 @@ function startBackend(isDev = true) {
   console.log("[launcher]   mode        :", isDev ? "development (--reload)" : "production");
   console.log("[launcher] ─────────────────────────────────────────────────");
 
+  // Load backend environment explicitly
+  const backendEnv = loadEnv(path.join(BACKEND_DIR, ".env"));
+  const mergedEnv = { ...process.env, ...backendEnv };
+
   backendProc = spawn(PYTHON_EXE, uvicornArgs, {
     cwd: BACKEND_DIR,
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    env: mergedEnv,
   });
 
   pipeOutput(backendProc, "BACKEND", backendLogStream);
@@ -231,11 +260,20 @@ function startFrontend(isDev = true) {
   console.log("[launcher]   PORT        :", DESKTOP_PORT);
   console.log("[launcher] ─────────────────────────────────────────────────");
 
+  // In standalone production, .env.local isn't loaded automatically by Node.
+  // We must inject it into the environment variables.
+  const frontendEnv = {
+    ...loadEnv(path.join(FRONTEND_DIR, ".env.production")),
+    ...loadEnv(path.join(FRONTEND_DIR, ".env")),
+    ...loadEnv(path.join(FRONTEND_DIR, ".env.local")),
+  };
+
   frontendProc = spawn(NODE_EXE, frontendArgs, {
     cwd: frontendCwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: { 
-      ...process.env, 
+      ...process.env,
+      ...frontendEnv,
       PORT: DESKTOP_PORT.toString(), 
       HOSTNAME: "localhost",
       ELECTRON_RUN_AS_NODE: "1" 
