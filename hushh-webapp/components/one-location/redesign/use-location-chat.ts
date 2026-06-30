@@ -181,9 +181,15 @@ export function useLocationChat(params: {
         }
         await report({ id: action.id, type: action.type, status: "completed" });
       } else if (action.type === "view_envelope") {
+        if (!userId) {
+          await report({ id: action.id, type: action.type, status: "failed", detail: "userId not configured" });
+          return;
+        }
+        const grantId = action.grantId;
+        if (!grantId) throw new Error("view_envelope action missing grantId");
         const { envelope } = await OneLocationService.viewEnvelope({
           vaultOwnerToken,
-          grantId: action.grantId as string,
+          grantId,
         });
         const point = await decryptLocationEnvelope({ userId, envelope });
         setViewedPoint(point);

@@ -241,6 +241,11 @@ describe("useLocationChat — action dispatcher", () => {
         actionResult: expect.objectContaining({ type: "publish_share", status: "completed" }),
       }),
     );
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.not.objectContaining({ latitude: expect.anything() }),
+      }),
+    );
     await waitFor(() => expect(onStateChanged).toHaveBeenCalled());
     expect(result.current.pendingAction).toBeNull();
   });
@@ -383,6 +388,53 @@ describe("useLocationChat — action dispatcher", () => {
         actionResult: expect.objectContaining({ type: "view_envelope", status: "completed" }),
       }),
     );
+  });
+
+  it("view_envelope: reports failed with 'userId not configured' when hook has no userId", async () => {
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c-noid",
+        response: "I'll show you their location.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-noid",
+          type: "view_envelope" as const,
+          grantId: "g-noid",
+          summary: "View shared location",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c-noid",
+        response: "Sorry — couldn't fetch.",
+        isComplete: true,
+        stateChanged: false,
+      });
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok" }), // no userId
+    );
+
+    await act(async () => {
+      await result.current.send("show me their location");
+    });
+    expect(result.current.pendingAction?.type).toBe("view_envelope");
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(vi.mocked(OneLocationService.viewEnvelope)).not.toHaveBeenCalled();
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          type: "view_envelope",
+          status: "failed",
+          detail: "userId not configured",
+        }),
+      }),
+    );
+    expect(result.current.pendingAction).toBeNull();
   });
 
   it("create_public_link: confirm captures, creates invite, reports completed with publicUrl", async () => {
