@@ -1,0 +1,16 @@
+{
+  "name": "hushh-desktop",
+  "version": "1.0.0",
+  "main": "electron/main/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "electron": "^42.5.1",
+    "wait-on": "^9.0.10"
+  }
+}

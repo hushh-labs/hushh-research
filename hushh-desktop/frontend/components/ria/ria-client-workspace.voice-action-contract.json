@@ -1,0 +1,588 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_client_workspace",
+  "surface_title": "RIA Client Workspace",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_client_workspace",
+      "label": "Open RIA Client Workspace",
+      "meaning": "Navigates to a selected client's advisor workspace.",
+      "aliases": [
+        "open client workspace",
+        "open this investor",
+        "show advisor workspace"
+      ],
+      "search_keywords": [
+        "client workspace",
+        "investor workspace",
+        "relationship"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]"
+        ],
+        "screens": [
+          "ria_client_workspace"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]",
+        "params": {
+          "requires_client_id": true
+        }
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "selected client identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.client_workspace.open_overview_tab",
+      "label": "Show Client Overview",
+      "meaning": "Switches the client workspace to the overview tab.",
+      "aliases": [
+        "show client overview",
+        "open overview tab",
+        "show at a glance"
+      ],
+      "search_keywords": [
+        "overview",
+        "client summary",
+        "relationship"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]",
+          "/ria/clients/[userId]?tab=overview"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_overview"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=overview",
+        "params": {
+          "requires_client_id": true,
+          "tab": "overview"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_overview"
+      ],
+      "state_exposure": [
+        "selected client identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.client_workspace.open_access_tab",
+      "label": "Show Client Sharing",
+      "meaning": "Switches the client workspace to the access and sharing tab.",
+      "aliases": [
+        "show client sharing",
+        "open access tab",
+        "show sharing tab"
+      ],
+      "search_keywords": [
+        "sharing",
+        "access",
+        "consent",
+        "requests"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=access"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_access"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=access",
+        "params": {
+          "requires_client_id": true,
+          "tab": "access"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_access",
+        "ria-client-workspace-access"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "granted scope labels"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "ria.client_workspace.open_portfolio_tab",
+      "label": "Show Client Portfolio",
+      "meaning": "Switches the client workspace to the portfolio tab when approved client portfolio access is ready.",
+      "aliases": [
+        "show client portfolio",
+        "open portfolio tab",
+        "show kai portfolio"
+      ],
+      "search_keywords": [
+        "portfolio",
+        "kai",
+        "client accounts",
+        "financial summary"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=kai"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_kai"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "Portfolio workspace may be locked until consent approval and summary readiness."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "client_portfolio_consent_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=kai",
+        "params": {
+          "requires_client_id": true,
+          "tab": "kai"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_kai",
+        "ria-client-workspace-kai"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "portfolio readiness state"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.client_workspace.open_explorer_tab",
+      "label": "Show Client Data Explorer",
+      "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
+      "aliases": [
+        "show client data",
+        "open explorer tab",
+        "show data explorer"
+      ],
+      "search_keywords": [
+        "data",
+        "explorer",
+        "client domains",
+        "attributes"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=explorer"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_explorer"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "Explorer may be locked until consent approval and data readiness."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "client_data_consent_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=explorer",
+        "params": {
+          "requires_client_id": true,
+          "tab": "explorer"
+        }
+      },
+      "control_ids": [
+        "ria_client_workspace_tab_explorer",
+        "ria-client-workspace-explorer"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "available data domains"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.client_workspace.open_account_detail",
+      "label": "Open Client Account Detail",
+      "meaning": "Opens a selected account branch detail route from the client workspace.",
+      "aliases": [
+        "open this account",
+        "show account detail",
+        "open client account"
+      ],
+      "search_keywords": [
+        "account",
+        "branch",
+        "account detail"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]",
+          "/ria/clients/[userId]?tab=overview",
+          "/ria/clients/[userId]?tab=access",
+          "/ria/clients/[userId]?tab=explorer"
+        ],
+        "screens": [
+          "ria_client_workspace",
+          "ria_client_workspace_overview",
+          "ria_client_workspace_access",
+          "ria_client_workspace_explorer"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known.",
+          "Account branch identifier must be selected."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "account_branch_visible_to_ria"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Opening a specific account detail requires the clicked account branch id from visible row state.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_client_workspace_account_row"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected account branch identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.client_workspace.open_access_manager",
+      "label": "Open Access Manager",
+      "meaning": "Navigates to the consent access manager from the client workspace.",
+      "aliases": [
+        "open access manager",
+        "open access",
+        "review pending client access"
+      ],
+      "search_keywords": [
+        "access manager",
+        "consent",
+        "pending requests"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=access"
+        ],
+        "screens": [
+          "ria_client_workspace_access"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "consent_center_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/consents?tab=pending"
+      },
+      "control_ids": [
+        "ria_client_workspace_open_access_manager"
+      ],
+      "state_exposure": [
+        "current workspace return route"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "ria.client_workspace.request_access",
+      "label": "Send Client Access Request",
+      "meaning": "Creates a consent request bundle for the selected client using the selected template, scopes, accounts, and optional reason.",
+      "aliases": [
+        "send access request",
+        "request more client access",
+        "ask the client for access"
+      ],
+      "search_keywords": [
+        "request access",
+        "consent",
+        "scope template",
+        "account selection"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]?tab=access"
+        ],
+        "screens": [
+          "ria_client_workspace_access"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Access tab must be open.",
+          "A request template must be available.",
+          "At least one scope must be selected.",
+          "Required account selections must be present.",
+          "Test profiles cannot send real requests."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "selected_scope_required",
+        "account_selection_required_when_template_requires",
+        "not_test_profile",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Sending an access request uses selected scopes, account ids, and client-visible note state and must remain user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_client_workspace_send_request",
+        "ria_client_workspace_scope_checkbox",
+        "ria_client_workspace_account_checkbox",
+        "ria_client_workspace_request_note"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected template identifier",
+        "selected scopes",
+        "selected account identifiers",
+        "client-visible request note"
+      ],
+      "expected_effects": {
+        "state_changes": [
+          "client access request is created",
+          "workspace data refreshes"
+        ],
+        "backend_effects": [
+          {
+            "api": "RiaService.createRequestBundle",
+            "effect": "Creates a consent request bundle for the selected investor."
+          }
+        ]
+      },
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "ria.client_workspace.disconnect_relationship",
+      "label": "Disconnect Client Relationship",
+      "meaning": "Disconnects the current advisor-client relationship and ends access immediately.",
+      "aliases": [
+        "disconnect this client",
+        "end client relationship",
+        "remove this investor"
+      ],
+      "search_keywords": [
+        "disconnect",
+        "relationship",
+        "end access"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]"
+        ],
+        "screens": [
+          "ria_client_workspace"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client detail must be loaded.",
+          "Relationship must not be a self relationship.",
+          "Test profiles cannot disconnect real relationships."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "not_self_relationship",
+        "not_test_profile",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Disconnecting a client relationship is destructive and must remain user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_client_workspace_disconnect"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "relationship status"
+      ],
+      "expected_effects": {
+        "state_changes": [
+          "relationship access ends",
+          "route returns to client roster"
+        ],
+        "backend_effects": [
+          {
+            "api": "ConsentCenterService.disconnectRelationship",
+            "effect": "Disconnects the investor relationship and ends access."
+          }
+        ]
+      },
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-workspace.tsx"
+      ],
+      "speaker_persona": "nav"
+    }
+  ]
+}

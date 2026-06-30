@@ -1,0 +1,16 @@
+{
+  "frontend": {
+    "source": "hushh-webapp",
+    "commit": "ba4ae859b3b9b4c61bf7090fce08ad82344f83c6",
+    "last_sync": "2026-06-30",
+    "copied_folders": ["app", "components", "lib", "hooks", "public", "assets", "icons", "src", "contracts"],
+    "manual_edits": []
+  },
+  "backend": {
+    "source": "consent-protocol",
+    "commit": null,
+    "last_sync": null,
+    "copied_folders": [],
+    "manual_edits": []
+  }
+}
