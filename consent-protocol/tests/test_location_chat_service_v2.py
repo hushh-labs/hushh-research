@@ -138,6 +138,7 @@ async def test_propose_public_link_emits_create_public_link_action():
 
     assert out["clientAction"]["type"] == "create_public_link"
     assert out["clientAction"]["durationHours"] == 2.0
+    assert out["stateChanged"] is False
 
 
 async def test_action_result_completed_publish_confirms_and_sets_state_changed():
@@ -172,3 +173,47 @@ async def test_action_result_cancelled_does_not_set_state_changed():
 
     assert out["stateChanged"] is False
     assert out["isComplete"] is True
+
+
+async def test_approve_location_request_wrapped_grant_emits_publish_share():
+    """approve_location_request with a wrapped {grant, request} shape must emit a
+    publish_share clientAction whose shares[0] has grantId/recipientUserId/
+    recipientKeyId/label extracted from the inner grant."""
+    store = _FakeStore()
+    wrapped_result = {
+        "grant": {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "recipientUserId": "rcpt-2",
+            "recipientKeyId": "key-2",
+            "recipientDisplayName": "Dad",
+        },
+        "request": {"id": "req-99", "status": "approved"},
+    }
+    tools = [_fake_tool("approve_location_request", [], result=wrapped_result)]
+    svc = _service(
+        store,
+        responses=[
+            _fc_response(
+                "approve_location_request",
+                {"request_id": "req-99", "duration_hours": 2},
+            ),
+            _text_response("Approved — sharing your location with Dad for 2 hours."),
+        ],
+        tools=tools,
+    )
+
+    out = await svc.handle_turn(
+        user_id="u",
+        message="approve Dad's request",
+        consent_token="t",  # noqa: S106
+    )
+
+    action = out["clientAction"]
+    assert action["type"] == "publish_share"
+    share = action["shares"][0]
+    assert share["grantId"] == "22222222-2222-2222-2222-222222222222"
+    assert share["recipientUserId"] == "rcpt-2"
+    assert share["recipientKeyId"] == "key-2"
+    assert share["label"] == "Dad"
+    # grant exists server-side but envelope not yet published -> no UI refresh
+    assert out["stateChanged"] is False

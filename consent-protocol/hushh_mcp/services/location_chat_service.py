@@ -63,6 +63,7 @@ _ACTION_RESULT_TEMPLATES = {
     ("publish_share", "completed"): "Done — your live location is now shared. ✓",
     ("publish_share", "cancelled"): "No problem — I didn't share your location.",
     ("view_envelope", "completed"): "Here's the latest location I could open.",
+    ("create_public_link", "completed"): "Your public location link is ready.",
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
 }
 
@@ -484,7 +485,9 @@ class LocationChatService:
         if not directives:
             return None
         action_id = "act-" + uuid4().hex[:12]
-        shares = [d["share"] for d in directives if d.get("type") == "publish_share"]
+        shares = [
+            d["share"] for d in directives if d.get("type") == "publish_share" and d.get("share")
+        ]
         if shares:
             labels = ", ".join(s["label"] for s in shares)
             return {
