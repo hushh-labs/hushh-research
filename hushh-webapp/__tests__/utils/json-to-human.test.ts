@@ -34,6 +34,28 @@ describe("json-to-human", () => {
       expect(typeof result).toBe("string");
       expect(result.length).toBeGreaterThan(0);
     });
+
+    it("renders a top-level string scalar directly under its resolved label", () => {
+      const output = formatCompleteJson({
+        account_holder: "Jane Doe",
+      });
+
+      expect(output).toBe(
+        "Account Holder: Jane Doe",
+      );
+    });
+
+    it("continues processing subsequent sections after a top-level string scalar", () => {
+      const output = formatCompleteJson({
+        account_holder: "Jane Doe",
+        portfolio_summary: {
+          ending_value: 100,
+        },
+      });
+
+      expect(output).toContain("Account Holder: Jane Doe");
+      expect(output).toContain("--- Portfolio Summary ---");
+    });
   });
 
   describe("tryFormatComplete", () => {
@@ -65,9 +87,7 @@ describe("json-to-human", () => {
       formatJsonChunk("hello ", ctx);
       formatJsonChunk("world", ctx);
 
-      expect(ctx.accumulatedJson).toBe(
-        "hello world",
-      );
+      expect(ctx.accumulatedJson).toBe("hello world");
     });
 
     it("returns text and context", () => {
