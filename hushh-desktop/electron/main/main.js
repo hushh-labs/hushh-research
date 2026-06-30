@@ -48,7 +48,7 @@ function createWindow() {
     height: 950,
     icon: path.resolve(__dirname, "..", "..", "assets", "icon.png"),
     webPreferences: {
-      preload: path.resolve(__dirname, "..", "..", "preload", "preload.js"),
+      preload: path.resolve(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
     },
     // Keep window hidden until services are ready
