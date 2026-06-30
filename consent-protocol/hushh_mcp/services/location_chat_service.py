@@ -1,6 +1,6 @@
-"""Control-plane chat orchestration for the One Location agent (v1).
+"""Control-plane chat orchestration for the One Location agent (v1 + v2).
 
-Runs a Gemini function-calling loop restricted to the 5 control-plane tools,
+Runs a Gemini function-calling loop restricted to the control-plane tools,
 executed INSIDE a HushhContext so each @hushh_tool enforces consent scope
 (DB-backed, via validate_token_with_db). Reuses AgentChatService for durable,
 encrypted conversation persistence.
@@ -13,9 +13,18 @@ server-side Gemini client (operons.kai.llm) directly. Consent is fully preserved
 because the tool callables themselves validate scope against the active
 HushhContext; this service only opens that context around the tool loop.
 
-Coordinate safety: the 5 control-plane tools never read or return coordinates,
+Coordinate safety: the control-plane tools never read or return coordinates,
 so neither the prompt, the tool results fed back to Gemini, nor the reply ever
 carries lat/lng.
+
+v2 additions:
+- Wider tool set (create_location_share, approve_location_request, propose_public_link,
+  propose_location_view, list_incoming_location_shares, list_public_links,
+  revoke_public_link).
+- Directive translation: successful grant-creating / propose tool calls produce a
+  coordinate-free ``clientAction`` descriptor returned to the browser.
+- Action-result turn: deterministic confirmation (no LLM, no coordinates) for
+  ``action_result`` payloads sent back by the browser after the user acts.
 """
 
 from __future__ import annotations
@@ -23,8 +32,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Awaitable, Callable
+from uuid import uuid4
 
-from hushh_mcp.agents.location.agent import get_location_chat_agent
+from hushh_mcp.agents.location.agent import get_location_chat_agent_v2
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 
@@ -36,7 +46,25 @@ _LLM_TIMEOUT_S = 30.0
 _HISTORY_CHARS = 2000
 
 # Tools that only read state — invoking them should NOT trigger a UI refresh.
-_QUERY_TOOL_NAMES = {"list_location_recipients", "list_active_location_shares"}
+# propose_* tools only stage a client action; they mutate nothing server-side.
+_QUERY_TOOL_NAMES = {
+    "list_location_recipients",
+    "list_active_location_shares",
+    "list_incoming_location_shares",
+    "list_public_links",
+    "propose_public_link",
+    "propose_location_view",
+}
+
+# Tools whose successful result produces a client-action directive.
+_DIRECTIVE_GRANT_TOOLS = {"create_location_share", "approve_location_request"}
+
+_ACTION_RESULT_TEMPLATES = {
+    ("publish_share", "completed"): "Done — your live location is now shared. ✓",
+    ("publish_share", "cancelled"): "No problem — I didn't share your location.",
+    ("view_envelope", "completed"): "Here's the latest location I could open.",
+    ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
+}
 
 _UNAVAILABLE_MESSAGE = (
     "The location assistant is temporarily unavailable. Please try again, or use "
@@ -52,7 +80,7 @@ ModelCall = Callable[[Any, Any], Awaitable[Any]]
 
 
 def _function_declarations(types: Any) -> list:
-    """Function declarations for the 5 control-plane tools (no crypto-handoff)."""
+    """Function declarations for the 6 v1 control-plane tools (no crypto-handoff)."""
     schema = types.Schema
     kind = types.Type
     return [
@@ -135,6 +163,106 @@ def _function_declarations(types: Any) -> list:
     ]
 
 
+def _function_declarations_v2(types: Any) -> list:
+    """v1 control-plane declarations + v2 prep/intent/read/control declarations."""
+    schema = types.Schema
+    kind = types.Type
+    decls = _function_declarations(types)
+    decls.extend(
+        [
+            types.FunctionDeclaration(
+                name="create_location_share",
+                description=(
+                    "Create a recipient-bound live-location grant (no coordinates). "
+                    "recipient_user_id and recipient_key_id MUST come from "
+                    "list_location_recipients. After this, the browser captures and "
+                    "encrypts the location."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "recipient_user_id": schema(type=kind.STRING),
+                        "recipient_key_id": schema(type=kind.STRING),
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                        "reason": schema(type=kind.STRING, description="Optional note"),
+                    },
+                    required=["recipient_user_id", "recipient_key_id", "duration_hours"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="approve_location_request",
+                description=(
+                    "Approve a pending incoming request and create a recipient-scoped "
+                    "grant. request_id MUST come from looking up pending requests."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "request_id": schema(type=kind.STRING),
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                    },
+                    required=["request_id", "duration_hours"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="list_incoming_location_shares",
+                description=(
+                    "List active shares where the user is the recipient (grant ids + "
+                    "owner names). Call FIRST before proposing to view a location. Read-only."
+                ),
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="list_public_links",
+                description=(
+                    "List the user's active public location links (ids + expiry). Call "
+                    "FIRST before revoking a public link. Read-only."
+                ),
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="propose_public_link",
+                description=(
+                    "Propose an owner-confirmed public link valid for duration_hours. "
+                    "The browser creates it after explicit confirmation."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24")
+                    },
+                    required=["duration_hours"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="propose_location_view",
+                description=(
+                    "Propose viewing an incoming share's latest location. grant_id MUST "
+                    "come from list_incoming_location_shares. The browser decrypts it."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={"grant_id": schema(type=kind.STRING)},
+                    required=["grant_id"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="revoke_public_link",
+                description=(
+                    "Revoke an active public location link. invite_id MUST come from "
+                    "list_public_links."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={"invite_id": schema(type=kind.STRING)},
+                    required=["invite_id"],
+                ),
+            ),
+        ]
+    )
+    return decls
+
+
 def _history_contents(history: list[Any], types: Any) -> list:
     contents: list = []
     for message in history[-_MAX_HISTORY:]:
@@ -186,10 +314,10 @@ class LocationChatService:
 
             self._model_call = _default_call
 
-        # System prompt + tool set come from the control-plane agent definition
-        # (the hardened agent.yaml prompt + the 5-tool allow-list).
+        # System prompt + tool set come from the control-plane agent definition.
+        # Default to the v2 agent when neither prompt nor tools are injected.
         need_agent = system_prompt is None or tools is None
-        agent = get_location_chat_agent() if need_agent else None
+        agent = get_location_chat_agent_v2() if need_agent else None
         self._system_prompt = (
             system_prompt if system_prompt is not None else agent.manifest.system_instruction
         )
@@ -200,10 +328,28 @@ class LocationChatService:
         self,
         *,
         user_id: str,
-        message: str,
+        message: str | None = None,
         consent_token: str,
         conversation_id: str | None = None,
+        action_result: dict | None = None,
     ) -> dict[str, Any]:
+        # Branch: action-result confirmation turn (deterministic, no LLM, no coords).
+        if action_result is not None:
+            return await self._handle_action_result(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                action_result=action_result,
+            )
+
+        if not message:
+            # Nothing to do; return a prompt shape rather than calling the model.
+            return {
+                "conversationId": conversation_id or "",
+                "response": "Tell me what you'd like to do with your location sharing.",
+                "isComplete": True,
+                "stateChanged": False,
+            }
+
         turn = await self._chat_store.prepare_turn(
             user_id=user_id,
             message=message,
@@ -218,7 +364,7 @@ class LocationChatService:
         types = self._types
         config = types.GenerateContentConfig(
             system_instruction=self._system_prompt,
-            tools=[types.Tool(function_declarations=_function_declarations(types))],
+            tools=[types.Tool(function_declarations=_function_declarations_v2(types))],
             temperature=0.2,
         )
         contents = _history_contents(turn.history, types)
@@ -227,6 +373,7 @@ class LocationChatService:
         reply = ""
         errored = False
         state_changed = False
+        directives: list[dict] = []
 
         try:
             with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
@@ -239,8 +386,12 @@ class LocationChatService:
                     # Echo the model's function-call turn, then append each result.
                     contents.append(response.candidates[0].content)
                     for call in calls:
-                        result, mutated = await self._run_tool(call.name, dict(call.args or {}))
+                        result, mutated, directive = await self._run_tool(
+                            call.name, dict(call.args or {})
+                        )
                         state_changed = state_changed or mutated
+                        if directive is not None:
+                            directives.append(directive)
                         contents.append(
                             types.Content(
                                 role="tool",
@@ -260,30 +411,154 @@ class LocationChatService:
                 turn, _UNAVAILABLE_MESSAGE, user_id, errored=True, state_changed=False
             )
 
+        client_action = self._build_client_action(directives)
+        if client_action is not None:
+            # The grant exists server-side but the browser hasn't published the
+            # envelope yet; do not trigger a UI refresh on this turn.
+            state_changed = False
+
         if not reply:
             reply = "Done."
         return await self._finish(
-            turn, reply, user_id, errored=errored, state_changed=state_changed and not errored
+            turn,
+            reply,
+            user_id,
+            errored=errored,
+            state_changed=state_changed and not errored,
+            client_action=client_action,
         )
 
-    async def _run_tool(self, name: str, args: dict) -> tuple[dict, bool]:
-        """Execute one tool inside the active HushhContext. Returns (result, mutated)."""
+    async def _run_tool(self, name: str, args: dict) -> tuple[dict, bool, dict | None]:
+        """Execute one tool inside the active HushhContext.
+
+        Returns (result, mutated, directive) where directive is a coordinate-free
+        descriptor of a client action to emit after the loop, or None.
+        """
         tool = self._dispatch.get(name)
         if tool is None:
-            return {"error": "unknown_tool"}, False
+            return {"error": "unknown_tool"}, False, None
         try:
             result = await tool(**args)
         except PermissionError:
-            return {"error": "consent_denied"}, False
+            return {"error": "consent_denied"}, False, None
         except ValueError as exc:
-            # Invalid/guessed argument (e.g. a non-UUID id). Surface the guidance to
-            # the model so it can look the id up and retry within the turn.
-            return {"error": "invalid_argument", "message": str(exc)}, False
-        except Exception as exc:
+            return {"error": "invalid_argument", "message": str(exc)}, False, None
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Location tool %s failed: %s", name, exc)
-            return {"error": "tool_failed"}, False
+            return {"error": "tool_failed"}, False, None
+        directive = self._directive_from_tool(name, _as_response_dict(result))
         mutated = name not in _QUERY_TOOL_NAMES
-        return _as_response_dict(result), mutated
+        return _as_response_dict(result), mutated, directive
+
+    @staticmethod
+    def _directive_from_tool(name: str, result: dict) -> dict | None:
+        """Translate a successful directive-producing tool result into a
+        coordinate-free client-action descriptor."""
+        if isinstance(result, dict) and result.get("error"):
+            return None
+        if name in _DIRECTIVE_GRANT_TOOLS:
+            grant = result.get("grant") if "grant" in result else result
+            if not isinstance(grant, dict) or not grant.get("id"):
+                return None
+            return {
+                "type": "publish_share",
+                "share": {
+                    "grantId": str(grant.get("id")),
+                    "recipientUserId": str(grant.get("recipientUserId") or ""),
+                    "recipientKeyId": str(grant.get("recipientKeyId") or ""),
+                    "label": grant.get("recipientDisplayName") or "your recipient",
+                },
+            }
+        if name == "propose_public_link" and result.get("proposed") == "create_public_link":
+            return {"type": "create_public_link", "durationHours": result.get("durationHours")}
+        if name == "propose_location_view" and result.get("proposed") == "view_envelope":
+            return {"type": "view_envelope", "grantId": result.get("grantId")}
+        return None
+
+    def _build_client_action(self, directives: list[dict]) -> dict | None:
+        """Fold collected per-tool directives into one client-action payload.
+
+        Priority: publish_share > view_envelope > create_public_link.
+        Multiple publish_share grants are combined into a single shares[] list.
+        """
+        if not directives:
+            return None
+        action_id = "act-" + uuid4().hex[:12]
+        shares = [d["share"] for d in directives if d.get("type") == "publish_share"]
+        if shares:
+            labels = ", ".join(s["label"] for s in shares)
+            return {
+                "id": action_id,
+                "type": "publish_share",
+                "shares": shares,
+                "summary": f"Share your live location with {labels}",
+            }
+        view = next((d for d in directives if d.get("type") == "view_envelope"), None)
+        if view:
+            return {
+                "id": action_id,
+                "type": "view_envelope",
+                "grantId": view.get("grantId"),
+                "summary": "Open the latest shared location",
+            }
+        link = next((d for d in directives if d.get("type") == "create_public_link"), None)
+        if link:
+            hours = link.get("durationHours")
+            return {
+                "id": action_id,
+                "type": "create_public_link",
+                "durationHours": hours,
+                "summary": f"Create a public link (viewable for {hours}h)",
+            }
+        return None
+
+    async def _handle_action_result(
+        self,
+        *,
+        user_id: str,
+        conversation_id: str | None,
+        action_result: dict,
+    ) -> dict[str, Any]:
+        """Deterministic confirmation turn for action_result payloads.
+
+        No LLM call, no coordinates.
+        """
+        action_type = str(action_result.get("type") or "")
+        status = str(action_result.get("status") or "")
+        detail = action_result.get("detail")
+        public_url = action_result.get("publicUrl")
+
+        if action_type == "create_public_link" and status == "completed" and public_url:
+            reply = (
+                f"Your public link is ready: {public_url} — anyone with it can view "
+                "this location until it expires, and you can revoke it anytime."
+            )
+        elif status == "failed":
+            suffix = f" ({detail})" if detail else ""
+            reply = f"That didn't go through{suffix}. You can try again."
+        else:
+            reply = _ACTION_RESULT_TEMPLATES.get((action_type, status), "Okay, that's handled.")
+
+        errored = status == "failed"
+        state_changed = status == "completed" and action_type in (
+            "publish_share",
+            "create_public_link",
+        )
+        conv_id = conversation_id or ""
+        if conv_id:
+            await self._chat_store.add_message(
+                conversation_id=conv_id,
+                user_id=user_id,
+                role="assistant",
+                content=reply,
+                status="error" if errored else "complete",
+            )
+        return {
+            "conversationId": conv_id,
+            "response": reply,
+            "isComplete": not errored,
+            "stateChanged": state_changed,
+        }
 
     async def _finish(
         self,
@@ -293,6 +568,7 @@ class LocationChatService:
         *,
         errored: bool,
         state_changed: bool,
+        client_action: dict | None = None,
     ) -> dict[str, Any]:
         await self._chat_store.add_message(
             conversation_id=turn.conversation_id,
@@ -301,9 +577,12 @@ class LocationChatService:
             content=reply,
             status="error" if errored else "complete",
         )
-        return {
+        out: dict[str, Any] = {
             "conversationId": turn.conversation_id,
             "response": reply,
             "isComplete": not errored,
             "stateChanged": state_changed,
         }
+        if client_action is not None:
+            out["clientAction"] = client_action
+        return out
