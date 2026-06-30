@@ -24,6 +24,22 @@
 
 ---
 
+## Visual Map
+
+```text
+v2 turn: agent emits a coordinate-free clientAction; the browser does the crypto.
+
+POST /api/one/location/chat (message)
+  -> Gemini loop in HushhContext
+       create_location_share / approve_location_request  (@hushh_tool, no coords)
+  <- { response, clientAction:{ type:"publish_share", grantId, recipients } }
+browser: ActionConfirmCard -> capture -> encrypt-per-recipient -> POST envelope (ciphertext)
+  -> POST /chat { actionResult: completed }  <- confirmation, stateChanged:true
+
+publish_share / view_envelope / create_public_link travel as clientAction directives;
+the agent never sees coordinates. Public links: bounded owner-confirmed snapshot.
+```
+
 ## File Structure
 
 **Backend (`consent-protocol/`)**
@@ -38,7 +54,7 @@
 - `lib/one-location/service.ts` — `chat()` accepts/sends `actionResult` (Task 6).
 - `components/one-location/redesign/use-location-chat.ts` — pending-action state + dispatcher (Task 7).
 - `components/one-location/redesign/action-confirm-card.tsx` — **new** confirm UI (Task 8).
-- `components/one-location/redesign/location-chat-card.tsx` / `location-chat-overlay.tsx` (and the message list) — render the card + new chips (Task 8).
+- `components/one-location/redesign/location-chat-panel.tsx` / `location-chat-overlay.tsx` (and the message list) — render the card + new chips (Task 8).
 - `app/one/location/page.tsx` — pass `userId` into the hook; render decrypted view result (Task 9).
 
 ---
@@ -1703,7 +1719,7 @@ git commit -m "feat(one-location): action dispatcher in useLocationChat (share/v
 
 **Files:**
 - Create: `hushh-webapp/components/one-location/redesign/action-confirm-card.tsx`
-- Modify: `hushh-webapp/components/one-location/redesign/location-chat-card.tsx`
+- Modify: `hushh-webapp/components/one-location/redesign/location-chat-panel.tsx`
 - Modify: `hushh-webapp/components/one-location/redesign/location-chat-overlay.tsx`
 - Test: `hushh-webapp/__tests__/components/action-confirm-card.test.tsx` (new)
 
@@ -1836,7 +1852,7 @@ Expected: PASS. (If `Button` does not accept `size`/`variant`/`isLoading` exactl
 
 - [ ] **Step 5: Render the card in the chat card + overlay**
 
-In `hushh-webapp/components/one-location/redesign/location-chat-card.tsx`, where the hook is consumed, destructure the new members and render the card below the message list when `pendingAction` is set. Add the import:
+In `hushh-webapp/components/one-location/redesign/location-chat-panel.tsx`, where the hook is consumed, destructure the new members and render the card below the message list when `pendingAction` is set. Add the import:
 
 ```tsx
 import { ActionConfirmCard } from "./action-confirm-card";
@@ -1875,7 +1891,7 @@ Expected: PASS + clean. Update any of these tests that construct the hook/compon
 - [ ] **Step 7: Commit**
 
 ```bash
-git add hushh-webapp/components/one-location/redesign/action-confirm-card.tsx hushh-webapp/components/one-location/redesign/location-chat-card.tsx hushh-webapp/components/one-location/redesign/location-chat-overlay.tsx hushh-webapp/__tests__/components/action-confirm-card.test.tsx
+git add hushh-webapp/components/one-location/redesign/action-confirm-card.tsx hushh-webapp/components/one-location/redesign/location-chat-panel.tsx hushh-webapp/components/one-location/redesign/location-chat-overlay.tsx hushh-webapp/__tests__/components/action-confirm-card.test.tsx
 git commit -m "feat(one-location): ActionConfirmCard + render in chat surfaces + v2 chips"
 ```
 
@@ -1996,6 +2012,6 @@ git commit -m "test(one-location): v2 full-suite verification fixups" || echo "n
 - §8 invariant ledger (no coords in directives/results; ciphertext-only shares; bounded public-link snapshot) → enforced by reusing existing crypto/routes (Tasks 6–9) + coordinate-free models (Tasks 4–5). ✓
 - §9 testing (no-coord assertions, not-LLM-callable asserts, action-result state_changed) → Tasks 1, 4, 7. ✓
 
-**Placeholder scan:** No "TBD"/"handle edge cases"/"similar to". Two intentional "adapt to the existing mock seam / chip shape" notes in Tasks 8–9 reference real in-repo patterns that vary by file; concrete code is provided for the new logic in every step.
+**Placeholder scan:** No placeholder markers or vague cross-references. Two intentional "adapt to the existing mock seam / chip shape" notes in Tasks 8–9 reference real in-repo patterns that vary by file; concrete code is provided for the new logic in every step.
 
 **Type consistency:** `ClientAction`/`ActionResult`/`ShareTarget` identical across Tasks 4 (Python dict keys: `id`, `type`, `shares[{grantId,recipientUserId,recipientKeyId,label}]`, `grantId`, `durationHours`, `summary`) and 6 (TS interfaces). `handle_turn(*, user_id, message=None, consent_token, conversation_id=None, action_result=None)` consistent across Tasks 4 and 5. `useLocationChat({vaultOwnerToken, userId, onStateChanged})` consistent across Tasks 7, 8, 9.

@@ -23,6 +23,22 @@
 
 ---
 
+## Visual Map
+
+```text
+clarify-and-confirm sits BEFORE the v2 crypto handoff (same directive pattern).
+
+"stop sharing my location" (no whom)
+  -> request_active_share_choice() (@hushh_tool, real grantId refs)
+  <- { response, clientPrompt:{ kind:"select", options:[grantId refs, "Stop all"] } }
+browser: ClarificationCard (checkboxes + Confirm)
+  -> POST /chat { selectionResult:{ selected:[{grantId}], status:"answered" } }
+  -> service seeds the loop with the chosen ids -> revoke_location_share(g1) ...
+
+For share: recipient choice -> duration -> create_location_share -> publish_share clientAction.
+clientPrompt and clientAction are mutually exclusive (prompt wins). All coordinate-free.
+```
+
 ## File Structure
 
 **Backend (`consent-protocol/`)**
@@ -1707,6 +1723,6 @@ git commit -m "test(one-location): clarify-confirm full-suite verification" || e
 - §9 invariants (coordinate-free, HushhContext, service-owns-ids, crypto path unchanged, destructive confirm) → enforced across Tasks 1–8 + verified Task 9. ✓
 - §10 testing → each task's tests + Task 9. ✓
 
-**Placeholder scan:** No "TBD"/"handle edge cases"/"similar to". Two "check the real Button variant / preserve wrapping element" notes point at concrete in-repo facts the implementer verifies; full code is provided for all new logic.
+**Placeholder scan:** No placeholder markers or vague cross-references. Two "check the real Button variant / preserve wrapping element" notes point at concrete in-repo facts the implementer verifies; full code is provided for all new logic.
 
 **Type consistency:** `ClientPrompt`/`PromptOption`/`SelectionResult` field names identical across Task 3 (Python dict keys: `id,kind,purpose,question,options[{label,ref,hint}],minSelections,maxSelections,allowFreeText,confirmLabel,cancelLabel,destructive`) and Task 6 (TS). `selection_result`/`selectionResult` and `free_text`/`freeText` aliasing consistent across Tasks 4, 5, 6. Hook members `pendingPrompt`/`answerPrompt`/`confirmPrompt`/`cancelPrompt` consistent across Tasks 7, 8. `_run_tool` 4-tuple consistent across Task 3 (definition) and `_run_tool_loop` (consumer).

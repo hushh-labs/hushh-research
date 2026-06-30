@@ -55,8 +55,8 @@ delivery UX, without breaking v1's privacy guarantees:
    X is" — via a structured **agent → client action-handoff contract**: the
    browser captures position, encrypts per recipient, and uploads an envelope; the
    server/agent still never see plaintext coordinates.
-2. **Public share links** accessible **outside** Hushh One — a recipient with no
-   Hushh account can open a link and see a location. Reuses the existing
+2. **Public share links** accessible **outside** One — a recipient with no
+   One account can open a link and see a location. Reuses the existing
    public-invite infrastructure.
 3. **Platform-aware sharing** — when a user says "share with <person>", the agent
    resolves the recipient against the **real** supported delivery set and asks a
@@ -92,14 +92,14 @@ building new crypto.
 
 | Channel | Status | Notes |
 |---|---|---|
-| FCM push (web/iOS/Android) to a Hushh user | **Wired** | `one_location_agent_service.py` `_send_metadata_notification`; metadata-only, deep-link `/one/location`; best-effort (silently drops if no push token). |
+| FCM push (web/iOS/Android) to a One user | **Wired** | `one_location_agent_service.py` `_send_metadata_notification`; metadata-only, deep-link `/one/location`; best-effort (silently drops if no push token). |
 | In-app consent-surface refresh | **Wired** | `hushh-webapp/lib/one-location/notifications.ts` + `consent-state-changed`. |
 | Public / circle link (owner copy-pastes) | **Wired** | Backend returns `publicUrl`; it does **not** auto-dispatch the link anywhere. |
 | SMS | **Absent** | No Twilio/SMS provider in the location flow. (An unrelated RIA invite enum lists `sms` but nothing sends it.) |
 | Email to recipient | **Absent** | Gmail API exists only for KAI advisor invites; not wired to any location event. |
 
 **Recipient identity** is resolved by `user_id` (UUID). `list_verified_recipients`
-returns only verified Hushh users (network-connected or phone-verified) and embeds
+returns only verified One users (network-connected or phone-verified) and embeds
 each recipient's `keyId` + `publicKeyJwk`. `canReceiveLocation:true` iff a key is
 registered (the recipient has opened One Location). Phone→user lookup happens
 **only** in the public-invite submission intake, not at agent share time.
@@ -186,7 +186,7 @@ that need the browser; otherwise the contract is identical to v1.
 ```
 1. Turn A (user text) → Gemini loop inside HushhContext
      - list_location_recipients resolves the named person (scope-validated)
-     - unambiguous Hushh recipient w/ key → create_location_share
+     - unambiguous One recipient w/ key → create_location_share
        (@hushh_tool: grant row + HCT mint, scope-validated, NO coords)
        (approve variant: approve_location_request, same shape)
      - service returns grant_id + recipient key info
@@ -244,16 +244,16 @@ No new DB migration — all tables (061, 064) already exist.
 
 The agent resolves a named person via `list_verified_recipients` into one of four
 buckets and branches. **Only real channels are ever offered**: encrypted in-app
-share (Hushh recipient w/ key) and public link (anyone). SMS / email are never
+share (One recipient w/ key) and public link (anyone). SMS / email are never
 offered; if the user explicitly asks ("text it to Mom"), the agent explains it
 can't send SMS but can make a link to paste.
 
 | Bucket | Detection | Agent behavior |
 |---|---|---|
-| **Verified Hushh recipient, has key** (`canReceiveLocation:true`) | exactly one name match with a registered key | Proceed: `create_location_share` → `publish_share` directive. No verbal question — the confirm card is the confirmation. |
-| **On Hushh, no key** (`canReceiveLocation:false`) | name match, no registered key | Ask: "Mom's on Hushh but hasn't set up location sharing yet. I can send her a request to enable it, or create a public link you can send her." |
+| **Verified One recipient, has key** (`canReceiveLocation:true`) | exactly one name match with a registered key | Proceed: `create_location_share` → `publish_share` directive. No verbal question — the confirm card is the confirmation. |
+| **On One, no key** (`canReceiveLocation:false`) | name match, no registered key | Ask: "Mom's on One but hasn't set up location sharing yet. I can send her a request to enable it, or create a public link you can send her." |
 | **Ambiguous** | multiple name matches | Disambiguate with the matches ("Mom (•••4821) or Mom (work)?"). |
-| **Unknown / off-Hushh** | no match | Ask: "I don't see {name} on Hushh. I can create a public link you can send them — want that?" |
+| **Unknown / off-platform** | no match | Ask: "I don't see {name} on One. I can create a public link you can send them — want that?" |
 
 **Multi-recipient** ("share with Mom and Dad"): one `publish_share` directive with
 a `recipients[]` array; the browser captures position **once** and encrypts **per
@@ -266,7 +266,7 @@ link for the rest, in a single clarifying reply.
 Reuses the existing public-invite infrastructure end to end — no new crypto, no new
 viewer page.
 
-**Mint flow** (off-Hushh recipient, explicit "make a public link", or fallback
+**Mint flow** (off-platform recipient, explicit "make a public link", or fallback
 offer):
 
 ```
@@ -291,7 +291,7 @@ justification):**
 - **Token hygiene** — `token_urlsafe(32)`; only the SHA-256 hash stored; raw token
   returned once.
 
-**Non-Hushh viewer (unchanged):** the public page resolves the token, shows a
+**Non-One viewer (unchanged):** the public page resolves the token, shows a
 Google Maps embed of the snapshot + expiry badge + directions; expired → 410,
 invalid → 404. No account, no login.
 
@@ -359,7 +359,7 @@ typing indicator, and error/retry are untouched except for the action-card branc
 |---|---|---|
 | Consent enforcement via `HushhContext` + per-tool scope validation | **Preserved** | All server-side ops (resolve, create_grant, approve, revoke, public-link create/delete) run as `@hushh_tool` in `HushhContext`; publish/view REST routes re-validate the HCT. |
 | Agent never sees/returns coordinates | **Preserved** | Coordinates exist only in the browser; `client_action` / `action_result` are coordinate-free by construction; agent turn text stays coordinate-free. |
-| Zero **server-side** plaintext coordinates | **Preserved for per-recipient shares**; **RELAXED for public links** | Per-recipient envelopes remain ciphertext-only (`ECDH-P256-AES256-GCM`). Public links store a plaintext `publicLocation` snapshot server-side. **Justification:** owner-initiated + explicitly confirmed; static one-time snapshot (not live); ≤24h hard-capped + auto-expire; revocable; required because a non-Hushh viewer has no key to decrypt. Scoped narrowly to this one path. |
+| Zero **server-side** plaintext coordinates | **Preserved for per-recipient shares**; **RELAXED for public links** | Per-recipient envelopes remain ciphertext-only (`ECDH-P256-AES256-GCM`). Public links store a plaintext `publicLocation` snapshot server-side. **Justification:** owner-initiated + explicitly confirmed; static one-time snapshot (not live); ≤24h hard-capped + auto-expire; revocable; required because a external viewer has no key to decrypt. Scoped narrowly to this one path. |
 | AES-256-GCM conversation encryption at rest | **Preserved** | Same `AgentChatService`; `client_action` / `action_result` metadata is coordinate-free and safe to persist. |
 | Opaque errors | **Preserved** | `action_result` failures map to safe agent messages; no internal detail. |
 | Agent refuses arbitrary bearer links / coords-in-notifications | **Preserved** | Prompt still refuses these; only the narrow confirmed-public-link + client-handoff paths are permitted. |
@@ -374,7 +374,7 @@ typing indicator, and error/retry are untouched except for the action-card branc
 - Scope enforcement fails closed when a matching scope is absent.
 - `action_result` follow-up turn yields a confirmation reply + correct
   `state_changed` (true after a successful mutating action; false on cancel).
-- Resolution buckets (verified-with-key / on-Hushh-no-key / ambiguous / unknown)
+- Resolution buckets (verified-with-key / on-One-no-key / ambiguous / unknown)
   drive the right branch and offer only real channels.
 - Public-link mint requires confirmation, respects expiry, and is revocable via
   chat; the agent never auto-creates one.
@@ -396,8 +396,8 @@ typing indicator, and error/retry are untouched except for the action-card branc
 |---|---|---|
 | Crypto-handoff model | Structured `client_action` directive + `action_result` follow-up turn | Clean contract; reuses all v1 crypto + REST; confirm gate fits a security-sensitive action |
 | Grant creation | Server-side `@hushh_tool` in `HushhContext`; only the envelope delegated to the browser | Keeps grant minting under per-tool scope validation (v1 non-negotiable) |
-| Public-link coordinate model | Reuse the existing **plaintext snapshot**; relax the invariant for this one path | Q2 decision; a non-Hushh viewer has no key to decrypt — bounded, owner-confirmed, revocable, ≤24h |
-| Platform confirmation | Resolve first; ask only when ambiguous / no-key / off-Hushh | Q3 decision; confirm card already shows target+platform+duration |
+| Public-link coordinate model | Reuse the existing **plaintext snapshot**; relax the invariant for this one path | Q2 decision; a external viewer has no key to decrypt — bounded, owner-confirmed, revocable, ≤24h |
+| Platform confirmation | Resolve first; ask only when ambiguous / no-key / off-platform | Q3 decision; confirm card already shows target+platform+duration |
 | Delivery channels offered | Encrypted in-app share + public link only | Only channels actually wired; no SMS/email |
 | Public links | Live, no-auth `/request/[token]`; static snapshot | Reuse shipped infra; no new viewer page |
 | Response mode | Non-streaming, consent-gated direct-Gemini loop in `HushhContext` | Same as v1 |
