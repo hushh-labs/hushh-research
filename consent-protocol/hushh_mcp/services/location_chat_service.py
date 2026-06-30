@@ -705,12 +705,20 @@ class LocationChatService:
         history = await self._chat_store.get_recent_messages(
             conv_id, user_id=user_id, limit=_MAX_HISTORY
         )
-        contents = _history_contents(history, types)
-        contents.append(
-            types.Content(
-                role="user", parts=[types.Part(text=_selection_seed_text(selection_result))]
-            )
+        seed = _selection_seed_text(selection_result)
+        # Persist the user's choice so a later turn in a multi-step clarification
+        # chain (e.g. pick recipient -> then pick duration) still sees the earlier
+        # answer. History was fetched above, so the current turn's contents are not
+        # duplicated; future turns' get_recent_messages will include this choice.
+        await self._chat_store.add_message(
+            conversation_id=conv_id,
+            user_id=user_id,
+            role="user",
+            content=seed,
+            status="complete",
         )
+        contents = _history_contents(history, types)
+        contents.append(types.Content(role="user", parts=[types.Part(text=seed)]))
 
         try:
             reply, errored, state_changed, directives, prompts = await self._run_tool_loop(

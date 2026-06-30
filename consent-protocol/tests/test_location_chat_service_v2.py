@@ -291,6 +291,49 @@ async def test_selection_result_seeds_loop_and_acts_on_real_ids():
     assert calls[0]["args"] == {"grant_id": "g1"}  # exact id, never guessed
 
 
+async def test_selection_result_persists_user_choice_for_chaining():
+    # Multi-step clarification (pick recipient -> then pick duration): the FIRST
+    # selection's chosen refs must be persisted so the SECOND selection turn still
+    # knows who to share with. Regression: previously only the assistant reply was
+    # persisted, so the recipient choice was lost on the next turn.
+    store = _HistoryStore()
+    duration_prompt = {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_duration",
+            "question": "How long?",
+            "options": [{"label": "1 hour", "ref": {"hours": 1}}],
+        }
+    }
+    tools = [_fake_tool("request_duration_choice", [], result=duration_prompt)]
+    svc = _service(
+        store,
+        responses=[
+            _fc_response("request_duration_choice", {}),
+            _text_response("How long should this share last?"),
+        ],
+        tools=tools,
+    )
+
+    out = await svc.handle_turn(
+        user_id="u",
+        consent_token="t",  # noqa: S106
+        conversation_id="conv-1",
+        selection_result={
+            "id": "prm-1",
+            "kind": "select",
+            "selected": [{"recipientUserId": "rcpt-1", "recipientKeyId": "key-1"}],
+            "status": "answered",
+        },
+    )
+
+    assert out["clientPrompt"]["purpose"] == "select_duration"
+    user_msgs = [m for m in store.added if m["role"] == "user"]
+    assert any("rcpt-1" in m["content"] for m in user_msgs), (
+        "the recipient selection must be persisted so a later turn can use it"
+    )
+
+
 async def test_selection_result_cancelled_makes_no_tool_call():
     store = _HistoryStore()
     calls: list[dict] = []
