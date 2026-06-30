@@ -171,6 +171,77 @@ async def list_active_location_shares() -> dict[str, Any]:
     return {"activeShares": shares}
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="list_incoming_location_shares")
+async def list_incoming_location_shares() -> dict[str, Any]:
+    """List active shares where the current user is the recipient (so they can be
+    viewed). Returns grant ids + owner names; coordinate-free (no lat/lng)."""
+    context = _ctx()
+    state = _service().list_state(user_id=context.user_id)
+    shares = [
+        {
+            "grantId": grant.get("id"),
+            "ownerUserId": grant.get("ownerUserId"),
+            "ownerDisplayName": grant.get("ownerDisplayName"),
+            "expiresAt": grant.get("expiresAt"),
+        }
+        for grant in state.get("receivedGrants", [])
+        if grant.get("status") == "active"
+    ]
+    return {"incomingShares": shares}
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="list_public_links")
+async def list_public_links() -> dict[str, Any]:
+    """List the user's active public location links (id + expiry). Coordinate-free."""
+    context = _ctx()
+    state = _service().list_state(user_id=context.user_id)
+    links = [
+        {
+            "inviteId": invite.get("id"),
+            "status": invite.get("status"),
+            "expiresAt": invite.get("expiresAt"),
+            "publicUrl": invite.get("publicUrl"),
+        }
+        for invite in state.get("publicInvites", [])
+        if invite.get("status") == "active"
+    ]
+    return {"publicLinks": links}
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_public_link")
+async def propose_public_link(duration_hours: float) -> dict[str, Any]:
+    """Propose creating an owner-confirmed public link. Does NOT create it (the
+    browser captures the snapshot and creates it after explicit confirmation).
+    Coordinate-free."""
+    _ctx()
+    try:
+        hours = float(duration_hours)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_hours must be a number between 0 and 24") from exc
+    if not (0 < hours <= 24):
+        raise ValueError("duration_hours must be greater than 0 and at most 24")
+    return {"proposed": "create_public_link", "durationHours": hours}
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="propose_location_view")
+async def propose_location_view(grant_id: str) -> dict[str, Any]:
+    """Propose viewing an incoming share's latest location. The browser fetches the
+    ciphertext and decrypts it; the server never returns coordinates. grant_id MUST
+    come from list_incoming_location_shares. Coordinate-free."""
+    _ctx()
+    grant_id = _require_uuid(grant_id, "grant_id")
+    return {"proposed": "view_envelope", "grantId": grant_id}
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="revoke_public_link")
+async def revoke_public_link(invite_id: str) -> dict[str, Any]:
+    """Revoke an active public location link owned by the current user. invite_id
+    MUST come from list_public_links."""
+    context = _ctx()
+    invite_id = _require_uuid(invite_id, "invite_id")
+    return _service().revoke_public_invite(owner_user_id=context.user_id, invite_id=invite_id)
+
+
 LOCATION_AGENT_TOOLS = [
     list_location_recipients,
     list_active_location_shares,
@@ -195,4 +266,26 @@ CONTROL_PLANE_LOCATION_TOOLS = [
     request_location_access,
     deny_location_request,
     refer_location_recipient,
+]
+
+
+# v2 subset: control-plane + prep-and-handoff (create/approve create grants
+# server-side, coordinate-free) + read/intent/control tools for view & public
+# links. NEVER includes publish_location_envelope / view_location_envelope —
+# those are impossible server-side (need ciphertext / decryption) and are handled
+# by a client-action directive instead.
+V2_LOCATION_TOOLS = [
+    list_location_recipients,
+    list_active_location_shares,
+    list_incoming_location_shares,
+    list_public_links,
+    revoke_location_share,
+    request_location_access,
+    deny_location_request,
+    refer_location_recipient,
+    create_location_share,
+    approve_location_request,
+    propose_public_link,
+    propose_location_view,
+    revoke_public_link,
 ]
