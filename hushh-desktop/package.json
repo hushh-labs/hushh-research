@@ -3,14 +3,55 @@
   "version": "1.0.0",
   "main": "electron/main/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "author": "Hushh",
+  "description": "Hushh Desktop Application",
   "dependencies": {
-    "electron": "^42.5.1",
     "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.hushh.desktop",
+    "productName": "Hushh Desktop",
+    "asar": false,
+    "directories": {
+      "output": "installer"
+    },
+    "files": [
+      "electron/**/*",
+      "config/**/*",
+      "package.json",
+      "frontend/.next/standalone/**/*",
+      "frontend/.next/static/**/*",
+      "frontend/public/**/*",
+      "frontend/.env.local",
+      "backend/api/**/*",
+      "backend/db/**/*",
+      "backend/hushh_mcp/**/*",
+      "backend/hussh_sdk/**/*",
+      "backend/mcp_modules/**/*",
+      "backend/services/**/*",
+      "backend/utils/**/*",
+      "backend/server.py",
+      "backend/pyproject.toml",
+      "backend/requirements.txt",
+      "backend/uv.lock",
+      "backend/.python-version",
+      "backend/.env"
+    ],
+    "win": {
+      "target": "msi"
+    },
+    "msi": {
+      "oneClick": true,
+      "perMachine": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.5.1",
+    "electron-builder": "^26.15.3"
   }
 }

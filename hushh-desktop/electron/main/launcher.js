@@ -44,7 +44,9 @@ const PYTHON_EXE = path.resolve(
   process.platform === "win32" ? "python.exe" : "python"
 );
 
-// Next.js CLI binary (avoids npm entirely)
+// Next.js: dev mode uses the next CLI; prod mode uses the standalone server.js
+// Standalone output is at frontend/.next/standalone/frontend/server.js
+const NEXT_STANDALONE = path.resolve(FRONTEND_DIR, ".next", "standalone", "frontend", "server.js");
 const NEXT_BIN = path.resolve(
   FRONTEND_DIR,
   "node_modules",
@@ -135,6 +137,29 @@ function killTree(proc, label) {
  * @param {boolean} isDev  true → uvicorn --reload, false → uvicorn (prod)
  * @returns {import("child_process").ChildProcess}
  */
+/**
+ * In production, the .venv is not shipped — run `uv sync` on first launch.
+ * In dev mode, the .venv already exists locally.
+ * @returns {Promise<void>}
+ */
+async function ensureBackendVenv() {
+  if (fs.existsSync(PYTHON_EXE)) return; // already installed
+
+  console.log("[launcher] ── First-run: installing backend dependencies via uv sync …");
+  await new Promise((resolve, reject) => {
+    const uvProc = spawn("uv", ["sync"], {
+      cwd: BACKEND_DIR,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    pipeOutput(uvProc, "UV", backendLogStream);
+    uvProc.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`uv sync failed with exit code ${code}`));
+    });
+  });
+  console.log("[launcher] ✓ Backend dependencies installed.");
+}
+
 function startBackend(isDev = true) {
   const uvicornArgs = [
     "-m", "uvicorn", "server:app",
@@ -179,25 +204,28 @@ function startBackend(isDev = true) {
  * @returns {import("child_process").ChildProcess}
  */
 function startFrontend(isDev = true) {
-  const nextCmd = isDev ? "dev" : "start";
+  // In production we use the self-contained standalone server (no node_modules needed)
+  // In dev mode we use next dev via the project's node_modules
+  const useStandalone = !isDev && fs.existsSync(NEXT_STANDALONE);
+  const frontendArgs = useStandalone
+    ? [NEXT_STANDALONE]
+    : [NEXT_BIN, "dev", "-p", DESKTOP_PORT.toString()];
+  const frontendCwd = useStandalone
+    ? path.dirname(NEXT_STANDALONE)
+    : FRONTEND_DIR;
 
   console.log("[launcher] ── Frontend diagnostics ─────────────────────────");
   console.log("[launcher]   NODE_EXE    :", NODE_EXE);
   console.log("[launcher]   Node version:", process.version);
-  console.log("[launcher]   ComSpec     :", process.env.ComSpec ?? "(not set)");
-  console.log("[launcher]   NEXT_BIN    :", NEXT_BIN);
-  console.log("[launcher]   next exists :", fs.existsSync(NEXT_BIN));
-  console.log("[launcher]   FRONTEND_DIR:", FRONTEND_DIR);
-  console.log("[launcher]   dir exists  :", fs.existsSync(FRONTEND_DIR));
-  console.log("[launcher]   package.json:", fs.existsSync(path.join(FRONTEND_DIR, "package.json")));
-  console.log("[launcher]   mode        :", isDev ? "development (next dev)" : "production (next start)");
+  console.log("[launcher]   mode        :", useStandalone ? "production (standalone)" : isDev ? "development (next dev)" : "production (next start)");
+  console.log("[launcher]   entry       :", useStandalone ? NEXT_STANDALONE : NEXT_BIN);
   console.log("[launcher]   PORT        :", DESKTOP_PORT);
   console.log("[launcher] ─────────────────────────────────────────────────");
 
-  frontendProc = spawn(NODE_EXE, [NEXT_BIN, nextCmd, "-p", DESKTOP_PORT.toString()], {
-    cwd: FRONTEND_DIR,
+  frontendProc = spawn(NODE_EXE, frontendArgs, {
+    cwd: frontendCwd,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: DESKTOP_PORT.toString() },
+    env: { ...process.env, PORT: DESKTOP_PORT.toString(), HOSTNAME: "localhost" },
   });
 
   pipeOutput(frontendProc, "FRONTEND", frontendLogStream);
@@ -247,6 +275,7 @@ function shutdownServices() {
 }
 
 module.exports = {
+  ensureBackendVenv,
   startBackend,
   startFrontend,
   waitForServices,
