@@ -13,6 +13,20 @@ import {
 } from "@/components/profile/settings-ui";
 
 describe("SettingsRow", () => {
+  it("sets clickable row button type", () => {
+    render(
+      <SettingsRow
+        title="Open settings"
+        description="Manage account preferences"
+        onClick={() => {}}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: /open settings/i }).getAttribute("type")
+    ).toBe("button");
+  });
+
   it("wraps both primary action and trailing in a single interactive row", () => {
     const handleOpen = vi.fn();
     const handleTrailing = vi.fn();
@@ -800,5 +814,39 @@ describe("row hover surface", () => {
     const primary = container.querySelector("button");
     expect(primary?.className ?? "").not.toContain("rounded-xl");
     expect(primary?.className ?? "").not.toContain("hover:bg-foreground");
+  });
+
+  it("closes from the explicit close button", () => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    const handleOpenChange = vi.fn();
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={handleOpenChange}
+        title="Settings"
+        description="Settings dialog"
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /close detail panel/i })
+    );
+
+    expect(handleOpenChange).toHaveBeenCalledWith(false);
   });
 });

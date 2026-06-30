@@ -267,6 +267,57 @@ export function normalizeNativeBackendUrl(raw: string): string {
   return trimmed;
 }
 
+function decodeNativeBinaryPayload(data: unknown): Uint8Array {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (Array.isArray(data)) {
+    return new Uint8Array(data);
+  }
+
+  const raw =
+    typeof data === "string"
+      ? data
+      : data &&
+          typeof data === "object" &&
+          "data" in data &&
+          typeof (data as { data?: unknown }).data === "string"
+        ? String((data as { data: string }).data)
+        : "";
+  const base64 = raw.includes(",") ? raw.split(",").pop() || "" : raw;
+  if (!base64) return new Uint8Array();
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function getNativeHeaderValue(
+  headers: Record<string, unknown> | undefined,
+  name: string
+): string | null {
+  if (!headers) return null;
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() !== target || value === undefined || value === null) {
+      continue;
+    }
+    return Array.isArray(value) ? value.join(",") : String(value);
+  }
+  return null;
+}
+
 function detectHostedToLocalMismatch(apiBase: string): string | null {
   const backendHost = hostFromUrl(apiBase);
   if (!isLocalNativeHost(backendHost)) return null;

@@ -14,6 +14,10 @@ export interface NormalizedConsentState {
 /** Closed fallback returned whenever structural integrity cannot be confirmed. */
 const DENY_STATE: NormalizedConsentState = { isGranted: false, permissions: [] };
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
 export function normalizeConsentResponse(
   response: RawConsentResponse | null | undefined
 ): NormalizedConsentState {
@@ -43,8 +47,8 @@ export function normalizeConsentResponse(
       (own("active")      && typeof r["active"]      !== "boolean") ||
       (own("granted")     && typeof r["granted"]     !== "boolean") ||
       (own("status")      && r["status"] !== null    && typeof r["status"] !== "string") ||
-      (own("permissions") && !Array.isArray(r["permissions"])) ||
-      (own("scopes")      && !Array.isArray(r["scopes"]))
+      (own("permissions") && !isStringArray(r["permissions"])) ||
+      (own("scopes")      && !isStringArray(r["scopes"]))
     ) {
       return DENY_STATE;
     }

@@ -59,11 +59,15 @@ async function proxyVaultStatus(params: {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error("[API] Backend error:", response.status, errorText);
+    const errorPayload = await response
+      .json()
+      .catch(async () => ({
+        details: await response.text().catch(() => ""),
+      }));
+    console.error("[API] Backend error:", response.status, errorPayload);
     return {
       status: response.status,
-      payload: { error: "Backend error", details: errorText },
+      payload: { error: "Backend error", ...errorPayload },
     };
   }
 

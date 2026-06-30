@@ -112,6 +112,7 @@ import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  normalizeInternalAppNavigationHref,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
 import {

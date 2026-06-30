@@ -43,7 +43,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("[API] Issuing session token");
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[API] Issuing session token");
+    }
 
     const response = await fetch(`${BACKEND_URL}/api/consent/issue-token`, {
       method: "POST",
@@ -64,7 +66,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    console.log(`[API] Session token issued, expires at: ${data.expiresAt}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Session token issued, expires at: ${data.expiresAt}`);
+    }
 
     return NextResponse.json(data);
   } catch (error) {

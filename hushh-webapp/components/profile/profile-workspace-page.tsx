@@ -104,7 +104,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -2464,6 +2463,11 @@ function ProfilePageContent({
             purpose: "Mail, phone, and sign-in identity.",
           },
           {
+            id: "connected-systems",
+            title: "Connected Systems",
+            purpose: "Salesforce CRM and MuleSoft-backed systems.",
+          },
+          {
             id: "preferences",
             title: PROFILE_LABELS.preferences,
             purpose: "Theme and accent preferences.",
@@ -3391,14 +3395,10 @@ function ProfilePageContent({
           title="Marketplace visibility"
           description={marketplaceStatusText}
           trailing={
-            <Switch
+            <PrivacyToggle
               checked={marketplaceOptIn}
               disabled={loadingMarketplaceOptIn || savingMarketplaceOptIn}
-              aria-label="Toggle marketplace visibility"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-              }}
-              onClick={(event) => event.stopPropagation()}
+              ariaLabel="Toggle marketplace visibility for privacy preferences"
               onCheckedChange={() => void handleMarketplaceOptInToggle()}
             />
           }
