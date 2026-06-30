@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
+from services.logging_config import RequestContextMiddleware, configure_logging
 
 # Configure logging.
 #
@@ -177,7 +178,6 @@ app = FastAPI(
     root_path=root_path,
 )
 
-from services.logging_config import RequestContextMiddleware
 app.add_middleware(RequestContextMiddleware)
 
 app.middleware("http")(observability_middleware)

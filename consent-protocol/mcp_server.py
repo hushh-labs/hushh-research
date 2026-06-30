@@ -25,7 +25,6 @@ Modular architecture:
 import asyncio
 import json
 import logging
-import sys
 import time
 
 import jsonschema

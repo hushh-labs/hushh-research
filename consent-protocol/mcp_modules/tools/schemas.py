@@ -4,7 +4,8 @@ Pydantic schemas for MCP tool argument validation.
 Enforces zero-trust inputs, preventing prompt injections and malformed inputs.
 """
 
-from typing import Optional, Any
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
