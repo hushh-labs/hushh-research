@@ -20,11 +20,22 @@ def _service() -> LocationChatService:
     return LocationChatService()
 
 
+class ActionResultModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(max_length=64)
+    type: str = Field(max_length=48)
+    status: str = Field(max_length=24)
+    public_url: str | None = Field(default=None, alias="publicUrl", max_length=2048)
+    detail: str | None = Field(default=None, max_length=500)
+
+
 class LocationChatRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    message: str = Field(min_length=1, max_length=4000)
+    message: str | None = Field(default=None, max_length=4000)
     conversation_id: str | None = Field(default=None, alias="conversationId", max_length=128)
+    action_result: ActionResultModel | None = Field(default=None, alias="actionResult")
 
 
 @router.post("/location/chat")
@@ -32,12 +43,19 @@ async def location_chat(
     request: LocationChatRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
+    if not request.message and request.action_result is None:
+        raise HTTPException(status_code=422, detail="message or actionResult is required")
     try:
         result: dict[str, Any] = await _service().handle_turn(
             user_id=token_data["user_id"],
             message=request.message,
             consent_token=token_data.get("token", ""),
             conversation_id=request.conversation_id,
+            action_result=(
+                request.action_result.model_dump(by_alias=True, exclude_none=True)
+                if request.action_result is not None
+                else None
+            ),
         )
         return result
     except Exception:

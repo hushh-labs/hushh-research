@@ -19,7 +19,9 @@ def test_chat_route_happy_path(monkeypatch):
     captured: dict = {}
 
     class _Service:
-        async def handle_turn(self, *, user_id, message, consent_token, conversation_id=None):
+        async def handle_turn(
+            self, *, user_id, message=None, consent_token, conversation_id=None, action_result=None
+        ):
             captured.update(
                 {
                     "user_id": user_id,
@@ -57,7 +59,9 @@ def test_chat_route_accepts_conversation_id_camel_alias(monkeypatch):
     captured: dict = {}
 
     class _Service:
-        async def handle_turn(self, *, user_id, message, consent_token, conversation_id=None):
+        async def handle_turn(
+            self, *, user_id, message=None, consent_token, conversation_id=None, action_result=None
+        ):
             captured["conversation_id"] = conversation_id
             return {
                 "conversationId": conversation_id,
@@ -100,3 +104,76 @@ def test_chat_route_returns_opaque_error_on_failure(monkeypatch):
     assert response.status_code == 500
     assert "secret internal detail" not in response.text
     assert response.json()["detail"] == "Location chat could not be processed"
+
+
+def test_chat_route_forwards_action_result(monkeypatch):
+    captured: dict = {}
+
+    class _Service:
+        async def handle_turn(
+            self, *, user_id, message=None, consent_token, conversation_id=None, action_result=None
+        ):
+            captured.update(
+                {
+                    "message": message,
+                    "action_result": action_result,
+                    "conversation_id": conversation_id,
+                }
+            )
+            return {
+                "conversationId": conversation_id,
+                "response": "Done — your live location is now shared. ✓",
+                "isComplete": True,
+                "stateChanged": True,
+            }
+
+    monkeypatch.setattr(location_chat, "_service", lambda: _Service())
+    client = _build_app()
+
+    response = client.post(
+        "/api/one/location/chat",
+        json={
+            "conversationId": "conv-1",
+            "actionResult": {"id": "a1", "type": "publish_share", "status": "completed"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stateChanged"] is True
+    assert captured["message"] is None
+    assert captured["action_result"] == {"id": "a1", "type": "publish_share", "status": "completed"}
+    assert captured["conversation_id"] == "conv-1"
+
+
+def test_chat_route_passes_through_client_action(monkeypatch):
+    class _Service:
+        async def handle_turn(self, **kwargs):
+            return {
+                "conversationId": "c1",
+                "response": "Ready to share with Mom.",
+                "isComplete": True,
+                "stateChanged": False,
+                "clientAction": {
+                    "id": "act-1",
+                    "type": "publish_share",
+                    "shares": [
+                        {
+                            "grantId": "g1",
+                            "recipientUserId": "r1",
+                            "recipientKeyId": "k1",
+                            "label": "Mom",
+                        }
+                    ],
+                    "summary": "Share your live location with Mom",
+                },
+            }
+
+    monkeypatch.setattr(location_chat, "_service", lambda: _Service())
+    client = _build_app()
+
+    response = client.post("/api/one/location/chat", json={"message": "share with Mom"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clientAction"]["type"] == "publish_share"
+    assert body["clientAction"]["shares"][0]["label"] == "Mom"
