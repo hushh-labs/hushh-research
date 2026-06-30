@@ -30,6 +30,11 @@ describe("Connect Visibility Helper Module", () => {
       expect(isVisibilityPostureDiscoverable(null, "hushh_user")).toBe(false);
       expect(isVisibilityPostureDiscoverable(undefined, "hushh_user")).toBe(false);
     });
+
+    it("should normalize mixed case and whitespace-padded posture strings", () => {
+      expect(isVisibilityPostureDiscoverable("  PuBlIc  ", "hushh_user")).toBe(true);
+      expect(isVisibilityPostureDiscoverable(" PrIvAtE ", "hushh_user")).toBe(false);
+    });
   });
 
   describe("isDiscoverable", () => {
@@ -74,13 +79,28 @@ describe("Connect Visibility Helper Module", () => {
     });
 
     it("should allow candidate if connectionStatus overrides discoverability", () => {
-      const candidate: ConnectCandidate = {
+      const candidateConnected: ConnectCandidate = {
         ...baseCandidate,
         exposureEnabled: false,
         visibilityPosture: "private",
         connectionStatus: "connected",
       };
-      expect(isDiscoverable(candidate)).toBe(true);
+      const candidateShortlisted: ConnectCandidate = {
+        ...baseCandidate,
+        exposureEnabled: false,
+        visibilityPosture: "private",
+        connectionStatus: "shortlisted",
+      };
+      const candidateRequested: ConnectCandidate = {
+        ...baseCandidate,
+        exposureEnabled: false,
+        visibilityPosture: "private",
+        connectionStatus: "connect_requested",
+      };
+
+      expect(isDiscoverable(candidateConnected)).toBe(true);
+      expect(isDiscoverable(candidateShortlisted)).toBe(true);
+      expect(isDiscoverable(candidateRequested)).toBe(true);
     });
 
     it("should return the candidate discoverable flag as fallback", () => {
@@ -111,6 +131,15 @@ describe("Connect Visibility Helper Module", () => {
     it("should return contact fallback if neither userId nor publicProfileId is provided", () => {
       expect(buildCandidateId({ fallbackLabel: "Alice Smith" })).toBe("contact:alice_smith");
       expect(buildCandidateId({})).toBe("contact:unknown");
+    });
+
+    it("should sanitize multi-word and extra whitespace in contact fallback labels", () => {
+      expect(buildCandidateId({ fallbackLabel: "  John   Doe  " })).toBe("contact:john_doe");
+    });
+
+    it("should slice extremely long contact fallback labels to 64 characters max", () => {
+      const longName = "a".repeat(100);
+      expect(buildCandidateId({ fallbackLabel: longName })).toBe(`contact:${"a".repeat(64)}`);
     });
   });
 
