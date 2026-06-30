@@ -13,10 +13,47 @@ CRITICAL: These tests enforce our core architecture rules:
 """
 
 import os
-import shutil
-import subprocess
+import re
+from pathlib import Path
 
 import pytest
+
+
+def py_grep(
+    pattern: str,
+    search_dir: str,
+    cwd: str,
+    exclude_files: list[str] = None,
+    return_filenames_only: bool = False,
+) -> str:
+    regex = re.compile(pattern)
+    violations = []
+    base_dir = Path(cwd) / search_dir
+    if not base_dir.exists():
+        return ""
+
+    for path in base_dir.rglob("*"):
+        if not path.is_file():
+            continue
+
+        # Check exclusions
+        if exclude_files and any(ex in path.name for ex in exclude_files):
+            continue
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line_idx, line in enumerate(f, 1):
+                    if regex.search(line):
+                        display_path = str(path.relative_to(Path(cwd))).replace("\\", "/")
+                        if return_filenames_only:
+                            violations.append(display_path)
+                            break
+                        else:
+                            violations.append(f"{display_path}:{line_idx}: {line.strip()}")
+        except Exception:
+            pass
+
+    return "\n".join(violations)
 
 
 class TestServiceLayerCompliance:
@@ -29,15 +66,7 @@ class TestServiceLayerCompliance:
 
     def test_no_direct_supabase_in_routes(self):
         """API routes must use service layer, not get_db() or get_supabase()."""
-        grep_path = shutil.which("grep")
-        assert grep_path, "grep not found on PATH"
-        result = subprocess.run(  # noqa: S603
-            [grep_path, "-rE", "get_supabase\\(\\)|get_db\\(\\)", "api/routes/"],
-            capture_output=True,
-            text=True,
-            cwd=self.cwd,
-        )
-        violations = result.stdout.strip()
+        violations = py_grep(r"get_supabase\(\)|get_db\(\)", "api/routes", self.cwd)
 
         assert not violations, f"""
 ❌ CONSENT VIOLATION: Direct database access in API routes!
@@ -66,20 +95,11 @@ Violations found:
 
     def test_no_direct_db_import_in_routes(self):
         """API routes must not import db.db_client or db.supabase_client directly."""
-        grep_path = shutil.which("grep")
-        assert grep_path, "grep not found on PATH"
-        result = subprocess.run(  # noqa: S603
-            [
-                grep_path,
-                "-rE",
-                r"from db\.(supabase_client|db_client|connection) import",
-                "api/routes/",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=self.cwd,
+        violations = py_grep(
+            r"from db\.(supabase_client|db_client|connection) import",
+            "api/routes",
+            self.cwd,
         )
-        violations = result.stdout.strip()
 
         assert not violations, f"""
 ❌ FORBIDDEN IMPORT: Direct database import in API routes!
@@ -293,23 +313,12 @@ class TestHardcodedDomainCompliance:
         - domain in ["food", "professional", ...]
         - Hardcoded domain lists/dicts in routes
         """
-        grep_path = shutil.which("grep")
-        assert grep_path, "grep not found on PATH"
-
-        # Search for hardcoded domain string literals in API routes
-        result = subprocess.run(  # noqa: S603
-            [
-                grep_path,
-                "-rE",
-                r'(domain\s*==\s*["\'])(food|professional|financial|health)(["\'])',
-                "api/routes/",
-                "--exclude=pkm_routes_shared.py",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=self.cwd,
+        violations = py_grep(
+            r'(domain\s*==\s*["\'])(food|professional|financial|health)(["\'])',
+            "api/routes",
+            self.cwd,
+            exclude_files=["pkm_routes_shared.py"],
         )
-        violations = result.stdout.strip()
 
         assert not violations, f"""
 ❌ HARDCODED DOMAIN VIOLATION: Found hardcoded domain checks in API routes!
@@ -331,23 +340,12 @@ Violations found:
 
     def test_no_hardcoded_domain_lists_in_routes(self):
         """API routes must not have hardcoded lists of domains."""
-        grep_path = shutil.which("grep")
-        assert grep_path, "grep not found on PATH"
-
-        # Search for lists like ["food", "professional", ...]
-        result = subprocess.run(  # noqa: S603
-            [
-                grep_path,
-                "-rE",
-                r'\["food",\s*"professional"',
-                "api/routes/",
-                "--exclude=pkm_routes_shared.py",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=self.cwd,
+        violations = py_grep(
+            r'\["food",\s*"professional"',
+            "api/routes",
+            self.cwd,
+            exclude_files=["pkm_routes_shared.py"],
         )
-        violations = result.stdout.strip()
 
         assert not violations, f"""
 ❌ HARDCODED DOMAIN LIST VIOLATION: Found hardcoded domain lists in API routes!
@@ -366,28 +364,18 @@ Violations found:
 
     def test_scope_helpers_imported_where_needed(self):
         """Files that resolve scopes must import scope_helpers, not hardcode maps."""
-        grep_path = shutil.which("grep")
-        assert grep_path, "grep not found on PATH"
+        violations_list = []
+        for s_dir in ["api", "mcp_modules"]:
+            res = py_grep(r"SCOPE_TO_ENUM\s*=\s*{", s_dir, self.cwd, return_filenames_only=True)
+            if res:
+                violations_list.append(res)
+        violations = "\n".join(violations_list).strip()
 
-        # Files that have SCOPE_TO_ENUM or SCOPE_ENUM_MAP must import scope_helpers
-        result = subprocess.run(  # noqa: S603
-            [
-                grep_path,
-                "-rl",
-                r"SCOPE_TO_ENUM\s*=\s*{",
-                "api/",
-                "mcp_modules/",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=self.cwd,
-        )
-
-        if result.stdout.strip():
+        if violations:
             raise AssertionError(
                 "❌ HARDCODED SCOPE MAP VIOLATION: Found SCOPE_TO_ENUM dictionaries!\n\n"
                 "Use resolve_scope_to_enum() from scope_helpers instead.\n\n"
-                f"Files with violations:\n{result.stdout}\n\n"
+                f"Files with violations:\n{violations}\n\n"
                 "WRONG:\n"
                 "    SCOPE_TO_ENUM = {\n"
                 "        'attr.food.*': ConsentScope.PKM_READ,\n"
@@ -421,7 +409,7 @@ The personal_knowledge_model_service.py file is required for dynamic data storag
         """VaultDBService must have deprecation notice pointing to PersonalKnowledgeModelService."""
         vault_db_path = os.path.join(self.cwd, "hushh_mcp/services/vault_db.py")
 
-        with open(vault_db_path, "r") as f:
+        with open(vault_db_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         assert "DEPRECATION" in content or "deprecated" in content.lower(), """

@@ -17,12 +17,14 @@ import importlib.util
 import sys
 import types
 from enum import Enum
+from pathlib import Path
 
-# ─────────────────────────────────────────────
-# Step 1: Add consent-protocol to path
-# ─────────────────────────────────────────────
+# Save original modules to prevent namespace pollution
+_orig_modules = dict(sys.modules)
 
-CONSENT_PATH = "D:/Learn Ai/Hush_clone/hushh-research/consent-protocol"
+# Get the absolute path to consent-protocol directory dynamically
+current_file = Path(__file__).resolve()
+CONSENT_PATH = str(current_file.parents[2])
 if CONSENT_PATH not in sys.path:
     sys.path.insert(0, CONSENT_PATH)
 
@@ -74,11 +76,18 @@ def load_module(file_path, module_name):
     return mod
 
 
+domain_inferrer_path = str(Path(CONSENT_PATH) / "hushh_mcp" / "services" / "domain_inferrer.py")
 _mod = load_module(
-    "D:/Learn Ai/Hush_clone/hushh-research/consent-protocol/hushh_mcp/services/domain_inferrer.py",
+    domain_inferrer_path,
     "hushh_mcp.services.domain_inferrer",
 )
 DomainInferrer = _mod.DomainInferrer
+
+# Restore the original sys.modules to prevent namespace pollution for other tests
+sys.modules.clear()
+sys.modules.update(_orig_modules)
+# But register the loaded module in sys.modules so that the test suite retains it if imported elsewhere
+sys.modules["hushh_mcp.services.domain_inferrer"] = _mod
 
 
 # ─────────────────────────────────────────────
