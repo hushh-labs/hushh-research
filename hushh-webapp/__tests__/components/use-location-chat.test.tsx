@@ -599,3 +599,65 @@ describe("useLocationChat — action dispatcher", () => {
     expect(result.current.viewedPoint).toBeNull();
   });
 });
+
+describe("useLocationChat — pending prompt", () => {
+  const svc = vi.mocked(OneLocationService);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sets pendingPrompt from a clientPrompt response", async () => {
+    svc.chat.mockResolvedValueOnce({
+      conversationId: "c1",
+      response: "Which sharing do you want to stop?",
+      isComplete: true,
+      stateChanged: false,
+      clientPrompt: {
+        id: "prm-1",
+        kind: "select",
+        purpose: "select_share",
+        question: "Which sharing do you want to stop?",
+        options: [{ label: "Mom", ref: { grantId: "g1" } }, { label: "Stop all", ref: { all: true } }],
+      },
+    });
+    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
+    await act(async () => { await result.current.send("stop sharing"); });
+    expect(result.current.pendingPrompt?.purpose).toBe("select_share");
+  });
+
+  it("answerPrompt sends selected refs and clears the prompt", async () => {
+    svc.chat
+      .mockResolvedValueOnce({
+        conversationId: "c1", response: "?", isComplete: true, stateChanged: false,
+        clientPrompt: { id: "prm-1", kind: "select", purpose: "select_share", question: "?", options: [{ label: "Mom", ref: { grantId: "g1" } }] },
+      })
+      .mockResolvedValueOnce({ conversationId: "c1", response: "Stopped.", isComplete: true, stateChanged: true });
+    const onStateChanged = vi.fn();
+    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1", onStateChanged }));
+    await act(async () => { await result.current.send("stop sharing"); });
+    await act(async () => { await result.current.answerPrompt([{ grantId: "g1" }]); });
+    expect(svc.chat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectionResult: expect.objectContaining({ id: "prm-1", kind: "select", selected: [{ grantId: "g1" }], status: "answered" }),
+      }),
+    );
+    expect(result.current.pendingPrompt).toBeNull();
+    expect(onStateChanged).toHaveBeenCalled();
+  });
+
+  it("free text while a prompt is pending sends a freeText selection", async () => {
+    svc.chat
+      .mockResolvedValueOnce({
+        conversationId: "c1", response: "?", isComplete: true, stateChanged: false,
+        clientPrompt: { id: "prm-1", kind: "select", purpose: "select_recipient", question: "?", options: [] },
+      })
+      .mockResolvedValueOnce({ conversationId: "c1", response: "ok", isComplete: true, stateChanged: false });
+    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
+    await act(async () => { await result.current.send("share"); });
+    await act(async () => { await result.current.send("my coworker Alex"); });
+    expect(svc.chat).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectionResult: expect.objectContaining({ freeText: "my coworker Alex", status: "answered" }) }),
+    );
+  });
+});
