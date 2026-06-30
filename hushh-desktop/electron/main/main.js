@@ -16,6 +16,7 @@
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 const {
+  ensureBackendVenv,
   startBackend,
   startFrontend,
   waitForServices,
@@ -76,6 +77,10 @@ app.whenReady().then(async () => {
   console.log(`[main] Runtime mode: ${isDev ? "development" : "production"}`);
 
   try {
+    if (!isDev) {
+      await ensureBackendVenv();
+    }
+    
     startBackend(isDev);
     startFrontend(isDev);
 

@@ -43,11 +43,12 @@
       "backend/.env"
     ],
     "win": {
-      "target": "msi"
+      "target": "nsis"
     },
-    "msi": {
+    "nsis": {
       "oneClick": true,
-      "perMachine": false
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
     }
   },
   "devDependencies": {

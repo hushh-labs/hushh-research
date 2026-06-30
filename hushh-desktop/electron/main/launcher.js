@@ -150,8 +150,13 @@ async function ensureBackendVenv() {
     const uvProc = spawn("uv", ["sync"], {
       cwd: BACKEND_DIR,
       stdio: ["ignore", "pipe", "pipe"],
+      shell: true, // uv might be a cmd/bat script on Windows
     });
     pipeOutput(uvProc, "UV", backendLogStream);
+    uvProc.on("error", (err) => {
+      console.error("[launcher] uv sync spawn error:", err);
+      reject(err);
+    });
     uvProc.on("exit", (code) => {
       if (code === 0) resolve();
       else reject(new Error(`uv sync failed with exit code ${code}`));
@@ -181,6 +186,10 @@ function startBackend(isDev = true) {
   });
 
   pipeOutput(backendProc, "BACKEND", backendLogStream);
+
+  backendProc.on("error", (err) => {
+    console.error(`[launcher] ⚠ Backend spawn error:`, err);
+  });
 
   backendProc.on("exit", (code, signal) => {
     if (code !== 0 && signal !== "SIGTERM") {
@@ -225,10 +234,19 @@ function startFrontend(isDev = true) {
   frontendProc = spawn(NODE_EXE, frontendArgs, {
     cwd: frontendCwd,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: DESKTOP_PORT.toString(), HOSTNAME: "localhost" },
+    env: { 
+      ...process.env, 
+      PORT: DESKTOP_PORT.toString(), 
+      HOSTNAME: "localhost",
+      ELECTRON_RUN_AS_NODE: "1" 
+    },
   });
 
   pipeOutput(frontendProc, "FRONTEND", frontendLogStream);
+
+  frontendProc.on("error", (err) => {
+    console.error(`[launcher] ⚠ Frontend spawn error:`, err);
+  });
 
   frontendProc.on("exit", (code, signal) => {
     if (code !== 0 && signal !== "SIGTERM") {
