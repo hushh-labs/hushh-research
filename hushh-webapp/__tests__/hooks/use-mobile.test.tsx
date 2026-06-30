@@ -1,6 +1,6 @@
 import * as React from "react";
-import { describe, expect, it, vi } from "vitest";
-import { act, render } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { act, render, renderHook } from "@testing-library/react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -19,6 +19,10 @@ function Harness({
 }
 
 describe("useIsMobile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("returns true when viewport is mobile sized", () => {
     const callback = vi.fn();
 
@@ -87,5 +91,36 @@ describe("useIsMobile", () => {
     });
 
     expect(callback).toHaveBeenLastCalledWith(true);
+  });
+
+  it("cleans up media query listener on unmount", () => {
+    const removeEventListener = vi.fn();
+
+    window.matchMedia = vi.fn().mockImplementation(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener,
+    }));
+
+    const { unmount } = render(<Harness onValue={vi.fn()} />);
+    unmount();
+
+    expect(removeEventListener).toHaveBeenCalled();
+  });
+
+  it("verifies direct hook response using renderHook", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 400,
+    });
+
+    window.matchMedia = vi.fn().mockImplementation(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+
+    const { result } = renderHook(() => useIsMobile());
+    expect(result.current).toBe(true);
   });
 });
