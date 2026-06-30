@@ -660,4 +660,42 @@ describe("useLocationChat — pending prompt", () => {
       expect.objectContaining({ selectionResult: expect.objectContaining({ freeText: "my coworker Alex", status: "answered" }) }),
     );
   });
+
+  it("confirmPrompt(true) sends confirmed selectionResult and clears pendingPrompt", async () => {
+    svc.chat
+      .mockResolvedValueOnce({
+        conversationId: "c1", response: "Stop all?", isComplete: true, stateChanged: false,
+        clientPrompt: { id: "prm-c", kind: "confirm", purpose: "confirm_action", question: "Stop all?" },
+      })
+      .mockResolvedValueOnce({ conversationId: "c1", response: "Done.", isComplete: true, stateChanged: false });
+    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
+    await act(async () => { await result.current.send("stop all sharing"); });
+    expect(result.current.pendingPrompt?.id).toBe("prm-c");
+    await act(async () => { await result.current.confirmPrompt(true); });
+    expect(svc.chat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectionResult: expect.objectContaining({ id: "prm-c", kind: "confirm", confirmed: true, status: "answered" }),
+      }),
+    );
+    expect(result.current.pendingPrompt).toBeNull();
+  });
+
+  it("cancelPrompt() sends cancelled selectionResult and clears pendingPrompt", async () => {
+    svc.chat
+      .mockResolvedValueOnce({
+        conversationId: "c1", response: "Stop all?", isComplete: true, stateChanged: false,
+        clientPrompt: { id: "prm-c", kind: "confirm", purpose: "confirm_action", question: "Stop all?" },
+      })
+      .mockResolvedValueOnce({ conversationId: "c1", response: "Cancelled.", isComplete: true, stateChanged: false });
+    const { result } = renderHook(() => useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }));
+    await act(async () => { await result.current.send("stop all sharing"); });
+    expect(result.current.pendingPrompt?.id).toBe("prm-c");
+    await act(async () => { await result.current.cancelPrompt(); });
+    expect(svc.chat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectionResult: expect.objectContaining({ id: "prm-c", kind: "confirm", status: "cancelled" }),
+      }),
+    );
+    expect(result.current.pendingPrompt).toBeNull();
+  });
 });

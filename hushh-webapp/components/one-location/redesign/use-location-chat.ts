@@ -199,9 +199,9 @@ export function useLocationChat(params: {
 
   const cancelPrompt = useCallback(async () => {
     const prompt = pendingPrompt;
-    if (!prompt) return;
+    if (!prompt || busy) return;
     await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled" });
-  }, [pendingPrompt, reportSelection]);
+  }, [pendingPrompt, busy, reportSelection]);
 
   const confirmAction = useCallback(async () => {
     const action = pendingAction;
