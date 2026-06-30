@@ -318,6 +318,18 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "connected_systems", subview: query.get("tab") || null };
   }
+  if (normalizedPath === ROUTES.GMAIL || normalizedPath === ROUTES.LEGACY_GMAIL) {
+    return { screen: "gmail", subview: null };
+  }
+  if (normalizedPath === ROUTES.PKM || normalizedPath === ROUTES.LEGACY_PKM) {
+    return { screen: "pkm", subview: query.get("tab") || null };
+  }
+  if (
+    normalizedPath === ROUTES.CONNECTED_SYSTEMS ||
+    normalizedPath === ROUTES.LEGACY_CONNECTED_SYSTEMS
+  ) {
+    return { screen: "connected_systems", subview: query.get("tab") || null };
+  }
   if (normalizedPath.startsWith(ROUTES.MARKETPLACE_RIA_PROFILE)) {
     return {
       screen: "marketplace_ria_profile",

@@ -227,6 +227,31 @@ _LOCATION_HINTS = {
     "san",
     "francisco",
 }
+_IDENTITY_HINTS = {
+    # Single-token PII keys (NO SSN per D-A).
+    "name",
+    "full_name",
+    "first_name",
+    "last_name",
+    "email",
+    "e-mail",
+    "address",
+    # NOTE: bare "city"/"street" are intentionally excluded — they collide with
+    # location-residence statements ("I live in New York City now"), which must
+    # stay in the location domain. "my address" / "address" still routes here.
+    "zip",
+    "postal",
+    "dob",
+    "birthday",
+    "passport",
+    "phone",
+    "mobile",
+    # Multi-word phrases (matched against the normalized message substring).
+    "date of birth",
+    "phone number",
+    "full name",
+    "my address",
+}
 _FINANCIAL_HINTS = {
     "stock",
     "stocks",
@@ -384,6 +409,23 @@ _PREVIEW_TOTAL_BUDGET_SECONDS = max(
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
+
+# Regex to detect PII embedded in JSON *keys* by the LLM.
+# Standard scrubbers inspect values only; this guards keys too.
+# Covers: dollar amounts, currency-suffixed numbers, large numeric tokens,
+# SSN format, phone numbers, and email addresses.
+# Note: \b word boundaries are avoided because key segments use underscores,
+# which Python regex treats as word characters, causing \b to fail at _ boundaries.
+_PII_IN_KEY_RE = re.compile(
+    r"""
+    \$\s*\d+                                            |   # $50000, $ 1000
+    \d+[_\s]*(?:dollars?|usd|inr|rupees?|euros?|gbp)     |   # 100dollars, 100_dollars, 50_usd
+    \d{5,}                                              |   # 5+ digit sequences (balances, account nums)
+    \d{3}[_\-]\d{2}[_\-]\d{4}                          |   # SSN: 123-45-6789 or 123_45_6789
+    [a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}                # email addresses
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 _SOFT_ONTOLOGY_KEYS = tuple(
     entry.domain_key
     for entry in CANONICAL_DOMAIN_REGISTRY
@@ -391,7 +433,7 @@ _SOFT_ONTOLOGY_KEYS = tuple(
 )
 _INTENT_DOMAIN_DEFAULTS: dict[str, tuple[str, ...]] = {
     "preference": ("food", "travel", "shopping", "social"),
-    "profile_fact": ("location", "social", "professional"),
+    "profile_fact": ("identity", "location", "social", "professional"),
     "routine": ("health", "professional", "food"),
     "task_or_reminder": ("professional", "shopping", "travel", "social"),
     "plan_or_goal": ("financial", "travel", "professional", "health"),
@@ -943,7 +985,21 @@ class PKMAgentLabService:
     @classmethod
     def _infer_sensitivity(cls, path: str) -> str | None:
         normalized = path.lower()
-        if any(token in normalized for token in ("ssn", "tax", "account_number", "routing")):
+        # Restricted: highest-sensitivity identifiers. `ssn`/`social_security` are
+        # classified defensively (D-A: no SSN is ever stored, but if such a token
+        # ever appears it must be treated as restricted and masked).
+        if any(
+            token in normalized
+            for token in (
+                "ssn",
+                "social_security",
+                "tax",
+                "account_number",
+                "routing",
+                "passport",
+                "national_id",
+            )
+        ):
             return "restricted"
         if any(
             token in normalized
@@ -955,6 +1011,15 @@ class PKMAgentLabService:
                 "allergy",
                 "medical",
                 "relationship",
+                # Identity PII (D-09): name, address, dob, phone, nationality.
+                "full_name",
+                "first_name",
+                "last_name",
+                "date_of_birth",
+                "dob",
+                "address",
+                "phone_number",
+                "nationality",
             )
         ):
             return "confidential"
@@ -1297,6 +1362,15 @@ class PKMAgentLabService:
         tokens = cls._message_tokens(message)
         message_words = tokens
         ranked: list[str] = []
+        # Identity PII (name/email/address/dob/phone) must out-prioritize both
+        # financial and location, resolving the phase-01 UAT misroute where
+        # "update my address" landed in financial. Ordered FIRST intentionally.
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_IDENTITY_HINTS,
+        ):
+            ranked.append("identity")
         if cls._contains_any_hint(
             normalized_message=normalized_message,
             message_words=message_words,
@@ -3392,6 +3466,25 @@ class PKMAgentLabService:
         }
 
     @classmethod
+    def _strip_pii_from_payload_keys(cls, payload: Any) -> Any:
+        """Recursively remove keys that contain PII embedded by the LLM.
+
+        LLMs can encode sensitive data (balances, phone numbers, emails, SSNs)
+        into JSON *keys* to bypass value-only scrubbers. This walks the full
+        payload tree and drops any key whose name matches a PII pattern.
+        """
+        if isinstance(payload, dict):
+            cleaned: dict[str, Any] = {}
+            for key, value in payload.items():
+                if _PII_IN_KEY_RE.search(str(key)):
+                    continue
+                cleaned[key] = cls._strip_pii_from_payload_keys(value)
+            return cleaned
+        if isinstance(payload, list):
+            return [cls._strip_pii_from_payload_keys(item) for item in payload]
+        return payload
+
+    @classmethod
     def _sanitize_candidate_payload(
         cls,
         value: Any,
@@ -3402,7 +3495,7 @@ class PKMAgentLabService:
         target_domain: str,
     ) -> dict[str, Any]:
         if isinstance(value, dict) and value:
-            return value
+            return cls._strip_pii_from_payload_keys(value)
         return cls._fallback_payload_from_intent(
             message=message,
             intent_frame=intent_frame,
@@ -3938,6 +4031,7 @@ class PKMAgentLabService:
         parsed_structure: dict[str, Any] | None,
         fallback_target_domain: str,
         simulated_state: dict[str, Any] | None,
+        update_intent: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         secret_kind = cls._contains_sensitive_secret(message)
         if secret_kind:
@@ -5249,6 +5343,7 @@ class PKMAgentLabService:
         model_override: str | None = None,
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
+        update_intent: dict[str, Any] | None = None,
         deadline: float | None = None,
         execution_trace: list[dict[str, Any]] | None = None,
         contract_runner=None,
@@ -5438,6 +5533,32 @@ class PKMAgentLabService:
             "manifest_draft": manifest,
         }
 
+    @staticmethod
+    def _normalize_update_intent(
+        update_intent: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Sanitize an explicit field-update intent supplied by the caller.
+
+        Returns a normalized dict ({domain, field_path, current_value,
+        proposed_value}) only when BOTH a domain and a field_path are present;
+        otherwise None (the request falls back to free-form message handling).
+        This is what makes the agent's update_pkm path deterministic: the
+        confirm decision is driven by these structured slots, not by an LLM
+        re-parse of a synthesized sentence (GAP 1 fix).
+        """
+        if not isinstance(update_intent, dict):
+            return None
+        domain = str(update_intent.get("domain") or "").strip()
+        field_path = str(update_intent.get("field_path") or "").strip()
+        if not domain or not field_path:
+            return None
+        return {
+            "domain": domain,
+            "field_path": field_path,
+            "current_value": str(update_intent.get("current_value") or ""),
+            "proposed_value": str(update_intent.get("proposed_value") or ""),
+        }
+
     async def generate_structure_preview(
         self,
         *,
@@ -5457,6 +5578,7 @@ class PKMAgentLabService:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
+        normalized_update_intent = self._normalize_update_intent(update_intent)
         preview_cache_key = self._preview_cache_key(
             user_id=user_id,
             message=message,
@@ -5652,6 +5774,7 @@ class PKMAgentLabService:
                     model_override=model_override,
                     strict_small_model=strict_small_model,
                     domain_registry_override=domain_registry_override,
+                    update_intent=normalized_update_intent,
                     deadline=preview_deadline,
                     execution_trace=segment_trace if multiple else execution_trace,
                     contract_runner=segment_continuation.run,

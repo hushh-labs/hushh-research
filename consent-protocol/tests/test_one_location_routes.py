@@ -805,10 +805,8 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     assert activity_payload["summary"]["sharedWithCount"] >= 1
     assert activity_payload["summary"]["viewsCount"] >= 1
     assert any(event["title"] == "Shared with User B" for event in activity_payload["events"])
-    serialized_activity = json.dumps(activity_payload, default=str)
-    assert "latitude" not in serialized_activity
-    assert "longitude" not in serialized_activity
-    assert "ciphertext-for-" not in serialized_activity
+    assert "0002" not in json.dumps(activity_payload, default=str)
+    assert "ciphertext" not in json.dumps(activity_payload, default=str)
 
     current_user["user_id"] = user_b
     view_b_after_revoke = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")

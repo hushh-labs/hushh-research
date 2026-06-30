@@ -292,7 +292,7 @@ def _extract_json(text: str) -> Dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        logger.warning(f"[Kai LLM] JSON parse failed on text: {text[:100]}...")
+        logger.warning("[Kai LLM] JSON parse failed on text: %s...", text[:100])
         return {}
 
 
@@ -316,7 +316,7 @@ async def analyze_stock_with_gemini(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Gemini Operon] Permission denied: {reason}")
+        logger.error("[Gemini Operon] Permission denied: %s", reason)
         raise PermissionError(f"Gemini analysis denied: {reason}")
 
     logger.info(f"[Gemini Operon] Starting deep analyst session for {ticker}")
@@ -465,7 +465,7 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
         analysis.setdefault("bull_case", "Growth potential through market expansion.")
         analysis.setdefault("bear_case", "Risks include competitive pressure and macro headwinds.")
 
-        logger.info(f"[Gemini Operon] Deep Fundamental Report success for {ticker}")
+        logger.info("[Gemini Operon] Deep Fundamental Report success for %s", ticker)
         return analysis
 
     except asyncio.TimeoutError:
@@ -495,7 +495,7 @@ async def analyze_sentiment_with_gemini(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Gemini Sentiment] Permission denied: {reason}")
+        logger.error("[Gemini Sentiment] Permission denied: %s", reason)
         raise PermissionError(f"Sentiment analysis denied: {reason}")
 
     logger.info(f"[Gemini Sentiment] Analyzing sentiment for {ticker}")
@@ -589,7 +589,7 @@ async def analyze_valuation_with_gemini(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Gemini Valuation] Permission denied: {reason}")
+        logger.error("[Gemini Valuation] Permission denied: %s", reason)
         raise PermissionError(f"Valuation analysis denied: {reason}")
 
     logger.info(f"[Gemini Valuation] Analyzing valuation for {ticker}")
@@ -792,7 +792,7 @@ async def stream_gemini_response(
         }
         return
 
-    logger.info(f"[Gemini Streaming] Starting stream for {agent_name}")
+    logger.info("[Gemini Streaming] Starting stream for %s", agent_name)
 
     # Use ASYNC streaming to prevent blocking the event loop.
     if types is None:

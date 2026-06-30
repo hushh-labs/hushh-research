@@ -305,6 +305,10 @@ vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
   openKaiCommandBar: mocks.openKaiCommandBar,
 }));
 
+vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
+  openKaiCommandBar: mocks.openKaiCommandBar,
+}));
+
 vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
   RiaOnboardingDraftLocalService: mocks.draftService,
 }));
@@ -968,6 +972,82 @@ describe("RiaOnboardingPage", () => {
 
     expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
     expect(mocks.toast.info).toHaveBeenCalledWith("Command bar opened");
+  });
+
+  it("drafts a bio from verified onboarding fields", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "services",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulatorStatus: "Active",
+      crdNumber: "7265726",
+      city: "New York",
+      areaLocality: "NY",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+      minEngagementAmount: "250,000",
+      verifiedLicensePrefillKey: "sec:7265726",
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("draft-bio"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("services-bio").textContent).toContain(
+        "Ria Ashley Sen is listed as",
+      );
+      expect(screen.getByTestId("services-bio").textContent).toContain(
+        "Portfolio Management",
+      );
+    });
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      "Bio drafted",
+      expect.any(Object),
+    );
+  });
+
+  it("opens Kai command from the review update action", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulator: "SEC",
+      regulatorStatus: "ACTIVE",
+      crdNumber: "7265726",
+      individualCrd: "7265726",
+      verifiedLicensePrefillKey: "sec:7265726",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-review")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ask-kai-update"));
+    });
+
+    expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.info).toHaveBeenCalledWith(
+      "Kai command opened",
+      expect.any(Object),
+    );
   });
 
   it("does not force a second live verification after license verification", async () => {

@@ -523,6 +523,10 @@ vi.mock("@/lib/utils/clipboard", () => ({
   copyToClipboard: mockCopyToClipboard,
 }));
 
+vi.mock("@/lib/utils/clipboard", () => ({
+  copyToClipboard: mockCopyToClipboard,
+}));
+
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
     syncCurrentUser: mockSyncCurrentUser,
@@ -602,6 +606,20 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { toast } from "sonner";
+
+if (!window.localStorage) {
+  const localStorageStore = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      clear: () => localStorageStore.clear(),
+      getItem: (key: string) => localStorageStore.get(key) ?? null,
+      removeItem: (key: string) => localStorageStore.delete(key),
+      setItem: (key: string, value: string) =>
+        localStorageStore.set(key, String(value)),
+    },
+  });
+}
 
 if (!window.localStorage) {
   const localStorageStore = new Map<string, string>();
@@ -5090,6 +5108,55 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
   });
 
+  it("opens the section guided tour and lets the user skip it", async () => {
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show onboarding tour/i }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: /One Location guided tour/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Check location readiness")).toBeTruthy();
+    expect(screen.getByText(/Highlighting: Device readiness/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Skip$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /One Location guided tour/i }),
+      ).toBeNull(),
+    );
+  });
+
+  it("previews my live location without creating a share, request, or public link", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.getByText("My live location")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show my location/i }),
+    );
+
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    const mapPreview = await screen.findByTitle("Live location map preview");
+    expect(mapPreview.getAttribute("src")).toContain(
+      "https://www.google.com/maps?q=28.613900%2C77.209000",
+    );
+    expect(screen.getByText(/This preview stays on this device/i)).toBeTruthy();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+    expect(mockCreatePublicInvite).not.toHaveBeenCalled();
+  });
+
   it("loads One Location setup without requiring backend phone verification", async () => {
     mockSyncCurrentUser.mockResolvedValueOnce({
       user_id: "user_a",
@@ -5306,6 +5373,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
@@ -5613,6 +5681,7 @@ describe("OneLocationAgentPage", () => {
     mockGetState.mockImplementationOnce(() => new Promise(() => undefined));
 
     render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
 
     expect(
       await screen.findByRole("heading", { name: "Location" }),
@@ -6823,7 +6892,7 @@ describe("OneLocationAgentPage", () => {
         selected_count: 1,
         success_count: 1,
         failure_count: 0,
-        has_note: false,
+        has_note: true,
       }),
     );
     // The confirmation is a toast, not a banner. It used to be both, on a
@@ -8313,7 +8382,8 @@ describe("OneLocationAgentPage", () => {
     const shareButton = screen.getByRole("button", {
       name: /Start sharing/i,
     }) as HTMLButtonElement;
-    expect(shareButton.disabled).toBe(true);
+    fireEvent.click(shareButton);
+    await waitFor(() => expect(mockCaptureCurrentPosition).not.toHaveBeenCalled());
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 

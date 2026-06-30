@@ -19,19 +19,21 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const responseText = await response.text();
     if (!response.ok) {
-      return NextResponse.json(
-        { error: "Failed to export account data" },
-        { status: response.status }
-      );
+      const errorPayload = await response
+        .json()
+        .catch(async () => ({
+          error: (await response.text().catch(() => "")) || "Failed to export account data",
+        }));
+      console.error("[API] Backend error:", response.status, errorPayload);
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
-    try {
-      return NextResponse.json(JSON.parse(responseText));
-    } catch {
+    const data = await response.json().catch(() => null);
+    if (!data) {
       return NextResponse.json({ error: "Invalid response from backend" }, { status: 502 });
     }
+    return NextResponse.json(data);
   } catch (error) {
     console.error("[API] Account export proxy error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 
@@ -18,6 +20,20 @@ describe("DialogContent", () => {
     );
 
     expect(screen.getByRole("button", { name: /close/i })).toBeTruthy();
+  });
+
+  it("renders the close control with the dialog-close data-slot contract", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Test dialog</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(screen.getByRole("button", { name: /close/i }).getAttribute("data-slot")).toBe(
+      "dialog-close",
+    );
   });
 
   it("hides the close button when showCloseButton is false", () => {
@@ -62,5 +78,21 @@ describe("DialogContent", () => {
 
     expect(dialogContent).toHaveClass("z-(--z-dialog)");
     expect(dialogOverlay).toHaveClass("z-(--z-dialog-overlay)");
+  });
+});
+
+describe("DialogTitle", () => {
+  it("renders with data-slot='dialog-title'", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Title text</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(
+      document.querySelector('[data-slot="dialog-title"]'),
+    ).toBeTruthy();
   });
 });
