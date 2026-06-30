@@ -113,4 +113,18 @@ describe("backend runtime resolution", () => {
 
     expect(helper.getPythonApiUrl()).toContain("127.0.0.1");
   });
+  it("clears active statement id when removing an unknown snapshot leaves data unchanged", () => {
+  const updated = removeStatementSnapshot(
+    financial,
+    "missing_stmt",
+    "2026-04-20T03:00:00.000Z",
+  );
+
+  expect(getActiveStatementSnapshotId(updated)).toBe("stmt_b");
+  expect(getStatementSnapshotOptions(updated).map((option) => option.id)).toEqual([
+    "stmt_b",
+    "stmt_a",
+  ]);
+  expect(getStatementPortfolio(updated)?.holdings?.[0]?.symbol).toBe("BETA");
+});
 });
