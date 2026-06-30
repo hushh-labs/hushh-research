@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
 import {
   LOCATION_CHAT_ERROR_TEXT,
   useLocationChat,
 } from "@/components/one-location/redesign/use-location-chat";
 import { OneLocationService } from "@/lib/one-location/service";
+import * as encryption from "@/lib/one-location/encryption";
 
 vi.mock("@/lib/one-location/service", () => ({
-  OneLocationService: { chat: vi.fn() },
+  OneLocationService: {
+    chat: vi.fn(),
+    captureCurrentPosition: vi.fn(),
+    getState: vi.fn(),
+    storeEnvelope: vi.fn(),
+    viewEnvelope: vi.fn(),
+    createPublicInvite: vi.fn(),
+    revokeGrant: vi.fn(),
+  },
 }));
 vi.mock("@/lib/capacitor", () => ({
   HushhLocation: {
@@ -21,11 +30,25 @@ vi.mock("@/lib/capacitor", () => ({
     requestLocationPermission: vi.fn(),
   },
 }));
+vi.mock("@/lib/one-location/encryption", () => ({
+  encryptLocationForRecipient: vi.fn(),
+  decryptLocationEnvelope: vi.fn(),
+}));
 
 const mockChat = vi.mocked(OneLocationService.chat);
 
 describe("useLocationChat", () => {
-  beforeEach(() => mockChat.mockReset());
+  beforeEach(() => {
+    mockChat.mockReset();
+    vi.mocked(OneLocationService.captureCurrentPosition).mockReset();
+    vi.mocked(OneLocationService.getState).mockReset();
+    vi.mocked(OneLocationService.storeEnvelope).mockReset();
+    vi.mocked(OneLocationService.viewEnvelope).mockReset();
+    vi.mocked(OneLocationService.createPublicInvite).mockReset();
+    vi.mocked(OneLocationService.revokeGrant).mockReset();
+    vi.mocked(encryption.encryptLocationForRecipient).mockReset();
+    vi.mocked(encryption.decryptLocationEnvelope).mockReset();
+  });
 
   it("appends user + assistant messages and reuses conversationId across turns", async () => {
     mockChat.mockResolvedValue({
@@ -126,5 +149,401 @@ describe("useLocationChat", () => {
       await result.current.send("again");
     });
     expect(mockChat.mock.calls[1][0].conversationId).toBeNull();
+  });
+});
+
+describe("useLocationChat — action dispatcher", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("publish_share: confirm captures, encrypts per recipient, uploads, reports completed", async () => {
+    const mockPoint = {
+      latitude: 1,
+      longitude: 2,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    };
+    const mockEnvelope = {
+      algorithm: "ECDH-P256-AES256-GCM" as const,
+      recipientKeyId: "k1",
+      ciphertext: "x",
+      iv: "iv",
+      senderEphemeralPublicKeyJwk: {} as JsonWebKey,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    };
+
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "Ready to share with Mom.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-1",
+          type: "publish_share" as const,
+          shares: [
+            {
+              grantId: "g1",
+              recipientUserId: "r1",
+              recipientKeyId: "k1",
+              label: "Mom",
+            },
+          ],
+          summary: "Share your live location with Mom",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "Done — shared.",
+        isComplete: true,
+        stateChanged: true,
+      });
+
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      recipients: [{ userId: "r1", displayName: "Mom", phoneVerified: true, keyId: "k1", publicKeyJwk: { kid: "k1" } as JsonWebKey, keyAlgorithm: "ECDH-P256", canReceiveLocation: true }],
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [],
+      referrals: [],
+      publicInvites: [],
+      publicInviteSubmissions: [],
+      capabilityScopes: [],
+    });
+    vi.mocked(encryption.encryptLocationForRecipient).mockResolvedValue(mockEnvelope);
+    vi.mocked(OneLocationService.storeEnvelope).mockResolvedValue(mockEnvelope);
+
+    const onStateChanged = vi.fn();
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1", onStateChanged }),
+    );
+
+    await act(async () => {
+      await result.current.send("share with Mom");
+    });
+    expect(result.current.pendingAction?.type).toBe("publish_share");
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(encryption.encryptLocationForRecipient)).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientKeyId: "k1", recipientPublicKeyJwk: { kid: "k1" } }),
+    );
+    expect(vi.mocked(OneLocationService.storeEnvelope)).toHaveBeenCalledWith(
+      expect.objectContaining({ grantId: "g1" }),
+    );
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({ type: "publish_share", status: "completed" }),
+      }),
+    );
+    await waitFor(() => expect(onStateChanged).toHaveBeenCalled());
+    expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("publish_share: cancel revokes the grant and reports cancelled", async () => {
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "Ready.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-1",
+          type: "publish_share" as const,
+          shares: [
+            {
+              grantId: "g1",
+              recipientUserId: "r1",
+              recipientKeyId: "k1",
+              label: "Mom",
+            },
+          ],
+          summary: "Share with Mom",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c1",
+        response: "No problem.",
+        isComplete: true,
+        stateChanged: false,
+      });
+
+    vi.mocked(OneLocationService.revokeGrant).mockResolvedValue({
+      id: "g1",
+      ownerUserId: "u1",
+      recipientUserId: "r1",
+      recipientKeyId: "k1",
+      status: "revoked",
+      consentScope: "",
+      capabilityScopes: [],
+      durationHours: 1,
+    });
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+    await act(async () => {
+      await result.current.send("share with Mom");
+    });
+    await act(async () => {
+      await result.current.cancelAction();
+    });
+
+    expect(vi.mocked(OneLocationService.revokeGrant)).toHaveBeenCalledWith(
+      expect.objectContaining({ grantId: "g1" }),
+    );
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({ status: "cancelled" }),
+      }),
+    );
+    expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("view_envelope: confirm decrypts envelope and sets viewedPoint", async () => {
+    const mockEnvelope = {
+      algorithm: "ECDH-P256-AES256-GCM" as const,
+      recipientKeyId: "k1",
+      ciphertext: "c",
+      iv: "iv",
+      senderEphemeralPublicKeyJwk: {} as JsonWebKey,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    };
+    const mockPoint = {
+      latitude: 37.5,
+      longitude: -122.1,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    };
+
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c2",
+        response: "I'll show you their location.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-2",
+          type: "view_envelope" as const,
+          grantId: "g2",
+          summary: "View shared location",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c2",
+        response: "Shown.",
+        isComplete: true,
+        stateChanged: false,
+      });
+
+    vi.mocked(OneLocationService.viewEnvelope).mockResolvedValue({
+      grant: {
+        id: "g2",
+        ownerUserId: "r1",
+        recipientUserId: "u1",
+        recipientKeyId: "k1",
+        status: "active",
+        consentScope: "",
+        capabilityScopes: [],
+        durationHours: 1,
+      },
+      envelope: mockEnvelope,
+    });
+    vi.mocked(encryption.decryptLocationEnvelope).mockResolvedValue(mockPoint);
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+
+    await act(async () => {
+      await result.current.send("show me their location");
+    });
+    expect(result.current.pendingAction?.type).toBe("view_envelope");
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(vi.mocked(OneLocationService.viewEnvelope)).toHaveBeenCalledWith(
+      expect.objectContaining({ grantId: "g2" }),
+    );
+    expect(vi.mocked(encryption.decryptLocationEnvelope)).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "u1", envelope: mockEnvelope }),
+    );
+    expect(result.current.viewedPoint).toEqual(mockPoint);
+    expect(result.current.pendingAction).toBeNull();
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({ type: "view_envelope", status: "completed" }),
+      }),
+    );
+  });
+
+  it("create_public_link: confirm captures, creates invite, reports completed with publicUrl", async () => {
+    const mockPoint = {
+      latitude: 10,
+      longitude: 20,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    };
+
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c3",
+        response: "Creating a public link.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-3",
+          type: "create_public_link" as const,
+          durationHours: 2,
+          summary: "Create a public location link",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c3",
+        response: "Link created!",
+        isComplete: true,
+        stateChanged: false,
+      });
+
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+    vi.mocked(OneLocationService.createPublicInvite).mockResolvedValue({
+      invite: {
+        id: "inv-1",
+        ownerUserId: "u1",
+        status: "active",
+        durationHours: 2,
+      },
+      publicToken: "tok123",
+      publicUrl: "https://hushh.ai/location/tok123",
+    });
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+
+    await act(async () => {
+      await result.current.send("create a public link");
+    });
+    expect(result.current.pendingAction?.type).toBe("create_public_link");
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(OneLocationService.createPublicInvite)).toHaveBeenCalledWith(
+      expect.objectContaining({ durationHours: 2, locationSnapshot: mockPoint }),
+    );
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          type: "create_public_link",
+          status: "completed",
+          publicUrl: "https://hushh.ai/location/tok123",
+        }),
+      }),
+    );
+    expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("confirmAction: reports failed when crypto throws", async () => {
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c4",
+        response: "Ready.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-4",
+          type: "publish_share" as const,
+          shares: [
+            {
+              grantId: "g4",
+              recipientUserId: "r4",
+              recipientKeyId: "k4",
+              label: "Alice",
+            },
+          ],
+          summary: "Share with Alice",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c4",
+        response: "Sorry, something went wrong.",
+        isComplete: true,
+        stateChanged: false,
+      });
+
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue({
+      latitude: 1,
+      longitude: 2,
+      capturedAt: "now",
+      sourcePlatform: "web" as const,
+    });
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [],
+      referrals: [],
+      publicInvites: [],
+      publicInviteSubmissions: [],
+      capabilityScopes: [],
+    });
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+
+    await act(async () => {
+      await result.current.send("share with Alice");
+    });
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({ status: "failed" }),
+      }),
+    );
+    expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("clear() resets pendingAction and viewedPoint", async () => {
+    mockChat.mockResolvedValueOnce({
+      conversationId: "c5",
+      response: "Ready.",
+      isComplete: true,
+      stateChanged: false,
+      clientAction: {
+        id: "act-5",
+        type: "publish_share" as const,
+        shares: [],
+        summary: "Share",
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+
+    await act(async () => {
+      await result.current.send("share");
+    });
+    expect(result.current.pendingAction).not.toBeNull();
+
+    act(() => result.current.clear());
+    expect(result.current.pendingAction).toBeNull();
+    expect(result.current.viewedPoint).toBeNull();
   });
 });
