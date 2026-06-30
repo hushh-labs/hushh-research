@@ -128,7 +128,8 @@ This directly contradicts Goals 1–2. §6 reworks it.
 **Out of scope (explicit):**
 
 - Streaming responses (true or cosmetic). Backend stays non-streaming.
-- **SMS / email auto-send** — not wired anywhere in the location flow.
+- **SMS / email auto-send** — not wired anywhere in the location flow (planned for
+  a future milestone — see §11 Future work).
 - **Live / continuously-updating** public links — snapshot only.
 - A new public viewer page — reuse `/one/location/request/[token]`.
 - A new encryption scheme for public links — reuse the plaintext snapshot (per the
@@ -401,7 +402,38 @@ typing indicator, and error/retry are untouched except for the action-card branc
 | Public links | Live, no-auth `/request/[token]`; static snapshot | Reuse shipped infra; no new viewer page |
 | Response mode | Non-streaming, consent-gated direct-Gemini loop in `HushhContext` | Same as v1 |
 
-## 11. Skill plan (remainder of flow)
+## 11. Future work — full multi-platform delivery (post-v2)
+
+**Goal (future):** integrate location sharing with **all available delivery
+platforms**, so the agent can deliver a share/link through whatever channel the
+recipient prefers — not just in-app push + manually-pasted links.
+
+v2 deliberately offers only the channels actually wired today (encrypted in-app
+share + public link). A future milestone should expand the **platform-aware**
+layer (§5) to offer and auto-dispatch additional channels once each is built and
+verified:
+
+- **SMS** — auto-send the public link (or an invite) via a real SMS provider
+  (e.g. Twilio). Requires provider integration; today only an unrelated RIA enum
+  references `sms` and nothing sends it.
+- **Email** — auto-send via a transactional email service. A Gmail-API path exists
+  for KAI advisor invites; it is **not** wired to any location event.
+- **Native share sheet** — hand the public link to the OS share sheet (iOS/Android
+  via Capacitor) so the user can pick any installed app (WhatsApp, iMessage, etc.).
+- **Other push targets** beyond the current Firebase Admin path, if added.
+
+**Design hooks to preserve for this:** the platform-resolution buckets in §5 and
+the `client_action`/`action_result` contract in §4 are the natural extension
+points. A future channel becomes (a) a new entry in the "real supported set" the
+agent may offer, and (b) either a server-side dispatch step (SMS/email) or a new
+`client_action.type` (native share sheet). The zero-plaintext-coordinate posture
+must hold: links carry the bounded snapshot already covered by §8; no new channel
+should transmit plaintext coordinates to the server beyond that one relaxed path.
+
+**Out of scope for v2** — this section is a forward reference only; nothing here is
+built in this milestone.
+
+## 12. Skill plan (remainder of flow)
 
 1. **superpowers:brainstorming** — complete (this spec).
 2. User reviews this spec.
