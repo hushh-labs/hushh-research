@@ -288,7 +288,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
             >
               <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
               <span className="flex-1">{option.label}</span>
-              {isActive && <span className="text-xs">✓</span>}
+              {isActive ? <Check aria-hidden size={12} /> : null}
             </DropdownMenuItem>
           );
         })}

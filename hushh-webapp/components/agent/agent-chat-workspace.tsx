@@ -247,6 +247,10 @@ import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import {
+  resolveAgentWelcomeSuggestions,
+  type AgentWelcomeSuggestion,
+} from "@/lib/agent/agent-welcome-suggestions";
+import {
   executeAgentGatewayAction,
   executeTrustedActivationGatewayAction,
   type AgentActionRuntimeResult,
@@ -5810,6 +5814,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           routeBefore: pathname,
           resultSummary: `Card "${full.summary.nickname || full.summary.brand}" ending ${full.summary.last4} was shown privately on this device.`,
         };
+      }
+
+      if (toolEvent.actionId === "pkm.update") {
+        await executePkmUpdateTool(toolEvent);
+        return;
       }
 
       setActiveFrontendToolCount((count) => count + 1);

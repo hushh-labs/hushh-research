@@ -1,3 +1,5 @@
+"use client"
+
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { Loader2 } from "@/components/icons"
@@ -100,6 +102,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     return (
       <Comp
+        {...props}
         type={asChild ? undefined : "button"}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}

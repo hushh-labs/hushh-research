@@ -84,6 +84,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref,
   ) => {
+    const buttonRef = React.useRef<HTMLButtonElement | null>(null);
+    const [settledWidth, setSettledWidth] = React.useState<number | null>(null);
     const iconWeight = useIconWeight();
     const IconComponent = icon?.icon;
     const isDisabled = Boolean(disabled || loading);
@@ -92,6 +94,25 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const stockVariant = mapToStockVariant(variant);
     const stockSize = mapToStockSize(size);
     const isXl = size === "xl";
+    const setRefs = React.useCallback(
+      (node: HTMLButtonElement | null) => {
+        buttonRef.current = node;
+        if (typeof ref === "function") {
+          ref(node);
+        } else if (ref) {
+          ref.current = node;
+        }
+      },
+      [ref]
+    );
+
+    React.useLayoutEffect(() => {
+      if (loading || !buttonRef.current) return;
+      const nextWidth = buttonRef.current.getBoundingClientRect().width;
+      if (nextWidth > 0) {
+        setSettledWidth(nextWidth);
+      }
+    }, [children, className, fullWidth, icon, loading, size, variant]);
 
     const getIconBoxSize = () => {
       switch (size) {
@@ -170,14 +191,19 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
       return (
         <StockButton
-          ref={ref}
+          ref={setRefs}
           asChild
           showRipple={false}
           variant={stockVariant}
           size={stockSize}
+          isLoading={loading}
           disabled={isDisabled}
           data-loading={loading || undefined}
           aria-busy={loading || undefined}
+          style={{
+            minWidth: loading && settledWidth ? `${settledWidth}px` : undefined,
+            ...props.style,
+          }}
           className={cn(
             "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
             variantStyles,
@@ -203,14 +229,19 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     return (
       <StockButton
-        ref={ref}
+        ref={setRefs}
         asChild={asChild}
         showRipple={false}
         variant={stockVariant}
         size={stockSize}
+        isLoading={loading}
         disabled={isDisabled}
         data-loading={loading || undefined}
         aria-busy={loading || undefined}
+        style={{
+          minWidth: loading && settledWidth ? `${settledWidth}px` : undefined,
+          ...props.style,
+        }}
         className={cn(
           "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
           variantStyles,

@@ -95,6 +95,7 @@ export function AppPageShell<T extends ElementType = "main">({
         fitContent && "app-page-shell--fit-content",
         className
       )}
+      data-slot="app-page-shell"
       data-app-density={density}
       data-app-shell-width={width}
       data-app-shell-fit-content={fitContent ? "true" : undefined}

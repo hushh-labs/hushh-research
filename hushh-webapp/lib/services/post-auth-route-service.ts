@@ -97,6 +97,16 @@ function inviteRedirectTargetFor(path: string): string | null {
   }
 }
 
+function hasCompletePreVaultAnswers(
+  answers: PreVaultOnboardingAnswers | null | undefined,
+): boolean {
+  return Boolean(
+    answers?.investment_horizon &&
+      answers?.drawdown_response &&
+      answers?.volatility_preference,
+  );
+}
+
 export class PostAuthRouteService {
   /**
    * Apply the soft first-run One Setup gate to a home-bound destination.
@@ -286,6 +296,7 @@ export class PostAuthRouteService {
     }
 
     if (
+      !shouldPreservePriorityReturn &&
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         phoneVerified,

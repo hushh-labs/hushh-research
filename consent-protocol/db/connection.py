@@ -411,8 +411,8 @@ def get_database_url() -> str:
         )
     if db_unix_socket:
         # Cloud SQL Unix socket path must be provided via query host parameter.
-        return f"postgresql://{db_user}:{db_password}@/{db_name}?host={quote_plus(db_unix_socket)}"
-    return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@/{db_name}?host={quote_plus(db_unix_socket)}"
+    return f"postgresql://{quote_plus(db_user)}:{quote_plus(db_password)}@{db_host}:{db_port}/{db_name}"
 
 
 def get_database_ssl():
@@ -527,7 +527,9 @@ async def get_pool() -> asyncpg.Pool:
                 ) from exc
             raise
         logger.info(
-            f"PostgreSQL pool created: min={_pool.get_min_size()}, max={_pool.get_max_size()}"
+            "PostgreSQL pool created: min=%s, max=%s",
+            _pool.get_min_size(),
+            _pool.get_max_size(),
         )
     return _pool
 

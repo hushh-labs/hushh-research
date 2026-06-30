@@ -1,5 +1,6 @@
 package com.hussh.app.plugins.shared
 
+import android.os.Build
 import com.getcapacitor.Bridge
 import com.getcapacitor.PluginCall
 
@@ -25,8 +26,8 @@ object BackendUrl {
         if (localBackendMode == "adb_reverse") return raw
 
         return when {
-            raw.contains("localhost") -> raw.replace("localhost", "10.0.2.2")
-            raw.contains("127.0.0.1") -> raw.replace("127.0.0.1", "10.0.2.2")
+            useEmulatorHost && raw.contains("localhost") -> raw.replace("localhost", "10.0.2.2")
+            useEmulatorHost && raw.contains("127.0.0.1") -> raw.replace("127.0.0.1", "10.0.2.2")
             else -> raw
         }
     }
