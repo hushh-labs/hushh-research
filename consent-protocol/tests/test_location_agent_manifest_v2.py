@@ -25,3 +25,10 @@ def test_prompt_permits_handoff_and_public_links():
 def test_prompt_still_forbids_agent_returning_coordinates():
     text = _manifest().system_instruction.lower()
     assert "coordinate" in text
+
+
+def test_prompt_instructs_choice_and_confirmation_tools():
+    text = _manifest().system_instruction.lower()
+    assert "request_" in text  # references the choice/confirmation tools
+    assert "do not guess" in text or "don't guess" in text
+    assert "confirm" in text and ("irreversible" in text or "bulk" in text or "everyone" in text)
