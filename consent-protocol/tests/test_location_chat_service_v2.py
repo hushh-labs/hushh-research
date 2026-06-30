@@ -175,6 +175,42 @@ async def test_action_result_cancelled_does_not_set_state_changed():
     assert out["isComplete"] is True
 
 
+async def test_request_choice_tool_emits_client_prompt():
+    store = _FakeStore()
+    prompt_payload = {
+        "prompt": {
+            "kind": "select",
+            "purpose": "select_share",
+            "question": "Which sharing do you want to stop?",
+            "options": [
+                {"label": "Mom", "ref": {"grantId": "g1"}},
+                {"label": "Stop all", "ref": {"all": True}},
+            ],
+            "minSelections": 1,
+            "maxSelections": None,
+            "allowFreeText": True,
+        }
+    }
+    tools = [_fake_tool("request_active_share_choice", [], result=prompt_payload)]
+    svc = _service(
+        store,
+        responses=[
+            _fc_response("request_active_share_choice", {}),
+            _text_response("Which sharing do you want to stop?"),
+        ],
+        tools=tools,
+    )
+
+    out = await svc.handle_turn(user_id="u", message="stop sharing", consent_token="t")  # noqa: S106
+
+    cp = out["clientPrompt"]
+    assert cp["kind"] == "select" and cp["purpose"] == "select_share"
+    assert cp["options"][0]["ref"] == {"grantId": "g1"}
+    assert cp["id"].startswith("prm-")
+    assert out["stateChanged"] is False
+    assert "clientAction" not in out
+
+
 async def test_approve_location_request_wrapped_grant_emits_publish_share():
     """approve_location_request with a wrapped {grant, request} shape must emit a
     publish_share clientAction whose shares[0] has grantId/recipientUserId/

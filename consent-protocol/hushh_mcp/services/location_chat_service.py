@@ -54,10 +54,26 @@ _QUERY_TOOL_NAMES = {
     "list_public_links",
     "propose_public_link",
     "propose_location_view",
+    "request_recipient_choice",
+    "request_active_share_choice",
+    "request_duration_choice",
+    "request_request_choice",
+    "request_incoming_choice",
+    "request_confirmation",
 }
 
 # Tools whose successful result produces a client-action directive.
 _DIRECTIVE_GRANT_TOOLS = {"create_location_share", "approve_location_request"}
+
+# Prompt-builder tools: their result yields a clientPrompt, and they mutate nothing.
+_PROMPT_TOOL_NAMES = {
+    "request_recipient_choice",
+    "request_active_share_choice",
+    "request_duration_choice",
+    "request_request_choice",
+    "request_incoming_choice",
+    "request_confirmation",
+}
 
 _ACTION_RESULT_TEMPLATES = {
     ("publish_share", "completed"): "Done — your live location is now shared. ✓",
@@ -259,6 +275,43 @@ def _function_declarations_v2(types: Any) -> list:
                     required=["invite_id"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="request_recipient_choice",
+                description="Ask the user to choose who to share with (returns selectable options). Call when no single recipient was named.",
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="request_active_share_choice",
+                description="Ask the user which active share(s) to stop (selectable options incl. 'Stop all'). Call when stopping a share with no single target.",
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="request_duration_choice",
+                description="Ask the user how long a share should last (1/8/24h or custom).",
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="request_request_choice",
+                description="Ask the user which pending incoming request to act on.",
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="request_incoming_choice",
+                description="Ask the user whose incoming shared location to view.",
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="request_confirmation",
+                description="Ask the user to confirm an irreversible or bulk action before it runs.",
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "summary": schema(type=kind.STRING, description="What to confirm"),
+                        "destructive": schema(type=kind.BOOLEAN),
+                    },
+                    required=["summary"],
+                ),
+            ),
         ]
     )
     return decls
@@ -363,59 +416,22 @@ class LocationChatService:
             )
 
         types = self._types
-        config = types.GenerateContentConfig(
-            system_instruction=self._system_prompt,
-            tools=[types.Tool(function_declarations=_function_declarations_v2(types))],
-            temperature=0.2,
-        )
         contents = _history_contents(turn.history, types)
         contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
 
-        reply = ""
-        errored = False
-        state_changed = False
-        directives: list[dict] = []
-
         try:
-            with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
-                for _ in range(_MAX_TOOL_STEPS):
-                    response = await self._model_call(contents, config)
-                    calls = list(getattr(response, "function_calls", None) or [])
-                    if not calls:
-                        reply = (getattr(response, "text", "") or "").strip()
-                        break
-                    # Echo the model's function-call turn, then append each result.
-                    contents.append(response.candidates[0].content)
-                    for call in calls:
-                        result, mutated, directive = await self._run_tool(
-                            call.name, dict(call.args or {})
-                        )
-                        state_changed = state_changed or mutated
-                        if directive is not None:
-                            directives.append(directive)
-                        contents.append(
-                            types.Content(
-                                role="tool",
-                                parts=[
-                                    types.Part.from_function_response(
-                                        name=call.name, response=result
-                                    )
-                                ],
-                            )
-                        )
-                else:
-                    reply = _GAVE_UP_MESSAGE
-                    errored = True
+            reply, errored, state_changed, directives, prompts = await self._run_tool_loop(
+                user_id=user_id, consent_token=consent_token, contents=contents
+            )
         except Exception:
             logger.exception("Location chat turn failed")
             return await self._finish(
                 turn, _UNAVAILABLE_MESSAGE, user_id, errored=True, state_changed=False
             )
 
-        client_action = self._build_client_action(directives)
-        if client_action is not None:
-            # The grant exists server-side but the browser hasn't published the
-            # envelope yet; do not trigger a UI refresh on this turn.
+        client_prompt = self._build_client_prompt(prompts)
+        client_action = None if client_prompt is not None else self._build_client_action(directives)
+        if client_action is not None or client_prompt is not None:
             state_changed = False
 
         if not reply:
@@ -427,29 +443,80 @@ class LocationChatService:
             errored=errored,
             state_changed=state_changed and not errored,
             client_action=client_action,
+            client_prompt=client_prompt,
         )
 
-    async def _run_tool(self, name: str, args: dict) -> tuple[dict, bool, dict | None]:
+    async def _run_tool_loop(
+        self, *, user_id: str, consent_token: str, contents: list
+    ) -> tuple[str, bool, bool, list[dict], list[dict]]:
+        """Run the Gemini function-calling loop inside HushhContext.
+
+        Returns (reply, errored, state_changed, directives, prompts).
+        """
+        types = self._types
+        config = types.GenerateContentConfig(
+            system_instruction=self._system_prompt,
+            tools=[types.Tool(function_declarations=_function_declarations_v2(types))],
+            temperature=0.2,
+        )
+        reply = ""
+        errored = False
+        state_changed = False
+        directives: list[dict] = []
+        prompts: list[dict] = []
+        with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
+            for _ in range(_MAX_TOOL_STEPS):
+                response = await self._model_call(contents, config)
+                calls = list(getattr(response, "function_calls", None) or [])
+                if not calls:
+                    reply = (getattr(response, "text", "") or "").strip()
+                    break
+                contents.append(response.candidates[0].content)
+                for call in calls:
+                    result, mutated, directive, prompt = await self._run_tool(
+                        call.name, dict(call.args or {})
+                    )
+                    state_changed = state_changed or mutated
+                    if directive is not None:
+                        directives.append(directive)
+                    if prompt is not None:
+                        prompts.append(prompt)
+                    contents.append(
+                        types.Content(
+                            role="tool",
+                            parts=[
+                                types.Part.from_function_response(name=call.name, response=result)
+                            ],
+                        )
+                    )
+            else:
+                reply = _GAVE_UP_MESSAGE
+                errored = True
+        return reply, errored, state_changed, directives, prompts
+
+    async def _run_tool(self, name: str, args: dict) -> tuple[dict, bool, dict | None, dict | None]:
         """Execute one tool inside the active HushhContext.
 
-        Returns (result, mutated, directive) where directive is a coordinate-free
-        descriptor of a client action to emit after the loop, or None.
+        Returns (result, mutated, directive, prompt): directive → a clientAction
+        descriptor; prompt → a clientPrompt descriptor; either may be None.
         """
         tool = self._dispatch.get(name)
         if tool is None:
-            return {"error": "unknown_tool"}, False, None
+            return {"error": "unknown_tool"}, False, None, None
         try:
             result = await tool(**args)
         except PermissionError:
-            return {"error": "consent_denied"}, False, None
+            return {"error": "consent_denied"}, False, None, None
         except ValueError as exc:
-            return {"error": "invalid_argument", "message": str(exc)}, False, None
+            return {"error": "invalid_argument", "message": str(exc)}, False, None, None
         except Exception as exc:  # noqa: BLE001
             logger.warning("Location tool %s failed: %s", name, exc)
-            return {"error": "tool_failed"}, False, None
-        directive = self._directive_from_tool(name, _as_response_dict(result))
+            return {"error": "tool_failed"}, False, None, None
+        result_dict = _as_response_dict(result)
+        directive = self._directive_from_tool(name, result_dict)
+        prompt = self._prompt_from_tool(name, result_dict)
         mutated = name not in _QUERY_TOOL_NAMES
-        return _as_response_dict(result), mutated, directive
+        return result_dict, mutated, directive, prompt
 
     @staticmethod
     def _directive_from_tool(name: str, result: dict) -> dict | None:
@@ -475,6 +542,20 @@ class LocationChatService:
         if name == "propose_location_view" and result.get("proposed") == "view_envelope":
             return {"type": "view_envelope", "grantId": result.get("grantId")}
         return None
+
+    @staticmethod
+    def _prompt_from_tool(name: str, result: dict) -> dict | None:
+        """Extract a coordinate-free prompt payload from a prompt-builder tool result."""
+        if name not in _PROMPT_TOOL_NAMES:
+            return None
+        prompt = result.get("prompt") if isinstance(result, dict) else None
+        return prompt if isinstance(prompt, dict) else None
+
+    def _build_client_prompt(self, prompts: list[dict]) -> dict | None:
+        """Fold collected prompt payloads into one clientPrompt (first one wins)."""
+        if not prompts:
+            return None
+        return {"id": "prm-" + uuid4().hex[:12], **prompts[0]}
 
     def _build_client_action(self, directives: list[dict]) -> dict | None:
         """Fold collected per-tool directives into one client-action payload.
@@ -572,6 +653,7 @@ class LocationChatService:
         errored: bool,
         state_changed: bool,
         client_action: dict | None = None,
+        client_prompt: dict | None = None,
     ) -> dict[str, Any]:
         await self._chat_store.add_message(
             conversation_id=turn.conversation_id,
@@ -588,4 +670,6 @@ class LocationChatService:
         }
         if client_action is not None:
             out["clientAction"] = client_action
+        if client_prompt is not None:
+            out["clientPrompt"] = client_prompt
         return out
