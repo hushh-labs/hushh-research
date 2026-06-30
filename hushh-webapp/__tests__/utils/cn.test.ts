@@ -17,4 +17,7 @@ describe("cn", () => {
     "flex items-center",
   );
 });
+it("preserves responsive classes while merging conflicts", () => {
+  expect(cn("p-2 md:p-4", "p-6")).toBe("md:p-4 p-6");
+});
 });
