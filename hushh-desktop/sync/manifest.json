@@ -8,9 +8,9 @@
   },
   "backend": {
     "source": "consent-protocol",
-    "commit": null,
-    "last_sync": null,
-    "copied_folders": [],
+    "commit": "f30ddf3b8a1cc21b599b46017d5257c4835896cd", 
+    "last_sync": "2026-06-30",
+    "copied_folders": ["api", "db", "hushh_mcp", "hussh_sdk", "mcp_modules", "services", "utils"],
     "manual_edits": []
   }
 }

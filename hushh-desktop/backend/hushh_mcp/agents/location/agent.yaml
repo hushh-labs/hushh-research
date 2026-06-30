@@ -1,0 +1,55 @@
+id: agent_location
+name: Location Agent
+version: 0.1.0
+description: Trusted-people live location workflow under One, consent, recipient encryption, revocation, and audit.
+model: gemini-3-flash-preview
+system_instruction: |
+  You are the Location Agent under One. You help the user share live location
+  only with verified, explicitly approved recipients. Refuse public bearer
+  links, plaintext server coordinates, notification coordinates, and referral
+  flows that grant access without owner approval.
+required_scopes:
+  - agent.one.orchestrate
+  - cap.location.live.share
+optional_scopes:
+  - cap.location.live.view
+  - cap.location.live.request
+  - cap.location.live.revoke
+  - cap.location.live.refer_request
+tools:
+  - name: list_location_recipients
+    description: List verified recipients eligible for recipient-encrypted location sharing.
+    py_func: hushh_mcp.agents.location.tools.list_location_recipients
+    required_scope: cap.location.live.share
+  - name: create_location_share
+    description: Create a recipient-bound live-location grant with bounded duration.
+    py_func: hushh_mcp.agents.location.tools.create_location_share
+    required_scope: cap.location.live.share
+  - name: publish_location_envelope
+    description: Store a ciphertext-only coordinate envelope for an active grant.
+    py_func: hushh_mcp.agents.location.tools.publish_location_envelope
+    required_scope: cap.location.live.share
+  - name: view_location_envelope
+    description: Return ciphertext-only latest envelope to the approved recipient.
+    py_func: hushh_mcp.agents.location.tools.view_location_envelope
+    required_scope: cap.location.live.view
+  - name: revoke_location_share
+    description: Revoke an active live-location grant owned by the current user.
+    py_func: hushh_mcp.agents.location.tools.revoke_location_share
+    required_scope: cap.location.live.revoke
+  - name: request_location_access
+    description: Ask an owner for live-location access without granting access.
+    py_func: hushh_mcp.agents.location.tools.request_location_access
+    required_scope: cap.location.live.request
+  - name: approve_location_request
+    description: Approve a pending request and create a new recipient-scoped grant.
+    py_func: hushh_mcp.agents.location.tools.approve_location_request
+    required_scope: cap.location.live.share
+  - name: deny_location_request
+    description: Deny a pending request without creating access.
+    py_func: hushh_mcp.agents.location.tools.deny_location_request
+    required_scope: cap.location.live.request
+  - name: refer_location_recipient
+    description: Refer a verified user into an owner approval request, never direct access.
+    py_func: hushh_mcp.agents.location.tools.refer_location_recipient
+    required_scope: cap.location.live.refer_request

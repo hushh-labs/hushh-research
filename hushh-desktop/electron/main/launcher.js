@@ -32,7 +32,7 @@ const { DESKTOP_PORT, BACKEND_PORT } = require("../../config/runtime");
 // hushh-desktop/electron/main/launcher.js → hushh-desktop root → repo root
 const DESKTOP_DIR  = path.resolve(__dirname, "..", "..");
 const ROOT_DIR     = path.resolve(DESKTOP_DIR, "..");
-const BACKEND_DIR  = path.resolve(ROOT_DIR, "consent-protocol");
+const BACKEND_DIR  = path.resolve(DESKTOP_DIR, "backend");
 const FRONTEND_DIR = path.resolve(DESKTOP_DIR, "frontend");
 
 // Python venv executable (Windows path; Linux/macOS has bin/python)

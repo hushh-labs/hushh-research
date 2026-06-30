@@ -1,0 +1,394 @@
+"""Kai Gmail receipts connector routes.
+
+Canonical attach points
+-----------------------
+api.routes.kai.gmail.gmail_status   -> GET /gmail/status/{user_id}
+api.routes.kai.gmail.gmail_receipts -> GET /gmail/receipts/{user_id}
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
+
+from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["Kai Gmail"])
+
+
+class GmailConnectStartRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
+    login_hint: str | None = Field(default=None, max_length=512)
+    include_granted_scopes: bool = False
+
+
+class GmailConnectCompleteRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=1, max_length=512)
+    state: str = Field(min_length=1, max_length=512)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
+
+
+class GmailDisconnectRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+
+
+class GmailSyncRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+
+
+class GmailReconcileRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+
+
+class GmailReceiptMemoryPreviewRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+    force_refresh: bool = False
+
+
+def _service():
+    return get_gmail_receipts_service()
+
+
+def _receipt_memory_service():
+    return get_receipt_memory_preview_service()
+
+
+_DEPENDENCY_ERROR_PATTERNS = (
+    "connection refused",
+    "server closed the connection unexpectedly",
+    "could not connect to server",
+    "timed out",
+    "timeout",
+    "headers timeout",
+    "db operation failed",
+    "psycopg2.operationalerror",
+    "sqlalchemy.exc.operationalerror",
+)
+
+
+def _iter_exception_chain(exc: BaseException):
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_dependency_unavailable_error(exc: Exception) -> bool:
+    for current in _iter_exception_chain(exc):
+        if current.__class__.__name__ == "DatabaseExecutionError":
+            return True
+        if isinstance(current, SqlalchemyOperationalError):
+            return True
+        if isinstance(current, (ConnectionError, OSError, TimeoutError)):
+            return True
+        message = str(current).strip().lower()
+        if message and any(pattern in message for pattern in _DEPENDENCY_ERROR_PATTERNS):
+            return True
+    return False
+
+
+def _temporary_unavailable_message(operation: str) -> str:
+    if operation == "status":
+        return "We couldn't check your Gmail connection right now. Please try again in a moment."
+    if operation == "sync":
+        return "We couldn't start Gmail sync right now. Please try again in a moment."
+    if operation == "receipts":
+        return "We couldn't load your receipts right now. Please try again in a moment."
+    if operation == "receipts_memory_preview":
+        return "We couldn't create your shopping summary right now. Please try again in a moment."
+    if operation == "connect_start":
+        return "We couldn't start Gmail connect right now. Please try again in a moment."
+    if operation == "connect_complete":
+        return "We couldn't finish Gmail connect right now. Please try again in a moment."
+    if operation == "disconnect":
+        return "We couldn't disconnect Gmail right now. Please try again in a moment."
+    if operation == "reconcile":
+        return "We couldn't refresh your Gmail connection right now. Please try again in a moment."
+    if operation == "sync_run":
+        return "We couldn't load Gmail sync details right now. Please try again in a moment."
+    if operation == "receipts_memory_artifact":
+        return "We couldn't load your shopping summary right now. Please try again in a moment."
+    if operation == "webhook":
+        return "We couldn't process the Gmail webhook right now. Please try again in a moment."
+    return "Gmail is temporarily unavailable. Please try again in a moment."
+
+
+def _to_http_exception(exc: Exception, *, operation: str) -> HTTPException:
+    if _is_dependency_unavailable_error(exc):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "GMAIL_CONNECTOR_TEMPORARILY_UNAVAILABLE",
+                "message": _temporary_unavailable_message(operation),
+                "retryable": True,
+            },
+        )
+    if isinstance(exc, GmailApiError):
+        detail: dict[str, Any] = {
+            "code": "GMAIL_CONNECTOR_ERROR",
+            "message": str(exc),
+        }
+        if exc.payload:
+            detail["payload"] = exc.payload
+        status_code = exc.status_code if exc.status_code >= 400 else 500
+        return HTTPException(status_code=status_code, detail=detail)
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={
+            "code": "GMAIL_CONNECTOR_UNEXPECTED",
+            "message": _temporary_unavailable_message(operation),
+        },
+    )
+
+
+@router.post("/gmail/connect/start")
+async def gmail_connect_start(
+    payload: GmailConnectStartRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().start_connect(
+            user_id=payload.user_id,
+            redirect_uri=payload.redirect_uri,
+            login_hint=payload.login_hint,
+            include_granted_scopes=payload.include_granted_scopes,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.connect_start_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="connect_start") from exc
+
+
+@router.post("/gmail/connect/complete")
+async def gmail_connect_complete(
+    payload: GmailConnectCompleteRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().complete_connect(
+            user_id=payload.user_id,
+            code=payload.code,
+            state=payload.state,
+            redirect_uri=payload.redirect_uri,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.connect_complete_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="connect_complete") from exc
+
+
+@router.get("/gmail/status/{user_id}")
+async def gmail_status(
+    user_id: str = Path(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        return await _service().get_status(user_id=user_id)
+    except Exception as exc:
+        logger.exception("kai.gmail.status_failed user_id=%s", user_id)
+        raise _to_http_exception(exc, operation="status") from exc
+
+
+@router.post("/gmail/disconnect")
+async def gmail_disconnect(
+    payload: GmailDisconnectRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().disconnect(user_id=payload.user_id)
+    except Exception as exc:
+        logger.exception("kai.gmail.disconnect_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="disconnect") from exc
+
+
+@router.post("/gmail/sync")
+async def gmail_sync(
+    payload: GmailSyncRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        result = await _service().queue_sync(
+            user_id=payload.user_id,
+            trigger_source="manual",
+        )
+        return result
+    except Exception as exc:
+        logger.exception("kai.gmail.sync_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="sync") from exc
+
+
+@router.post("/gmail/reconcile")
+async def gmail_reconcile(
+    payload: GmailReconcileRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().reconcile_connection(
+            user_id=payload.user_id,
+            allow_queue_catchup=True,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.reconcile_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="reconcile") from exc
+
+
+@router.get("/gmail/sync/{run_id}")
+async def gmail_sync_run(
+    run_id: str,
+    user_id: str = Query(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        run = await _service().get_sync_run(run_id=run_id, user_id=user_id)
+        if run is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "GMAIL_SYNC_RUN_NOT_FOUND",
+                    "message": "No Gmail sync run found for this user.",
+                    "run_id": run_id,
+                },
+            )
+        return {"run": run}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("kai.gmail.sync_run_failed user_id=%s run_id=%s", user_id, run_id)
+        raise _to_http_exception(exc, operation="sync_run") from exc
+
+
+@router.get("/gmail/receipts/{user_id}")
+async def gmail_receipts(
+    user_id: str = Path(..., min_length=1, max_length=128),
+    page: int = Query(1, ge=1, le=1_000),
+    per_page: int = Query(25, ge=1, le=100),
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
+    verify_user_id_match(firebase_uid, user_id)
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+    try:
+        return await _service().list_receipts(
+            user_id=user_id,
+            page=page,
+            per_page=per_page,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.receipts_failed user_id=%s", user_id)
+        raise _to_http_exception(exc, operation="receipts") from exc
+
+
+@router.post("/gmail/receipts-memory/preview")
+async def gmail_receipts_memory_preview(
+    payload: GmailReceiptMemoryPreviewRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
+    verify_user_id_match(firebase_uid, payload.user_id)
+    if token_data["user_id"] != payload.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+    try:
+        return await _receipt_memory_service().build_preview(
+            user_id=payload.user_id,
+            force_refresh=payload.force_refresh,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.receipts_memory_preview_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="receipts_memory_preview") from exc
+
+
+@router.get("/gmail/receipts-memory/artifacts/{artifact_id}")
+async def gmail_receipts_memory_artifact(
+    artifact_id: str,
+    user_id: str = Query(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
+    verify_user_id_match(firebase_uid, user_id)
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+    try:
+        artifact = _receipt_memory_service().get_artifact(
+            artifact_id=artifact_id,
+            user_id=user_id,
+        )
+        if artifact is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "GMAIL_RECEIPT_MEMORY_ARTIFACT_NOT_FOUND",
+                    "message": "No receipt-memory artifact found for this user.",
+                    "artifact_id": artifact_id,
+                },
+            )
+        return artifact
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "kai.gmail.receipts_memory_artifact_failed user_id=%s artifact_id=%s",
+            user_id,
+            artifact_id,
+        )
+        raise _to_http_exception(exc, operation="receipts_memory_artifact") from exc
+
+
+@router.post("/gmail/webhook")
+async def gmail_webhook(request: Request):
+    headers = {key.lower(): value for key, value in request.headers.items()}
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        logger.warning("kai.gmail.webhook.invalid_json: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "GMAIL_WEBHOOK_INVALID_JSON",
+                "message": "Webhook payload is not valid JSON.",
+            },
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "GMAIL_WEBHOOK_INVALID_PAYLOAD",
+                "message": "Webhook payload must be a JSON object.",
+            },
+        )
+
+    try:
+        return await _service().handle_push_notification(payload, headers=headers)
+    except Exception as exc:
+        logger.exception("kai.gmail.webhook_failed")
+        raise _to_http_exception(exc, operation="webhook") from exc
