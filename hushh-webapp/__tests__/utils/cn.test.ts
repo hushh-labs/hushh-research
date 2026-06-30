@@ -17,4 +17,7 @@ describe("cn", () => {
     "flex items-center",
   );
 });
+it("handles object inputs with truthy and falsy values", () => {
+  expect(cn("base", { active: true, hidden: false })).toBe("base active");
+});
 });
