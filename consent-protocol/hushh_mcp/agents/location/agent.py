@@ -9,7 +9,7 @@ from typing import Any
 from hushh_mcp.hushh_adk.core import HushhAgent
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 
-from .tools import CONTROL_PLANE_LOCATION_TOOLS, LOCATION_AGENT_TOOLS
+from .tools import CONTROL_PLANE_LOCATION_TOOLS, LOCATION_AGENT_TOOLS, V2_LOCATION_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -71,3 +71,15 @@ def get_location_chat_agent() -> LocationAgent:
     if _location_chat_agent is None:
         _location_chat_agent = LocationAgent(tools=CONTROL_PLANE_LOCATION_TOOLS)
     return _location_chat_agent
+
+
+_location_chat_agent_v2: LocationAgent | None = None
+
+
+def get_location_chat_agent_v2() -> LocationAgent:
+    """Singleton LocationAgent for v2 chat: control-plane + crypto-handoff prep +
+    public-link tools. Excludes the raw envelope publish/view tools."""
+    global _location_chat_agent_v2
+    if _location_chat_agent_v2 is None:
+        _location_chat_agent_v2 = LocationAgent(tools=V2_LOCATION_TOOLS)
+    return _location_chat_agent_v2
