@@ -24,4 +24,17 @@ describe("clearSessionStorage", () => {
     expect(window.localStorage.getItem("native-route")).toBe("keep-raw-fallback");
     expect(window.localStorage.getItem("profile-cache")).toBe("keep-local");
   });
+  it("clears browser session storage on web platforms", async () => {
+  window.sessionStorage.setItem("session-token", "clear-me");
+  window.localStorage.setItem("_session_native-route", "keep-native-cache");
+
+  const { clearSessionStorage } = await import("@/lib/utils/session-storage");
+
+  clearSessionStorage();
+
+  expect(window.sessionStorage.getItem("session-token")).toBeNull();
+  expect(window.localStorage.getItem("_session_native-route")).toBe(
+    "keep-native-cache",
+  );
+});
 });
