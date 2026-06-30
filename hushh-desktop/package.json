@@ -35,7 +35,7 @@
       "backend/mcp_modules/**/*",
       "backend/services/**/*",
       "backend/utils/**/*",
-      "backend/server.py",
+      "backend/*.py",
       "backend/pyproject.toml",
       "backend/requirements.txt",
       "backend/uv.lock",
