@@ -19,7 +19,8 @@
 - **Backward-compatible contract:** v1 fields (`conversationId`, `response`, `isComplete`, `stateChanged`) unchanged; new fields are additive and optional.
 - **Response keys are camelCase** in API output (`conversationId`, `clientAction`, etc.); Python service internals are snake_case; service payloads (`_grant_payload`) are already camelCase (`id`, `recipientUserId`, `recipientKeyId`, `recipientDisplayName`).
 - **Encryption:** `ECDH-P256-AES256-GCM` per recipient, ephemeral sender key, via existing `encryptLocationForRecipient` / `decryptLocationEnvelope`. Do not write new crypto.
-- **Run backend tests:** `cd consent-protocol && python -m pytest <path> -v`. **Run frontend tests:** `cd hushh-webapp && npx jest <path>` and `npx tsc --noEmit`.
+- **Run backend tests:** `cd consent-protocol && python -m pytest <path> -v`. **Run frontend tests:** `cd hushh-webapp && npx vitest run <path>` and `npx tsc --noEmit`.
+- **Frontend test framework is Vitest, NOT Jest.** The test snippets in this plan are written in Jest syntax for *logic guidance only* — when implementing, translate them to Vitest: `import { describe, it, expect, vi, beforeEach } from "vitest"`, use `vi.fn()` / `vi.mock()` / `vi.spyOn()` (not `jest.*`), and **mirror the conventions of the neighbouring existing test file** (e.g. `__tests__/components/use-location-chat.test.tsx`, which uses top-of-file `vi.mock(...)`). `noUncheckedIndexedAccess` is enabled — Vitest does not full-typecheck, so always run `npx tsc --noEmit` after each frontend task and fix any indexed-access errors.
 
 ---
 
@@ -1258,7 +1259,7 @@ describe("OneLocationService.chat actionResult", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd hushh-webapp && npx jest __tests__/services/location-chat-service.test.ts -t "actionResult"`
+Run: `cd hushh-webapp && npx vitest run __tests__/services/location-chat-service.test.ts -t "actionResult"`
 Expected: FAIL (TS error / `actionResult` not sent).
 
 - [ ] **Step 3: Add the types**
@@ -1326,7 +1327,7 @@ In `hushh-webapp/lib/one-location/service.ts`, add `ActionResult` to the type im
 
 - [ ] **Step 5: Run the test + typecheck to verify they pass**
 
-Run: `cd hushh-webapp && npx jest __tests__/services/location-chat-service.test.ts && npx tsc --noEmit`
+Run: `cd hushh-webapp && npx vitest run __tests__/services/location-chat-service.test.ts && npx tsc --noEmit`
 Expected: PASS and clean typecheck.
 
 - [ ] **Step 6: Commit**
@@ -1477,7 +1478,7 @@ it("publish_share: cancel revokes the grant and reports cancelled", async () => 
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/use-location-chat.test.tsx -t "publish_share"`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/use-location-chat.test.tsx -t "publish_share"`
 Expected: FAIL (`pendingAction` / `confirmAction` / `userId` don't exist).
 
 - [ ] **Step 3: Extend the hook**
@@ -1681,7 +1682,7 @@ Also update `clear` to reset `pendingAction` and `viewedPoint`:
 
 - [ ] **Step 4: Run the hook tests to verify they pass**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/use-location-chat.test.tsx`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/use-location-chat.test.tsx`
 Expected: PASS (new tests + existing hook tests). If existing tests construct the hook without `userId`, update those call sites to pass `userId: "u1"`.
 
 - [ ] **Step 5: Typecheck**
@@ -1754,7 +1755,7 @@ it("shows a Create label for public links", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/action-confirm-card.test.tsx`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/action-confirm-card.test.tsx`
 Expected: FAIL (module does not exist).
 
 - [ ] **Step 3: Create the component**
@@ -1830,7 +1831,7 @@ export function ActionConfirmCard({
 
 - [ ] **Step 4: Run the component test to verify it passes**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/action-confirm-card.test.tsx`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/action-confirm-card.test.tsx`
 Expected: PASS. (If `Button` does not accept `size`/`variant`/`isLoading` exactly as written, check `components/ui/button.tsx` and adjust the props to the real API — `isLoading` exists per the UI spec.)
 
 - [ ] **Step 5: Render the card in the chat card + overlay**
@@ -1868,7 +1869,7 @@ Add the new suggestion chips wherever the existing chips array is defined in the
 
 - [ ] **Step 6: Run the chat surface tests + typecheck**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/location-chat-panel.test.tsx __tests__/components/location-chat-overlay.test.tsx __tests__/components/location-chat-suggestions.test.tsx && npx tsc --noEmit`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/location-chat-panel.test.tsx __tests__/components/location-chat-overlay.test.tsx __tests__/components/location-chat-suggestions.test.tsx && npx tsc --noEmit`
 Expected: PASS + clean. Update any of these tests that construct the hook/components without the new `userId` prop or that snapshot the chip list.
 
 - [ ] **Step 7: Commit**
@@ -1906,7 +1907,7 @@ Implement the assertion against the existing mock seam in that file (it already 
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/one-location-agent-page.test.tsx -t "userId"`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/one-location-agent-page.test.tsx -t "userId"`
 Expected: FAIL (panel currently receives no `userId`).
 
 - [ ] **Step 3: Wire `userId` + the viewed point**
@@ -1942,7 +1943,7 @@ Prefer reusing the existing in-page map component if one is already imported for
 
 - [ ] **Step 4: Run the page test + typecheck**
 
-Run: `cd hushh-webapp && npx jest __tests__/components/one-location-agent-page.test.tsx && npx tsc --noEmit`
+Run: `cd hushh-webapp && npx vitest run __tests__/components/one-location-agent-page.test.tsx && npx tsc --noEmit`
 Expected: PASS + clean.
 
 - [ ] **Step 5: Commit**
@@ -1965,7 +1966,7 @@ Expected: PASS (v1 + v2 service/route/tool/agent/manifest tests).
 
 - [ ] **Step 2: Frontend — run the one-location tests + typecheck**
 
-Run: `cd hushh-webapp && npx jest one-location location-chat use-location-chat action-confirm && npx tsc --noEmit`
+Run: `cd hushh-webapp && npx vitest run one-location location-chat use-location-chat action-confirm && npx tsc --noEmit`
 Expected: PASS + clean.
 
 - [ ] **Step 3: Lint (match the repo's configured linters)**
