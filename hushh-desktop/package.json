@@ -43,7 +43,7 @@
       "backend/.env"
     ],
     "win": {
-      "target": "nsis"
+      "target": "zip"
     },
     "nsis": {
       "oneClick": true,
