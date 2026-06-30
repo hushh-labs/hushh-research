@@ -23,6 +23,7 @@ class _NoopLimiter:
 rate_limit_module.limiter = _NoopLimiter()
 sys.modules.setdefault("api.middlewares.rate_limit", rate_limit_module)
 
+from api.middleware import require_firebase_auth  # noqa: E402
 from api.routes import crd_scraper  # noqa: E402
 from hushh_mcp.services.crd_scrape_proxy_service import (  # noqa: E402
     CrdScrapeProviderResponse,
@@ -95,6 +96,7 @@ def _build_app(service) -> FastAPI:
     app = FastAPI()
     app.include_router(crd_scraper.router)
     app.dependency_overrides[crd_scraper.get_crd_scrape_proxy_service] = lambda: service
+    app.dependency_overrides[require_firebase_auth] = lambda: "test-firebase-uid"
     return app
 
 
@@ -220,3 +222,42 @@ def test_financial_verification_proxy_service_uses_standalone_provider_contract(
         "path": "/v1/financial-verification-jobs",
         "payload": payload,
     }
+
+
+def _build_app_without_auth_override(service) -> FastAPI:
+    app = FastAPI()
+    app.include_router(crd_scraper.router)
+    app.dependency_overrides[crd_scraper.get_crd_scrape_proxy_service] = lambda: service
+    return app
+
+
+def test_create_crd_scrape_job_requires_firebase_auth() -> None:
+    client = TestClient(_build_app_without_auth_override(FakeCrdScrapeProxyService()))
+
+    response = client.post("/api/ria/crd-scrape-jobs", json={"crdNumber": "7413463"})
+
+    assert response.status_code == 401
+
+
+def test_get_crd_scrape_job_requires_firebase_auth() -> None:
+    client = TestClient(_build_app_without_auth_override(FakeCrdScrapeProxyService()))
+
+    response = client.get("/api/ria/crd-scrape-jobs/crd_scrape_test")
+
+    assert response.status_code == 401
+
+
+def test_create_financial_verification_job_requires_firebase_auth() -> None:
+    client = TestClient(_build_app_without_auth_override(FakeCrdScrapeProxyService()))
+
+    response = client.post("/api/ria/financial-verification-jobs", json={"subject": {}})
+
+    assert response.status_code == 401
+
+
+def test_get_financial_verification_job_requires_firebase_auth() -> None:
+    client = TestClient(_build_app_without_auth_override(FakeCrdScrapeProxyService()))
+
+    response = client.get("/api/ria/financial-verification-jobs/financial_verification_test")
+
+    assert response.status_code == 401

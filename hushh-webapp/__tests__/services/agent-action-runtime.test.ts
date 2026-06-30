@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function baseInput(actionId: string) {
   return {

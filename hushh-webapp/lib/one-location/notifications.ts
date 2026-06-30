@@ -68,6 +68,14 @@ export type OneLocationNotificationSection =
   | "public_responses"
   | "activity";
 
+export type OneLocationNotificationSection =
+  | "people"
+  | "approvals"
+  | "shared"
+  | "my_requests"
+  | "public_responses"
+  | "activity";
+
 const WORKFLOW_COPY: Record<
   OneLocationWorkflowNotificationType,
   { title: string; fallbackDescription: string }

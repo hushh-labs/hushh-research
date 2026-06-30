@@ -110,6 +110,9 @@ export function resolveOneNavSlot(
   if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MARKETPLACE)) {
     return "marketplace";
   }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE)) {
+    return "connect";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECTED_SYSTEMS)) {
     return "connected";
   }

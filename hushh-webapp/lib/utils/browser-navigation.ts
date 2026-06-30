@@ -20,13 +20,64 @@ function canUseWindow(): boolean {
   return typeof window !== "undefined";
 }
 
+function isClientRoutableAppHref(href: string): boolean {
+  return !(
+    href === "/api" ||
+    href.startsWith("/api/") ||
+    href === "/_next" ||
+    href.startsWith("/_next/") ||
+    href === "/templates" ||
+    href.startsWith("/templates/")
+  );
+}
+
+export function normalizeInternalAppNavigationHref(
+  value: string | null | undefined
+): string | null {
+  const href = String(value ?? "").trim();
+  if (!href) return null;
+
+  const directInternalHref = normalizeInternalRouteHref(href);
+  if (directInternalHref) {
+    return isClientRoutableAppHref(directInternalHref) ? directInternalHref : null;
+  }
+
+  if (!canUseWindow()) return null;
+
+  try {
+    const url = new URL(href, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    const internalHref = normalizeInternalRouteHref(
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+    if (!internalHref) return null;
+    return isClientRoutableAppHref(internalHref) ? internalHref : null;
+  } catch {
+    return null;
+  }
+}
+
 export function assignWindowLocation(nextUrl: string): void {
   if (!canUseWindow()) return;
+  const internalHref = normalizeInternalAppNavigationHref(nextUrl);
+  if (internalHref) {
+    requestInternalAppNavigation({ href: internalHref, scroll: false });
+    return;
+  }
   window.location.assign(nextUrl);
 }
 
 export function replaceWindowLocation(nextUrl: string): void {
   if (!canUseWindow()) return;
+  const internalHref = normalizeInternalAppNavigationHref(nextUrl);
+  if (internalHref) {
+    requestInternalAppNavigation({
+      href: internalHref,
+      replace: true,
+      scroll: false,
+    });
+    return;
+  }
   window.location.replace(nextUrl);
 }
 

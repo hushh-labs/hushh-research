@@ -968,7 +968,7 @@ export default function MarketplacePage() {
       toast.success("Connection request sent. The investor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -987,7 +987,7 @@ export default function MarketplacePage() {
       toast.success("Connection request sent. The advisor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -1215,7 +1215,7 @@ export default function MarketplacePage() {
                 aria-label="Toggle search"
                 onClick={() => setSearchOpen((current) => !current)}
               >
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
               </button>
               <Button
                 variant="none"
@@ -1276,10 +1276,14 @@ export default function MarketplacePage() {
           {searchOpen ? (
             <div className="mt-2">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  aria-label="Search marketplace"
                   placeholder={searchPlaceholder}
                   className="min-h-11 rounded-[22px] border-0 bg-card pl-10 text-sm"
                 />
@@ -1582,11 +1586,11 @@ export default function MarketplacePage() {
                 </p>
               ) : null}
               <div className="flex flex-wrap justify-center gap-2">
-                <Button variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
+                <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
                   <RotateCcw className="mr-2 h-4 w-4" />
                   {directoryKind === "investors" ? "Refresh deck" : "Start over"}
                 </Button>
-                <Button variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
+                <Button type="button" variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
                   <List className="mr-2 h-4 w-4" />
                   Switch to list
                 </Button>
@@ -1797,8 +1801,8 @@ export default function MarketplacePage() {
                     {selectedInjectedRia
                       ? "Demo"
                       : actionLoadingUserId === selectedAdvisor.user_id
-                        ? "Connecting..."
-                        : "Request advisory"}
+                        ? "Requesting..."
+                        : "Request RIA info"}
                   </Button>
                 ) : null}
                 {selectedAdvisor.disclosures_url ? (
@@ -1944,9 +1948,9 @@ export default function MarketplacePage() {
                     ? "Open workspace"
                     : Boolean(selectedInvestorUserId) &&
                         actionLoadingUserId === selectedInvestorUserId
-                      ? "Connecting..."
+                      ? "Requesting..."
                       : selectedInvestorConnectable
-                        ? "Send request"
+                        ? "Request info"
                         : selectedInvestorShortlistable
                           ? selectedInvestorIsShortlisted
                             ? "Saved lead"
