@@ -658,3 +658,91 @@ export function renderLlmRedraftHtml(text: string): string {
     htmlParagraph("");
   return wrapApprovedDisclosureShell(content);
 }
+
+/**
+ * Apply a SAFE inline-markdown subset (`**bold**`, `*italic*`) to text that has
+ * ALREADY been HTML-escaped. Underscore emphasis is deliberately unsupported so
+ * re-substituted PII values containing underscores are never mangled. Operating
+ * on pre-escaped input means the only tags ever emitted are our own.
+ */
+function renderInlineRedraftMarkdown(escaped: string): string {
+  return escaped
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+}
+
+/**
+ * Render the LLM-rewritten plaintext draft into safe, themed preview/sent HTML
+ * (root cause (b) fix). Escape-FIRST (XSS-safe: any markup the model emits is
+ * inert), then apply a constrained markdown block grammar — ATX headings
+ * (`#`/`##`/`###`), `-`/`*` bullet lists, and blank-line-separated paragraphs —
+ * styled with the shared EMAIL_THEME and wrapped in wrapApprovedDisclosureShell.
+ *
+ * Replaces the former htmlFromPlaintext, which escaped markdown literally and
+ * dropped the theme shell, so an LLM redraft no longer "breaks" or looks
+ * structurally different from the original draft. Stays ZK-safe: this only ever
+ * runs on the locally re-substituted plaintext — no backend plaintext rendering.
+ */
+export function renderLlmRedraftHtml(text: string): string {
+  const escaped = escapeHtml(text ?? "");
+  const lines = escaped.split("\n");
+
+  const out: string[] = [];
+  let paragraph: string[] = [];
+  let bullets: string[] = [];
+
+  const flushParagraph = (): void => {
+    if (!paragraph.length) return;
+    out.push(
+      `<p style="margin:0;color:${EMAIL_THEME.text};font-size:15px;line-height:1.6;white-space:pre-wrap;">${renderInlineRedraftMarkdown(paragraph.join("<br/>"))}</p>`
+    );
+    paragraph = [];
+  };
+  const flushBullets = (): void => {
+    if (!bullets.length) return;
+    const items = bullets
+      .map(
+        (item) =>
+          `<li style="margin:0 0 8px;color:${EMAIL_THEME.text};line-height:1.5;">${renderInlineRedraftMarkdown(item)}</li>`
+      )
+      .join("");
+    out.push(`<ul style="margin:0;padding-left:20px;">${items}</ul>`);
+    bullets = [];
+  };
+
+  const headingSize: Record<number, string> = { 1: "22px", 2: "18px", 3: "15px" };
+
+  for (const line of lines) {
+    if (/^\s*$/.test(line)) {
+      flushParagraph();
+      flushBullets();
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      flushBullets();
+      const level = (heading[1] ?? "#").length;
+      const size = headingSize[level] || "15px";
+      out.push(
+        `<h${level} style="margin:0;color:${EMAIL_THEME.heading};font-size:${size};line-height:1.2;">${renderInlineRedraftMarkdown((heading[2] ?? "").trim())}</h${level}>`
+      );
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      bullets.push((bullet[1] ?? "").trim());
+      continue;
+    }
+    flushBullets();
+    paragraph.push(line.trim());
+  }
+  flushParagraph();
+  flushBullets();
+
+  const content =
+    out.join('<div style="height:12px;line-height:12px;">&nbsp;</div>') ||
+    htmlParagraph("");
+  return wrapApprovedDisclosureShell(content);
+}

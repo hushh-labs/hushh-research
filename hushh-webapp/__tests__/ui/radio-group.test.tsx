@@ -37,4 +37,52 @@ describe("RadioGroup", () => {
       container.querySelector('[data-slot="radio-group-indicator"]'),
     ).toBeTruthy();
   });
+
+  it("marks only one option as aria-checked true", () => {
+    const { container } = render(
+      <RadioGroup defaultValue="b">
+        <RadioGroupItem value="a" />
+        <RadioGroupItem value="b" />
+        <RadioGroupItem value="c" />
+      </RadioGroup>,
+    );
+
+    const checkedOptions = Array.from(
+      container.querySelectorAll('[role="radio"][aria-checked="true"]'),
+    );
+
+    expect(checkedOptions).toHaveLength(1);
+    expect(checkedOptions[0].getAttribute("value")).toBe("b");
+  });
+
+  it("renders RadioGroupItem with role='radio'", () => {
+    const { container } = render(
+      <RadioGroup defaultValue="a">
+        <RadioGroupItem value="a" />
+      </RadioGroup>,
+    );
+
+    const item = container.querySelector(
+      '[data-slot="radio-group-item"]',
+    );
+
+    expect(item?.getAttribute("role")).toBe("radio");
+  });
+
+  it("merges custom className with default classes on the root", () => {
+    const { container } = render(
+      <RadioGroup
+        defaultValue="a"
+        className="custom-radio-class"
+      >
+        <RadioGroupItem value="a" />
+      </RadioGroup>,
+    );
+
+    const root = container.querySelector('[data-slot="radio-group"]');
+
+    expect(root?.classList.contains("custom-radio-class")).toBe(true);
+    expect(root?.classList.contains("grid")).toBe(true);
+  });
+
 });

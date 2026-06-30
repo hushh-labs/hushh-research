@@ -4,18 +4,26 @@ import { describe, expect, it } from "vitest";
 import { Textarea } from "@/components/ui/textarea";
 
 describe("Textarea", () => {
-  it("renders with data-slot='textarea'", () => {
+  it("renders a disabled textarea", () => {
+    const { container } = render(<Textarea disabled />);
+
+    const textarea = container.querySelector("textarea");
+
+    expect(textarea).not.toBeNull();
+    expect(textarea?.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("renders as a textarea element", () => {
     const { container } = render(<Textarea />);
 
-    expect(
-      container.querySelector('[data-slot="textarea"]'),
-    ).toBeTruthy();
-  });
-
-  it("forwards className to the textarea element", () => {
-    const { container } = render(<Textarea className="test-class" />);
     const el = container.querySelector('[data-slot="textarea"]');
 
-    expect(el?.classList.contains("test-class")).toBeTruthy();
+    expect(el?.tagName).toBe("TEXTAREA");
   });
+
+  it("propagates custom class names", () => {
+    const { container } = render(<Textarea className="custom-textarea" />);
+    expect(container.querySelector('[data-slot="textarea"]')?.className).toContain("custom-textarea");
+  });
+
 });
