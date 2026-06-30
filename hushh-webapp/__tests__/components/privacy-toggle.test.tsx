@@ -71,7 +71,7 @@ describe("PrivacyToggle", () => {
         checked={false}
         ariaLabel="Toggle analytics data"
         onCheckedChange={() => {}}
-      />,
+      />
     );
 
     const toggle = screen.getByRole("switch", {
@@ -81,4 +81,71 @@ describe("PrivacyToggle", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
+  it("calls onCheckedChange with false when initial state is checked and toggle is clicked", () => {
+    const handleCheckedChange = vi.fn();
+    render(
+      <PrivacyToggle
+        checked={true}
+        ariaLabel="Toggle sync"
+        onCheckedChange={handleCheckedChange}
+      />
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Toggle sync",
+    });
+
+    fireEvent.click(toggle);
+    expect(handleCheckedChange).toHaveBeenCalledWith(false);
+  });
+
+  it("applies active background/transform classes when checked and propagates custom className", () => {
+    const { rerender } = render(
+      <PrivacyToggle
+        checked={true}
+        ariaLabel="Toggle active"
+        onCheckedChange={() => {}}
+        className="my-custom-toggle"
+      />
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Toggle active",
+    });
+
+    expect(toggle.className).toContain("bg-primary");
+    expect(toggle.className).toContain("my-custom-toggle");
+    expect((toggle.firstChild as HTMLElement).className).toContain("translate-x-4");
+
+    rerender(
+      <PrivacyToggle
+        checked={false}
+        ariaLabel="Toggle active"
+        onCheckedChange={() => {}}
+      />
+    );
+
+    expect(toggle.className).toContain("bg-input");
+    expect((toggle.firstChild as HTMLElement).className).not.toContain("translate-x-4");
+  });
+
+  it("prevents pointerdown event propagation", () => {
+    render(
+      <PrivacyToggle
+        checked={false}
+        ariaLabel="Toggle active"
+        onCheckedChange={() => {}}
+      />
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Toggle active",
+    });
+
+    const pointerDownEvent = new Event("pointerdown", { bubbles: true, cancelable: true });
+    const spy = vi.spyOn(pointerDownEvent, "stopPropagation");
+
+    fireEvent(toggle, pointerDownEvent);
+    expect(spy).toHaveBeenCalled();
+  });
 });
