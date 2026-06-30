@@ -3,6 +3,7 @@ import { ApiError, apiJson } from "@/lib/services/api-client";
 import type {
   ActionResult,
   LocationChatResponse,
+  SelectionResult,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -148,6 +149,7 @@ export class OneLocationService {
     message?: string;
     conversationId?: string | null;
     actionResult?: ActionResult;
+    selectionResult?: SelectionResult;
   }): Promise<LocationChatResponse> {
     return apiJson<LocationChatResponse>("/api/one/location/chat", {
       method: "POST",
@@ -156,6 +158,7 @@ export class OneLocationService {
         message: params.message ?? null,
         conversationId: params.conversationId ?? null,
         actionResult: params.actionResult ?? null,
+        selectionResult: params.selectionResult ?? null,
       }),
     });
   }

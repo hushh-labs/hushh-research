@@ -354,10 +354,42 @@ export interface ActionResult {
   detail?: string;
 }
 
+export interface PromptOption {
+  label: string;
+  ref: Record<string, unknown>;
+  hint?: string | null;
+}
+
+export type ClientPromptKind = "select" | "confirm";
+
+export interface ClientPrompt {
+  id: string;
+  kind: ClientPromptKind;
+  purpose: string;
+  question: string;
+  options?: PromptOption[];
+  minSelections?: number;
+  maxSelections?: number | null;
+  allowFreeText?: boolean;
+  confirmLabel?: string | null;
+  cancelLabel?: string | null;
+  destructive?: boolean;
+}
+
+export interface SelectionResult {
+  id: string;
+  kind: ClientPromptKind;
+  selected?: Record<string, unknown>[];
+  confirmed?: boolean;
+  freeText?: string;
+  status: "answered" | "cancelled";
+}
+
 export interface LocationChatResponse {
   conversationId: string;
   response: string;
   isComplete: boolean;
   stateChanged: boolean;
   clientAction?: ClientAction;
+  clientPrompt?: ClientPrompt;
 }

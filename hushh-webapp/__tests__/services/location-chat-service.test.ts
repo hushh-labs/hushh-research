@@ -56,6 +56,7 @@ describe("OneLocationService.chat", () => {
         message: "stop sharing with Mom",
         conversationId: "conv-1",
         actionResult: null,
+        selectionResult: null,
       }),
     });
     expect(result.stateChanged).toBe(true);
@@ -72,7 +73,7 @@ describe("OneLocationService.chat", () => {
     await OneLocationService.chat({ vaultOwnerToken: "t", message: "hi" });
 
     const body = JSON.parse((mockApiJson.mock.calls[0][1] as RequestInit).body as string);
-    expect(body).toEqual({ message: "hi", conversationId: null, actionResult: null });
+    expect(body).toEqual({ message: "hi", conversationId: null, actionResult: null, selectionResult: null });
   });
 });
 
@@ -95,6 +96,22 @@ describe("OneLocationService.chat actionResult", () => {
 
     const body = JSON.parse((mockApiJson.mock.calls[0][1] as RequestInit).body as string);
     expect(body.actionResult).toEqual({ id: "a1", type: "publish_share", status: "completed" });
+    expect(body.message ?? null).toBeNull();
+  });
+});
+
+describe("OneLocationService.chat selectionResult", () => {
+  beforeEach(() => mockApiJson.mockReset());
+
+  it("sends selectionResult and omits message", async () => {
+    mockApiJson.mockResolvedValue({ conversationId: "c1", response: "ok", isComplete: true, stateChanged: true });
+    await OneLocationService.chat({
+      vaultOwnerToken: "tok",
+      conversationId: "c1",
+      selectionResult: { id: "prm-1", kind: "select", selected: [{ grantId: "g1" }], status: "answered" },
+    });
+    const body = JSON.parse((mockApiJson.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.selectionResult).toEqual({ id: "prm-1", kind: "select", selected: [{ grantId: "g1" }], status: "answered" });
     expect(body.message ?? null).toBeNull();
   });
 });
