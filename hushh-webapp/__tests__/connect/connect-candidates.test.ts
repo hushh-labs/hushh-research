@@ -33,6 +33,22 @@ describe("Connect Candidates Normalization & Merge Module", () => {
       expect(candidate.connectionStatus).toBe("available");
       expect(candidate.primaryCta).toBe("connect");
     });
+
+    it("should resolve primary CTA as open_profile for test profiles", () => {
+      const mockRia: MarketplaceRia = {
+        id: "ria-test",
+        user_id: "user-ria-test",
+        display_name: "Test Advisor",
+        headline: "Headline",
+        strategy_summary: "Summary",
+        verification_status: "active",
+        is_test_profile: true,
+      };
+
+      const candidate = normalizeRiaToCandidate(mockRia, { currentPersona: "investor" });
+      expect(candidate.primaryCta).toBe("open_profile");
+      expect(candidate.isTestProfile).toBe(true);
+    });
   });
 
   describe("normalizeInvestorToCandidate", () => {
@@ -71,6 +87,21 @@ describe("Connect Candidates Normalization & Merge Module", () => {
       expect(candidate.candidateId).toBe("public:public_sec:12345");
       expect(candidate.kind).toBe("public_profile");
       expect(candidate.primaryCta).toBe("none");
+    });
+
+    it("should format locationLabel with curation label and location hint", () => {
+      const mockInvestor: MarketplaceInvestor = {
+        id: "inv-loc",
+        source_type: "hushh_user",
+        display_name: "Local Investor",
+        location_hint: "San Francisco",
+        strategy_curation_score: 95,
+        connectable: true,
+      };
+
+      const candidate = normalizeInvestorToCandidate(mockInvestor, { currentPersona: "ria" });
+      expect(candidate.locationLabel).toContain("Qualified Hushh investor");
+      expect(candidate.locationLabel).toContain("San Francisco");
     });
   });
 
@@ -166,6 +197,45 @@ describe("Connect Candidates Normalization & Merge Module", () => {
       expect(candidate!.connectionStatus).toBe("connected");
       expect(candidate!.primaryCta).toBe("view_connection");
     });
+
+    it("should return null if counterpart_id is missing", () => {
+      const entry: ConsentCenterEntry = {
+        request_id: "req-1",
+        counterpart_type: "ria",
+        relationship_status: "active",
+      };
+
+      const candidate = normalizeConsentEntryToCandidate(entry, { surface: "active" });
+      expect(candidate).toBeNull();
+    });
+
+    it("should correctly map pending surface to pending connection status", () => {
+      const entry: ConsentCenterEntry = {
+        request_id: "req-pending",
+        counterpart_id: "counter-pending",
+        counterpart_type: "investor",
+        relationship_status: "pending",
+      };
+
+      const candidate = normalizeConsentEntryToCandidate(entry, { surface: "pending" });
+      expect(candidate).not.toBeNull();
+      expect(candidate!.connectionStatus).toBe("pending");
+      expect(candidate!.primaryCta).toBe("review_request");
+    });
+
+    it("should correctly map previous surface to previous connection status", () => {
+      const entry: ConsentCenterEntry = {
+        request_id: "req-revoked",
+        counterpart_id: "counter-revoked",
+        counterpart_type: "ria",
+        relationship_status: "revoked",
+      };
+
+      const candidate = normalizeConsentEntryToCandidate(entry, { surface: "previous" });
+      expect(candidate).not.toBeNull();
+      expect(candidate!.connectionStatus).toBe("previous");
+      expect(candidate!.primaryCta).toBe("open_profile");
+    });
   });
 
   describe("mergeCandidates", () => {
@@ -245,6 +315,39 @@ describe("Connect Candidates Normalization & Merge Module", () => {
       expect(merged.visibilityPosture).toBe("private");
       expect(merged.exposureEnabled).toBe(false);
       expect(merged.isDiscoverable).toBe(false);
+    });
+
+    it("picks the higher priority status when merging candidates", () => {
+      const cPending: ConnectCandidate = {
+        candidateId: "user:123",
+        kind: "ria",
+        sourceTypes: ["contact_match"],
+        userId: "123",
+        displayName: "John",
+        isDiscoverable: true,
+        connectionStatus: "pending",
+        score: 10,
+        reasons: [],
+        primaryCta: "review_request",
+        secondaryCtas: [],
+      };
+      const cPrevious: ConnectCandidate = {
+        candidateId: "user:123",
+        kind: "ria",
+        sourceTypes: ["marketplace_ria"],
+        userId: "123",
+        displayName: "John",
+        isDiscoverable: true,
+        connectionStatus: "previous",
+        score: 10,
+        reasons: [],
+        primaryCta: "open_profile",
+        secondaryCtas: [],
+      };
+
+      // pending is higher priority than previous in statusPriority map
+      const [merged] = mergeCandidates([cPending, cPrevious]);
+      expect(merged.connectionStatus).toBe("pending");
     });
   });
 });
