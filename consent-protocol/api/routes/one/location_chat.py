@@ -30,12 +30,24 @@ class ActionResultModel(BaseModel):
     detail: str | None = Field(default=None, max_length=500)
 
 
+class SelectionResultModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(max_length=64)
+    kind: str = Field(max_length=24)
+    selected: list[dict[str, Any]] | None = None
+    confirmed: bool | None = None
+    free_text: str | None = Field(default=None, alias="freeText", max_length=4000)
+    status: str = Field(max_length=24)
+
+
 class LocationChatRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     message: str | None = Field(default=None, max_length=4000)
     conversation_id: str | None = Field(default=None, alias="conversationId", max_length=128)
     action_result: ActionResultModel | None = Field(default=None, alias="actionResult")
+    selection_result: SelectionResultModel | None = Field(default=None, alias="selectionResult")
 
 
 @router.post("/location/chat")
@@ -43,8 +55,10 @@ async def location_chat(
     request: LocationChatRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
-    if not request.message and request.action_result is None:
-        raise HTTPException(status_code=422, detail="message or actionResult is required")
+    if not request.message and request.action_result is None and request.selection_result is None:
+        raise HTTPException(
+            status_code=422, detail="message, actionResult, or selectionResult is required"
+        )
     try:
         result: dict[str, Any] = await _service().handle_turn(
             user_id=token_data["user_id"],
@@ -54,6 +68,11 @@ async def location_chat(
             action_result=(
                 request.action_result.model_dump(by_alias=True, exclude_none=True)
                 if request.action_result is not None
+                else None
+            ),
+            selection_result=(
+                request.selection_result.model_dump(by_alias=True, exclude_none=True)
+                if request.selection_result is not None
                 else None
             ),
         )
