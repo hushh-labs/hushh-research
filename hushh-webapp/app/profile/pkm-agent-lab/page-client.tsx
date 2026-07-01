@@ -41,6 +41,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   getPersistablePreviewCards,
   getReviewRequiredPreviewCount,
@@ -1183,7 +1184,7 @@ export default function PkmAgentLabPageClient() {
                 description="PKM Agent Lab is restricted to localhost developer runs during this phase."
                 leading={<Code2 className="h-4 w-4 text-amber-500" />}
                 trailing={
-                  <Button variant="none" effect="fade" onClick={() => router.push("/developers")}>
+                  <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.DEVELOPERS)}>
                     Open Developers
                   </Button>
                 }
