@@ -27,8 +27,8 @@ import {
   Loader2,
   LocateFixed,
   MapPin,
-  Navigation,
   Pencil,
+
   Plus,
   RefreshCw,
   Route,
@@ -759,11 +759,8 @@ function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
 }
 
-function googleMapsStartNavigationUrl(point: PlainLocationPoint): string {
-  return `${googleMapsDirectionsUrl(point)}&dir_action=navigate`;
-}
-
 function locationAccuracyLabel(point: PlainLocationPoint): string | null {
+
   const accuracyM = point.accuracyM;
   if (typeof accuracyM !== "number" || !Number.isFinite(accuracyM) || accuracyM <= 0) {
     return null;
@@ -803,8 +800,8 @@ function LocalMapPreview({
   const accuracy = locationAccuracyLabel(point);
   const embedUrl = googleMapsLocationEmbedUrl(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
-  const startUrl = googleMapsStartNavigationUrl(point);
   const statusLabel = isStale ? "Last known location" : "Live location";
+
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
@@ -851,7 +848,7 @@ function LocalMapPreview({
         </div>
 
         {showNavigation ? (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2">
             <Button
               asChild
               variant="outline"
@@ -868,23 +865,9 @@ function LocalMapPreview({
                 Directions
               </a>
             </Button>
-            <Button
-              asChild
-              size="sm"
-              className="h-10 w-full min-w-0 rounded-full bg-[#1c1c1e] text-white hover:bg-black dark:bg-white dark:text-[#1c1c1e] dark:hover:bg-white/90"
-            >
-              <a
-                href={startUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Start Google Maps navigation to shared live location"
-              >
-                <Navigation className="h-4 w-4" aria-hidden="true" />
-                Start
-              </a>
-            </Button>
           </div>
         ) : null}
+
       </div>
 
 

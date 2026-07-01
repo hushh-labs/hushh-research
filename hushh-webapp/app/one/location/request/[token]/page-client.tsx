@@ -6,9 +6,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   MapPin,
-  Navigation,
   Route,
 } from "lucide-react";
+
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,11 +53,8 @@ function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
   )}&travelmode=driving`;
 }
 
-function googleMapsStartUrl(point: PlainLocationPoint): string {
-  return `${googleMapsDirectionsUrl(point)}&dir_action=navigate`;
-}
-
 function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
+
   const capturedAt = formatDateTime(point.capturedAt);
   const accuracy =
     typeof point.accuracyM === "number" && Number.isFinite(point.accuracyM)
@@ -87,7 +84,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
             {accuracy ? ` - ${accuracy}` : ""}
           </p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2">
           <Button asChild variant="outline" size="sm" className="h-10 rounded-full">
             <a
               href={googleMapsDirectionsUrl(point)}
@@ -98,17 +95,8 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
               Directions
             </a>
           </Button>
-          <Button asChild size="sm" className="h-10 rounded-full">
-            <a
-              href={googleMapsStartUrl(point)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Navigation className="h-4 w-4" aria-hidden="true" />
-              Start
-            </a>
-          </Button>
         </div>
+
       </div>
     </div>
   );
