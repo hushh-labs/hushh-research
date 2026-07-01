@@ -65,6 +65,20 @@ describe("formatCompleteJson — array bounds with null and mixed primitives", (
     expect(out).toContain("• visible-label");
   });
 
+  it('falls back to the literal string "Item" when a generic-array object element has no non-nullish values', () => {
+    const out = formatCompleteJson({
+      misc_items: [
+        {
+          first: null,
+          second: undefined,
+        },
+      ],
+    });
+
+    expect(out).toContain("• Item");
+  });
+
+
   it("skips empty arrays entirely — no section header is emitted", () => {
     const out = formatCompleteJson({
       misc_items: [],
