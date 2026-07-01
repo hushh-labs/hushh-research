@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 describe("profile workspace duplication contract", () => {
   it("keeps One dashboard workspaces out of the Profile landing screen", () => {
@@ -16,11 +16,11 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain(
       "const openMyDataPanel = () => router.push(ROUTES.PKM);",
     );
-    expect(profilePageSource).not.toContain(
-      "const openAccessPanel = () => router.push(ROUTES.CONSENTS);",
+    expect(profilePageSource).not.toMatch(
+      /const\s+openAccessPanel\s*=\s*\(\)\s*=>\s*router\.push\(\s*ROUTES\.CONSENTS\s*\);/,
     );
-    expect(profilePageSource).not.toContain(
-      "const openGmailPanel = () => router.push(ROUTES.GMAIL);",
+    expect(profilePageSource).not.toMatch(
+      /const\s+openGmailPanel\s*=\s*\(\)\s*=>\s*router\.push\(\s*ROUTES\.GMAIL\s*\);/,
     );
     expect(profilePageSource).toContain(
       '<SettingsGroup title="Your settings" separatorInset>',
