@@ -4,6 +4,7 @@
   "main": "electron/main/main.js",
   "scripts": {
     "start": "electron .",
+    "build:backend": "cd backend && uv run build-backend.py",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -16,31 +17,21 @@
   "build": {
     "appId": "com.hushh.desktop",
     "productName": "Hushh Desktop",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "backend/dist/hushh-backend.exe"
+    ],
     "directories": {
       "output": "installer"
     },
     "files": [
       "electron/**/*",
-      "config/**/*",
       "package.json",
+      "backend/dist/hushh-backend.exe",
       "frontend/.next/standalone/**/*",
       "frontend/.next/static/**/*",
       "frontend/public/**/*",
-      "frontend/.env.local",
-      "backend/api/**/*",
-      "backend/db/**/*",
-      "backend/hushh_mcp/**/*",
-      "backend/hussh_sdk/**/*",
-      "backend/mcp_modules/**/*",
-      "backend/services/**/*",
-      "backend/utils/**/*",
-      "backend/*.py",
-      "backend/pyproject.toml",
-      "backend/requirements.txt",
-      "backend/uv.lock",
-      "backend/.python-version",
-      "backend/.env"
+      "backend/dist/hushh-backend.exe"
     ],
     "win": {
       "target": "zip"

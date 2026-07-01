@@ -36,6 +36,11 @@ const NODE_EXE = process.execPath;
  * @returns {Promise<void>}
  */
 async function ensureBackendVenv() {
+  const context = getRuntimeContext();
+  if (!context.isDev) {
+    console.log("[launcher] ── Production mode: skipping python venv check (using compiled binary).");
+    return;
+  }
   if (fs.existsSync(PYTHON_EXE)) return; // already installed
 
   console.log("[launcher] ── First-run: installing backend dependencies via uv sync …");
@@ -65,24 +70,41 @@ async function ensureBackendVenv() {
 function startBackend() {
   const context = getRuntimeContext();
   
-  const uvicornArgs = [
-    "-m", "uvicorn", "server:app",
-    "--port", context.backendPort.toString(),
-    ...(context.isDev ? ["--reload"] : []),
-  ];
-
-  console.log("[launcher] ── Backend diagnostics ──────────────────────────");
-  console.log("[launcher]   PYTHON_EXE  :", PYTHON_EXE);
-  console.log("[launcher]   exists      :", fs.existsSync(PYTHON_EXE));
-  console.log("[launcher]   cwd         :", BACKEND_DIR);
-  console.log("[launcher]   mode        :", context.isDev ? "development (--reload)" : "production");
-  console.log("[launcher] ─────────────────────────────────────────────────");
-
   const { backendEnv } = resolveEnvironments(FRONTEND_DIR, BACKEND_DIR);
   const mergedEnv = { ...process.env, ...backendEnv };
 
+  let exeCommand = "";
+  let exeArgs = [];
+
+  if (context.isDev) {
+    exeCommand = PYTHON_EXE;
+    exeArgs = [
+      "-m", "uvicorn", "server:app",
+      "--port", context.backendPort.toString(),
+      "--reload"
+    ];
+    console.log("[launcher] ── Backend diagnostics (Development) ──────");
+    console.log("[launcher]   PYTHON_EXE  :", PYTHON_EXE);
+    console.log("[launcher]   exists      :", fs.existsSync(PYTHON_EXE));
+  } else {
+    let prodExePath = path.resolve(BACKEND_DIR, "dist", "hushh-backend.exe");
+    if (prodExePath.includes("app.asar")) {
+      prodExePath = prodExePath.replace("app.asar", "app.asar.unpacked");
+    }
+    exeCommand = prodExePath;
+    exeArgs = [
+      "--port", context.backendPort.toString()
+    ];
+    console.log("[launcher] ── Backend diagnostics (Production) ───────");
+    console.log("[launcher]   BINARY_EXE  :", exeCommand);
+    console.log("[launcher]   exists      :", fs.existsSync(exeCommand));
+  }
+  
+  console.log("[launcher]   cwd         :", BACKEND_DIR);
+  console.log("[launcher] ─────────────────────────────────────────────────");
+
   // Set stdio to ["pipe", "pipe", "pipe"] for process supervisor hooks
-  const backendProc = spawn(PYTHON_EXE, uvicornArgs, {
+  const backendProc = spawn(exeCommand, exeArgs, {
     cwd: BACKEND_DIR,
     stdio: ["pipe", "pipe", "pipe"],
     env: mergedEnv,

@@ -715,5 +715,11 @@ async def startup_consent_revocation_worker() -> None:
 
 if __name__ == "__main__":
     import uvicorn
+    import argparse
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False)  # noqa: S104
+    parser = argparse.ArgumentParser(description="Hushh Backend Server")
+    parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host IP to bind to")
+    args = parser.parse_args()
+
+    uvicorn.run(app, host=args.host, port=args.port, access_log=False)
