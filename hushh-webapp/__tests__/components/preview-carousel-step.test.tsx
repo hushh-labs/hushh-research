@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
+import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   class ResizeObserverStub {
@@ -55,8 +56,14 @@ vi.mock("@/components/onboarding/previews/DecisionPreviewCompact", () => ({
   DecisionPreviewCompact: () => <div>Decision preview</div>,
 }));
 
+vi.mock("@/lib/services/onboarding-local-service", () => ({
+  OnboardingLocalService: {
+    markMarketingSeen: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 describe("PreviewCarouselStep", () => {
-  it("covers slide indicator current state", () => {
+  it("covers slide indicator current state and displays initial slide content", () => {
     render(<PreviewCarouselStep onContinue={vi.fn()} />);
 
     const slides = screen.getAllByRole("group");
@@ -65,5 +72,22 @@ describe("PreviewCarouselStep", () => {
     expect(slides[0]?.getAttribute("aria-current")).toBe("step");
     expect(slides[1]?.getAttribute("aria-current")).toBeNull();
     expect(slides[2]?.getAttribute("aria-current")).toBeNull();
+
+    // Verify initial slide text content
+    expect(screen.getByText("Verified in")).toBeTruthy();
+    expect(screen.getByText("Your identity, confirmed securely.")).toBeTruthy();
+  });
+
+  it("calls markMarketingSeen and onContinue when Skip button is clicked", async () => {
+    const onContinue = vi.fn();
+    render(<PreviewCarouselStep onContinue={onContinue} />);
+
+    const skipButton = screen.getByRole("button", { name: "Skip" });
+    fireEvent.click(skipButton);
+
+    await waitFor(() => {
+      expect(OnboardingLocalService.markMarketingSeen).toHaveBeenCalled();
+      expect(onContinue).toHaveBeenCalled();
+    });
   });
 });
