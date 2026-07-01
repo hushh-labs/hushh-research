@@ -113,4 +113,12 @@ describe("backend runtime resolution", () => {
 
     expect(helper.getPythonApiUrl()).toContain("127.0.0.1");
   });
+  it("strips surrounding spaces from a backend URL env var", async () => {
+  process.env.K_SERVICE = "hushh-webapp";
+  process.env.PYTHON_API_URL = "  https://api.example.com  ";
+
+  const helper = await loadHelper();
+
+  expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+});
 });
