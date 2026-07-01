@@ -22,4 +22,16 @@ describe("copyToClipboard", () => {
 
     expect(document.querySelectorAll("textarea")).toHaveLength(0);
   });
+  it("uses navigator clipboard when available", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+
+  await expect(copyToClipboard("copy me")).resolves.toBe(true);
+
+  expect(writeText).toHaveBeenCalledWith("copy me");
+});
 });
