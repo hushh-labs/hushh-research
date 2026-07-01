@@ -88,9 +88,6 @@ function startBackend() {
     console.log("[launcher]   exists      :", fs.existsSync(PYTHON_EXE));
   } else {
     let prodExePath = path.resolve(BACKEND_DIR, "dist", "hushh-backend.exe");
-    if (prodExePath.includes("app.asar")) {
-      prodExePath = prodExePath.replace("app.asar", "app.asar.unpacked");
-    }
     exeCommand = prodExePath;
     exeArgs = [
       "--port", context.backendPort.toString()

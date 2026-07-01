@@ -17,10 +17,7 @@
   "build": {
     "appId": "com.hushh.desktop",
     "productName": "Hushh Desktop",
-    "asar": true,
-    "asarUnpack": [
-      "backend/dist/hushh-backend.exe"
-    ],
+    "asar": false,
     "directories": {
       "output": "installer"
     },
