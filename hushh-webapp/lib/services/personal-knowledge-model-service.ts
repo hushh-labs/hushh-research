@@ -3042,7 +3042,7 @@ export class PersonalKnowledgeModelService {
     } catch {
       metadata = null;
     }
-    const availableDomains = metadata?.domains.map((domain) => domain.key).filter(Boolean) || [];
+    const availableDomains = (metadata?.domains ?? []).map((domain) => domain.key).filter(Boolean);
 
     const legacyEncrypted = await this.getEncryptedData(params.userId, params.vaultOwnerToken);
     const domainBlobs = await Promise.all(
