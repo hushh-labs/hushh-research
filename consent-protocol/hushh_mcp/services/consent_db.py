@@ -1096,7 +1096,7 @@ class ConsentDBService:
         user_id: str,
         agent_id: Optional[str] = None,
         scope: Optional[str] = None,
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """Get active internal/self tokens without exposing them to the external consent ledger."""
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         try:
@@ -1489,7 +1489,7 @@ class ConsentDBService:
         agent_id: Optional[str] = None,
         request_id: Optional[str] = None,
         clear_all: bool = False,
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Delete audit log rows for a user.
 
@@ -2132,7 +2132,7 @@ class ConsentDBService:
 
     async def get_recent_consent_events(
         self, user_id: str, after_timestamp_ms: int, limit: int = 10
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """
         Get recent consent events after a timestamp for SSE streaming.
 
@@ -2482,7 +2482,7 @@ class ConsentDBService:
             logger.error(f"Failed to store consent export: {e}")
             return False
 
-    async def get_consent_export(self, consent_token: str) -> Optional[Dict]:
+    async def get_consent_export(self, consent_token: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve encrypted export data for a consent token.
 
