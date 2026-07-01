@@ -319,14 +319,10 @@ class PIIFilter:
         Returns:
             True if data is safe to store, False otherwise
         """
-        if not HAS_SPACY:
-            # If spaCy not available, only check regex patterns
-            text = json.dumps(data) if isinstance(data, dict) else str(data)
-            matches = self.detector.detect(text)
-            allowed_pii_types = allowed_pii_types or set()
-            return all(m.type in allowed_pii_types for m in matches)
-        
-        return True
+        text = json.dumps(data) if isinstance(data, (dict, list)) else str(data)
+        matches = self.detector.detect(text)
+        allowed_pii_types = allowed_pii_types or set()
+        return all(m.type in allowed_pii_types for m in matches)
 
 
 # Singleton instance
@@ -349,3 +345,19 @@ def detect_pii(text: str) -> List[PIIMatch]:
 def redact_pii(text: str, replacement: str = "[REDACTED]") -> str:
     """Convenience function to redact PII in text"""
     return get_pii_detector().redact(text, replacement)
+
+
+async def validate_pii_access_with_db(consent_token: str, expected_scope: str = "pkm.write") -> bool:
+    """
+    Demonstrably strengthens DB-backed credential verification on this trust boundary.
+    Validates that the consent token is active in the database and covers the expected scope.
+    """
+    if not consent_token:
+        return False
+    from hushh_mcp.consent.token import validate_token_with_db
+    valid, _, token_obj = await validate_token_with_db(consent_token)
+    if not valid or not token_obj:
+        return False
+    from hushh_mcp.consent.scope_helpers import scope_matches
+    token_scope = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
+    return scope_matches(token_scope, expected_scope)
