@@ -17,4 +17,7 @@ describe("cn", () => {
     "flex items-center",
   );
 });
+it("handles nested array inputs", () => {
+  expect(cn(["flex", ["items-center"]])).toBe("flex items-center");
+});
 });
