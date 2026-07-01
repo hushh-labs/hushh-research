@@ -1076,8 +1076,8 @@ export function VaultFlow({
             recommendedQuickMethod,
             currentRpId
           );
-        } catch (dismissError) {
-          console.warn("[VaultFlow] UITest quick-unlock dismissal failed:", dismissError);
+        } catch (_dismissError) {
+          // silently ignore UI-test dismissal failure
         }
       }
       await finalizeUnlock(pendingUnlockKey, attempt);
