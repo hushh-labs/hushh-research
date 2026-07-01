@@ -174,6 +174,7 @@ def test_create_runtime_client_uses_byok_key_without_env_fallback(monkeypatch):
 
 def test_create_managed_runtime_client_uses_vertex_adc(monkeypatch):
     calls: list[dict] = []
+    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", lambda **k: calls.append(k) or SimpleNamespace(kind="client"))
 
     def fake_client(**kwargs):
         calls.append(kwargs)
@@ -184,7 +185,7 @@ def test_create_managed_runtime_client_uses_vertex_adc(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
 
-    client = create_managed_runtime_client("gemini", " MANAGED_KEY ")
+    client = create_managed_runtime_client("gemini")
 
     assert client.kind == "client"
     assert calls == [{"vertexai": True, "project": "hushh-test", "location": "global"}]
