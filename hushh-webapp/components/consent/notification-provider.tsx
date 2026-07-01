@@ -2181,10 +2181,12 @@ export function ConsentNotificationProvider({
         dispatchFeedStateChanged("action");
       } catch (err) {
         if (cancelled) return;
-        if (isTransientFetchFailure(err)) {
-          console.warn("[NotificationProvider] Initial fetch error:", err);
-        } else {
-          console.error("[NotificationProvider] Initial fetch error:", err);
+        if (process.env.NODE_ENV !== "production") {
+          if (isTransientFetchFailure(err)) {
+            console.warn("[NotificationProvider] Initial fetch error:", err);
+          } else {
+            console.error("[NotificationProvider] Initial fetch error:", err);
+          }
         }
         if (queuedPending.length > 0) {
           clearQueuedPendingConsents(uid);
