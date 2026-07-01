@@ -1,4 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const mockSessionStorage = vi.hoisted(() => ({
+  store: {} as Record<string, string>,
+}));
+
+vi.mock("@/lib/utils/session-storage", () => ({
+  setSessionItem: vi.fn((key: string, value: string) => {
+    mockSessionStorage.store[key] = value;
+  }),
+  getSessionItem: vi.fn((key: string) => mockSessionStorage.store[key] || null),
+  removeSessionItem: vi.fn((key: string) => {
+    delete mockSessionStorage.store[key];
+  }),
+}));
 
 import {
   describeGmailReceiptScanProgress,
@@ -7,6 +21,11 @@ import {
   resolveGmailStatusSummary,
   resolveGmailSyncFeedback,
   sanitizeGmailUserMessage,
+  buildProfileGmailReturnPath,
+  stashProfileGmailReturnStatus,
+  consumeProfileGmailReturnStatus,
+  isRecoverableGmailOAuthReplayError,
+  resolveGmailConnectedLabel,
 } from "@/lib/profile/mail-flow";
 
 describe("resolveGmailSyncFeedback", () => {
