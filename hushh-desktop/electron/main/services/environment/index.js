@@ -29,20 +29,46 @@ function loadEnvFile(filePath) {
   return env;
 }
 
+const crypto = require("crypto");
+
 /**
  * Resolves environmental variables for the frontend and backend processes.
  * @param {string} frontendCwd 
  * @param {string} backendCwd 
+ * @param {string} [userDataPath]
  * @returns {{ frontendEnv: Record<string, string>, backendEnv: Record<string, string> }}
  */
-function resolveEnvironments(frontendCwd, backendCwd) {
+function resolveEnvironments(frontendCwd, backendCwd, userDataPath) {
   const frontendEnv = {
     ...loadEnvFile(path.join(frontendCwd, ".env.production")),
     ...loadEnvFile(path.join(frontendCwd, ".env")),
     ...loadEnvFile(path.join(frontendCwd, ".env.local")),
   };
 
-  const backendEnv = loadEnvFile(path.join(backendCwd, ".env"));
+  const bundledBackendEnv = loadEnvFile(path.join(backendCwd, ".env"));
+  
+  let userBackendEnv = {};
+  if (userDataPath) {
+    const userEnvPath = path.join(userDataPath, "backend.env");
+    
+    if (!fs.existsSync(userEnvPath)) {
+      const vaultKey = crypto.randomBytes(32).toString("hex");
+      const signingKey = crypto.randomBytes(32).toString("hex");
+      
+      const content = `VAULT_DATA_KEY=${vaultKey}\nAPP_SIGNING_KEY=${signingKey}\n`;
+      fs.writeFileSync(userEnvPath, content, "utf8");
+      console.log(`[environment] 🔐 Generated new machine-specific cryptographic keys at ${userEnvPath}`);
+    } else {
+      console.log(`[environment] 🔐 Loaded existing machine-specific cryptographic keys from ${userEnvPath}`);
+    }
+    
+    userBackendEnv = loadEnvFile(userEnvPath);
+  }
+
+  const backendEnv = {
+    ...bundledBackendEnv,
+    ...userBackendEnv,
+  };
 
   return {
     frontendEnv,

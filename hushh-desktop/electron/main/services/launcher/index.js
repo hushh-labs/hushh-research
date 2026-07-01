@@ -63,6 +63,8 @@ async function ensureBackendVenv() {
   console.log("[launcher] ✓ Backend dependencies installed.");
 }
 
+const { app } = require("electron");
+
 /**
  * Spawns the FastAPI backend process.
  * @returns {import("child_process").ChildProcess}
@@ -70,7 +72,8 @@ async function ensureBackendVenv() {
 function startBackend() {
   const context = getRuntimeContext();
   
-  const { backendEnv } = resolveEnvironments(FRONTEND_DIR, BACKEND_DIR);
+  const userDataPath = app.getPath("userData");
+  const { backendEnv } = resolveEnvironments(FRONTEND_DIR, BACKEND_DIR, userDataPath);
   const mergedEnv = { ...process.env, ...backendEnv };
 
   let exeCommand = "";
@@ -139,7 +142,8 @@ function startFrontend() {
   console.log("[launcher]   PORT        :", context.frontendPort);
   console.log("[launcher] ─────────────────────────────────────────────────");
 
-  const { frontendEnv } = resolveEnvironments(FRONTEND_DIR, BACKEND_DIR);
+  const userDataPath = app.getPath("userData");
+  const { frontendEnv } = resolveEnvironments(FRONTEND_DIR, BACKEND_DIR, userDataPath);
 
   const frontendProc = spawn(NODE_EXE, frontendArgs, {
     cwd: frontendCwd,
