@@ -25,6 +25,7 @@
       "electron/**/*",
       "package.json",
       "backend/dist/hushh-backend.exe",
+      "frontend/.env*",
       "frontend/.next/standalone/**/*",
       "frontend/.next/static/**/*",
       "frontend/public/**/*",
