@@ -1430,8 +1430,7 @@ export function KaiFlow({
       const status = resource?.plaidStatus ?? null;
       setPlaidStatus(status);
       return status;
-    } catch (plaidError) {
-      console.warn("[KaiFlow] Failed to load Plaid status:", plaidError);
+    } catch (_plaidError) {
       setPlaidStatus(null);
       return null;
     }
