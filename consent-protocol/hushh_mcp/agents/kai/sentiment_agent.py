@@ -156,7 +156,7 @@ class SentimentAgent(HushhAgent):
                         user_context=context,
                     )
                     break
-                except Exception as e:
+                except (TimeoutError, RuntimeError) as e:
                     logger.warning(
                         f"[Sentiment] Gemini analysis failed (attempt {attempt + 1}/2): {e}"
                     )
@@ -164,9 +164,10 @@ class SentimentAgent(HushhAgent):
                         logger.warning(
                             "[Sentiment] Max retries reached. Falling back to deterministic."
                         )
+                        gemini_analysis = None
 
-        # Use Gemini results if available
-        if gemini_analysis and "error" not in gemini_analysis:
+        # Use Gemini results if available (no error check needed - exceptions are now raised)
+        if gemini_analysis:
             logger.info(f"[Sentiment] Using Gemini analysis for {ticker}")
             return SentimentInsight(
                 summary=gemini_analysis.get("summary", f"Sentiment analysis for {ticker}"),
