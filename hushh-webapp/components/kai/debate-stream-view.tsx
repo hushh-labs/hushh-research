@@ -815,7 +815,7 @@ export function DebateStreamView({
           vaultOwnerToken,
         });
       } catch (cancelError) {
-        console.warn("[DebateStreamView] Failed to cancel run:", cancelError);
+        // Run cancellation failure is non-critical
       }
     }
     setBusyOperation("stock_analysis_stream", false);
@@ -1329,7 +1329,7 @@ export function DebateStreamView({
             financial_profile: profile,
           };
         } catch (profileError) {
-          console.warn("[DebateStreamView] Failed to load Kai profile context:", profileError);
+          // Handled gracefully below
         }
       }
 
@@ -1360,10 +1360,7 @@ export function DebateStreamView({
             portfolioContext;
           portfolioContext = hydratedContext;
         } catch (blobError) {
-          console.warn(
-            "[DebateStreamView] Failed to hydrate debate context from the financial PKM domain:",
-            blobError
-          );
+          // Handled gracefully below
         }
       }
 
