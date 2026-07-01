@@ -79,7 +79,7 @@ class _StreamableHTTPASGIApp:
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         await self.session_manager.handle_request(scope, receive, send)
 
 
@@ -88,7 +88,7 @@ class AuthenticatedRemoteMCPApp:
         self._registry = DeveloperRegistryService()
         self._inner = _StreamableHTTPASGIApp(session_manager)
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
             await _send_json(send, 404, {"detail": "Not found"})
             return
