@@ -28,6 +28,7 @@
       "frontend/.next/standalone/**/*",
       "frontend/.next/static/**/*",
       "frontend/public/**/*",
+      "backend/.env",
       "backend/dist/hushh-backend.exe"
     ],
     "win": {
