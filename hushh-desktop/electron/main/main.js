@@ -1,28 +1,27 @@
 /**
  * main.js – Electron entry point
  *
- * Orchestrates startup:
- *   1. Start Python backend
- *   2. Start Next.js frontend
- *   3. Wait for both HTTP endpoints
- *   4. Open BrowserWindow
+ * Orchestrates startup using decoupled services:
+ *   1. Resolve dynamic ports.
+ *   2. Initialize centralized RuntimeContext.
+ *   3. Start backend and frontend via Supervisor.
+ *   4. Wait for services.
+ *   5. Open BrowserWindow.
  *
  * On quit:
- *   - Gracefully terminate both child process trees
+ *   - Gracefully terminate child process trees.
  */
 
 "use strict";
 
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
-const {
-  ensureBackendVenv,
-  startBackend,
-  startFrontend,
-  waitForServices,
-  shutdownServices,
-} = require("./launcher");
-const { DESKTOP_PORT } = require("../../config/runtime");
+
+const { findFreePort } = require("./services/ports");
+const { initRuntimeContext } = require("./services/runtime");
+const { ensureBackendVenv } = require("./services/launcher");
+const { spawnProcesses, waitForServices, shutdownServices } = require("./services/supervisor");
+
 const { registerPlatformHandlers }      = require("./ipc/platform");
 const { registerRuntimeHandlers }       = require("./ipc/runtime");
 const { registerModelsHandlers }        = require("./ipc/models");
@@ -42,7 +41,7 @@ registerCapabilitiesHandlers();
 
 let mainWindow = null;
 
-function createWindow() {
+function createWindow(frontendURL) {
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 950,
@@ -55,7 +54,7 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadURL(`http://localhost:${DESKTOP_PORT}`);
+  mainWindow.loadURL(frontendURL);
 
   // Show the window smoothly once the page finishes loading
   mainWindow.once("ready-to-show", () => {
@@ -70,23 +69,31 @@ function createWindow() {
 // ─── Startup ────────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  // app.isPackaged reflects how Electron was launched:
-  //   false → `electron .` / `npm start` / development
-  //   true  → packaged .exe / installer / production distribution
   const isDev = !app.isPackaged;
   console.log(`[main] Runtime mode: ${isDev ? "development" : "production"}`);
 
   try {
+    // 1. Resolve free ports dynamically
+    const frontendPort = await findFreePort(3001);
+    const backendPort = await findFreePort(8000);
+    console.log(`[main] Ports allocated dynamically — Frontend: ${frontendPort}, Backend: ${backendPort}`);
+
+    // 2. Initialize RuntimeContext
+    const context = initRuntimeContext(frontendPort, backendPort);
+
+    // 3. Ensure backend virtual environment in production
     if (!isDev) {
       await ensureBackendVenv();
     }
     
-    startBackend(isDev);
-    startFrontend(isDev);
+    // 4. Spawn frontend and backend processes
+    spawnProcesses();
 
+    // 5. Wait for both services to be responsive
     await waitForServices();
 
-    createWindow();
+    // 6. Launch browser window
+    createWindow(context.frontendURL);
   } catch (err) {
     console.error("[main] Startup failed:", err);
     shutdownServices();
