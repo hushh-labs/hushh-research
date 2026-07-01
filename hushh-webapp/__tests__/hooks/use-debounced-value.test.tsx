@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
@@ -216,5 +216,22 @@ describe("useDebouncedValue", () => {
     });
     expect(onDebounced).toHaveBeenCalledTimes(1);
     expect(onDebounced).toHaveBeenLastCalledWith(null);
+  });
+
+  it("works directly with renderHook", () => {
+    const { result, rerender } = renderHook(
+      ({ value, delay }) => useDebouncedValue(value, delay),
+      { initialProps: { value: "initial", delay: 300 } }
+    );
+
+    expect(result.current).toBe("initial");
+
+    rerender({ value: "updated", delay: 300 });
+    expect(result.current).toBe("initial");
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(result.current).toBe("updated");
   });
 });
