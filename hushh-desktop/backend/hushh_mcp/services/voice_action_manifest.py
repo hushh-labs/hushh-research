@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 _MANIFEST_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "kai" / "kai-action-gateway.vnext.json"
+    Path(__file__).resolve().parents[2] / "contracts" / "kai" / "kai-action-gateway.vnext.json"
 )
 
 

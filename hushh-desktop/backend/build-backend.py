@@ -44,6 +44,14 @@ def build():
     for imp in hidden_imports:
         args.extend(["--hidden-import", imp])
         
+    # Bundle static files required at runtime by backend path traversal logic
+    # Format: "source;destination" on Windows
+    args.extend([
+        "--add-data", os.path.join(base_dir, "db", "offline_schema.sql") + ";db",
+        "--add-data", os.path.join(base_dir, "hushh_mcp", "agents") + ";hushh_mcp/agents",
+        "--add-data", os.path.join(base_dir, "contracts") + ";contracts",
+    ])
+        
     print(f"Building hushh-backend with PyInstaller args: {args}")
     PyInstaller.__main__.run(args)
 

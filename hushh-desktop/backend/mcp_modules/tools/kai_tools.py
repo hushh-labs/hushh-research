@@ -60,7 +60,7 @@ _COMPANY_ALIAS_TO_TICKER: dict[str, str] = {
 
 _ANALYSIS_TABS = {"history", "debate", "summary", "transcript"}
 _VOICE_MANIFEST_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts/kai/voice-action-manifest.v1.json"
+    Path(__file__).resolve().parents[2] / "contracts/kai/voice-action-manifest.v1.json"
 )
 
 
