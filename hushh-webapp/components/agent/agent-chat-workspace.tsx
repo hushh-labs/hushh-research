@@ -35,7 +35,8 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
-import { SpecialistDirectiveCard } from "@/components/agent/specialist-directive-card";
+import { SpecialistDirectiveCard, SpecialistPromptCard } from "@/components/agent/specialist-directive-card";
+import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
@@ -3503,54 +3504,120 @@ export function AgentChatWorkspace({
               ))}
 
               {pendingSpecialistDirective ? (
-                <SpecialistDirectiveCard
-                  summary={String(
-                    (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                      .summary ?? pendingSpecialistDirective.message,
-                  )}
-                  confirmLabel="Share"
-                  busy={specialistBusy}
-                  onConfirm={async () => {
-                    const directive = pendingSpecialistDirective;
-                    setSpecialistBusy(true);
-                    try {
-                      // Source the vault owner token from the same place every
-                      // other authed call uses (never hardcoded/invented).
-                      const token = getVaultOwnerToken();
-                      if (!token) {
-                        addErrorMessage("Vault access expired. Unlock again to continue.");
-                        return;
+                pendingSpecialistDirective.directive.kind === "prompt" ? (
+                  // ── Prompt / disambiguation mode ──────────────────────────
+                  // The location specialist emits a clientPrompt (which/who?,
+                  // confirm duration, etc.) as a directive.kind:"prompt".
+                  // Prompts never auto-fire; the user answers via the card and
+                  // the selection result is sent back as a follow-up turn.
+                  // Crypto is not involved — no coordinates pass through here.
+                  <SpecialistPromptCard
+                    prompt={pendingSpecialistDirective.directive.payload as unknown as ClientPrompt}
+                    busy={specialistBusy}
+                    onAnswer={async (refs) => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      setSpecialistBusy(true);
+                      try {
+                        setPendingSpecialistDirective(null);
+                        await sendDelegateResult({
+                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          kind: "selection",
+                          id: prompt.id,
+                          promptKind: prompt.kind,
+                          selected: refs,
+                          status: "answered",
+                        });
+                      } finally {
+                        setSpecialistBusy(false);
                       }
-                      const result = await runLocationDirective(directive.directive, token);
+                    }}
+                    onConfirm={async (yes) => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      setSpecialistBusy(true);
+                      try {
+                        setPendingSpecialistDirective(null);
+                        await sendDelegateResult({
+                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          kind: "selection",
+                          id: prompt.id,
+                          promptKind: prompt.kind,
+                          confirmed: yes,
+                          status: "answered",
+                        });
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as unknown as ClientPrompt;
                       setPendingSpecialistDirective(null);
-                      // view_envelope fetches a coordinate-free result here; the
-                      // decrypted point is rendered on the dedicated location
-                      // surface, so hand the user off there to see it.
-                      const directiveType = String(
-                        (directive.directive.payload as Record<string, unknown>).type ?? "",
-                      );
-                      if (directiveType === "view_envelope" && result.status === "completed") {
-                        router.push(ROUTES.ONE_LOCATION);
+                      await sendDelegateResult({
+                        delegate_agent_id: evt.delegateAgentId as "agent_location",
+                        kind: "selection",
+                        id: prompt.id,
+                        promptKind: prompt.kind,
+                        status: "cancelled",
+                      });
+                    }}
+                  />
+                ) : (
+                  // ── Action / crypto mode (existing path, unchanged) ───────
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel="Share"
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setSpecialistBusy(true);
+                      try {
+                        // Source the vault owner token from the same place every
+                        // other authed call uses (never hardcoded/invented).
+                        const token = getVaultOwnerToken();
+                        if (!token) {
+                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          return;
+                        }
+                        const result = await runLocationDirective(directive.directive, token);
+                        setPendingSpecialistDirective(null);
+                        // view_envelope fetches a coordinate-free result here; the
+                        // decrypted point is rendered on the dedicated location
+                        // surface, so hand the user off there to see it.
+                        const directiveType = String(
+                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                        );
+                        if (directiveType === "view_envelope" && result.status === "completed") {
+                          router.push(ROUTES.ONE_LOCATION);
+                        }
+                        // Follow-up turn: report the result back so One confirms in words.
+                        await sendDelegateResult(result);
+                      } finally {
+                        setSpecialistBusy(false);
                       }
-                      // Follow-up turn: report the result back so One confirms in words.
-                      await sendDelegateResult(result);
-                    } finally {
-                      setSpecialistBusy(false);
-                    }
-                  }}
-                  onCancel={async () => {
-                    const directive = pendingSpecialistDirective;
-                    setPendingSpecialistDirective(null);
-                    await sendDelegateResult({
-                      delegate_agent_id: directive.delegateAgentId as "agent_location",
-                      kind: "action",
-                      id: String(
-                        (directive.directive.payload as Record<string, unknown>).id ?? "",
-                      ),
-                      status: "cancelled",
-                    });
-                  }}
-                />
+                    }}
+                    onCancel={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setPendingSpecialistDirective(null);
+                      await sendDelegateResult({
+                        delegate_agent_id: directive.delegateAgentId as "agent_location",
+                        kind: "action",
+                        id: String(
+                          (directive.directive.payload as Record<string, unknown>).id ?? "",
+                        ),
+                        // Include type so the backend renders the tailored cancel message.
+                        type: String(
+                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                        ),
+                        status: "cancelled",
+                      });
+                    }}
+                  />
+                )
               ) : null}
               <div ref={messagesEndRef} />
             </div>

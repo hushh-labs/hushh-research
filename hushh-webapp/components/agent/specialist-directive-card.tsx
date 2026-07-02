@@ -2,6 +2,11 @@
 
 import React from "react";
 
+import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
+import type { ClientPrompt } from "@/lib/one-location/types";
+
+// ─── Action mode (existing contract, unchanged) ───────────────────────────────
+
 export type SpecialistCardProps = {
   summary: string;
   confirmLabel: string;
@@ -39,5 +44,35 @@ export function SpecialistDirectiveCard({
         </button>
       </div>
     </div>
+  );
+}
+
+// ─── Prompt mode (disambiguation / selection) ─────────────────────────────────
+// Reuses the proven ClarificationCard from the one-location redesign so the
+// rendering, option-toggle, and free-text logic are a single implementation.
+
+export type SpecialistPromptCardProps = {
+  prompt: ClientPrompt;
+  busy?: boolean;
+  onAnswer: (refs: Record<string, unknown>[]) => void;
+  onConfirm: (yes: boolean) => void;
+  onCancel: () => void;
+};
+
+export function SpecialistPromptCard({
+  prompt,
+  busy = false,
+  onAnswer,
+  onConfirm,
+  onCancel,
+}: SpecialistPromptCardProps) {
+  return (
+    <ClarificationCard
+      prompt={prompt}
+      busy={busy}
+      onAnswer={onAnswer}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }

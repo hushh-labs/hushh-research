@@ -10,11 +10,15 @@ export type DelegateResult = {
   delegate_agent_id: "agent_location";
   kind: "action" | "selection";
   id: string;
+  // promptKind is only set for kind:"selection" turns. It carries the location
+  // ClientPrompt kind ("select"|"confirm") so the A2A discriminator ("selection")
+  // is never misread as the location prompt kind on the backend.
+  promptKind?: "select" | "confirm";
   type?: string;
-  status: "completed" | "cancelled" | "failed";
+  status: "completed" | "cancelled" | "failed" | "answered";
   publicUrl?: string;
   detail?: string;
-  selected?: unknown[];
+  selected?: Record<string, unknown>[];
   confirmed?: boolean;
   freeText?: string;
 };
