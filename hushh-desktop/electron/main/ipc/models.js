@@ -42,9 +42,10 @@ function registerModelsHandlers() {
     return registry.killLocalInferenceEngine(modelId);
   });
   
-  ipcMain.handle("hushh:models:spawn", (_event, modelId) => {
+  ipcMain.handle("hushh:models:spawn", async (_event, modelId) => {
     const { registry } = require("../services/models/registry");
-    return registry.spawnLocalInferenceEngine(modelId) ? true : false;
+    const proc = await registry.spawnLocalInferenceEngine(modelId);
+    return proc ? true : false;
   });
 }
 
