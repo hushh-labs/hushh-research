@@ -35,6 +35,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { SpecialistDirectiveCard } from "@/components/agent/specialist-directive-card";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
@@ -92,7 +93,9 @@ import {
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
+  type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
+import { runLocationDirective } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -758,6 +761,12 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
+  // A specialist (e.g. agent_location) can return a directive that must be
+  // explicitly confirmed by the user before it runs. Stored here and rendered
+  // as an inline card; never auto-fired for kind:"action".
+  const [pendingSpecialistDirective, setPendingSpecialistDirective] =
+    useState<SpecialistDirectiveEvent | null>(null);
+  const [specialistBusy, setSpecialistBusy] = useState(false);
   const [voiceState, setVoiceState] = useState<AgentVoiceStatus>("idle");
   const [voiceTranscriptReview, setVoiceTranscriptReview] =
     useState<AgentVoiceTranscriptReview | null>(null);
@@ -1014,7 +1023,7 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pkmReviews]);
+  }, [messages, pkmReviews, pendingSpecialistDirective]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -1153,6 +1162,8 @@ export function AgentChatWorkspace({
     setConversations([]);
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
+    setPendingSpecialistDirective(null);
+    setSpecialistBusy(false);
     historyLoadKeyRef.current = null;
     latestVisibleTurnIdRef.current = null;
   }, [abortAgentTurnWork, resetGlobalVoiceState, user?.uid, isVaultUnlocked]);
@@ -1253,6 +1264,7 @@ export function AgentChatWorkspace({
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       setPkmActivity([]);
       setPkmReviews([]);
+      setPendingSpecialistDirective(null);
     },
     []
   );
@@ -1278,6 +1290,7 @@ export function AgentChatWorkspace({
     setInput("");
     setPkmReviews([]);
     setPkmActivity([]);
+    setPendingSpecialistDirective(null);
   }, [abortAgentTurnWork]);
 
   const handleSelectConversation = useCallback(
@@ -2215,6 +2228,14 @@ export function AgentChatWorkspace({
             queueAssistantDelta(delta);
             queueVoiceAssistantDelta(delta);
           },
+          onSpecialistDirective: (event) => {
+            if (streamAbortController.signal.aborted) return;
+            // Store the directive as a pending card in the current message
+            // stream. Security-sensitive: never auto-run an "action"; require
+            // an explicit click on the rendered card.
+            appendDebugEvent(debugTurnId, "specialist_directive", event);
+            setPendingSpecialistDirective(event);
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             clearVoiceStreamWatchdog();
@@ -2317,6 +2338,171 @@ export function AgentChatWorkspace({
       }
       if (isVoiceTurn) {
         scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
+      }
+    }
+  };
+
+  /**
+   * Follow-up turn that reports a specialist DelegateResult back to One.
+   *
+   * Modeled on runAgentTurn's stream-start path: it opens a normal assistant
+   * turn (streaming bubble) with `delegateResult` set and no user `message`,
+   * reusing the same SSE handlers so One's confirmation renders as a regular
+   * assistant response. Used by the specialist directive card's confirm/cancel.
+   */
+  const sendDelegateResult = async (result: Record<string, unknown>) => {
+    if (!hasChatAccess || !user?.uid) return;
+    const userId = user.uid;
+    const token = getVaultOwnerToken();
+    if (!token) {
+      addErrorMessage("Vault access expired. Unlock again to continue.");
+      return;
+    }
+
+    const turnId = Date.now();
+    const debugTurnId = `agent_delegate_${turnId}`;
+    const assistantMessageId = `msg-${turnId}-assistant`;
+    const timestamp = formatNow();
+
+    let pendingAssistantDelta = "";
+    let assistantFlushFrame: number | null = null;
+    const flushAssistantDelta = () => {
+      assistantFlushFrame = null;
+      const delta = pendingAssistantDelta;
+      pendingAssistantDelta = "";
+      if (!delta) return;
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text: `${message.text}${delta}`,
+        status: "streaming",
+      }));
+    };
+    const queueAssistantDelta = (delta: string) => {
+      pendingAssistantDelta += delta;
+      if (assistantFlushFrame !== null) return;
+      assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
+    };
+    const cancelAssistantFlush = () => {
+      if (assistantFlushFrame !== null) {
+        window.cancelAnimationFrame(assistantFlushFrame);
+        assistantFlushFrame = null;
+      }
+      pendingAssistantDelta = "";
+    };
+
+    appendMessage({
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      timestamp,
+      status: "streaming",
+    });
+    latestVisibleTurnIdRef.current = debugTurnId;
+    setIsChatLoading(true);
+    setIsStreaming(true);
+
+    const streamAbortController = new AbortController();
+    streamAbortControllerRef.current?.abort();
+    streamAbortControllerRef.current = streamAbortController;
+
+    try {
+      await streamAgentChat({
+        userId,
+        message: "",
+        conversationId,
+        vaultOwnerToken: token,
+        delegateResult: result,
+        screenContext: buildStructuredScreenContext({
+          appRuntimeState: appRuntimeStateRef.current,
+        }) as unknown as Record<string, unknown>,
+        signal: streamAbortController.signal,
+        handlers: {
+          onStart: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            if (nextConversationId) setConversationId(nextConversationId);
+          },
+          onToken: (delta) => {
+            if (streamAbortController.signal.aborted) return;
+            queueAssistantDelta(delta);
+          },
+          onSpecialistDirective: (event) => {
+            if (streamAbortController.signal.aborted) return;
+            appendDebugEvent(debugTurnId, "specialist_directive", event);
+            setPendingSpecialistDirective(event);
+          },
+          onComplete: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
+            if (nextConversationId) setConversationId(nextConversationId);
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              status: "done",
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+          onError: (message) => {
+            if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
+            updateMessage(assistantMessageId, (current) => ({
+              ...current,
+              text: current.text || message,
+              status: "error",
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+        },
+      });
+      if (streamAbortController.signal.aborted) {
+        flushAssistantDelta();
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: message.text || "Agent turn canceled.",
+          status: "done",
+        }));
+        setIsChatLoading(false);
+        setIsStreaming(false);
+        return;
+      }
+      flushAssistantDelta();
+      updateMessage(assistantMessageId, (message) => {
+        if (message.status === "error") return message;
+        return {
+          ...message,
+          text: message.text || "Done.",
+          status: "done",
+        };
+      });
+      void loadConversationList().catch(() => undefined);
+      setIsChatLoading(false);
+      setIsStreaming(false);
+    } catch (error) {
+      flushAssistantDelta();
+      if (streamAbortController.signal.aborted) {
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: message.text || "Agent turn canceled.",
+          status: "done",
+        }));
+      } else {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent chat request failed.";
+        updateMessage(assistantMessageId, (current) => ({
+          ...current,
+          text: current.text || message,
+          status: "error",
+        }));
+      }
+      void loadConversationList().catch(() => undefined);
+      setIsChatLoading(false);
+      setIsStreaming(false);
+    } finally {
+      cancelAssistantFlush();
+      if (streamAbortControllerRef.current === streamAbortController) {
+        streamAbortControllerRef.current = null;
       }
     }
   };
@@ -3307,6 +3493,57 @@ export function AgentChatWorkspace({
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
+
+              {pendingSpecialistDirective ? (
+                <SpecialistDirectiveCard
+                  summary={String(
+                    (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                      .summary ?? pendingSpecialistDirective.message,
+                  )}
+                  confirmLabel="Share"
+                  busy={specialistBusy}
+                  onConfirm={async () => {
+                    const directive = pendingSpecialistDirective;
+                    setSpecialistBusy(true);
+                    try {
+                      // Source the vault owner token from the same place every
+                      // other authed call uses (never hardcoded/invented).
+                      const token = getVaultOwnerToken();
+                      if (!token) {
+                        addErrorMessage("Vault access expired. Unlock again to continue.");
+                        return;
+                      }
+                      const result = await runLocationDirective(directive.directive, token);
+                      setPendingSpecialistDirective(null);
+                      // view_envelope fetches a coordinate-free result here; the
+                      // decrypted point is rendered on the dedicated location
+                      // surface, so hand the user off there to see it.
+                      const directiveType = String(
+                        (directive.directive.payload as Record<string, unknown>).type ?? "",
+                      );
+                      if (directiveType === "view_envelope" && result.status === "completed") {
+                        router.push(ROUTES.ONE_LOCATION);
+                      }
+                      // Follow-up turn: report the result back so One confirms in words.
+                      await sendDelegateResult(result);
+                    } finally {
+                      setSpecialistBusy(false);
+                    }
+                  }}
+                  onCancel={async () => {
+                    const directive = pendingSpecialistDirective;
+                    setPendingSpecialistDirective(null);
+                    await sendDelegateResult({
+                      delegate_agent_id: directive.delegateAgentId,
+                      kind: "action",
+                      id: String(
+                        (directive.directive.payload as Record<string, unknown>).id ?? "",
+                      ),
+                      status: "cancelled",
+                    });
+                  }}
+                />
+              ) : null}
               <div ref={messagesEndRef} />
             </div>
           </div>
