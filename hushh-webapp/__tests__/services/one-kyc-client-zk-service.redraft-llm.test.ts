@@ -338,6 +338,11 @@ describe("runLlmRedraft", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
+      // Proves the LLM-render path produced the table, NOT the structureLost fallback.
+      // If renderStructuredRedraftHtml ever regresses and structureLost fires, the
+      // fallback returns revalidatedDraft whose htmlBody ALSO contains <th — so without
+      // this assertion the test would still pass while the actual redraft render is broken.
+      expect(result.structureFallback).toBeFalsy();
       // `<th` is emitted ONLY by the holdings table (htmlTable). The shell's
       // presentation table and htmlList cards use `<td>`, so `<th` is the
       // reliable "holdings table rendered" marker — NOT `<table`.

@@ -209,8 +209,15 @@ describe("renderStructuredRedraftHtml — structured redraft renderer (Task 2)",
 
   it("renders a holdings table, not bullets", () => {
     const html = renderStructuredRedraftHtml(REDRAFT_BODY);
-    expect(html).toContain("<table");
+    // <table appears in EVERY shell output (header-chip <table role="presentation">),
+    // so it cannot distinguish a data holdings table from bullets. <th is the
+    // discriminating marker: only htmlTable emits <th headers; htmlList and
+    // bullet/paragraph blocks emit only <td and <li.
+    expect(html).toContain("<th");
+    // Data preserved: the ticker appears whether rendered as table or bullets.
     expect(html).toContain("AAPL");
+    // Holdings are NOT collapsed into a bullet list.
+    expect(html).not.toContain("<li");
     expect(html).toContain("Best,<br/>hussh One");
   });
 
