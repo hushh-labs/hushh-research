@@ -95,7 +95,7 @@ import {
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
-import { runLocationDirective } from "@/lib/agent/specialist-directive-runtime";
+import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -2352,7 +2352,7 @@ export function AgentChatWorkspace({
    * reusing the same SSE handlers so One's confirmation renders as a regular
    * assistant response. Used by the specialist directive card's confirm/cancel.
    */
-  const sendDelegateResult = async (result: Record<string, unknown>) => {
+  const sendDelegateResult = async (result: DelegateResult) => {
     if (!hasChatAccess || !user?.uid) return;
     const userId = user.uid;
     const token = getVaultOwnerToken();
@@ -2422,6 +2422,10 @@ export function AgentChatWorkspace({
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) setConversationId(nextConversationId);
+          },
+          onToolWaiting: (toolEvent) => {
+            if (streamAbortController.signal.aborted) return;
+            appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
           },
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
@@ -3536,7 +3540,7 @@ export function AgentChatWorkspace({
                     const directive = pendingSpecialistDirective;
                     setPendingSpecialistDirective(null);
                     await sendDelegateResult({
-                      delegate_agent_id: directive.delegateAgentId,
+                      delegate_agent_id: directive.delegateAgentId as "agent_location",
                       kind: "action",
                       id: String(
                         (directive.directive.payload as Record<string, unknown>).id ?? "",
