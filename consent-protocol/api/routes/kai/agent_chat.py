@@ -41,6 +41,10 @@ class DelegateResultModel(BaseModel):
     selected: Optional[list[dict]] = Field(default=None)
     confirmed: Optional[bool] = Field(default=None)
     free_text: Optional[str] = Field(default=None, alias="freeText", max_length=4000)
+    # promptKind carries the location ClientPrompt kind ("select"|"confirm") for
+    # selection delegate_results so the A2A discriminator ("selection") is never
+    # misread as the prompt kind. See location_agent.py for the mapping.
+    prompt_kind: Optional[str] = Field(default=None, alias="promptKind", max_length=24)
 
 
 class AgentChatStreamRequest(BaseModel):

@@ -17,7 +17,11 @@ DELEGATED_MODEL = "one+location"
 # Keys the location action_result contract accepts (see ActionResultModel).
 _ACTION_RESULT_KEYS = ("id", "type", "status", "publicUrl", "detail")
 # Keys the location selection_result contract accepts (see SelectionResultModel).
-_SELECTION_RESULT_KEYS = ("id", "kind", "selected", "confirmed", "freeText", "status")
+# NOTE: "kind" is intentionally absent here — the A2A discriminator ("selection")
+# must never be forwarded as the location prompt kind ("select"|"confirm").
+# The location prompt kind is carried in a separate "promptKind" field and mapped
+# below when building the selection_result.
+_SELECTION_RESULT_KEYS = ("id", "selected", "confirmed", "freeText", "status")
 
 
 def _pick(source: dict, keys: tuple[str, ...]) -> dict:
@@ -39,7 +43,14 @@ class LocationAgentA2A:
         if task.delegate_result is not None:
             dr = dict(task.delegate_result)
             if str(dr.get("kind")) == "selection":
+                # Build selection_result for LocationChatService, which expects
+                # kind="select"|"confirm" (the location prompt kind), not the A2A
+                # discriminator kind="selection". The frontend carries the location
+                # prompt kind in "promptKind" to avoid the collision.
                 selection_result = _pick(dr, _SELECTION_RESULT_KEYS)
+                prompt_kind = dr.get("promptKind")
+                if prompt_kind is not None:
+                    selection_result["kind"] = prompt_kind
             else:
                 action_result = _pick(dr, _ACTION_RESULT_KEYS)
 

@@ -93,3 +93,58 @@ async def test_selection_delegate_result_maps_to_selection_turn():
     )
     assert "selection_result" in svc.calls[0]
     assert svc.calls[0]["selection_result"]["id"] == "prm-1"
+
+
+@pytest.mark.asyncio
+async def test_selection_confirm_promptkind_maps_to_location_kind_not_discriminator():
+    """Bug fix: promptKind:'confirm' must become selection_result.kind='confirm',
+    NOT kind='selection' (the A2A discriminator)."""
+    svc = _FakeLocationService()
+    agent = LocationAgentA2A(service=svc)
+    await agent.handle(
+        A2ATask(
+            user_id="u",
+            consent_token="t",  # noqa: S106
+            conversation_id="c1",
+            delegate_result={
+                "kind": "selection",  # A2A discriminator
+                "promptKind": "confirm",  # location prompt kind
+                "id": "prm-2",
+                "confirmed": True,
+                "status": "answered",
+            },
+        )
+    )
+    sel = svc.calls[0]["selection_result"]
+    assert sel["id"] == "prm-2"
+    assert sel["kind"] == "confirm", (
+        "selection_result.kind must be the location prompt kind ('confirm'), "
+        "not the A2A discriminator ('selection')"
+    )
+    assert sel["confirmed"] is True
+    assert sel.get("status") == "answered"
+
+
+@pytest.mark.asyncio
+async def test_selection_select_promptkind_maps_to_location_kind():
+    """Bug fix: promptKind:'select' must become selection_result.kind='select'."""
+    svc = _FakeLocationService()
+    agent = LocationAgentA2A(service=svc)
+    await agent.handle(
+        A2ATask(
+            user_id="u",
+            consent_token="t",  # noqa: S106
+            conversation_id="c1",
+            delegate_result={
+                "kind": "selection",
+                "promptKind": "select",
+                "id": "prm-3",
+                "selected": [{"userId": "mom-1"}, {"userId": "dad-1"}],
+                "status": "answered",
+            },
+        )
+    )
+    sel = svc.calls[0]["selection_result"]
+    assert sel["kind"] == "select"
+    assert sel["selected"] == [{"userId": "mom-1"}, {"userId": "dad-1"}]
+    assert "kind" not in str(sel.get("kind", "")) or sel["kind"] == "select"
