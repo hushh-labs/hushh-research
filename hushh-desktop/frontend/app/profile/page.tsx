@@ -4068,7 +4068,7 @@ function ProfilePageContent() {
                 <Switch 
                   onCheckedChange={(checked) => {
                     if (checked) {
-                      void window.electron?.models?.install("Llama-3.2-3B-Instruct").then(() => toast.success("AI Runtime Download Started!"));
+                      void window.hushh?.models?.install("Llama-3.2-3B-Instruct").then(() => toast.success("AI Runtime Download Started!"));
                     }
                   }} 
                 />
