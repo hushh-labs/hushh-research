@@ -63,7 +63,7 @@ export type KycDraftBuildResult = {
   htmlBody: string;
   approvedValues: Record<string, string>;
   missingFields: string[];
-  renderModel: KycDraftRenderModel;
+  renderModel: ApprovedDisclosureRenderModel;
   scopeSummaries: Array<{
     scope: string;
     approvedFields: string[];
@@ -77,10 +77,6 @@ type KycDraftExportPayload = {
   payload: Record<string, unknown>;
 };
 
-export type KycDraftStyle = RedraftTransform;
-export type KycDraftRenderEntry = RenderFact;
-export type KycDraftRenderSection = RenderSection;
-export type KycDraftRenderModel = ApprovedDisclosureRenderModel;
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
@@ -1090,7 +1086,7 @@ function workflowCandidateForScope(
 function presentationSourceForScope(
   workflow: OneKycWorkflow,
   scope: string | null | undefined
-): KycDraftRenderSection["presentationSource"] {
+): RenderSection["presentationSource"] {
   const normalized = String(scope || "");
   if (
     normalized.startsWith("attr.identity") ||
@@ -1415,7 +1411,7 @@ export class OneKycClientZkService {
     const approvedValues: Record<string, string> = {};
     const missingFields: string[] = [];
     const scopeSummaries: KycDraftBuildResult["scopeSummaries"] = [];
-    const sections: KycDraftRenderSection[] = [];
+    const sections: RenderSection[] = [];
     const missingPresentationMetadata: string[] = [];
     const selectedScopes = payloads
       .map((item) => item.scope || params.workflow.requested_scope || "attr.identity.*")
@@ -1431,7 +1427,7 @@ export class OneKycClientZkService {
         requiredFields: params.workflow.required_fields,
         scope,
       });
-      const sectionEntries: KycDraftRenderEntry[] = [];
+      const sectionEntries: RenderFact[] = [];
       for (const [field, value] of Object.entries(extracted.approvedValues)) {
         const approvedKey = uniqueApprovedKey(approvedValues, field, scope);
         approvedValues[approvedKey] = value;
@@ -1463,7 +1459,7 @@ export class OneKycClientZkService {
       });
     }
     const style = redraftTransformFromInstructions(params.instructions);
-    const renderModel: KycDraftRenderModel = {
+    const renderModel: ApprovedDisclosureRenderModel = {
       contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
       contractVersion: "1.0.0",
       accountHolder: accountHolderLabel(params.workflow),
@@ -1593,7 +1589,7 @@ const DRAFT_SIGNATURE = "Best,\nhussh One";
  * Recompute the EXACT opening line the renderer produced for `renderModel`.
  * Must stay byte-identical to `buildApprovedDisclosurePlainText` (renderer).
  */
-function computeDraftOpening(renderModel: KycDraftRenderModel): string {
+function computeDraftOpening(renderModel: ApprovedDisclosureRenderModel): string {
   return renderModel.style.formal
     ? `I am replying on behalf of ${renderModel.accountHolder} with the approved information below.`
     : `I am replying on behalf of ${renderModel.accountHolder}.`;
@@ -1619,7 +1615,7 @@ function computeDraftOpening(renderModel: KycDraftRenderModel): string {
  */
 export function splitDraftTemplate(params: {
   body: string;
-  renderModel: KycDraftRenderModel;
+  renderModel: ApprovedDisclosureRenderModel;
 }): { opening: string; content: string; signature: string; matched: boolean } {
   const body = params.body;
   const opening = computeDraftOpening(params.renderModel);

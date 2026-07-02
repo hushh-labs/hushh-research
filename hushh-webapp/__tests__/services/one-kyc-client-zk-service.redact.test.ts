@@ -30,7 +30,7 @@ import {
   splitDraftTemplate,
   validateTokenIntegrity,
 } from "@/lib/services/one-kyc-client-zk-service";
-import type { KycDraftRenderModel } from "@/lib/services/one-kyc-client-zk-service";
+import type { ApprovedDisclosureRenderModel } from "@/lib/services/one-kyc-approved-disclosure-renderer";
 import { APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID } from "@/lib/services/one-kyc-approved-disclosure-renderer";
 import type { OneKycWorkflow } from "@/lib/services/one-kyc-service";
 
@@ -39,7 +39,7 @@ import type { OneKycWorkflow } from "@/lib/services/one-kyc-service";
 function makeRenderModel(params: {
   accountHolder: string;
   formal?: boolean;
-}): KycDraftRenderModel {
+}): ApprovedDisclosureRenderModel {
   return {
     contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
     contractVersion: "1.0.0",
