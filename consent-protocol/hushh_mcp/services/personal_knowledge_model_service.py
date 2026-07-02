@@ -2377,7 +2377,7 @@ class PersonalKnowledgeModelService:
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("scope", scope)
-                .is_("revoked_at", "null")
+                .is_("revoked_at", None)
                 .order("updated_at", desc=True)
                 .limit(1)
             )
@@ -2422,7 +2422,7 @@ class PersonalKnowledgeModelService:
                 .eq("user_id", user_id)
                 .eq("domain", canonical_domain)
                 .eq("top_level_scope_path", normalized_path)
-                .is_("revoked_at", "null")
+                .is_("revoked_at", None)
             )
             await self.record_mutation_event(
                 user_id=user_id,

@@ -18,6 +18,7 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PkmJsonTree, PkmManifestTree } from "@/components/profile/pkm-tree-view";
+import { SlicePriceBadge } from "@/components/profile/slice-price-badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
@@ -503,6 +504,14 @@ export function PkmExplorerPanel() {
                                   This is the public scope handle. Raw internal JSON paths stay
                                   private to first-party tooling after vault unlock.
                                 </p>
+                                {scope.visibility_posture === "default_available" ? (
+                                  <SlicePriceBadge
+                                    sensitivityTier={scope.sensitivity_tier}
+                                    scopeKind={scope.scope_kind}
+                                    attributeCount={(scope.segment_ids || []).length || 1}
+                                    vaultOwnerToken={vaultOwnerToken ?? undefined}
+                                  />
+                                ) : null}
                               </AccordionContent>
                             </AccordionItem>
                           ))}

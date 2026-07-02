@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 59,
-  "native_required_routes": 56,
+  "total_routes": 60,
+  "native_required_routes": 57,
   "excluded_routes": 3,
   "routes": [
     {
@@ -479,6 +479,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fpkm",
       "expectedMarker": "native-route-pkm",
       "expectedRoute": "/one/pkm",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/marketplace",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fmarketplace",
+      "expectedMarker": "native-route-one-marketplace",
+      "expectedRoute": "/one/marketplace",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

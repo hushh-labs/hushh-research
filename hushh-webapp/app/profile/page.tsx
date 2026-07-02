@@ -157,6 +157,7 @@ import {
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
 import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
+import { applySlicePosture } from "@/lib/personal-knowledge-model/slice-publishing";
 import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
@@ -290,34 +291,6 @@ function applyManifestExposureChange(
   }
 
   return updated ? nextManifest : manifest;
-}
-
-function defaultAvailableScopeForPermission(
-  domainKey: string,
-  topLevelScopePath: string,
-): string {
-  return `attr.${domainKey}.${topLevelScopePath}.*`;
-}
-
-function buildDefaultAvailableProjectionPayload(params: {
-  domainKey: string;
-  domainTitle: string;
-  permission: {
-    label: string;
-    description?: string | null;
-    topLevelScopePath: string;
-  };
-  presentation: PkmSectionPreviewPresentation;
-}): Record<string, unknown> {
-  return {
-    projection_kind: "pkm_default_available_section_v1",
-    domain: params.domainKey,
-    domain_title: params.domainTitle,
-    section: params.permission.topLevelScopePath,
-    label: params.permission.label,
-    description: params.permission.description || null,
-    presentation: params.presentation,
-  };
 }
 
 function buildPkmEntityDeletionCandidate(
@@ -2874,71 +2847,24 @@ function ProfilePageContent() {
     setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
 
     try {
-      let projectionPayload: Record<string, unknown> | null = null;
-      if (nextPosture === "default_available" && vaultKey) {
-        const sectionData = await PersonalKnowledgeModelService.loadDomainData({
-          userId: user.uid,
-          domain: domainKey,
-          vaultKey,
-          vaultOwnerToken,
-          segmentIds: [permission.topLevelScopePath],
-        });
-        const presentation = buildPkmSectionPreviewPresentation({
-          domain: domainKey,
-          domainTitle: selectedDomain?.title || domainKey,
-          permissionLabel: permission.label,
-          permissionDescription: permission.description || null,
-          topLevelScopePath: permission.topLevelScopePath,
-          value: sectionData,
-        });
-        projectionPayload = buildDefaultAvailableProjectionPayload({
-          domainKey,
-          domainTitle: selectedDomain?.title || domainKey,
-          permission,
-          presentation,
-        });
-      }
-
-      const result = await PersonalKnowledgeModelService.updateScopeExposure({
+      // Shared consent-first publish flow — same helper the One → Marketplace
+      // owner surface uses, so the sensitive vault-write path is not forked.
+      const { manifest: updatedManifest } = await applySlicePosture({
         userId: user.uid,
         domain: domainKey,
-        expectedManifestVersion: previousManifest.manifest_version,
+        domainTitle: selectedDomain?.title || domainKey,
+        permission: {
+          scopeHandle: permission.scopeHandle,
+          label: permission.label,
+          description: permission.description,
+          topLevelScopePath: permission.topLevelScopePath,
+        },
+        nextPosture,
+        previousManifest,
+        vaultKey: vaultKey ?? undefined,
         vaultOwnerToken,
-        changes: [
-          {
-            scopeHandle: permission.scopeHandle || undefined,
-            topLevelScopePath: permission.topLevelScopePath,
-            exposureEnabled: nextPosture !== "private",
-            visibilityPosture: nextPosture,
-          },
-        ],
+        source: "profile_visibility_posture",
       });
-
-      let updatedManifest =
-        result.manifest ?? optimisticManifest ?? previousManifest;
-      if (nextPosture === "default_available" && projectionPayload) {
-        const projectionResult =
-          await PersonalKnowledgeModelService.publishDefaultAvailableProjection(
-            {
-              userId: user.uid,
-              domain: domainKey,
-              scope: defaultAvailableScopeForPermission(
-                domainKey,
-                permission.topLevelScopePath,
-              ),
-              scopeHandle: permission.scopeHandle || undefined,
-              topLevelScopePath: permission.topLevelScopePath,
-              projectionPayload,
-              manifestVersion:
-                result.manifestVersion ?? previousManifest.manifest_version,
-              vaultOwnerToken,
-              metadata: {
-                source: "profile_visibility_posture",
-              },
-            },
-          );
-        updatedManifest = projectionResult.manifest ?? updatedManifest;
-      }
 
       setDomainManifests((current) => ({
         ...current,

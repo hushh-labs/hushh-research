@@ -24,6 +24,7 @@ export const ROUTE_ID_VALUES = [
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
   "one_kyc",
+  "one_marketplace",
   "one_location",
   "one_location_public_request",
   "one_location_circle_invite",
@@ -65,6 +66,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE) return "profile";
   if (pathname === ROUTES.GMAIL || pathname === ROUTES.LEGACY_GMAIL) return "gmail";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
+  if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (
     pathname === ROUTES.CONNECTED_SYSTEMS ||
     pathname === ROUTES.LEGACY_CONNECTED_SYSTEMS
