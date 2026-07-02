@@ -12,6 +12,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
+from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
+from hushh_mcp.agents.orchestrator.tools import classify_specialist_domain
 from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     AgentChatConversation,
@@ -27,14 +30,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent Chat"])
 
 
+class DelegateResultModel(BaseModel):
+    delegate_agent_id: str = Field(..., max_length=64)
+    kind: str = Field(..., max_length=24)  # "action" | "selection"
+    id: str = Field(..., max_length=64)
+    type: Optional[str] = Field(default=None, max_length=48)
+    status: Optional[str] = Field(default=None, max_length=24)
+    public_url: Optional[str] = Field(default=None, alias="publicUrl", max_length=2048)
+    detail: Optional[str] = Field(default=None, max_length=500)
+    selected: Optional[list[dict]] = Field(default=None)
+    confirmed: Optional[bool] = Field(default=None)
+    free_text: Optional[str] = Field(default=None, alias="freeText", max_length=4000)
+
+
 class AgentChatStreamRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128)
-    message: str = Field(..., min_length=1, max_length=8000)
+    message: str = Field(default="", max_length=8000)
     conversation_id: Optional[str] = Field(default=None, max_length=128)
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
     screen_context: Optional[dict] = Field(default=None)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
+    delegate_result: Optional[DelegateResultModel] = Field(default=None)
 
 
 class AgentChatRenameRequest(BaseModel):
@@ -80,6 +97,56 @@ class AgentChatHistoryResponse(BaseModel):
 class AgentChatDeleteResponse(BaseModel):
     conversation_id: str = Field(..., max_length=256)
     deleted: bool
+
+
+def resolve_delegate_target(message: str) -> str | None:
+    """Return a WIRED specialist agent id for this message, else None.
+
+    Fail-closed: no classifier match, or a classified-but-unwired specialist
+    (finance/privacy/kyc in slice 1), returns None so the existing central
+    planner path runs unchanged.
+    """
+    classified = classify_specialist_domain(message or "")
+    if classified is None:
+        return None
+    _domain, target_agent = classified
+    return target_agent if is_wired_specialist(target_agent) else None
+
+
+def specialist_result_to_frames(
+    result: SpecialistTurnResult, delegate_agent_id: str
+) -> list[tuple[str, dict]]:
+    """Format a specialist turn as ordered additive SSE (event, data) tuples."""
+    frames: list[tuple[str, dict]] = [
+        ("start", {"conversation_id": result.conversation_id, "model": result.model}),
+        ("token", {"token": result.text}),
+    ]
+    if result.directive is not None:
+        frames.append(
+            (
+                "specialist_directive",
+                {
+                    "delegate_agent_id": delegate_agent_id,
+                    "directive": {
+                        "kind": result.directive.kind,
+                        "payload": result.directive.payload,
+                    },
+                    "message": result.text,
+                    "state_changed": result.state_changed,
+                },
+            )
+        )
+    frames.append(
+        (
+            "complete",
+            {
+                "conversation_id": result.conversation_id,
+                "status": "complete",
+                "model": result.model,
+            },
+        )
+    )
+    return frames
 
 
 def _event(event: str, data: dict[str, Any]) -> str:
