@@ -17,8 +17,9 @@ function registerModelsHandlers() {
     models:    [],
   }));
 
-  ipcMain.handle("hushh:models:install", (_event, _modelId) => {
-    throw new Error("Model installation not yet implemented.");
+  ipcMain.handle("hushh:models:install", async (_event, modelId) => {
+    const { registry } = require("../services/models/registry");
+    return await registry.downloadLocalInferenceEngine(modelId);
   });
 
   ipcMain.handle("hushh:models:remove", (_event, _modelId) => {

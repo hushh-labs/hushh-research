@@ -3324,9 +3324,9 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Cloud}
-          title="On-device first"
-          description="Device-first controls."
-          trailing={<Badge variant="secondary">Coming soon</Badge>}
+          title="On-device AI"
+          description="Device-first AI controls."
+          trailing={<Badge variant="secondary">Labs</Badge>}
           chevron
           stackTrailingOnMobile
           onClick={() =>
@@ -4056,15 +4056,23 @@ function ProfilePageContent() {
     } else if (activeDetail === "device") {
       profileStackEntries.push({
         key: "detail:device",
-        title: "On-device first",
-        description: "Local-device controls and upcoming options.",
+        title: "On-device AI",
+        description: "Local-device AI controls and runtime options.",
         content: (
           <SettingsGroup title="Device">
             <SettingsRow
-              icon={Cloud}
-              title="Bring your own key"
-              description="Planned."
-              trailing={<Badge variant="secondary">Coming soon</Badge>}
+              icon={Monitor}
+              title="Local Inference Engine (Llama 3.2 3B)"
+              description="Download the Decoupled AI Runtime and strictly route all queries through the Snapdragon NPU."
+              trailing={
+                <Switch 
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      void window.electron?.models?.install("Llama-3.2-3B-Instruct").then(() => toast.success("AI Runtime Download Started!"));
+                    }
+                  }} 
+                />
+              }
               stackTrailingOnMobile
             />
           </SettingsGroup>
