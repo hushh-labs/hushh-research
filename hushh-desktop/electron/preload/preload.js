@@ -51,6 +51,9 @@ contextBridge.exposeInMainWorld("hushh", {
 
     /** @param {string} modelId */
     install: (modelId) => invoke("hushh:models:install", modelId),
+    
+    /** @param {string} modelId */
+    cancelInstall: (modelId) => invoke("hushh:models:cancelInstall", modelId),
 
     /** @param {string} modelId */
     remove: (modelId) => invoke("hushh:models:remove", modelId),

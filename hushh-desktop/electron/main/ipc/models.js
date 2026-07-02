@@ -22,6 +22,11 @@ function registerModelsHandlers() {
     return await registry.downloadLocalInferenceEngine(modelId);
   });
 
+  ipcMain.handle("hushh:models:cancelInstall", (_event, modelId) => {
+    const { registry } = require("../services/models/registry");
+    return registry.cancelDownloadLocalInferenceEngine(modelId);
+  });
+
   ipcMain.handle("hushh:models:remove", (_event, modelId) => {
     const { registry } = require("../services/models/registry");
     return registry.deleteLocalInferenceEngine(modelId);

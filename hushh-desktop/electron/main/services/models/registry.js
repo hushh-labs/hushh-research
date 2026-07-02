@@ -79,8 +79,16 @@ class ModelRegistry {
   async downloadLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
     console.log(`[ModelRegistry] 🔄 Initiating download for decoupled AI engine and ${modelId} folder...`);
     
-    // Simulate a 3-second download
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    this._cancelDownloadFlag = false;
+    
+    // Simulate a 3-second download in chunks so we can cancel it
+    for (let i = 0; i < 30; i++) {
+        if (this._cancelDownloadFlag) {
+            console.log(`[ModelRegistry] 🛑 Download cancelled for ${modelId}.`);
+            return { success: false, status: "cancelled" };
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
     
     // Scaffold: Write the verification.lock to simulate completion
     const modelDir = path.join(this.modelsDir, modelId);
@@ -94,6 +102,11 @@ class ModelRegistry {
     
     console.log(`[ModelRegistry] ✅ Download complete. Wrote verification.lock for ${modelId}.`);
     return { success: true, status: "downloaded" };
+  }
+
+  cancelDownloadLocalInferenceEngine() {
+      this._cancelDownloadFlag = true;
+      return true;
   }
 
   /**
