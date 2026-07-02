@@ -78,6 +78,13 @@ export type ApprovedDisclosureRenderInput = {
 
 const MAX_DRAFT_BODY_LENGTH = 12000;
 
+/**
+ * Canonical trailing signature text appended by buildApprovedDisclosurePlainText
+ * and expected at the end of a resubstituted redraft body. Defined here (rather
+ * than imported from one-kyc-client-zk-service.ts) to avoid a cross-module cycle.
+ */
+const DRAFT_SIGNATURE = "Best,\nhussh One";
+
 const EMAIL_THEME = {
   accent: "#D4A847",
   accentBorder: "#E7C969",
@@ -658,5 +665,29 @@ export function renderLlmRedraftHtml(text: string): string {
   const content =
     out.join('<div style="height:12px;line-height:12px;">&nbsp;</div>') ||
     htmlParagraph("");
+  return wrapApprovedDisclosureShell(content);
+}
+
+/**
+ * Structured redraft renderer (zero-knowledge, LLM-only path).
+ *
+ * Parses the resubstituted redraft body with the SAME primitives as
+ * buildApprovedDisclosureHtml (draftSubBlocks -> blockToRenderBlocks ->
+ * htmlRenderBlock) so a redraft keeps real <table> holdings and key/value cards
+ * instead of collapsing to bullets. The trailing "Best,\nhussh One" signature is
+ * rendered via the shared disclosureSignatureHtml() for byte-identical framing.
+ */
+export function renderStructuredRedraftHtml(body: string): string {
+  const source = (body ?? "").replace(/\s+$/, "");
+  const withoutSignature = source.endsWith(DRAFT_SIGNATURE)
+    ? source.slice(0, source.length - DRAFT_SIGNATURE.length).replace(/\s+$/, "")
+    : source;
+  const blocks = draftSubBlocks(withoutSignature).flatMap(blockToRenderBlocks);
+  const rendered = blocks.length
+    ? blocks.map(htmlRenderBlock).join('<div style="height:14px;line-height:14px;">&nbsp;</div>')
+    : htmlParagraph("");
+  const content = [rendered, disclosureSignatureHtml()].join(
+    '<div style="height:18px;line-height:18px;">&nbsp;</div>'
+  );
   return wrapApprovedDisclosureShell(content);
 }

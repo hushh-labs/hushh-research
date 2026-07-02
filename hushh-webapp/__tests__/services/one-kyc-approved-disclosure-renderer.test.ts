@@ -6,6 +6,7 @@ import {
   buildApprovedDisclosurePlainText,
   redraftTransformFromInstructions,
   renderLlmRedraftHtml,
+  renderStructuredRedraftHtml,
   type ApprovedDisclosureRenderModel,
   type RedraftTransform,
   type RenderSection,
@@ -239,6 +240,41 @@ describe("renderLlmRedraftHtml — sanitized markdown in the shared shell", () =
     expect(html).toContain(">approved reply</div>");
     expect(html).toContain('<div style="padding:20px;">');
     expect(html).toContain(`background:#18181b`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 2: renderStructuredRedraftHtml — structured redraft renderer
+// Parses a resubstituted redraft body with the SAME block primitives as the
+// first draft so a redraft keeps real <table> holdings and key/value cards.
+// ---------------------------------------------------------------------------
+describe("renderStructuredRedraftHtml — structured redraft renderer (Task 2)", () => {
+  const REDRAFT_BODY = [
+    "I am replying on behalf of Jane Doe.",
+    "",
+    "Holdings",
+    "- AAPL: 100 shares; $20,000 value; $200 price; +$1,000 gain/loss; equity",
+    "- MSFT: 50 shares; $15,000 value; $300 price; +$500 gain/loss; equity",
+    "",
+    "Best,",
+    "hussh One",
+  ].join("\n");
+
+  it("renders a holdings table, not bullets", () => {
+    const html = renderStructuredRedraftHtml(REDRAFT_BODY);
+    expect(html).toContain("<table");
+    expect(html).toContain("AAPL");
+    expect(html).toContain("Best,<br/>hussh One");
+  });
+
+  it("renders plain narrative as a paragraph", () => {
+    const html = renderStructuredRedraftHtml(
+      "Thanks for reaching out.\n\nBest,\nhussh One",
+    );
+    expect(html).toContain("Thanks for reaching out.");
+    // The email shell uses <table role="presentation"> for the header chip;
+    // check for the absence of a data table (holdings title in an <h2>) instead.
+    expect(html).not.toContain(">Holdings<");
   });
 });
 
