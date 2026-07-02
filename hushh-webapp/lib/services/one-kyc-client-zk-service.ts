@@ -10,7 +10,6 @@ import {
   buildApprovedDisclosureHtml,
   buildApprovedDisclosurePlainText,
   redraftTransformFromInstructions,
-  renderLlmRedraftHtml,
   renderStructuredRedraftHtml,
   type ApprovedDisclosureRenderModel,
   type RedraftTransform,
@@ -1497,40 +1496,6 @@ export type KycLlmRewriteCallable = (
   tokenizedTemplate: string,
   instruction: string
 ) => Promise<string>;
-
-/**
- * Returns true when `instruction` is a pure keyword/formatting instruction that the
- * existing regex path (`redraftTransformFromInstructions`) can handle locally — i.e.
- * it matches at least one keyword regex AND contains no semantic-intent phrasing.
- *
- * Routing rule (D-F):
- *  - keyword-only ("make it shorter", "bullet list") -> regex path (return true)
- *  - free-form / semantic ("rephrase the intro", "shorter and warmer") -> LLM path (return false)
- *
- * The keyword regexes are reused verbatim from `redraftTransformFromInstructions`.
- */
-export function isKeywordOnlyInstruction(instruction: string): boolean {
-  const text = String(instruction || "").toLowerCase().trim();
-  if (!text) return false;
-  // Keyword regexes reused EXACTLY from redraftTransformFromInstructions (renderer).
-  const keywordPatterns: RegExp[] = [
-    /\b(human|natural|plain english|readable|less programmatic|rewrite|polish|polished|email)\b/,
-    /\b(format|formatted|structure|structured|headings|sections|sectioned|readable|clean|beautiful)\b/,
-    /\b(table|tabular|columns|spreadsheet)\b/,
-    /\b(shorter|short|concise|summary|brief|direct|tighten)\b/,
-    /\b(formal|professional|polished)\b/,
-    /\b(bullet|bullets|list)\b/,
-    /\b(full detail|all details|complete|everything|full)\b/,
-    /\b(double headers?|duplicate headers?|remove headers?|clean headers?|headings?)\b/,
-  ];
-  const matchesKeyword = keywordPatterns.some((pattern) => pattern.test(text));
-  if (!matchesKeyword) return false;
-  // Semantic-intent phrases route to the LLM even if a keyword also matched.
-  const semanticIntent =
-    /\b(rephrase|rewrite|reword|warmer|friendlier|colder|intro|opening|paragraph|sentence|tone|voice|style|explain|describe)\b/i;
-  if (semanticIntent.test(text)) return false;
-  return true;
-}
 
 /**
  * Deterministically redact every PII value from `body` (D-B). Iterates `approvedValues`

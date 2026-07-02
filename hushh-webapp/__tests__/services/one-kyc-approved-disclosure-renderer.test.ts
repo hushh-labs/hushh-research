@@ -5,7 +5,6 @@ import {
   buildApprovedDisclosureHtml,
   buildApprovedDisclosurePlainText,
   redraftTransformFromInstructions,
-  renderLlmRedraftHtml,
   renderStructuredRedraftHtml,
   type ApprovedDisclosureRenderModel,
   type RedraftTransform,
@@ -188,58 +187,6 @@ describe("bullet-points keyword renders every entry uniformly", () => {
     // (width:50%;padding:6px is the htmlList key-value <td> card marker; the
     // <table>/<td> in the header chip logo is part of the shell and is expected).
     expect(html).not.toContain("width:50%;padding:6px");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Root cause (b): the LLM-redraft path rendered markdown LITERALLY (escaped) and
-// dropped the shared email theme shell. renderLlmRedraftHtml is a sanitized,
-// escape-first markdown -> themed HTML string renderer wrapped in the SAME shell
-// as buildApprovedDisclosureHtml. This output is also the actual sent email.
-// ---------------------------------------------------------------------------
-describe("renderLlmRedraftHtml — sanitized markdown in the shared shell", () => {
-  it("renders markdown bullets as a real <ul><li> list", () => {
-    const html = renderLlmRedraftHtml("Intro paragraph.\n\n- first point\n- second point");
-    expect(html).toContain("<ul");
-    const liCount = (html.match(/<li\b/g) || []).length;
-    expect(liCount).toBe(2);
-    expect(html).toContain("first point");
-    expect(html).toContain("second point");
-    expect(html).toContain("Intro paragraph.");
-  });
-
-  it("renders markdown headings as themed heading tags", () => {
-    const html = renderLlmRedraftHtml("# Account summary\n\nBody text.");
-    expect(html).toMatch(/<h1[^>]*>Account summary<\/h1>/);
-    expect(html).toContain("Body text.");
-  });
-
-  it("renders **bold** as <strong>", () => {
-    const html = renderLlmRedraftHtml("This is **important** information.");
-    expect(html).toContain("<strong>important</strong>");
-  });
-
-  it("splits blank-line-separated text into multiple paragraphs", () => {
-    const html = renderLlmRedraftHtml("Paragraph one.\n\nParagraph two.");
-    const pCount = (html.match(/<p\b/g) || []).length;
-    expect(pCount).toBeGreaterThanOrEqual(2);
-  });
-
-  it("escapes HTML in LLM output (no live markup injected)", () => {
-    const html = renderLlmRedraftHtml("Hello <script>alert(1)</script> & <b>x</b>");
-    expect(html).not.toContain("<script>");
-    expect(html).not.toContain("<b>x</b>");
-    expect(html).toContain("&lt;script&gt;");
-    expect(html).toContain("&amp;");
-  });
-
-  it("wraps the content in the SAME email shell as the approved-disclosure renderer", () => {
-    const html = renderLlmRedraftHtml("Just a line.");
-    // identical shell chrome (header chip + outer container) as buildApprovedDisclosureHtml
-    expect(html).toContain(">hussh One</div>");
-    expect(html).toContain(">approved reply</div>");
-    expect(html).toContain('<div style="padding:20px;">');
-    expect(html).toContain(`background:#18181b`);
   });
 });
 

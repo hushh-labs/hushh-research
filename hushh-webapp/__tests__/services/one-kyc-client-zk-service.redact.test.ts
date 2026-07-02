@@ -23,7 +23,6 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
 }));
 
 import {
-  isKeywordOnlyInstruction,
   OneKycClientZkService,
   reassembleDraftTemplate,
   redactDraftForLlm,
@@ -171,91 +170,6 @@ describe("validateTokenIntegrity", () => {
   });
 });
 
-describe("isKeywordOnlyInstruction", () => {
-  it("returns true for a pure keyword instruction", () => {
-    expect(isKeywordOnlyInstruction("make it shorter")).toBe(true);
-  });
-
-  it("returns true for 'bullet list'", () => {
-    expect(isKeywordOnlyInstruction("bullet list")).toBe(true);
-  });
-
-  it("returns false for a semantic instruction", () => {
-    expect(isKeywordOnlyInstruction("rephrase the intro to sound warmer")).toBe(false);
-  });
-
-  it("returns false when a keyword and a semantic term are both present", () => {
-    expect(isKeywordOnlyInstruction("shorter and warmer")).toBe(false);
-  });
-
-  it("returns false for an empty instruction", () => {
-    expect(isKeywordOnlyInstruction("")).toBe(false);
-    expect(isKeywordOnlyInstruction("   ")).toBe(false);
-  });
-
-  it("returns false when no keyword matches", () => {
-    expect(isKeywordOnlyInstruction("zorp the florp")).toBe(false);
-  });
-
-  it("returns true when two pure-format keywords are combined", () => {
-    // "bullet list and more formal" — both bullet and formal are keywords,
-    // no semantic-intent term present -> keyword-only (regex path).
-    expect(isKeywordOnlyInstruction("bullet list and more formal")).toBe(true);
-  });
-
-  // Regression: every one of the 8 keyword-vocabulary classes from
-  // redraftTransformFromInstructions must still classify as keyword-only.
-  it.each([
-    ["compact", "make it shorter"],
-    ["formal", "make it more formal"],
-    ["bulletList", "use a bullet list"],
-    ["structured", "add clean structure"],
-    ["table", "put it in a table"],
-    ["fullDetail", "include all details"],
-    ["human", "make it plain english"],
-    ["cleanHeaders", "remove headers"],
-  ])("classifies the %s keyword class as keyword-only", (_label, instruction) => {
-    expect(isKeywordOnlyInstruction(instruction)).toBe(true);
-  });
-});
-
-// D-F routing override: the runAction("redraft") routing expression is not exported
-// from the React component, so we mirror it here as a pure function and assert its
-// behavior directly. `isKeyword === true` => regex path; `false` => LLM path.
-function routesToRegex(
-  instruction: string,
-  useAiRedraft: boolean | null,
-): boolean {
-  return useAiRedraft === false
-    ? true // force regex
-    : useAiRedraft === true
-      ? false // force LLM
-      : isKeywordOnlyInstruction(instruction.trim());
-}
-
-describe("redraft routing override (useAiRedraft)", () => {
-  it("auto-detect: keyword instruction routes to regex", () => {
-    expect(routesToRegex("make it shorter", null)).toBe(true);
-  });
-
-  it("auto-detect: semantic instruction routes to LLM", () => {
-    expect(routesToRegex("rephrase the intro to sound warmer", null)).toBe(
-      false,
-    );
-  });
-
-  it("force AI: a keyword instruction is pushed onto the LLM path", () => {
-    // useAiRedraft=true overrides keyword detection -> not regex -> LLM branch.
-    expect(routesToRegex("make it shorter", true)).toBe(false);
-  });
-
-  it("force regex: a semantic instruction is pulled back onto the regex path", () => {
-    expect(
-      routesToRegex("rephrase the intro to sound warmer", false),
-    ).toBe(true);
-  });
-});
-
 describe("consolidated portfolio redaction (ZK)", () => {
   const workflow = {
     id: "wf-zk-1",
@@ -307,11 +221,6 @@ describe("consolidated portfolio redaction (ZK)", () => {
     expect(resubstituteDraft(tokenizedTemplate, tokenMap)).toBe(draft.body);
   });
 });
-
-// NB: the former htmlFromPlaintext renderer (and its tests) was retired — the
-// LLM-redraft path now renders through renderLlmRedraftHtml in the approved-
-// disclosure renderer (escaping + markdown + shared shell), covered by
-// __tests__/services/one-kyc-approved-disclosure-renderer.test.ts.
 
 describe("splitDraftTemplate", () => {
   const OPENING = "I am replying on behalf of Jane Doe.";
