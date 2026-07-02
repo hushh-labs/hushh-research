@@ -1265,6 +1265,7 @@ export function AgentChatWorkspace({
       setPkmActivity([]);
       setPkmReviews([]);
       setPendingSpecialistDirective(null);
+      setSpecialistBusy(false);
     },
     []
   );
@@ -1291,6 +1292,7 @@ export function AgentChatWorkspace({
     setPkmReviews([]);
     setPkmActivity([]);
     setPendingSpecialistDirective(null);
+    setSpecialistBusy(false);
   }, [abortAgentTurnWork]);
 
   const handleSelectConversation = useCallback(
