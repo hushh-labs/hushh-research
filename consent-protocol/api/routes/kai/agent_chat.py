@@ -224,6 +224,58 @@ async def stream_agent_chat(
 
     _assert_user(token_data, body.user_id)
     service = get_agent_chat_service()
+
+    # --- One → specialist delegation (slice 1: location) --------------------
+    # Fail-closed: only a WIRED specialist match (or an explicit delegate_result)
+    # is intercepted; everything else falls through to the existing planner.
+    import hushh_mcp.adk_bridge  # noqa: F401  (ensures specialists are registered)
+    from hushh_mcp.adk_bridge.contract import A2ATask
+    from hushh_mcp.adk_bridge.dispatch import dispatch as a2a_dispatch
+
+    delegate_agent_id: str | None = None
+    delegate_result_payload: dict | None = None
+    if body.delegate_result is not None:
+        delegate_agent_id = body.delegate_result.delegate_agent_id
+        delegate_result_payload = body.delegate_result.model_dump(by_alias=True, exclude_none=True)
+    elif body.message:
+        delegate_agent_id = resolve_delegate_target(body.message)
+
+    if delegate_agent_id is not None and is_wired_specialist(delegate_agent_id):
+        task = A2ATask(
+            user_id=body.user_id,
+            consent_token=token_data.get("token", ""),
+            conversation_id=body.conversation_id,
+            message=body.message or None,
+            delegate_result=delegate_result_payload,
+        )
+
+        async def generate_delegated():
+            try:
+                result = await a2a_dispatch(delegate_agent_id, task)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("agent_chat.delegation_failed user_id=%s: %s", body.user_id, error)
+                yield _event(
+                    "error",
+                    {
+                        "message": "Agent chat failed. Please try again.",
+                        "conversation_id": body.conversation_id or "",
+                    },
+                )
+                return
+            for name, data in specialist_result_to_frames(result, delegate_agent_id):
+                yield _event(name, data)
+
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+        }
+        return StreamingResponse(
+            generate_delegated(), media_type="text/event-stream", headers=headers
+        )
+    # --- end delegation branch --------------------------------------------
+
     try:
         runtime = await service.prepare_agent_runtime(
             runtime_credential=body.runtime_credential,
