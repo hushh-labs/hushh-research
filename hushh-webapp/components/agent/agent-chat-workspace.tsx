@@ -2418,14 +2418,16 @@ export function AgentChatWorkspace({
           appRuntimeState: appRuntimeStateRef.current,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
+        // Handler set is intentionally reduced. A delegate_result turn is
+        // serviced by the backend delegation branch (Task 6), which never
+        // emits `tool_waiting`/PKM frames — those only come from the central
+        // planner path, which delegated turns bypass. So onToolWaiting and
+        // onPkmResults are intentionally omitted; only the events a delegated
+        // confirmation turn can actually emit are wired here.
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) setConversationId(nextConversationId);
-          },
-          onToolWaiting: (toolEvent) => {
-            if (streamAbortController.signal.aborted) return;
-            appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
           },
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
