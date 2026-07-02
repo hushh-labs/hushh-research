@@ -22,13 +22,6 @@ export type DelegateResult = {
 type Share = {
   grantId: string;
   recipientKeyId: string;
-  /**
-   * The recipient's EC public key JWK used to encrypt the location envelope.
-   * The agent-chat component supplies this from OneLocationService.getState()
-   * before building the directive payload. Tests mock encryptLocationForRecipient
-   * so this field is not required in test fixtures.
-   */
-  recipientPublicKeyJwk?: JsonWebKey;
   recipientUserId?: string;
   label: string;
 };
@@ -47,6 +40,12 @@ type Share = {
  * - All service methods except captureCurrentPosition require vaultOwnerToken;
  *   added as second param defaulting to "" for test compat (mocks ignore it)
  *
+ * SECURITY: the recipient public-key JWK is always sourced from the server via
+ * OneLocationService.getState() (matching use-location-chat confirmAction) and
+ * NEVER read from the directive payload — the directive is produced by an LLM,
+ * so trusting a payload-supplied JWK would let a hallucinating/adversarial agent
+ * substitute a key it controls.
+ *
  * @param directive - The directive received from the SSE stream
  * @param vaultOwnerToken - Vault owner token required by OneLocationService
  *   (default "" for test compat; callers must supply a real token in production)
@@ -63,16 +62,22 @@ export async function runLocationDirective(
   try {
     if (type === "publish_share") {
       const shares = (payload.shares ?? []) as Share[];
-      // Capture ONCE, encrypt PER recipient, store per recipient
-      // Mirrors use-location-chat confirmAction lines ~211-231
+      // Capture ONCE, encrypt PER recipient, store per recipient.
+      // Mirrors use-location-chat confirmAction lines ~211-231: capture the
+      // position, load server state once, and for each share look up the
+      // recipient's public key from server state (never from the directive).
       const position = await OneLocationService.captureCurrentPosition();
+      const state = await OneLocationService.getState(vaultOwnerToken);
       for (const share of shares) {
+        const recipient = (state.recipients ?? []).find(
+          (r) => r.keyId === share.recipientKeyId,
+        );
+        if (!recipient?.publicKeyJwk) {
+          throw new Error(`${share.label} hasn't set up location sharing yet`);
+        }
         const envelope = await encryptLocationForRecipient({
           point: position,
-          // recipientPublicKeyJwk is supplied by the agent-chat component
-          // from getState() before building the directive. Tests mock
-          // encryptLocationForRecipient so {} cast is safe there.
-          recipientPublicKeyJwk: (share.recipientPublicKeyJwk ?? {}) as JsonWebKey,
+          recipientPublicKeyJwk: recipient.publicKeyJwk,
           recipientKeyId: share.recipientKeyId,
         });
         await OneLocationService.storeEnvelope({
