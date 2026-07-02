@@ -71,6 +71,50 @@ class ModelRegistry {
   getModelsDir() {
     return this.modelsDir;
   }
+  
+  /**
+   * Scaffolds the download UX for fetching hushh-ai-runtime.exe
+   * and the full ONNX model directory (.bin, .onnx, tokenizer.json, etc.)
+   */
+  async downloadLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
+    console.log(`[ModelRegistry] 🔄 Initiating download for decoupled AI engine and ${modelId} folder...`);
+    // TODO: Implement actual HuggingFace Hub / HTTP downloader streams here
+    // Must pull: 
+    // 1. hushh-ai-runtime.exe
+    // 2. genai_config.json
+    // 3. tokenizer.json
+    // 4. model.onnx
+    // 5. *.bin (QNN context binaries)
+    return { success: true, status: "scaffolded" };
+  }
+
+  /**
+   * Spawns the decoupled Python PyInstaller executable in the background.
+   */
+  spawnLocalInferenceEngine(modelDir, port = 8001) {
+    const { spawn } = require("child_process");
+    
+    // In production, this points to %LOCALAPPDATA%/Hushh Desktop/AI/hushh-ai-runtime.exe
+    const engineExe = path.join(this.modelsDir, "..", "AI", "hushh-ai-runtime.exe");
+    
+    if (!fs.existsSync(engineExe)) {
+        console.error(`[ModelRegistry] ❌ AI Runtime executable not found at ${engineExe}`);
+        return null;
+    }
+    
+    console.log(`[ModelRegistry] 🚀 Spawning decoupled AI Engine on port ${port}...`);
+    const aiProcess = spawn(engineExe, [
+        "--model-dir", modelDir,
+        "--port", port.toString()
+    ], {
+        stdio: ["ignore", "pipe", "pipe"],
+    });
+    
+    aiProcess.stdout.on("data", (data) => console.log(`[AI-Engine] ${data.toString().trim()}`));
+    aiProcess.stderr.on("data", (data) => console.error(`[AI-Engine] ${data.toString().trim()}`));
+    
+    return aiProcess;
+  }
 }
 
 // Export a singleton instance
