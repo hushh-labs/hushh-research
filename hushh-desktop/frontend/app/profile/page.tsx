@@ -653,6 +653,20 @@ function ProfilePageContent() {
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
 
+  const [localAiStatus, setLocalAiStatus] = useState({ downloaded: false, running: false, loading: true });
+
+  useEffect(() => {
+    let mounted = true;
+    if (window.hushh?.models) {
+      window.hushh.models.status("Llama-3.2-3B-Instruct").then((status) => {
+        if (mounted) setLocalAiStatus({ ...status, loading: false });
+      });
+    } else {
+      setLocalAiStatus(s => ({ ...s, loading: false }));
+    }
+    return () => { mounted = false; };
+  }, []);
+
   const {
     user,
     loading: authLoading,
@@ -4065,13 +4079,59 @@ function ProfilePageContent() {
               title="Local Inference Engine (Llama 3.2 3B)"
               description="Download the Decoupled AI Runtime and strictly route all queries through the Snapdragon NPU."
               trailing={
-                <Switch 
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      void window.hushh?.models?.install("Llama-3.2-3B-Instruct").then(() => toast.success("AI Runtime Download Started!"));
-                    }
-                  }} 
-                />
+                <div className="flex items-center gap-3">
+                  {localAiStatus.downloaded && !localAiStatus.running && (
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void window.hushh?.models?.remove("Llama-3.2-3B-Instruct")
+                          .then(() => {
+                            toast.success("AI Engine deleted.");
+                            setLocalAiStatus({ downloaded: false, running: false, loading: false });
+                          });
+                      }}
+                      title="Delete local files"
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                  {localAiStatus.loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : (
+                    <Switch 
+                      checked={localAiStatus.running} 
+                      onCheckedChange={() => {
+                        if (!localAiStatus.downloaded) {
+                           toast.loading("Downloading AI Runtime...", { id: "ai-download" });
+                           void window.hushh?.models?.install("Llama-3.2-3B-Instruct")
+                             .then(() => {
+                               toast.success("AI Runtime Downloaded!", { id: "ai-download" });
+                               setLocalAiStatus({ downloaded: true, running: false, loading: false });
+                             })
+                             .catch((e: Error) => toast.error(`Failed: ${e.message}`, { id: "ai-download" }));
+                        } else if (!localAiStatus.running) {
+                           toast.loading("Spawning NPU Runtime...", { id: "ai-spawn" });
+                           void window.hushh?.models?.spawn("Llama-3.2-3B-Instruct")
+                             .then(() => {
+                               toast.success("NPU Runtime active!", { id: "ai-spawn" });
+                               setLocalAiStatus({ downloaded: true, running: true, loading: false });
+                             })
+                             .catch((e: Error) => toast.error(`Failed: ${e.message}`, { id: "ai-spawn" }));
+                        } else {
+                           toast.loading("Shutting down NPU Runtime...", { id: "ai-kill" });
+                           void window.hushh?.models?.kill("Llama-3.2-3B-Instruct")
+                             .then(() => {
+                               toast.success("NPU Runtime terminated.", { id: "ai-kill" });
+                               setLocalAiStatus({ downloaded: true, running: false, loading: false });
+                             })
+                             .catch((e: Error) => toast.error(`Failed: ${e.message}`, { id: "ai-kill" }));
+                        }
+                      }} 
+                    />
+                  )}
+                </div>
               }
               stackTrailingOnMobile
             />

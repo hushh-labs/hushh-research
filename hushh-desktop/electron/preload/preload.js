@@ -54,6 +54,15 @@ contextBridge.exposeInMainWorld("hushh", {
 
     /** @param {string} modelId */
     remove: (modelId) => invoke("hushh:models:remove", modelId),
+    
+    /** @returns {Promise<{downloaded: boolean, running: boolean}>} */
+    status: (modelId) => invoke("hushh:models:status", modelId),
+    
+    /** @param {string} modelId */
+    spawn: (modelId) => invoke("hushh:models:spawn", modelId),
+    
+    /** @param {string} modelId */
+    kill: (modelId) => invoke("hushh:models:kill", modelId),
   },
 
   // ── settings ────────────────────────────────────────────────────────────

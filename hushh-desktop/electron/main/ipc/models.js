@@ -22,8 +22,24 @@ function registerModelsHandlers() {
     return await registry.downloadLocalInferenceEngine(modelId);
   });
 
-  ipcMain.handle("hushh:models:remove", (_event, _modelId) => {
-    throw new Error("Model removal not yet implemented.");
+  ipcMain.handle("hushh:models:remove", (_event, modelId) => {
+    const { registry } = require("../services/models/registry");
+    return registry.deleteLocalInferenceEngine(modelId);
+  });
+
+  ipcMain.handle("hushh:models:status", (_event, modelId) => {
+    const { registry } = require("../services/models/registry");
+    return registry.getStatus(modelId);
+  });
+
+  ipcMain.handle("hushh:models:kill", (_event, modelId) => {
+    const { registry } = require("../services/models/registry");
+    return registry.killLocalInferenceEngine(modelId);
+  });
+  
+  ipcMain.handle("hushh:models:spawn", (_event, modelId) => {
+    const { registry } = require("../services/models/registry");
+    return registry.spawnLocalInferenceEngine(modelId) ? true : false;
   });
 }
 

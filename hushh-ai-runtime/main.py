@@ -158,6 +158,21 @@ async def chat_completions(req: ChatCompletionRequest):
             logger.error(f"NPU Generation Failed: {e}")
             return JSONResponse(status_code=500, content={"error": "npu_busy", "fallback_available": True})
 
+@app.post("/shutdown")
+async def shutdown_engine():
+    global _model, _tokenizer
+    logging.info("Received shutdown request. Flushing NPU memory registers...")
+    
+    # Release ONNX structures
+    _model = None
+    _tokenizer = None
+    
+    import gc
+    gc.collect()
+    
+    logging.info("Memory flushed successfully. Awaiting OS process termination.")
+    return {"status": "flushed_and_ready_for_termination"}
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8001)
