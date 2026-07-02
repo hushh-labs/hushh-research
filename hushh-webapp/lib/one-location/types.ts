@@ -327,3 +327,69 @@ export type OneLocationEncryptedEnvelope = {
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
 };
+
+export interface ShareTarget {
+  grantId: string;
+  recipientUserId: string;
+  recipientKeyId: string;
+  label: string;
+}
+
+export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link";
+
+export interface ClientAction {
+  id: string;
+  type: ClientActionType;
+  shares?: ShareTarget[];
+  grantId?: string;
+  durationHours?: number;
+  summary: string;
+}
+
+export interface ActionResult {
+  id: string;
+  type: ClientActionType;
+  status: "completed" | "cancelled" | "failed";
+  publicUrl?: string;
+  detail?: string;
+}
+
+export interface PromptOption {
+  label: string;
+  ref: Record<string, unknown>;
+  hint?: string | null;
+}
+
+export type ClientPromptKind = "select" | "confirm";
+
+export interface ClientPrompt {
+  id: string;
+  kind: ClientPromptKind;
+  purpose: string;
+  question: string;
+  options?: PromptOption[];
+  minSelections?: number;
+  maxSelections?: number | null;
+  allowFreeText?: boolean;
+  confirmLabel?: string | null;
+  cancelLabel?: string | null;
+  destructive?: boolean;
+}
+
+export interface SelectionResult {
+  id: string;
+  kind: ClientPromptKind;
+  selected?: Record<string, unknown>[];
+  confirmed?: boolean;
+  freeText?: string;
+  status: "answered" | "cancelled";
+}
+
+export interface LocationChatResponse {
+  conversationId: string;
+  response: string;
+  isComplete: boolean;
+  stateChanged: boolean;
+  clientAction?: ClientAction;
+  clientPrompt?: ClientPrompt;
+}

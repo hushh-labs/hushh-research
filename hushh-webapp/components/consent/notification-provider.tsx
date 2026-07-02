@@ -72,11 +72,13 @@ import {
   locationShareNotificationDescription,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
+  oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
+
 
 // ============================================================================
 // Helpers
@@ -691,8 +693,13 @@ export function ConsentNotificationProvider({
         grantId,
         requestId,
         referralId,
+        submissionId,
+        // Land the recipient on the section that owns this event - e.g. an
+        // access request opens the Inbox "Needs your review" (approvals) section.
+        section: oneLocationSectionForWorkflowNotificationType(msgType),
         openGrant: false,
       });
+
       const created = recordOneLocationWorkflowNotification({
         userId: user.uid,
         notificationType: msgType,

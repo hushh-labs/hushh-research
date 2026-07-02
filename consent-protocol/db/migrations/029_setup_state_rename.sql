@@ -1,4 +1,4 @@
--- Migration 024: Rename pre-vault onboarding/tour columns to unified "setup" naming
+-- Migration 029: Rename pre-vault onboarding/tour columns to unified "setup" naming
 -- ============================================================================
 -- Renames the pre-vault user-state columns on vault_keys from the legacy
 -- "pre_onboarding_*" / "pre_nav_tour_*" / "pre_explored_*" / "pre_state_*"

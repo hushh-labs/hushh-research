@@ -478,16 +478,42 @@ export function recordOneLocationShareNotification(params: {
   // The recipient explicitly stopped watching this share - never re-notify.
   if (isOneLocationGrantUnwatched(userId, grantId)) return false;
 
-  // Persistent de-dup: a given share event yields at most one transient toast,
+  // Persistent de-dup: a given share event yields at most one notification,
   // ever (survives refresh, tab change, new session via localStorage).
   const eventId = `share:${grantId}`;
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Route to the consent surfaces (shield icon + consent manager), not the bell.
+  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
+  // "Open" deep-link into the recipient's "Shared with me" section, so the
+  // share is reachable from the bell - not only the transient toast.
+  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
+  const description = locationShareNotificationDescription(ownerLabel);
+  const taskId = oneLocationGrantTaskId(grantId);
+  AppBackgroundTaskService.startTask({
+    taskId,
+    userId,
+    kind: LOCATION_SHARE_TASK_KIND,
+    title: "Location shared",
+    description,
+    routeHref: buildOneLocationNotificationHref(grantId),
+    visibility: "primary",
+    groupLabel: "One Location",
+    autoClearAfterMs: 0,
+    metadata: {
+      grantId,
+      ownerLabel,
+      expiresAt: params.expiresAt || null,
+      durationHours: params.durationHours || null,
+    },
+  });
+  AppBackgroundTaskService.completeTask(taskId, description);
+
+  // Also route to the consent surfaces (shield icon + consent manager).
   notifyConsentSurfaceRefresh("location_share_created", grantId);
   return true;
 }
+
 
 export function recordOneLocationWorkflowNotification(params: {
   userId: string;
@@ -503,16 +529,39 @@ export function recordOneLocationWorkflowNotification(params: {
   if (!userId || !id) return false;
 
   // Persistent de-dup keyed by (type, id): each consent event yields at most one
-  // transient toast, ever. This stops the "same notification again after refresh
+  // notification, ever. This stops the "same notification again after refresh
   // / tab change" spam (the seen-set lives in localStorage).
   const eventId = `${params.notificationType}:${id}`;
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Route to the consent surfaces (shield icon + consent manager), not the bell.
+  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
+  // "Open" deep-link into the relevant One-Location section, so the workflow
+  // event is reachable from the bell - not only the transient toast.
+  const taskId = oneLocationWorkflowTaskId(params.notificationType, id);
+  AppBackgroundTaskService.startTask({
+    taskId,
+    userId,
+    kind: LOCATION_WORKFLOW_TASK_KIND,
+    title: params.title,
+    description: params.description,
+    routeHref: params.routeHref || "/one/location",
+    visibility: "primary",
+    groupLabel: "One Location",
+    autoClearAfterMs: 0,
+    metadata: {
+      notificationType: params.notificationType,
+      id,
+      ...(params.metadata || {}),
+    },
+  });
+  AppBackgroundTaskService.completeTask(taskId, params.description);
+
+  // Also route to the consent surfaces (shield icon + consent manager).
   notifyConsentSurfaceRefresh(params.notificationType, id);
   return true;
 }
+
 
 export function playOneLocationNotificationSound(): void {
   if (typeof window === "undefined") return;

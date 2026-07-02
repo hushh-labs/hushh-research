@@ -2,7 +2,7 @@
 
 /**
  * Portfolio Metrics Card
- * 
+ *
  * Features:
  * - Diversification score based on concentration
  * - Average yield from holdings
@@ -56,20 +56,20 @@ export function PortfolioMetricsCard({
   // Based on Herfindahl-Hirschman Index (HHI)
   const diversificationScore = useMemo(() => {
     if (holdings.length === 0 || totalValue === 0) return 0;
-    
+
     // Calculate HHI (sum of squared market share percentages)
     const hhi = holdings.reduce((sum, h) => {
       const share = (h.market_value / totalValue) * 100;
       return sum + share * share;
     }, 0);
-    
+
     // Convert HHI to a 0-100 score (lower HHI = more diversified)
     // HHI ranges from 10000/n (perfectly diversified) to 10000 (single holding)
     // We normalize: 100 = perfectly diversified, 0 = single holding
     const minHHI = 10000 / Math.max(holdings.length, 1);
     const maxHHI = 10000;
     const score = Math.max(0, Math.min(100, ((maxHHI - hhi) / (maxHHI - minHHI)) * 100));
-    
+
     return Math.round(score);
   }, [holdings, totalValue]);
 
@@ -77,16 +77,16 @@ export function PortfolioMetricsCard({
   const avgYield = useMemo(() => {
     const holdingsWithYield = holdings.filter((h) => h.est_yield !== undefined && h.est_yield > 0);
     if (holdingsWithYield.length === 0) return null;
-    
+
     // Weighted average by market value
     const totalWeight = holdingsWithYield.reduce((sum, h) => sum + h.market_value, 0);
     if (totalWeight === 0) return null;
-    
+
     const weightedYield = holdingsWithYield.reduce(
       (sum, h) => sum + (h.est_yield || 0) * (h.market_value / totalWeight),
       0
     );
-    
+
     return weightedYield;
   }, [holdings]);
 
@@ -94,7 +94,7 @@ export function PortfolioMetricsCard({
   const weightedCostBasis = useMemo(() => {
     const holdingsWithCost = holdings.filter((h) => h.cost_basis !== undefined && h.cost_basis > 0);
     if (holdingsWithCost.length === 0) return null;
-    
+
     const totalCost = holdingsWithCost.reduce((sum, h) => sum + (h.cost_basis || 0), 0);
     return totalCost;
   }, [holdings]);

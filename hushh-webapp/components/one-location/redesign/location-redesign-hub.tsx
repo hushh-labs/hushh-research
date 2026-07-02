@@ -19,6 +19,8 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+
 
 import {
   Inbox as InboxIcon,
@@ -186,8 +188,46 @@ const PEOPLE_LIST_SCROLL_CLASS =
 
 
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<LocationHubTab>("now");
   const [flow, setFlow] = useState<FlowKind>("none");
+  // Deep-link routing: notification "Open" buttons land here with a `section`
+  // (or requestId/grantId/submissionId) query param. The page-level tabs are
+  // compose/activity, but the ACTIVE UI is this hub (now/people/links/inbox),
+  // which owns its own tab state — so it must consume the deep-link itself and
+  // switch to the correct hub tab. Sections map: shared/approvals/my_requests →
+  // inbox, public_responses → links. An access-request (`requestId`) or the
+  // approvals section opens Inbox so User A/B lands on the approve/deny +
+  // "Shared with me" surfaces. Runs on every param change (Next.js keeps the
+  // component mounted across same-path query navigations).
+  useEffect(() => {
+    const section = String(
+      searchParams.get("section") || "",
+    ).trim();
+    const hasRequest = Boolean(String(searchParams.get("requestId") || "").trim());
+    const hasGrant = Boolean(String(searchParams.get("grantId") || "").trim());
+    const hasSubmission = Boolean(
+      String(searchParams.get("submissionId") || "").trim(),
+    );
+    let nextTab: LocationHubTab | null = null;
+    if (
+      section === "approvals" ||
+      section === "shared" ||
+      section === "my_requests" ||
+      hasRequest ||
+      hasGrant
+    ) {
+      nextTab = "inbox";
+    } else if (section === "public_responses" || hasSubmission) {
+      nextTab = "links";
+    } else if (section === "people") {
+      nextTab = "people";
+    }
+    if (nextTab) {
+      setTab(nextTab);
+    }
+  }, [searchParams]);
+
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
   const [locationType, setLocationType] =
     useState<LocationTypeValue>("precise");

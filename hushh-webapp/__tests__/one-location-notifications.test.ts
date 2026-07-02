@@ -3,13 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Mock the background-task store so the notification helpers run without the
 // real (sessionStorage-backed) implementation. We only need to confirm the
 // persistent de-dup + unwatch logic in notifications.ts.
-const tasks = new Map<string, { taskId: string; dismissedAt: string | null }>();
+interface MockTask {
+  taskId: string;
+  routeHref: string | null;
+  dismissedAt: string | null;
+}
+const tasks = new Map<string, MockTask>();
 
 vi.mock("@/lib/services/app-background-task-service", () => ({
   AppBackgroundTaskService: {
     getTask: (taskId: string) => tasks.get(taskId) ?? null,
-    startTask: (params: { taskId: string }) => {
-      tasks.set(params.taskId, { taskId: params.taskId, dismissedAt: null });
+    startTask: (params: { taskId: string; routeHref?: string | null }) => {
+      tasks.set(params.taskId, {
+        taskId: params.taskId,
+        routeHref: params.routeHref ?? null,
+        dismissedAt: null,
+      });
       return params.taskId;
     },
     completeTask: () => undefined,
@@ -20,13 +29,17 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
   },
 }));
 
+
 import {
+  buildOneLocationWorkflowHref,
   hasSeenOneLocationNotification,
   isOneLocationGrantUnwatched,
   markOneLocationGrantUnwatched,
+  oneLocationSectionForWorkflowNotificationType,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
 } from "@/lib/one-location/notifications";
+
 
 const USER = "user_recipient_1";
 const GRANT = "grant_abc";
@@ -78,10 +91,10 @@ describe("One-Location persistent notification de-dup", () => {
   });
 });
 
-describe("One-Location consent-surface routing (not the general bell)", () => {
+describe("One-Location notification surfaces (bell + consent)", () => {
   const CONSENT_EVENT = "consent-state-changed";
 
-  it("dispatches a consent refresh and does NOT create a bell task for a share", () => {
+  it("creates a bell task with a 'shared' deep-link AND a consent refresh for a share", () => {
     const events: string[] = [];
     const handler = () => events.push("consent");
     window.addEventListener(CONSENT_EVENT, handler);
@@ -92,16 +105,22 @@ describe("One-Location consent-surface routing (not the general bell)", () => {
         ownerLabel: "Alex",
       });
       expect(created).toBe(true);
-      // Routed to the consent surface...
+      // Routed to the consent surface (shield icon + consent manager)...
       expect(events.length).toBe(1);
-      // ...and NOT written to the general bell (AppBackgroundTaskService).
-      expect(tasks.size).toBe(0);
+      // ...AND surfaced in the bell with an "Open" deep-link into the
+      // recipient's "Shared with me" section so it is reachable from the bell.
+      expect(tasks.size).toBe(1);
+      const task = tasks.get("one_location_share:grant_routing_1");
+      expect(task).toBeTruthy();
+      expect(task?.routeHref).toContain("/one/location");
+      expect(task?.routeHref).toContain("grantId=grant_routing_1");
+      expect(task?.routeHref).toContain("section=shared");
     } finally {
       window.removeEventListener(CONSENT_EVENT, handler);
     }
   });
 
-  it("dispatches a consent refresh for a workflow (approve/deny/request) event", () => {
+  it("creates a bell task AND a consent refresh for a workflow (approve/deny/request) event", () => {
     const events: string[] = [];
     const handler = () => events.push("consent");
     window.addEventListener(CONSENT_EVENT, handler);
@@ -112,17 +131,50 @@ describe("One-Location consent-surface routing (not the general bell)", () => {
         id: "req_routing_1",
         title: "Location request",
         description: "Someone is asking to view your location.",
+        routeHref: "/one/location?requestId=req_routing_1&section=approvals",
       });
       expect(created).toBe(true);
       expect(events.length).toBe(1);
-      expect(tasks.size).toBe(0);
+      expect(tasks.size).toBe(1);
+      const task = tasks.get(
+        "one_location_workflow:location_access_request:req_routing_1",
+      );
+      expect(task).toBeTruthy();
+      expect(task?.routeHref).toBe(
+        "/one/location?requestId=req_routing_1&section=approvals",
+      );
     } finally {
       window.removeEventListener(CONSENT_EVENT, handler);
     }
   });
 });
 
+
+describe("One-Location workflow deep-link sections", () => {
+  it("routes an access request to the Inbox 'Needs your review' (approvals) section", () => {
+    const section = oneLocationSectionForWorkflowNotificationType(
+      "location_access_request",
+    );
+    expect(section).toBe("approvals");
+
+    const href = buildOneLocationWorkflowHref({
+      requestId: "req_xyz",
+      section,
+    });
+    expect(href).toContain("/one/location");
+    expect(href).toContain("requestId=req_xyz");
+    expect(href).toContain("section=approvals");
+  });
+
+  it("maps each workflow type to its owning section", () => {
+    expect(oneLocationSectionForWorkflowNotificationType("location_access_approved")).toBe("shared");
+    expect(oneLocationSectionForWorkflowNotificationType("location_access_denied")).toBe("my_requests");
+    expect(oneLocationSectionForWorkflowNotificationType("location_public_invite_submitted")).toBe("public_responses");
+  });
+});
+
 describe("One-Location unwatch", () => {
+
   it("hides a grant and suppresses its share notification", () => {
     expect(isOneLocationGrantUnwatched(USER, GRANT)).toBe(false);
     markOneLocationGrantUnwatched(USER, GRANT);
