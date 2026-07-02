@@ -67,6 +67,17 @@ passes them by actor identity; CI gate + merge queue + post-merge smoke still
 apply). `main` therefore receives both train-promotion PRs and maintainer
 direct-to-main PRs; the train carries everything non-maintainer.
 
+Contributor Impact Accounting: `scripts/contributor_impact_report.py` reads the
+same `branch_flow` contract from `config/ci-governance.json`, so impact is
+credited from the branch a PR actually lands on. A merge to
+`integration/pr-train` is counted immediately as tracked contributor impact
+(`landingLane == "train"`), but is marked official-GitHub-credit-pending until
+the train->`main` promotion PR moves it onto the default branch
+(`landingLane == "promotion"`). Direct maintainer merges to `main` and
+train-promotion merges both score as promotion landings. Refresh the report
+against live data after fetching `main` so the train-vs-promotion split reflects
+the current cohort.
+
 1. Lock the current PR head SHA, current `CI Status Gate`, mergeability, draft state, and review state before judging.
 2. Run the delegation router at intake; use real read-only subagent evidence lanes for non-trivial, high-risk, or multi-PR work.
 3. Run the PR checklist or hybrid live report and treat `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` as decision records.

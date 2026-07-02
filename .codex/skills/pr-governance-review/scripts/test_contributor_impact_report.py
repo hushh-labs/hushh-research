@@ -29,6 +29,7 @@ def _fake_pr(
     reviews: list[dict[str, object]] | None = None,
     merged_by: str | None = None,
     files: list[str] | None = None,
+    base: str = "main",
 ) -> dict[str, object]:
     return {
         "number": number,
@@ -39,6 +40,7 @@ def _fake_pr(
         "closedAt": "2026-05-14T01:00:00Z",
         "mergedAt": "2026-05-14T01:00:00Z" if merged else None,
         "mergedBy": {"login": merged_by} if merged_by else None,
+        "baseRefName": base,
         "additions": 12,
         "deletions": 4,
         "changedFiles": 1,
@@ -308,6 +310,60 @@ def test_report_and_json_expose_dual_credit_sections() -> None:
     )
 
 
+def test_pr_train_landing_maps_credit_lane() -> None:
+    promotion, train = report._branch_flow()
+    records = report._analysis(
+        [
+            _fake_pr(
+                901,
+                "imsharukhan",
+                "fix: train-landed contributor work",
+                merged=True,
+                base=train,
+            ),
+            _fake_pr(
+                902,
+                "imsharukhan",
+                "fix: promoted contributor work",
+                merged=True,
+                base=promotion,
+            ),
+        ]
+    )
+    by_number = {int(item["number"]): item for item in records}
+
+    train_pr = by_number[901]
+    _assert(train_pr["landingLane"] == "train", "train PR must classify as train lane")
+    _assert(train_pr["landedOnTrain"] is True, "train PR must set landedOnTrain")
+    _assert(
+        train_pr["officialGitHubContributorCredit"] is False,
+        "train landing must not claim official GitHub credit yet",
+    )
+    _assert(
+        train_pr["officialGitHubContributorCreditPending"] is True,
+        "train landing must mark official credit as pending promotion",
+    )
+
+    promo_pr = by_number[902]
+    _assert(promo_pr["landingLane"] == "promotion", "promotion PR must classify as promotion lane")
+    _assert(
+        promo_pr["officialGitHubContributorCredit"] is True,
+        "promotion landing must claim official GitHub credit",
+    )
+    _assert(
+        promo_pr["officialGitHubContributorCreditPending"] is False,
+        "promotion landing must not be pending",
+    )
+
+    kpis = report._kpis(records)
+    _assert(kpis["landed_on_train_prs"] == 1, "kpis must count one train landing")
+    _assert(kpis["landed_on_promotion_prs"] == 1, "kpis must count one promotion landing")
+    _assert(
+        kpis["official_credit_pending_prs"] == 1,
+        "kpis must count one pending official credit",
+    )
+
+
 if __name__ == "__main__":
     test_harvested_source_gets_internal_credit()
     test_harvest_attribution_names_external_ledger_boundary()
@@ -316,4 +372,5 @@ if __name__ == "__main__":
     test_balanced_leaderboard_limits_routine_operator_dominance()
     test_product_surfaces_and_category_bonus_are_visible()
     test_report_and_json_expose_dual_credit_sections()
+    test_pr_train_landing_maps_credit_lane()
     print("contributor impact tests passed")

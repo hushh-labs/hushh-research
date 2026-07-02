@@ -29,6 +29,9 @@ DISCUSSION_FETCH_WORKERS = int(os.environ.get("PR_IMPACT_DISCUSSION_WORKERS", "8
 GH_RETRY_ATTEMPTS = int(os.environ.get("PR_IMPACT_GH_RETRY_ATTEMPTS", "3"))
 GH_RETRY_BASE_DELAY_SECONDS = float(os.environ.get("PR_IMPACT_GH_RETRY_BASE_DELAY_SECONDS", "1.25"))
 GH_COMMAND_TIMEOUT_SECONDS = float(os.environ.get("PR_IMPACT_GH_COMMAND_TIMEOUT_SECONDS", "30"))
+# The paginated PR search walks several cursor pages in a single subprocess, so
+# it needs a longer ceiling than a one-shot call.
+GH_PR_FETCH_TIMEOUT_SECONDS = float(os.environ.get("PR_IMPACT_GH_PR_FETCH_TIMEOUT_SECONDS", "180"))
 FETCH_DISCUSSIONS = os.environ.get("PR_IMPACT_FETCH_DISCUSSIONS", "1") != "0"
 GH_FIELDS = (
     "number,title,author,mergedAt,closedAt,createdAt,updatedAt,additions,"
@@ -436,9 +439,10 @@ def _is_transient_gh_error(message: str) -> bool:
     return any(fragment in message for fragment in TRANSIENT_GH_ERRORS)
 
 
-def _run_gh(args: list[str]) -> Any:
+def _run_gh(args: list[str], *, timeout: float | None = None) -> Any:
     last_error = ""
     attempts = max(1, GH_RETRY_ATTEMPTS)
+    effective_timeout = timeout if timeout is not None else GH_COMMAND_TIMEOUT_SECONDS
     for attempt in range(1, attempts + 1):
         try:
             proc = subprocess.run(
@@ -448,10 +452,10 @@ def _run_gh(args: list[str]) -> Any:
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=GH_COMMAND_TIMEOUT_SECONDS,
+                timeout=effective_timeout,
             )
         except subprocess.TimeoutExpired:
-            last_error = f"gh {' '.join(args[:4])} timed out after {GH_COMMAND_TIMEOUT_SECONDS:g}s"
+            last_error = f"gh {' '.join(args[:4])} timed out after {effective_timeout:g}s"
             if attempt < attempts:
                 time.sleep(GH_RETRY_BASE_DELAY_SECONDS * attempt)
                 continue
@@ -468,6 +472,87 @@ def _run_gh(args: list[str]) -> Any:
         if attempt < attempts and _is_transient_gh_error(last_error):
             time.sleep(GH_RETRY_BASE_DELAY_SECONDS * attempt)
             continue
+        break
+    raise RuntimeError(last_error)
+
+
+# --- Rate-limit-aware REST helper --------------------------------------------
+#
+# Used for the lightweight repo-wide audit counts (`/search/issues` total_count)
+# and the first-PR lookup. The heavy PR list is fetched via a single paginated
+# GraphQL search (see `_query_closed_prs`), which spends a few GraphQL points per
+# page instead of one REST request per PR, and never triggers the REST core pool
+# exhaustion that per-PR hydration caused. This helper waits out the relevant
+# pool's reset window on a 403/secondary-limit rather than failing hard.
+
+_RATE_LIMIT_MAX_WAIT_SECONDS = float(os.environ.get("PR_IMPACT_RATE_LIMIT_MAX_WAIT_SECONDS", "90"))
+
+
+def _seconds_to_rate_reset(resource: str) -> int:
+    """Best-effort seconds until the given REST pool resets (bounded). 0 on error."""
+    try:
+        proc = subprocess.run(
+            ["gh", "api", "rate_limit", "-q", f".resources.{resource}.reset"],
+            cwd=REPO_ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=15,
+        )
+        if proc.returncode != 0:
+            return 0
+        reset_epoch = int(proc.stdout.strip())
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return 0
+    delta = reset_epoch - int(time.time())
+    if delta <= 0:
+        return 0
+    return min(delta + 1, int(_RATE_LIMIT_MAX_WAIT_SECONDS))
+
+
+def _is_rate_limited(message: str) -> bool:
+    low = message.lower()
+    return "rate limit" in low or "secondary rate limit" in low or "403" in low
+
+
+def _run_gh_rest(path: str, *, resource: str = "core") -> Any:
+    """Call a REST endpoint via `gh api`, waiting out rate limits on the given pool."""
+    last_error = ""
+    attempts = max(1, GH_RETRY_ATTEMPTS)
+    for attempt in range(1, attempts + 1):
+        try:
+            proc = subprocess.run(
+                ["gh", "api", "-H", "Accept: application/vnd.github+json", path],
+                cwd=REPO_ROOT,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=GH_COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            last_error = f"gh api {path} timed out after {GH_COMMAND_TIMEOUT_SECONDS:g}s"
+            if attempt < attempts:
+                time.sleep(GH_RETRY_BASE_DELAY_SECONDS * attempt)
+                continue
+            break
+        stdout = proc.stdout.strip()
+        stderr = proc.stderr.strip()
+        if proc.returncode == 0:
+            try:
+                return json.loads(stdout or "[]")
+            except json.JSONDecodeError as exc:
+                last_error = f"invalid JSON from gh api {path}: {exc}"
+        else:
+            last_error = stderr or stdout
+        if attempt < attempts:
+            if _is_rate_limited(last_error):
+                time.sleep(_seconds_to_rate_reset(resource) or (10 * attempt))
+                continue
+            if _is_transient_gh_error(last_error):
+                time.sleep(GH_RETRY_BASE_DELAY_SECONDS * attempt)
+                continue
         break
     raise RuntimeError(last_error)
 
@@ -517,6 +602,36 @@ def _merge_queue_bypass_users() -> frozenset[str]:
     return frozenset(str(user) for user in main.get("merge_queue_bypass_users", []) if user)
 
 
+@functools.lru_cache(maxsize=1)
+def _branch_flow() -> tuple[str, str]:
+    """Return (promotion_branch, train_branch) from ci-governance, with defaults.
+
+    Under the async PR-train model, non-maintainer work lands on the train branch
+    first and only reaches the promotion branch (GitHub's default branch, the
+    surface the official contributor graph credits) via a later train->main
+    promotion PR. Keeping these in sync with config/ci-governance.json is what
+    lets the impact report account landings from the train branch itself.
+    """
+    config = _load_json(REPO_ROOT / "config" / "ci-governance.json")
+    flow = config.get("branch_flow") if isinstance(config.get("branch_flow"), dict) else {}
+    promotion = str(flow.get("promotion_branch") or "main")
+    train = str(flow.get("train_branch") or "integration/pr-train")
+    return promotion, train
+
+
+def _landing_lane(pr: dict[str, Any]) -> str:
+    """Classify where a merged PR landed: promotion (main), train, other, or none."""
+    if not pr.get("mergedAt"):
+        return "none"
+    promotion, train = _branch_flow()
+    base = str(pr.get("baseRefName") or "")
+    if base == promotion:
+        return "promotion"
+    if base == train:
+        return "train"
+    return "other"
+
+
 def _actor_login(value: Any) -> str:
     if isinstance(value, dict):
         login = value.get("login")
@@ -537,28 +652,102 @@ def _body(value: dict[str, Any]) -> str:
     return str(body) if body else ""
 
 
-def _query_closed_prs(repo: str, state: str, window: Window | None) -> list[dict[str, Any]]:
-    cmd = [
-        "pr",
-        "list",
-        "--repo",
-        repo,
-        "--state",
-        state,
-        "--limit",
-        str(PR_FETCH_LIMIT),
-        "--json",
-        GH_FIELDS,
-    ]
+def _gql_node_to_record(node: dict[str, Any]) -> dict[str, Any]:
+    """Map a GraphQL search PR node onto the shape the analysis layer expects."""
+    return {
+        "number": int(node.get("number") or 0),
+        "title": node.get("title") or "",
+        "author": {"login": _actor_login(node.get("author"))},
+        "mergedAt": node.get("mergedAt"),
+        "closedAt": node.get("closedAt"),
+        "createdAt": node.get("createdAt"),
+        "updatedAt": node.get("updatedAt"),
+        "additions": int(node.get("additions") or 0),
+        "deletions": int(node.get("deletions") or 0),
+        "changedFiles": int(node.get("changedFiles") or 0),
+        "labels": [
+            {"name": label.get("name", "")}
+            for label in ((node.get("labels") or {}).get("nodes") or [])
+            if isinstance(label, dict)
+        ],
+        "url": node.get("url") or "",
+        "headRefName": node.get("headRefName") or "",
+        "baseRefName": node.get("baseRefName") or "",
+        "isDraft": bool(node.get("isDraft")),
+        "mergeCommit": {"oid": (node.get("mergeCommit") or {}).get("oid") or ""},
+        "mergedBy": {"login": _actor_login(node.get("mergedBy"))},
+        "reviewDecision": node.get("reviewDecision") or "",
+        "files": [
+            {"path": entry.get("path", "")}
+            for entry in ((node.get("files") or {}).get("nodes") or [])
+            if isinstance(entry, dict)
+        ],
+    }
+
+
+# One paginated GraphQL search request (small pages) replaces both the fragile
+# single giant `gh pr list` query and the REST N+1 hydration. Small pages never
+# 502 the way the unpaginated query did, and the GraphQL search cost is a few
+# points per page (well within the 5000-points/hr GraphQL budget) instead of one
+# core REST request per PR field, which exhausted the REST pool. `--paginate`
+# walks the cursor server-side so it is a single `gh` subprocess per state.
+_PR_SEARCH_GQL = """
+query($q: String!, $endCursor: String) {
+  search(query: $q, type: ISSUE, first: 50, after: $endCursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        number title url createdAt updatedAt mergedAt closedAt
+        additions deletions changedFiles isDraft reviewDecision
+        headRefName baseRefName
+        author { login }
+        mergedBy { login }
+        mergeCommit { oid }
+        labels(first: 20) { nodes { name } }
+        files(first: 100) { nodes { path } }
+      }
+    }
+  }
+}
+"""
+
+
+def _search_query_string(repo: str, state: str, window: Window | None) -> str:
+    qualifier = "is:merged" if state == "merged" else "is:closed is:unmerged"
+    date_field = "merged" if state == "merged" else "closed"
+    parts = [f"repo:{repo}", "type:pr", qualifier]
     if window:
-        key = "merged" if state == "merged" else "closed"
-        cmd.extend(
-            [
-                "--search",
-                f"{key}:>={window.since.isoformat()} {key}:<={window.until.isoformat()}",
-            ]
-        )
-    return _run_gh(cmd)
+        parts.append(f"{date_field}:{window.since.isoformat()}..{window.until.isoformat()}")
+    return " ".join(parts)
+
+
+def _query_closed_prs(repo: str, state: str, window: Window | None) -> list[dict[str, Any]]:
+    query_string = _search_query_string(repo, state, window)
+    raw = _run_gh(
+        [
+            "api",
+            "graphql",
+            "--paginate",
+            "--slurp",
+            "-f",
+            f"query={_PR_SEARCH_GQL}",
+            "-F",
+            f"q={query_string}",
+        ],
+        timeout=GH_PR_FETCH_TIMEOUT_SECONDS,
+    )
+    pages = raw if isinstance(raw, list) else [raw]
+    records: list[dict[str, Any]] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        nodes = (((page.get("data") or {}).get("search") or {}).get("nodes")) or []
+        for node in nodes:
+            if isinstance(node, dict) and node.get("number"):
+                records.append(_gql_node_to_record(node))
+            if len(records) >= PR_FETCH_LIMIT:
+                return records[:PR_FETCH_LIMIT]
+    return records[:PR_FETCH_LIMIT]
 
 
 def _repo_parts(repo: str) -> tuple[str, str]:
@@ -1125,6 +1314,7 @@ def _analysis(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         vectors = _vectors(pr)
         lifecycle = _lifecycle(pr)
         harvest = _harvest_credit(int(pr["number"]))
+        landing_lane = _landing_lane(pr)
         source_score = _impact_score(pr)
         product_bonus = _source_product_bonus(pr, vectors, lifecycle)
         operator_events = _operator_events(pr, vectors, lifecycle)
@@ -1160,7 +1350,15 @@ def _analysis(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "changedFiles": int(pr.get("changedFiles") or 0),
                 "harvestedInto": int(harvest["landing_pr"]) if harvest else None,
                 "harvestAcceptedValue": str(harvest["accepted_value"]) if harvest else "",
-                "officialGitHubContributorCredit": bool(pr.get("mergedAt")),
+                "baseRefName": str(pr.get("baseRefName") or ""),
+                "landingLane": landing_lane,
+                "landedOnTrain": landing_lane == "train",
+                "landedOnPromotion": landing_lane == "promotion",
+                # GitHub's contributor graph only credits commits on the default
+                # (promotion) branch. Train landings are real, tracked impact but
+                # their official credit is pending the train->main promotion.
+                "officialGitHubContributorCredit": landing_lane == "promotion",
+                "officialGitHubContributorCreditPending": landing_lane == "train",
             }
         )
     return analyzed
@@ -1181,6 +1379,8 @@ def _leaderboard(records: list[dict[str, Any]], mode: str = "balanced") -> list[
                 "balanced_operator_score": 0,
                 "resolved": 0,
                 "merged": 0,
+                "landed_train": 0,
+                "landed_promotion": 0,
                 "patched": 0,
                 "harvested": 0,
                 "closed": 0,
@@ -1198,6 +1398,8 @@ def _leaderboard(records: list[dict[str, Any]], mode: str = "balanced") -> list[
         source_row["source_product_bonus"] += product_bonus
         source_row["resolved"] += 1
         source_row["merged"] += 1 if item["mergedAt"] else 0
+        source_row["landed_train"] += 1 if item.get("landedOnTrain") else 0
+        source_row["landed_promotion"] += 1 if item.get("landedOnPromotion") else 0
         source_row["patched"] += 1 if item["lifecycle"] == "patched_then_merged" else 0
         source_row["harvested"] += 1 if item["lifecycle"] == "harvested_source" else 0
         source_row["closed"] += 1 if not item["mergedAt"] else 0
@@ -1288,26 +1490,25 @@ def _search_count(repo: str, qualifiers: str) -> int:
 
 
 def _first_pr_summary(repo: str) -> dict[str, Any] | None:
+    query = quote(f"repo:{repo} type:pr sort:created-asc", safe="")
     try:
-        rows = _run_gh(
-            [
-                "pr",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "all",
-                "--search",
-                "sort:created-asc",
-                "--limit",
-                "1",
-                "--json",
-                "number,title,createdAt,url,state",
-            ]
+        payload = _run_gh_rest(
+            f"/search/issues?q={query}&per_page=1&sort=created&order=asc",
+            resource="search",
         )
     except RuntimeError:
         return None
-    return rows[0] if rows else None
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not items:
+        return None
+    item = items[0]
+    return {
+        "number": item.get("number"),
+        "title": item.get("title") or "",
+        "createdAt": item.get("created_at"),
+        "url": item.get("html_url") or "",
+        "state": item.get("state") or "",
+    }
 
 
 def _first_resolved_record(records: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1397,6 +1598,9 @@ def _kpis(records: list[dict[str, Any]]) -> dict[str, Any]:
     titles = " ".join(str(item.get("title", "")).lower() for item in records)
     resolved = len(records)
     merged = sum(1 for item in records if item["mergedAt"])
+    landed_train = sum(1 for item in records if item.get("landedOnTrain"))
+    landed_promotion = sum(1 for item in records if item.get("landedOnPromotion"))
+    official_credit_pending = sum(1 for item in records if item.get("officialGitHubContributorCreditPending"))
     resolution_days = [
         value for value in (_resolution_days(item) for item in records) if value is not None
     ]
@@ -1418,7 +1622,11 @@ def _kpis(records: list[dict[str, Any]]) -> dict[str, Any]:
         "balanced_operator_impact_score_total": balanced_operator_total,
         "resolved_prs": resolved,
         "merged_prs": merged,
+        "landed_on_train_prs": landed_train,
+        "landed_on_promotion_prs": landed_promotion,
+        "official_credit_pending_prs": official_credit_pending,
         "merge_rate": _percent(merged, resolved),
+        "train_landing_rate": _percent(landed_train, merged),
         "median_resolution_days": round(_median(resolution_days), 1),
         "contributors_represented": len({item["author"] for item in records}),
         "operators_represented": len(
@@ -1620,6 +1828,10 @@ def _kpi_lines(kpis: dict[str, Any]) -> list[str]:
         "composite_impact_score_total": "Raw source + maintainer total",
         "resolved_prs": "Resolved PRs",
         "merged_prs": "Merged PRs",
+        "landed_on_promotion_prs": "Landed on main (promotion)",
+        "landed_on_train_prs": "Landed on integration/pr-train",
+        "official_credit_pending_prs": "Official GitHub credit pending promotion",
+        "train_landing_rate": "Train landing rate",
         "merge_rate": "Merge rate",
         "median_resolution_days": "Median PR resolution time (days)",
         "contributors_represented": "Contributors represented",
@@ -1819,7 +2031,8 @@ def _how_accounted_lines() -> list[str]:
         "- Maintainer Support credits review, patch, harvest, closure, queue, and merge work, but the default leaderboard uses capped weighted support so routine operator volume cannot dominate.",
         "- Balanced Impact is the default ranking: Source Impact + product category bonus + capped Maintainer Support.",
         "- Raw maintainer activity and raw source + maintainer totals remain available for internal diagnosis.",
-        "- GitHub Credit is separate and still depends on commit authorship or valid `Co-authored-by` trailers.",
+        "- Landing lane follows the async PR-train model: non-maintainer work lands on `integration/pr-train` first and is credited from that branch immediately; a later train->`main` promotion PR is what moves it onto GitHub's default branch.",
+        "- GitHub Credit is separate and still depends on commit authorship or valid `Co-authored-by` trailers, and the official contributor graph only counts commits once they reach `main`; train landings are marked as official-credit-pending until promoted.",
     ]
 
 
@@ -2103,7 +2316,8 @@ def _report_text(
         f"- Raw maintainer activity total: `{kpis['operator_impact_score_total']}`; raw source + maintainer total: `{kpis['composite_impact_score_total']}`.",
         f"- All-time resolved PRs scored: `{overall_kpis['resolved_prs']}` with Balanced Impact `{overall_kpis['balanced_impact_score_total']}`.",
         f"- GitHub currently shows `{github_insights.get('total_prs', 0)}` PRs: `{github_insights.get('open_prs', 0)}` open and `{github_insights.get('closed_prs', 0)}` closed.",
-        f"- Merged PRs: `{kpis['merged_prs']}`.",
+        f"- Merged PRs: `{kpis['merged_prs']}` (`{kpis['landed_on_promotion_prs']}` landed on `main`, `{kpis['landed_on_train_prs']}` landed on `integration/pr-train`).",
+        f"- Train landings pending official GitHub credit until promotion: `{kpis['official_credit_pending_prs']}` (`{kpis['train_landing_rate']}` of merges rode the train).",
         f"- Merge rate: `{kpis['merge_rate']}` with median PR resolution time `{kpis['median_resolution_days']}` days.",
         f"- Contributors represented: `{kpis['contributors_represented']}`.",
         f"- Maintainer events represented: `{kpis['operator_events']}` across `{kpis['operators_represented']}` maintainer(s).",
