@@ -814,7 +814,7 @@ export function DebateStreamView({
           userId,
           vaultOwnerToken,
         });
-      } catch (cancelError) {
+      } catch {
         // Run cancellation failure is non-critical
       }
     }
@@ -1328,7 +1328,7 @@ export function DebateStreamView({
             },
             financial_profile: profile,
           };
-        } catch (profileError) {
+        } catch {
           // Handled gracefully below
         }
       }
@@ -1359,7 +1359,7 @@ export function DebateStreamView({
             extractDebatePortfolioContext(userId, financialDomain ?? undefined) ??
             portfolioContext;
           portfolioContext = hydratedContext;
-        } catch (blobError) {
+        } catch {
           // Handled gracefully below
         }
       }
