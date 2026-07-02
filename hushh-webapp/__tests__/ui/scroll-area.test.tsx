@@ -1,7 +1,17 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+beforeAll(() => {
+  if (typeof globalThis.ResizeObserver === "undefined") {
+    globalThis.ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+});
 
 describe("ScrollArea", () => {
   it("intentionally prevents keyboard focus on the scroll container to avoid tab-stop bloat", () => {
@@ -32,4 +42,41 @@ describe("ScrollArea", () => {
     expect(root).toBeTruthy();
     expect(root?.getAttribute("data-slot")).toBe("scroll-area");
   });
+
+  it("renders root with data-slot='scroll-area'", () => {
+    const { container } = render(
+      <ScrollArea>
+        <div>content</div>
+      </ScrollArea>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="scroll-area"]'),
+    ).toBeTruthy();
+  });
+
+  it("renders viewport with data-slot='scroll-area-viewport'", () => {
+    const { container } = render(
+      <ScrollArea>
+        <div>content</div>
+      </ScrollArea>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="scroll-area-viewport"]'),
+    ).toBeTruthy();
+  });
+
+  it("renders scrollbar with data-slot='scroll-area-scrollbar'", () => {
+    const { container } = render(
+      <ScrollArea type="always">
+        <div>content</div>
+      </ScrollArea>,
+    );
+
+    expect(
+      container.querySelector('[data-slot="scroll-area-scrollbar"]'),
+    ).toBeTruthy();
+  });
 });
+
