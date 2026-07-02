@@ -187,6 +187,54 @@ async function makePortfolioFixture(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Portfolio PARITY fixture — uses the REAL single-token production path.
+//
+// buildDraft with attr.financial.* scope consolidates the entire portfolio block
+// (Portfolio summary + Holdings) into ONE approvedValue under the key
+// "financial_information". redactDraftForLlm therefore produces a single token
+// {{F0}} covering the whole block. An echo llmRewrite preserves {{F0}};
+// resubstitution restores the full text verbatim; renderStructuredRedraftHtml
+// can then reconstruct the Holdings <th> table from it.
+//
+// Crucially, because approvedValues is NOT overridden, a subsequent buildDraft
+// call (step 5 of runLlmRedraft) returns the identical key set — so
+// FIELD_SET_CHANGED cannot fire, and NO buildDraft mock is required.
+// ---------------------------------------------------------------------------
+
+/** Build a portfolio localDraft via the REAL buildDraft path — no approvedValues override. */
+async function makePortfolioParityFixture(): Promise<{
+  portfolioLocalDraft: Awaited<ReturnType<typeof OneKycClientZkService.buildDraft>>;
+  portfolioWorkflow: OneKycWorkflow;
+  portfolioExportPayloads: NonNullable<
+    Parameters<typeof OneKycClientZkService.buildDraft>[0]["exportPayloads"]
+  >;
+}> {
+  const portfolioWorkflow = PORTFOLIO_WORKFLOW;
+  const portfolioExportPayloads = [
+    {
+      scope: portfolioWorkflow.requested_scope,
+      payload: PORTFOLIO_EXPORT_PAYLOAD as Record<string, unknown>,
+    },
+  ];
+
+  const portfolioLocalDraft = await OneKycClientZkService.buildDraft({
+    workflow: portfolioWorkflow,
+    exportPayloads: portfolioExportPayloads,
+  });
+
+  // Sanity: the first draft itself must have a holdings <th> table.
+  // If this fails, the fixture is broken and the subsequent parity test is meaningless.
+  if (!portfolioLocalDraft.htmlBody.includes("<th")) {
+    throw new Error(
+      "Portfolio parity fixture is broken: buildDraft did not produce a holdings <th> table. " +
+        "Check PORTFOLIO_EXPORT_PAYLOAD and formatPortfolioApprovedValue."
+    );
+  }
+
+  return { portfolioLocalDraft, portfolioWorkflow, portfolioExportPayloads };
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -271,21 +319,22 @@ describe("runLlmRedraft", () => {
   });
 
   it("redraft htmlBody preserves the holdings table (parity with first draft)", async () => {
+    // Uses the REAL single-token production path — no approvedValues override, no buildDraft mock.
+    // buildDraft with attr.financial.* emits the entire portfolio block as ONE approvedValue
+    // ("financial_information"), so redactDraftForLlm produces {{F0}} for the whole block.
+    // The echo rewrite preserves {{F0}}; resubstitution restores the full text; and
+    // renderStructuredRedraftHtml reconstructs the Holdings <th> table.
+    // The re-validation buildDraft call returns the same key ("financial_information") so
+    // FIELD_SET_CHANGED never fires — this exercises the true production integration path.
     const { portfolioLocalDraft, portfolioWorkflow, portfolioExportPayloads } =
-      await makePortfolioFixture();
-
-    // The portfolioLocalDraft uses individual holding values as approvedValues (not the
-    // whole financial block). The FIELD_SET_CHANGED re-validation inside runLlmRedraft
-    // calls buildDraft which would otherwise return a different key set. Mock it to
-    // return the same fixture so the key-set check passes.
-    vi.spyOn(OneKycClientZkService, "buildDraft").mockResolvedValueOnce(portfolioLocalDraft);
+      await makePortfolioParityFixture();
 
     const result = await runLlmRedraft({
       localDraft: portfolioLocalDraft,
       instruction: "make it more concise",
       workflow: portfolioWorkflow,
       exportPayloads: portfolioExportPayloads,
-      llmRewrite: async (tokenized) => tokenized, // echo: preserves tokens + structure
+      llmRewrite: async (tokenized) => tokenized, // echo: {{F0}} preserved → full block restored
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -321,6 +370,14 @@ describe("runLlmRedraft", () => {
     // structure-loss check. The mocked revalidatedDraft (= portfolioLocalDraft) is also
     // what gets returned as result.draft when the fallback fires, so its htmlBody (with
     // <th>) is what we assert against.
+    //
+    // NOTE: this per-holding tokenization is NOT what buildDraft produces today — the real
+    // path emits the entire portfolio block as a single "financial_information" token (see
+    // the parity test above). The contrived approvedValues override is required here so
+    // "Holdings\n" becomes literal text in the tokenized template and can be stripped by
+    // the llmRewrite below while keeping every {{Fn}} token intact. This test therefore
+    // validates the fail-closed structure-loss guard as defensive / forward-looking code
+    // for when finer-grained per-holding tokenization lands in buildDraft.
     vi.spyOn(OneKycClientZkService, "buildDraft").mockResolvedValueOnce(portfolioLocalDraft);
 
     const result = await runLlmRedraft({
