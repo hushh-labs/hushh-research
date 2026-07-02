@@ -224,7 +224,10 @@ test("redraft htmlBody preserves the holdings table (parity with first draft)", 
   });
   expect(result.ok).toBe(true);
   if (result.ok) {
-    expect(result.draft.htmlBody).toContain("<table");
+    // `<th` is emitted ONLY by the holdings table (htmlTable). The shell's
+    // presentation table and htmlList cards use `<td>`, so `<th` is the
+    // reliable "holdings table rendered" marker — NOT `<table`.
+    expect(result.draft.htmlBody).toContain("<th");
   }
 });
 
@@ -252,7 +255,7 @@ test("structure loss falls back to the deterministic structured draft", async ()
   expect(result.ok).toBe(true);
   if (result.ok) {
     expect(result.structureFallback).toBe(true);
-    expect(result.draft.htmlBody).toContain("<table"); // deterministic draft restored
+    expect(result.draft.htmlBody).toContain("<th"); // deterministic draft restored
   }
 });
 ```
@@ -260,7 +263,7 @@ test("structure loss falls back to the deterministic structured draft", async ()
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd hushh-webapp && npm test -- one-kyc-client-zk-service.redraft-llm`
-Expected: FAIL — `LLM_EMPTY`/`structureFallback` unknown; htmlBody has no `<table>` (still using `renderLlmRedraftHtml`).
+Expected: FAIL — `LLM_EMPTY`/`structureFallback` unknown; htmlBody has no holdings table (`<th`) yet (still using `renderLlmRedraftHtml`).
 
 - [ ] **Step 3: Update the result type**
 
@@ -295,9 +298,12 @@ Replace the render block at the end (~`:1763-1777`) with:
 
 ```ts
   // 6. Render the redraft through the SAME block primitives as the first draft.
-  const hadTable = localDraft.htmlBody.includes("<table");
+  //    `<th` is emitted ONLY by the holdings table (htmlTable); the shell's
+  //    presentation table and htmlList cards use `<td>`. So `<th` is the reliable
+  //    "holdings table present" marker — do NOT use `<table` (the shell always has one).
+  const hadHoldingsTable = localDraft.htmlBody.includes("<th");
   const llmHtmlBody = renderStructuredRedraftHtml(resubstitutedBody);
-  const structureLost = hadTable && !llmHtmlBody.includes("<table");
+  const structureLost = hadHoldingsTable && !llmHtmlBody.includes("<th");
 
   // Structure-loss fallback (fail closed): keep the deterministic structured draft.
   if (structureLost) {
