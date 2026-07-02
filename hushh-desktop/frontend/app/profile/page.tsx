@@ -659,8 +659,8 @@ function ProfilePageContent() {
 
   useEffect(() => {
     let mounted = true;
-    if (window.hushh?.models) {
-      window.hushh.models.status("Llama-3.2-3B-Instruct").then((status) => {
+    if ((window as any).hushh?.models) {
+      (window as any).hushh.models.status("Llama-3.2-3B-Instruct").then((status: any) => {
         if (mounted) setLocalAiStatus({ ...status, loading: false });
       });
     } else {
@@ -4084,14 +4084,13 @@ function ProfilePageContent() {
                 <div className="flex items-center gap-3">
                   {!localAiStatus.downloaded && !localAiStatus.isDownloading && (
                     <Button 
-                      variant="ghost" 
-                      size="icon"
+                      className="bg-transparent hover:bg-muted shadow-none p-2 rounded-md"
                       onClick={(e) => {
                         e.stopPropagation();
                         setLocalAiStatus(s => ({ ...s, isDownloading: true }));
                         toast.loading("Downloading AI Runtime...", { id: "ai-download" });
-                        void window.hushh?.models?.install("Llama-3.2-3B-Instruct")
-                          .then((res) => {
+                        void (window as any).hushh?.models?.install("Llama-3.2-3B-Instruct")
+                          .then((res: any) => {
                             if (res?.status === "cancelled") {
                                 toast.dismiss("ai-download");
                                 toast("Download Cancelled");
@@ -4113,11 +4112,10 @@ function ProfilePageContent() {
                   )}
                   {localAiStatus.isDownloading && (
                     <Button 
-                      variant="ghost" 
-                      size="icon"
+                      className="bg-transparent hover:bg-muted shadow-none p-2 rounded-md"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void window.hushh?.models?.cancelInstall("Llama-3.2-3B-Instruct")
+                        void (window as any).hushh?.models?.cancelInstall("Llama-3.2-3B-Instruct")
                           .catch((err: Error) => toast.error(`Cancel failed: ${err.message}`));
                       }}
                       title="Cancel Download"
@@ -4127,11 +4125,10 @@ function ProfilePageContent() {
                   )}
                   {localAiStatus.downloaded && !localAiStatus.running && (
                     <Button 
-                      variant="ghost" 
-                      size="icon"
+                      className="bg-transparent hover:bg-muted shadow-none p-2 rounded-md"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void window.hushh?.models?.remove("Llama-3.2-3B-Instruct")
+                        void (window as any).hushh?.models?.remove("Llama-3.2-3B-Instruct")
                           .then(() => {
                             toast.success("AI Engine deleted.");
                             setLocalAiStatus({ downloaded: false, running: false, loading: false, isDownloading: false });
@@ -4151,7 +4148,7 @@ function ProfilePageContent() {
                       onCheckedChange={() => {
                         if (!localAiStatus.running) {
                            toast.loading("Spawning NPU Runtime...", { id: "ai-spawn" });
-                           void window.hushh?.models?.spawn("Llama-3.2-3B-Instruct")
+                           void (window as any).hushh?.models?.spawn("Llama-3.2-3B-Instruct")
                              .then(() => {
                                toast.success("NPU Runtime active!", { id: "ai-spawn" });
                                setLocalAiStatus(s => ({ ...s, downloaded: true, running: true, loading: false }));
@@ -4159,7 +4156,7 @@ function ProfilePageContent() {
                              .catch((e: Error) => toast.error(`Failed: ${e.message}`, { id: "ai-spawn" }));
                         } else {
                            toast.loading("Shutting down NPU Runtime...", { id: "ai-kill" });
-                           void window.hushh?.models?.kill("Llama-3.2-3B-Instruct")
+                           void (window as any).hushh?.models?.kill("Llama-3.2-3B-Instruct")
                              .then(() => {
                                toast.success("NPU Runtime terminated.", { id: "ai-kill" });
                                setLocalAiStatus(s => ({ ...s, downloaded: true, running: false, loading: false }));
