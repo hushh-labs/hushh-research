@@ -59,7 +59,7 @@ export function PhoneMandateGuard({
           vaultPresenceCache.set(user.uid, exists);
           setHasVault(exists);
         }
-      } catch (error) {
+      } catch {
         // Fallback to assume vault presence if check fails
         if (!cancelled) {
           vaultPresenceCache.set(user.uid, true);
@@ -94,7 +94,7 @@ export function PhoneMandateGuard({
         if (!cancelled) {
           setBackendPhoneVerified(AccountIdentityService.hasVerifiedPhone(identity));
         }
-      } catch (error) {
+      } catch {
         // Fallback to firebase identity if custom backend claim check fails
         if (!cancelled) {
           setBackendPhoneVerified(firebasePhoneVerified);
