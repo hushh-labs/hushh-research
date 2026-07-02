@@ -71,6 +71,34 @@ const holdingsSection: RenderSection = {
 };
 
 // ---------------------------------------------------------------------------
+// Task 1: Characterization test — locks the signature block before refactor.
+// Must PASS before and after extracting disclosureSignatureHtml().
+// ---------------------------------------------------------------------------
+describe("disclosure HTML signature block (Task 1 characterization)", () => {
+  it("contains the canonical signature block", () => {
+    const html = buildApprovedDisclosureHtml({
+      contractId: "agent_kyc.approved_disclosure_formatter.v1",
+      contractVersion: "1.0.0",
+      accountHolder: "Jane Doe",
+      style: {
+        compact: false,
+        formal: false,
+        bulletList: false,
+        structured: false,
+        table: false,
+        fullDetail: false,
+        human: false,
+        cleanHeaders: false,
+      },
+      sections: [],
+      missingFields: [],
+    });
+    expect(html).toContain("Best,<br/>hussh One");
+    expect(html).toContain(`border-top:1px solid`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Characterization: the regression surface that MUST stay stable through the
 // shell-extraction refactor (plain / table / human / structured drafts).
 // ---------------------------------------------------------------------------

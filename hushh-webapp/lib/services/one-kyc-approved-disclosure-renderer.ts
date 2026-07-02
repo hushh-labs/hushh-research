@@ -507,6 +507,10 @@ function htmlRenderBlock(block: RenderBlock): string {
   return `<div style="border:1px solid ${EMAIL_THEME.border};border-radius:12px;background:${EMAIL_THEME.panel};padding:12px;"><div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${EMAIL_THEME.muted};font-weight:700;">${escapeHtml(block.label)}</div><div style="margin-top:5px;font-size:15px;line-height:1.4;color:${EMAIL_THEME.heading};font-weight:650;word-break:break-word;">${escapeHtml(block.value)}</div></div>`;
 }
 
+function disclosureSignatureHtml(): string {
+  return `<p style="margin:0;padding-top:14px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.heading};font-weight:650;line-height:1.5;">Best,<br/>hussh One</p>`;
+}
+
 export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel): string {
   const opening = model.style.formal
     ? `I am replying on behalf of ${model.accountHolder} with the approved information below.`
@@ -552,7 +556,7 @@ export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel
   const content = [
     htmlParagraph(opening),
     sections || htmlParagraph("No requested values were present in the approved data."),
-    `<p style="margin:0;padding-top:14px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.heading};font-weight:650;line-height:1.5;">Best,<br/>hussh One</p>`,
+    disclosureSignatureHtml(),
   ].join('<div style="height:18px;line-height:18px;">&nbsp;</div>');
 
   return wrapApprovedDisclosureShell(content);
