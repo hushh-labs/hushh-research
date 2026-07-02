@@ -87,14 +87,24 @@ final `body` / `htmlBody` from a `renderModel` via
 `renderLlmRedraftHtml` is retired from the draft flow. Parity becomes a
 structural property of the code, not an aspiration.
 
-The LLM continues to rewrite *wording* within the tokenized template. After
-re-substitution, the resubstituted body is **re-parsed back into a render
-model** (reusing `blockToRenderBlocks`, which already understands the `Holdings`
-and `Portfolio summary` block markers) and rendered through the unified renderer.
-Structural/style asks (bullets, table, formal, compact, human) route through the
-revived deterministic `buildDraft(instructions)` +
-`redraftTransformFromInstructions` machinery, which the unified renderer already
-honors.
+The redraft stays **LLM-only** (respecting the deliberate
+`2026-06-26-kyc-redraft-llm-only` decision). The LLM continues to rewrite
+*wording* within the tokenized template. After re-substitution, the resubstituted
+body is rendered through a **structured redraft renderer** that reuses the exact
+block primitives the first draft uses — `draftSubBlocks` → `blockToRenderBlocks`
+→ `htmlRenderBlock` (which already understand the `Holdings` and `Portfolio
+summary` block markers, emitting real `<table>` holdings and key/value cards).
+This is the concrete form of "one rendering path": the redraft HTML is built from
+the same parser/primitives as `buildApprovedDisclosureHtml`, not the generic
+markdown converter.
+
+**Decision (2026-07-02): reviving the deterministic keyword-routing path is
+deferred.** Parity does not require it — the divergence lives entirely in the
+HTML renderer. The deterministic `buildDraft(instructions)` +
+`redraftTransformFromInstructions` machinery stays in the codebase (used by
+`buildDraft` internally) but is not re-wired into the UI as a routing branch in
+Phase 1. This keeps the change minimal and avoids reversing the recent LLM-only
+direction.
 
 Approaches considered and rejected:
 
@@ -110,28 +120,33 @@ Approaches considered and rejected:
 
 All changes are in `hushh-webapp`.
 
-### 1. Unify the redraft rendering path
+### 1. Structured redraft renderer
+`lib/services/one-kyc-approved-disclosure-renderer.ts`:
+- Add `renderStructuredRedraftHtml(body: string): string` that parses the
+  resubstituted body with the existing `draftSubBlocks` → `blockToRenderBlocks`
+  → `htmlRenderBlock` primitives (real `<table>` holdings + key/value cards),
+  reusing the same shell + signature chrome as `buildApprovedDisclosureHtml`.
+- Extract the signature markup into a shared constant so both builders emit
+  byte-identical framing.
+
+### 1b. Unify the redraft rendering path
 `lib/services/one-kyc-client-zk-service.ts` — `runLlmRedraft` (~`:1711`):
-- After `resubstituteDraft` + `reassembleDraftTemplate`, re-parse the
-  resubstituted body into a render model (via the renderer's block parser) and
-  render `body` / `htmlBody` from it with `buildApprovedDisclosurePlainText` /
-  `buildApprovedDisclosureHtml`. Remove the `renderLlmRedraftHtml(...)` call at
-  `:1767`.
-- Return a `renderModel` consistent with the emitted `body` / `htmlBody` (fixes
-  the stale-model spread at `:1772`).
+- Replace the `renderLlmRedraftHtml(...)` call at `:1767` with
+  `renderStructuredRedraftHtml(resubstitutedBody)`.
+- Keep the returned `renderModel` describing the structured draft
+  (`revalidatedDraft.renderModel`); the emitted `htmlBody` is now produced from
+  the same block primitives, so the model is no longer misleading.
 
-### 2. Route redraft asks correctly
-`app/one/kyc/page.tsx` — redraft action (~`:989–1021`):
-- Structural/style instructions route through `buildDraft({ ..., instructions })`
-  so `redraftTransformFromInstructions` drives deterministic restyling.
-- Wording instructions route through `runLlmRedraft`.
-- Both terminate at the unified renderer.
+### 2. Redraft entry (unchanged wiring)
+`app/one/kyc/page.tsx` — redraft action (~`:989–1021`) continues to call
+`runLlmRedraft` (LLM-only). It gains handling for the new result variants
+(`LLM_EMPTY` error and the `structureFallback` notice — see Error handling).
 
-### 3. Revive deterministic style transforms
-Ensure `buildDraft` is invoked with `instructions` from the UI so the existing
-`RedraftTransform` branches (`forceBullets` / `table` / `human` / `formal` /
-`compact`) in the renderer become reachable. No new rendering code — this is
-wiring the built-and-tested path.
+### 3. Deterministic style transforms — deferred (not in Phase 1)
+Per the 2026-07-02 decision, the deterministic `buildDraft(instructions)` +
+`redraftTransformFromInstructions` routing is **not** re-wired into the UI in
+Phase 1. It stays available in the codebase for a future phase if we want
+keyword-driven restyling. Parity is achieved without it.
 
 ### 4. Remove dead code
 - Delete `isKeywordOnlyInstruction` and retarget/remove its test-only
