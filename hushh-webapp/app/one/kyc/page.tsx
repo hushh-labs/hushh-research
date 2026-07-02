@@ -1005,11 +1005,13 @@ function OneKycWorkspace() {
               }).then((response) => response.rewritten_template),
           });
           if (!result.ok) {
-            setError(
+            const message =
               result.errorCode === "TOKEN_INTEGRITY"
                 ? "AI output failed token integrity check — using original draft. Try again or use a simpler instruction."
-                : "AI output altered the consented field set — using original draft. Try again.",
-            );
+                : result.errorCode === "FIELD_SET_CHANGED"
+                  ? "AI output altered the consented field set — using original draft. Try again."
+                  : "AI returned an empty response — using original draft. Try again.";
+            setError(message);
             setRedraftInstructions("");
             return;
           }
@@ -1017,6 +1019,11 @@ function OneKycWorkspace() {
             ...current,
             [workflow.workflow_id]: result.draft,
           }));
+          if (result.structureFallback) {
+            setError(
+              "Couldn't apply the AI wording without breaking the layout — kept the structured draft.",
+            );
+          }
           setRedraftInstructions("");
           return;
         }
