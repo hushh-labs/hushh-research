@@ -25,7 +25,8 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "ahujagautam024",
+      "rohansharma4050"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -39,7 +40,8 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "ahujagautam024",
+      "rohansharma4050"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -48,7 +50,8 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "ahujagautam024",
+      "rohansharma4050"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -71,7 +74,8 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "ahujagautam024",
+      "rohansharma4050"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -85,7 +89,8 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "ahujagautam024",
+      "rohansharma4050"
     ]
   },
   "uat": {
@@ -99,7 +104,8 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "ahujagautam024",
+      "rohansharma4050"
     ]
   },
   "production": {
