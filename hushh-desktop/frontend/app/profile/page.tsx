@@ -4117,7 +4117,8 @@ function ProfilePageContent() {
                       size="icon"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void window.hushh?.models?.cancelInstall("Llama-3.2-3B-Instruct");
+                        void window.hushh?.models?.cancelInstall("Llama-3.2-3B-Instruct")
+                          .catch((err: Error) => toast.error(`Cancel failed: ${err.message}`));
                       }}
                       title="Cancel Download"
                     >
