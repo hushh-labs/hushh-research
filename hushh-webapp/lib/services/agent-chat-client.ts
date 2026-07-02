@@ -35,6 +35,13 @@ export type AgentChatToolEvent = {
   raw: Record<string, unknown>;
 };
 
+export type SpecialistDirectiveEvent = {
+  delegateAgentId: string;
+  directive: { kind: "action" | "prompt"; payload: Record<string, unknown> };
+  message: string;
+  stateChanged: boolean;
+};
+
 export type AgentChatStreamHandlers = {
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
@@ -43,6 +50,7 @@ export type AgentChatStreamHandlers = {
   onToken?: (token: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onError?: (message: string) => void;
+  onSpecialistDirective?: (event: SpecialistDirectiveEvent) => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -117,6 +125,7 @@ export async function streamAgentChat(input: {
   screenContext?: Record<string, unknown> | null;
   runtimeCredential?: string | null;
   runtimeCredentialMode?: string | null;
+  delegateResult?: Record<string, unknown>;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
@@ -129,13 +138,11 @@ export async function streamAgentChat(input: {
     screenContext: input.screenContext,
     runtimeCredential: input.runtimeCredential,
     runtimeCredentialMode: input.runtimeCredentialMode,
+    delegateResult: input.delegateResult,
     signal: input.signal,
   });
 
-  return consumeAgentChatStream(response, {
-    handlers: input.handlers,
-    signal: input.signal,
-  });
+  return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
 }
 
 /**
@@ -151,10 +158,10 @@ const SSE_INACTIVITY_TIMEOUT_MS = 60_000;
  * tool_* / complete / error). Used by both the vault-gated full chat and the
  * pre-vault informational chat, which speak the exact same wire protocol.
  */
-async function consumeAgentChatStream(
+export async function consumeAgentChatStream(
   response: Response,
-  input: {
-    handlers?: AgentChatStreamHandlers;
+  handlers: AgentChatStreamHandlers,
+  options?: {
     signal?: AbortSignal;
     inactivityTimeoutMs?: number;
   }
@@ -181,13 +188,13 @@ async function consumeAgentChatStream(
       payload = parseJsonPayload(data);
     } catch {
       streamError = "Agent chat stream returned malformed data. Please retry.";
-      input.handlers?.onError?.(streamError);
+      handlers?.onError?.(streamError);
       return;
     }
     if (event === "start") {
       conversationId = readString(payload, "conversation_id") || conversationId;
       model = readString(payload, "model") || model;
-      input.handlers?.onStart?.({
+      handlers?.onStart?.({
         conversationId: conversationId || "",
         model: model || undefined,
       });
@@ -197,26 +204,26 @@ async function consumeAgentChatStream(
       const token = readString(payload, "token");
       if (token) {
         text += token;
-        input.handlers?.onToken?.(token);
+        handlers?.onToken?.(token);
       }
       return;
     }
     if (event === "tool_start") {
-      input.handlers?.onToolStart?.(normalizeToolEvent(payload));
+      handlers?.onToolStart?.(normalizeToolEvent(payload));
       return;
     }
     if (event === "tool_waiting") {
-      input.handlers?.onToolWaiting?.(normalizeToolEvent(payload));
+      handlers?.onToolWaiting?.(normalizeToolEvent(payload));
       return;
     }
     if (event === "tool_result") {
-      input.handlers?.onToolResult?.(normalizeToolEvent(payload));
+      handlers?.onToolResult?.(normalizeToolEvent(payload));
       return;
     }
     if (event === "complete") {
       conversationId = readString(payload, "conversation_id") || conversationId;
       model = readString(payload, "model") || model;
-      input.handlers?.onComplete?.({
+      handlers?.onComplete?.({
         conversationId: conversationId || "",
         model: model || undefined,
       });
@@ -227,11 +234,25 @@ async function consumeAgentChatStream(
         readString(payload, "message"),
         readString(payload, "code") || undefined
       );
-      input.handlers?.onError?.(streamError);
+      handlers?.onError?.(streamError);
+      return;
+    }
+    if (event === "specialist_directive") {
+      const p = payload as Record<string, unknown>;
+      const directive = (p.directive ?? {}) as Record<string, unknown>;
+      handlers?.onSpecialistDirective?.({
+        delegateAgentId: String(p.delegate_agent_id ?? ""),
+        directive: {
+          kind: (directive.kind === "prompt" ? "prompt" : "action"),
+          payload: (directive.payload ?? {}) as Record<string, unknown>,
+        },
+        message: String(p.message ?? ""),
+        stateChanged: Boolean(p.state_changed),
+      });
     }
   };
 
-  const inactivityTimeoutMs = input.inactivityTimeoutMs ?? SSE_INACTIVITY_TIMEOUT_MS;
+  const inactivityTimeoutMs = options?.inactivityTimeoutMs ?? SSE_INACTIVITY_TIMEOUT_MS;
 
   // Race each read against an inactivity deadline so a silently dead connection
   // rejects instead of hanging the UI indefinitely. The watchdog is reset on
@@ -251,7 +272,7 @@ async function consumeAgentChatStream(
   };
 
   while (true) {
-    if (input.signal?.aborted) {
+    if (options?.signal?.aborted) {
       await reader.cancel();
       throw new DOMException("Aborted", "AbortError");
     }
@@ -313,10 +334,7 @@ export async function streamAgentIntro(input: {
     screenContext: input.screenContext,
     signal: input.signal,
   });
-  return consumeAgentChatStream(response, {
-    handlers: input.handlers,
-    signal: input.signal,
-  });
+  return consumeAgentChatStream(response, input.handlers ?? {}, { signal: input.signal });
 }
 
 export async function listAgentChatConversations(input: {
