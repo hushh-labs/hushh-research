@@ -33,10 +33,10 @@ def run_gh(args: list[str], *, input_text: str | None = None) -> str:
             text=True,
             capture_output=True,
             check=False,
-            timeout=15,
+            timeout=45,
         )
     except subprocess.TimeoutExpired as exc:
-        raise BoardOpsError("gh command timed out after 15 seconds") from exc
+        raise BoardOpsError("gh command timed out after 45 seconds") from exc
     if proc.returncode != 0:
         raise BoardOpsError(proc.stderr.strip() or proc.stdout.strip() or "gh command failed")
     return proc.stdout
