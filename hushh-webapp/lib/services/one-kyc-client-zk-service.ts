@@ -11,6 +11,7 @@ import {
   buildApprovedDisclosurePlainText,
   redraftTransformFromInstructions,
   renderLlmRedraftHtml,
+  renderStructuredRedraftHtml,
   type ApprovedDisclosureRenderModel,
   type RedraftTransform,
   type RenderFact,
@@ -1694,8 +1695,8 @@ export function reassembleDraftTemplate(params: {
 }
 
 export type LlmRedraftResult =
-  | { ok: true; draft: KycDraftBuildResult }
-  | { ok: false; errorCode: "TOKEN_INTEGRITY" | "FIELD_SET_CHANGED" };
+  | { ok: true; draft: KycDraftBuildResult; structureFallback?: boolean }
+  | { ok: false; errorCode: "TOKEN_INTEGRITY" | "FIELD_SET_CHANGED" | "LLM_EMPTY" };
 
 /**
  * LLM-only KYC redraft orchestrator (zero-knowledge).
@@ -1732,6 +1733,11 @@ export async function runLlmRedraft(params: {
   // 2. Rewrite through the injected callable (server Gemini proxy by default).
   const rewrittenTemplate = await llmRewrite(tokenizedTemplate, instruction);
 
+  // Empty / safety-blocked response — fail closed before other checks.
+  if (!rewrittenTemplate || !rewrittenTemplate.trim()) {
+    return { ok: false, errorCode: "LLM_EMPTY" };
+  }
+
   // 3. Token-integrity gate (guardrail 1) — fail closed.
   if (!validateTokenIntegrity(tokenizedTemplate, rewrittenTemplate, tokenMap)) {
     return { ok: false, errorCode: "TOKEN_INTEGRITY" };
@@ -1761,10 +1767,19 @@ export async function runLlmRedraft(params: {
     return { ok: false, errorCode: "FIELD_SET_CHANGED" };
   }
 
-  // 6. Build the LLM draft. body AND htmlBody both reflect the LLM output;
-  //    htmlBody is re-derived from the resubstituted plaintext via
-  //    renderLlmRedraftHtml so the preview/sent email stays visually consistent.
-  const llmHtmlBody = renderLlmRedraftHtml(resubstitutedBody);
+  // 6. Render the redraft through the SAME block primitives as the first draft.
+  //    `<th` is emitted ONLY by the holdings table (htmlTable); the shell's
+  //    presentation table and htmlList cards use `<td>`. So `<th` is the reliable
+  //    "holdings table present" marker — do NOT use `<table` (the shell always has one).
+  const hadHoldingsTable = localDraft.htmlBody.includes("<th");
+  const llmHtmlBody = renderStructuredRedraftHtml(resubstitutedBody);
+  const structureLost = hadHoldingsTable && !llmHtmlBody.includes("<th");
+
+  // Structure-loss fallback (fail closed): keep the deterministic structured draft.
+  if (structureLost) {
+    return { ok: true, draft: revalidatedDraft, structureFallback: true };
+  }
+
   const llmDraftHash = await sha256Hex(resubstitutedBody);
   return {
     ok: true,
