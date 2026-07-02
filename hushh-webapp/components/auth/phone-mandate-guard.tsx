@@ -60,7 +60,7 @@ export function PhoneMandateGuard({
           setHasVault(exists);
         }
       } catch (error) {
-        console.warn("[PhoneMandateGuard] Failed to check vault presence:", error);
+        // Fallback to assume vault presence if check fails
         if (!cancelled) {
           vaultPresenceCache.set(user.uid, true);
           setHasVault(true);
@@ -95,7 +95,7 @@ export function PhoneMandateGuard({
           setBackendPhoneVerified(AccountIdentityService.hasVerifiedPhone(identity));
         }
       } catch (error) {
-        console.warn("[PhoneMandateGuard] Failed to check account phone claim:", error);
+        // Fallback to firebase identity if custom backend claim check fails
         if (!cancelled) {
           setBackendPhoneVerified(firebasePhoneVerified);
         }
