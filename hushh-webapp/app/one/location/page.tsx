@@ -1897,6 +1897,24 @@ function OneLocationAgentPageContent() {
     [state?.ownerGrants],
   );
 
+  // SOS alerts ONLY your actual One Network connections (e.g. the seeded trusted
+  // contacts), never the broad phone-verified directory that `recipients` also
+  // includes. Connection membership comes straight from networkConnections.
+  const sosTrustedRecipients = useMemo(() => {
+    const connectedIds = new Set<string>();
+    for (const connection of state?.networkConnections ?? []) {
+      if (connection.status !== "active") continue;
+      const otherId =
+        connection.userAId === auth.userId
+          ? connection.userBId
+          : connection.userAId;
+      if (otherId && otherId !== auth.userId) connectedIds.add(otherId);
+    }
+    return rankedRecipients.filter((recipient) =>
+      connectedIds.has(recipient.userId),
+    );
+  }, [state?.networkConnections, rankedRecipients, auth.userId]);
+
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
   const sosIncidentRef = useRef(sosIncident);
@@ -2924,8 +2942,8 @@ function OneLocationAgentPageContent() {
   const handleTriggerSos = useCallback(async () => {
     if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
     if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
-    const readyRecipients = rankedRecipients.filter(isShareReadyRecipient);
-    const totalTrusted = rankedRecipients.length;
+    const readyRecipients = sosTrustedRecipients.filter(isShareReadyRecipient);
+    const totalTrusted = sosTrustedRecipients.length;
     if (!readyRecipients.length) {
       toast.error("No trusted contacts are ready to receive your location yet.");
       return;
@@ -2985,7 +3003,7 @@ function OneLocationAgentPageContent() {
     isShareReadyRecipient,
     permission,
     publishEnvelopeWithRetry,
-    rankedRecipients,
+    sosTrustedRecipients,
     refresh,
     sosIncident,
     vaultOwnerToken,
@@ -4396,7 +4414,7 @@ function OneLocationAgentPageContent() {
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
     decryptedPoints,
-    sosRecipients: rankedRecipients,
+    sosRecipients: sosTrustedRecipients,
     sosActive: Boolean(sosIncident?.grantIds.length),
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident ? formatDateTime(sosIncident.startedAt) : null,
