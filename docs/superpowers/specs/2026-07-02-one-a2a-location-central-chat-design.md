@@ -79,7 +79,7 @@ this is summarized here so the plan does not re-litigate it.
 - **Google ADK is inert.** `google-adk==1.28.1` is pinned but every `google.adk.*`
   import fails (wrong path `google.adk.model`, no sync `.run()`, wrong constructor) and
   falls back to a stub that raises. Only the bundled `google.genai` (Gemini client) is
-  used. `hushh_mcp/hushh_adk/` is a home-grown, ADK-*shaped* abstraction, not real ADK.
+  used. `hushh_mcp/hushh_adk/` is a home-grown, ADK-_shaped_ abstraction, not real ADK.
   `HushhAgent.run()` is never executed in production.
 - **The live runtimes are per-agent "chat services"** — direct Gemini function-calling
   loops inside a `HushhContext`: `services/location_chat_service.py`
@@ -98,7 +98,7 @@ this is summarized here so the plan does not re-litigate it.
   descriptor dict, has **no `location` route**, and is **not wired to any production
   route** (test-only).
 - **The central chat is a single-shot action-planner.** `agent_chat_service.py` plans
-  one action *before* streaming; if `execution=="frontend"` it emits a `tool_waiting`
+  one action _before_ streaming; if `execution=="frontend"` it emits a `tool_waiting`
   SSE frame carrying a free-form `slots` dict and returns. It has **no multi-step tool
   loop, no disambiguation channel, and no action-result round-trip**. Its client
   (`agent-chat-client.ts`) preserves unknown payload fields verbatim (`slots`/`raw`).
@@ -120,7 +120,7 @@ re-implementing location reasoning in the thin central planner.
 ## 3. Architecture — three actors, one new seam
 
 - **One (router / relay).** The existing central turn in `agent_chat_service.py` gains a
-  *delegation decision*. When a turn classifies as `location`, One stops planning
+  _delegation decision_. When a turn classifies as `location`, One stops planning
   locally, hands the whole turn to the Location specialist over the A2A contract, and
   relays whatever Location returns over SSE. One never learns location reasoning and
   holds no location scope of its own.
@@ -157,14 +157,14 @@ reuses it.
 
 ## 5. Backend changes
 
-| File | Change |
-|---|---|
-| `consent-protocol/hushh_mcp/adk_bridge/delegation.py` | Add `agent_location` to the scope map (location capability scope + `AGENT_ONE_ORCHESTRATE` at the One boundary); add an agent-card registry entry. |
-| `consent-protocol/hushh_mcp/adk_bridge/location_agent.py` **(new)** | `LocationAgentA2A` — thin A2A handler that validates consent, then calls Location's existing tool loop and returns the directive envelope. Mirrors `kai_agent.py`'s structure (without requiring the network `A2AServer`). |
-| `consent-protocol/hushh_mcp/adk_bridge/dispatch.py` **(new)** | In-process `dispatch(agent_id, task_message)` → handler. This one seam is later swapped for an HTTP client to go network-A2A. |
-| `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Add a **delegation branch**: classify intent (reuse `classify_specialist_domain`; add a `location` route to `orchestrator/tools.py`'s `_SPECIALIST_ROUTES`); if location, call `dispatch("agent_location", …)` and yield a `specialist_directive` / text instead of the local action-planner. Add a `delegate_result` path that re-dispatches to the specialist for the confirmation turn. Existing Kai action-plan and text turns are untouched. |
-| `consent-protocol/api/routes/kai/agent_chat.py` | Extend `AgentChatStreamRequest` with optional `delegate_result`; emit the new SSE frames (§6). Backward-compatible. |
-| `consent-protocol/hushh_mcp/services/location_chat_service.py` | Refactor only enough to expose its turn loop to the A2A handler (extract the loop into a callable the handler can invoke). The existing `/api/one/location/chat` route keeps working against the same loop. |
+| File                                                                | Change                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `consent-protocol/hushh_mcp/adk_bridge/delegation.py`               | Add `agent_location` to the scope map (location capability scope + `AGENT_ONE_ORCHESTRATE` at the One boundary); add an agent-card registry entry.                                                                                                                                                                                                                                                                                                |
+| `consent-protocol/hushh_mcp/adk_bridge/location_agent.py` **(new)** | `LocationAgentA2A` — thin A2A handler that validates consent, then calls Location's existing tool loop and returns the directive envelope. Mirrors `kai_agent.py`'s structure (without requiring the network `A2AServer`).                                                                                                                                                                                                                        |
+| `consent-protocol/hushh_mcp/adk_bridge/dispatch.py` **(new)**       | In-process `dispatch(agent_id, task_message)` → handler. This one seam is later swapped for an HTTP client to go network-A2A.                                                                                                                                                                                                                                                                                                                     |
+| `consent-protocol/hushh_mcp/services/agent_chat_service.py`         | Add a **delegation branch**: classify intent (reuse `classify_specialist_domain`; add a `location` route to `orchestrator/tools.py`'s `_SPECIALIST_ROUTES`); if location, call `dispatch("agent_location", …)` and yield a `specialist_directive` / text instead of the local action-planner. Add a `delegate_result` path that re-dispatches to the specialist for the confirmation turn. Existing Kai action-plan and text turns are untouched. |
+| `consent-protocol/api/routes/kai/agent_chat.py`                     | Extend `AgentChatStreamRequest` with optional `delegate_result`; emit the new SSE frames (§6). Backward-compatible.                                                                                                                                                                                                                                                                                                                               |
+| `consent-protocol/hushh_mcp/services/location_chat_service.py`      | Refactor only enough to expose its turn loop to the A2A handler (extract the loop into a callable the handler can invoke). The existing `/api/one/location/chat` route keeps working against the same loop.                                                                                                                                                                                                                                       |
 
 The Location backend (tools, `OneLocationAgentService`, REST envelope routes) is
 otherwise reused as-is.
@@ -189,12 +189,12 @@ clarify/confirm richness inside a chat that previously had none.
 
 ## 7. Frontend changes
 
-| File | Change |
-|---|---|
-| `hushh-webapp/lib/services/agent-chat-client.ts` | Handle the `specialist_directive` event (add `onSpecialistDirective`); add `delegateResult` to the stream request body. |
-| `hushh-webapp/components/agent/agent-chat-workspace.tsx` | Add a **specialist-directive dispatcher** beside the existing `pkm.add` interception (`executeFrontendTool`). For `delegate_agent_id: "location"`, render the action / confirm / select card and run the crypto; post the `delegate_result` follow-up. |
-| `hushh-webapp/components/agent/specialist-cards/` **(new)** | Presentational Location action & prompt cards; reuse styling from the existing location `ActionConfirmCard`. |
-| reuse | `hushh-webapp/lib/one-location/*` — `captureCurrentPosition`, `encryptLocationForRecipient`, `storeEnvelope`, and the `confirmAction` dispatch logic from `use-location-chat.ts`. **No new crypto.** |
+| File                                                        | Change                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hushh-webapp/lib/services/agent-chat-client.ts`            | Handle the `specialist_directive` event (add `onSpecialistDirective`); add `delegateResult` to the stream request body.                                                                                                                                |
+| `hushh-webapp/components/agent/agent-chat-workspace.tsx`    | Add a **specialist-directive dispatcher** beside the existing `pkm.add` interception (`executeFrontendTool`). For `delegate_agent_id: "location"`, render the action / confirm / select card and run the crypto; post the `delegate_result` follow-up. |
+| `hushh-webapp/components/agent/specialist-cards/` **(new)** | Presentational Location action & prompt cards; reuse styling from the existing location `ActionConfirmCard`.                                                                                                                                           |
+| reuse                                                       | `hushh-webapp/lib/one-location/*` — `captureCurrentPosition`, `encryptLocationForRecipient`, `storeEnvelope`, and the `confirmAction` dispatch logic from `use-location-chat.ts`. **No new crypto.**                                                   |
 
 The dispatcher is keyed by `delegate_agent_id`, so slice 2 adds Nav / KYC cards without
 touching the plumbing. Security-sensitive directives never auto-fire — they require an
@@ -202,11 +202,11 @@ explicit click, matching the location v2 confirm-card rule.
 
 ## 8. Deliberately deferred (with hooks)
 
-| Deferred | Hook that makes it a swap, not a rewrite |
-|---|---|
-| **Network A2A for Location** | Replace `dispatch.py`'s in-process call with an HTTP client to a Location A2A service (mirror `server_a2a.py`). The agent card, task message, consent header, and directive envelope are identical, so Location, the SSE frames, and the frontend do not change. |
-| **One as the unified identity** | Flip the central chat's persona/prompt to `agent_one` (the manifest already exists at `agents/one/`) and register Kai / Nav / KYC in the same dispatcher; each returns the §4 envelope. Natural slice 2. |
-| **Real Google ADK `Runner`** | The A2A boundary is independent of the executor. Adopting ADK later swaps how a specialist *runs its turn* without disturbing this contract. |
+| Deferred                        | Hook that makes it a swap, not a rewrite                                                                                                                                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Network A2A for Location**    | Replace `dispatch.py`'s in-process call with an HTTP client to a Location A2A service (mirror `server_a2a.py`). The agent card, task message, consent header, and directive envelope are identical, so Location, the SSE frames, and the frontend do not change. |
+| **One as the unified identity** | Flip the central chat's persona/prompt to `agent_one` (the manifest already exists at `agents/one/`) and register Kai / Nav / KYC in the same dispatcher; each returns the §4 envelope. Natural slice 2.                                                         |
+| **Real Google ADK `Runner`**    | The A2A boundary is independent of the executor. Adopting ADK later swaps how a specialist _runs its turn_ without disturbing this contract.                                                                                                                     |
 
 ## 9. Invariants preserved
 
