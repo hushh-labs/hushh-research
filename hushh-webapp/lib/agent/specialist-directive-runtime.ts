@@ -58,7 +58,6 @@ export async function runLocationDirective(
   directive: SpecialistDirective,
   vaultOwnerToken = "",
 ): Promise<DelegateResult> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const payload = directive.payload as Record<string, any>;
   const id = String(payload.id ?? "");
   const type = String(payload.type ?? "");

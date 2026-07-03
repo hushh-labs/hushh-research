@@ -74,7 +74,6 @@ describe("runLocationDirective publish_share", () => {
   it("fails with a friendly error when the recipient has no server key", async () => {
     vi.mocked(OneLocationService.getState).mockResolvedValueOnce({
       recipients: [{ keyId: "k1", publicKeyJwk: null }],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     const result = await runLocationDirective({
       kind: "action",
