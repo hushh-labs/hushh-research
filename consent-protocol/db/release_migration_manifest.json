@@ -52,7 +52,8 @@
     "071_enterprise_crm_registry.sql",
     "072_crm_registry_mulesoft_pbkdf2_cbc.sql",
     "073_crm_registry_mulesoft_simplify.sql",
-    "074_pkm_scope_registry_owner_consent_override.sql"
+    "074_pkm_scope_registry_owner_consent_override.sql",
+    "075_agent_chat_message_metadata.sql"
   ],
   "groups": {
     "iam": [
