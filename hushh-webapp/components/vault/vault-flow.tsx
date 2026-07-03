@@ -748,9 +748,9 @@ export function VaultFlow({
       <Card
         variant="none"
         effect="fill"
-        className="overflow-hidden rounded-[28px] border border-border/35 bg-background/95 shadow-[0_24px_70px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:bg-background/92"
+        className="border-0 bg-transparent shadow-none"
       >
-        <CardContent className="max-h-[min(680px,calc(100svh-2rem))] space-y-4 overflow-y-auto px-5 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] [scrollbar-width:none] sm:max-h-[min(680px,calc(100svh-3rem))] sm:px-7 sm:py-7 [&::-webkit-scrollbar]:hidden">
+        <CardContent className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden">
           {/* Intro / Education Step */}
           {step === "intro" && (
             <div className="mx-auto max-w-[21rem] animate-in space-y-4 text-center fade-in slide-in-from-bottom-4 duration-500">
@@ -896,32 +896,34 @@ export function VaultFlow({
           {step === "unlock" && (
             <div className="space-y-2.5">
               <div className="text-center">
-                <Icon
-                  icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                  size={24}
-                  className="mx-auto mb-2 text-primary"
-                />
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.06] dark:bg-foreground/[0.10]">
+                  <Icon
+                    icon={isGeneratedVaultMode ? Fingerprint : Lock}
+                    size={22}
+                    className="text-foreground/70"
+                  />
+                </div>
                 <div
                   role="heading"
                   aria-level={2}
-                  className="text-[20px] font-medium leading-[1.14] tracking-normal text-foreground"
+                  className="type-title2 text-foreground"
                 >
                   Unlock Your Vault
                 </div>
-                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
+                <p className="mt-1 type-subhead text-muted-foreground">
                   {isGeneratedVaultMode
                     ? "Confirm with your device to open Vault"
                     : "Enter your passphrase to open Vault"}
                 </p>
                 {unlockHint ? (
-                  <p className="mx-auto mt-2 max-w-[19rem] text-balance rounded-[14px] border border-border/40 bg-muted/40 px-3 py-2 text-[12.5px] font-medium leading-[1.4] text-muted-foreground">
+                  <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-muted/50 px-3.5 py-2.5 type-footnote text-muted-foreground">
                     {unlockHint}
                   </p>
                 ) : null}
               </div>
               {shouldShowPassphraseUnlock && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="unlock-passphrase" className="text-xs font-medium sm:text-sm">
+                  <Label htmlFor="unlock-passphrase" className="type-footnote font-medium text-muted-foreground">
                     Vault Key
                   </Label>
                   <Input
@@ -934,18 +936,18 @@ export function VaultFlow({
                       e.key === "Enter" && handleUnlockPassphrase()
                     }
                     autoFocus
-                    className="h-10 px-3 text-base sm:h-11"
+                    className="h-12 rounded-[14px] px-4 text-[16px]"
                   />
                 </div>
               )}
               <div className="flex flex-col gap-2 pt-1">
                 {shouldShowPassphraseUnlock && (
                   <Button
-                    variant="gradient"
-                    effect="glass"
+                    variant="none"
+                    effect="fill"
                     size="default"
                     fullWidth
-                    className="h-11 rounded-full text-[15px] font-medium"
+                    className="h-12 rounded-full type-headline !bg-primary !text-primary-foreground transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-primary/90 active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-muted disabled:!text-muted-foreground"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -1000,7 +1002,7 @@ export function VaultFlow({
 
                 {showUnlockOtherMethods ? (
                   <div className="space-y-1.5 pt-1">
-                    <p className="text-xs font-medium text-muted-foreground">Other methods</p>
+                    <p className="type-footnote font-medium text-muted-foreground">Other methods</p>
                     <div className="grid grid-cols-2 gap-2">
                       {showVaultKeyAlternative ? (
                         <Button
@@ -1068,15 +1070,17 @@ export function VaultFlow({
           {step === "recovery" && !recoveryKey && (
             <div className="space-y-2.5">
               <div className="text-center">
-                <Icon icon={Key} size={24} className="mx-auto mb-2 text-primary" />
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.06] dark:bg-foreground/[0.10]">
+                  <Icon icon={Key} size={22} className="text-foreground/70" />
+                </div>
                 <div
                   role="heading"
                   aria-level={2}
-                  className="text-[20px] font-medium leading-[1.14] tracking-normal text-foreground"
+                  className="type-title2 text-foreground"
                 >
                   Enter Recovery Key
                 </div>
-                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
+                <p className="mt-1 type-subhead text-muted-foreground">
                   Enter your recovery key to open Vault
                 </p>
               </div>
@@ -1093,16 +1097,16 @@ export function VaultFlow({
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="characters"
-                  className="h-10 px-3 font-mono text-base sm:h-11"
+                  className="h-12 rounded-[14px] px-4 font-mono text-[16px]"
                 />
               </div>
               <div className="flex flex-col gap-2 pt-2">
                 <Button
-                  variant="gradient"
-                  effect="glass"
+                  variant="none"
+                  effect="fill"
                   size="default"
                   fullWidth
-                  className="h-11 rounded-full text-[15px] font-medium"
+                  className="h-12 rounded-full type-headline !bg-primary !text-primary-foreground transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-primary/90 active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-muted disabled:!text-muted-foreground"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >
@@ -1115,7 +1119,7 @@ export function VaultFlow({
                   )}
                 </Button>
                 <div className="space-y-1.5">
-                  <p className="text-xs font-medium text-muted-foreground">Other methods</p>
+                  <p className="type-footnote font-medium text-muted-foreground">Other methods</p>
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="none"
@@ -1279,7 +1283,7 @@ export function VaultFlow({
         onOpenChange={() => {}}
       >
         <DialogContent
-          className="z-[520] max-h-[calc(100svh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[28px] border border-border/35 bg-background/95 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:max-w-md sm:p-7"
+          className="z-[720] max-h-[calc(100svh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[28px] border border-border/35 bg-background/95 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:max-w-md sm:p-7"
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>

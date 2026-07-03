@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { CheckCircle2, type LucideIcon } from "lucide-react";
 
 import {
   getCapabilityStatusDisplay,
@@ -11,24 +11,23 @@ import {
   ONE_CAPABILITY_ICON_CLASS_BY_TONE,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
-import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import {
+  isCapabilitySetupComplete,
+  type CapabilityStatus,
+} from "@/lib/services/capability-setup-state-service";
+import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { cn } from "@/lib/utils";
 
 /**
- * CapabilitySetupTile: the shared, premium, de-tinted tile used by the
- * `/one/setup` hub.
+ * CapabilitySetupTile: the shared setup row used by the `/one/setup` hub.
  *
- * CARD DEPTH MODEL (non-negotiable): the outer card is borderless neutral glass.
- * Depth comes ONLY from the shared shadow tokens
- * (`--app-card-shadow-standard` / `--app-card-shadow-feature`). Tone color is
- * sanctioned in exactly ONE place (the icon well), never on the card chrome,
- * never as a status pill border/background. State emphasis is carried by copy
- * weight, never by tinting the tile to "pop".
+ * APPLE-NATIVE MODEL: rows live inside a single `SettingsGroup` grouped inset
+ * list (hairline dividers, one calm surface). Tone color is sanctioned in
+ * exactly ONE place — the leading icon well — never on row chrome, never as a
+ * status pill background. State emphasis is carried by copy weight, never by
+ * tinting the row to "pop". Whole-row tap navigates (and prefetches) via the
+ * cloned `<Link>`; press feedback is SettingsRow's built-in wash.
  */
-const TILE_CLASS =
-  "group relative isolate flex w-full items-center gap-3 overflow-hidden rounded-xl border border-transparent bg-card/78 p-4 text-left shadow-[var(--app-card-shadow-standard)] transition-[background-color,box-shadow] duration-200 hover:bg-card hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
 const STATUS_TEXT_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
   ready: "text-muted-foreground",
   action: "font-medium text-foreground",
@@ -63,45 +62,52 @@ export function CapabilitySetupTile({
   className,
 }: CapabilitySetupTileProps) {
   const display = getCapabilityStatusDisplay(status, { isExploreOnly });
+  const isComplete = isCapabilitySetupComplete(status);
 
   return (
-    <Link
-      href={href}
-      aria-label={`${title}: ${display.label}`}
-      aria-current={isCurrent ? "step" : undefined}
-      className={cn(TILE_CLASS, isCurrent && "shadow-[var(--app-card-shadow-feature)]", className)}
-    >
-      <MaterialRipple variant="link" effect="glass" className="rounded-xl" />
-      <span
-        className={cn(
-          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-          ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone],
-        )}
-      >
-        <Icon className="h-5 w-5" aria-hidden />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-base font-semibold leading-5 text-foreground">
-          {title}
-        </span>
-        <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-          {description}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
+    <SettingsRow
+      asChild
+      leading={
         <span
           className={cn(
-            "whitespace-nowrap text-xs sm:text-sm",
-            STATUS_TEXT_CLASS_BY_TONE[display.tone],
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] sm:h-10 sm:w-10",
+            ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone],
           )}
         >
-          {display.label}
+          <Icon className="h-5 w-5" aria-hidden />
         </span>
-        <ChevronRight
-          className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground"
-          aria-hidden
-        />
-      </span>
-    </Link>
+      }
+      title={title}
+      description={description}
+      chevron
+      trailing={
+        isComplete ? (
+          <CheckCircle2
+            className="h-[18px] w-[18px] shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden
+          />
+        ) : (
+          <span
+            className={cn(
+              "type-footnote whitespace-nowrap",
+              STATUS_TEXT_CLASS_BY_TONE[display.tone],
+            )}
+          >
+            {display.label}
+          </span>
+        )
+      }
+    >
+      <Link
+        href={href}
+        prefetch
+        aria-label={`${title}: ${display.label}`}
+        aria-current={isCurrent ? "step" : undefined}
+        className={cn(
+          "[&]:focus-visible:ring-2 [&]:focus-visible:ring-ring [&]:focus-visible:ring-inset",
+          className,
+        )}
+      />
+    </SettingsRow>
   );
 }

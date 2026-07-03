@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { RadioGroup } from "@/components/ui/radio-group";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import type {
@@ -23,11 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  kaiAppBodyClassName,
-  kaiAppCardTitleClassName,
-  kaiAppSectionTitleClassName,
-} from "@/components/kai/shared/kai-typography";
+import { kaiAppSectionTitleClassName } from "@/components/kai/shared/kai-typography";
 
 type WizardAnswers = {
   investment_horizon: InvestmentHorizon | null;
@@ -94,10 +91,6 @@ export function KaiPreferencesWizard(props: {
   const [pendingHorizon, setPendingHorizon] = useState<InvestmentHorizon | null>(null);
   const [horizonDialogOpen, setHorizonDialogOpen] = useState(false);
   const [horizonAnchorChoice, setHorizonAnchorChoice] = useState<HorizonAnchorChoice>("from_now");
-
-  const progressValue = useMemo(() => {
-    return Math.round((step / total) * 100);
-  }, [step, total]);
 
   const isLast = step === total - 1;
 
@@ -235,14 +228,15 @@ export function KaiPreferencesWizard(props: {
               ) : (
                 <span />
               )}
-              <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
-                {progressValue}%
+              <span className="type-footnote tabular-nums text-muted-foreground">
+                Step {step + 1} of {total}
               </span>
             </div>
 
             <OnboardingStepper
               steps={QUESTIONS.map((q) => ({ id: q.id, label: q.prompt }))}
               currentIndex={step}
+              showLabel={false}
               ariaLabel="Investment preferences setup"
             />
           </div>
@@ -254,11 +248,11 @@ export function KaiPreferencesWizard(props: {
                 : "flex flex-1 flex-col pt-5"
             )}
           >
-            <div className={cn(isPageLayout ? "space-y-3 text-left" : "space-y-3")}>
+            <div className={cn(isPageLayout ? "space-y-2 text-left" : "space-y-2")}>
               <p
                 className={cn(
-                  "text-muted-foreground leading-relaxed",
-                  isPageLayout ? kaiAppBodyClassName : "text-xs"
+                  "text-muted-foreground",
+                  isPageLayout ? "type-subhead" : "type-footnote"
                 )}
               >
                 No right or wrong answers. We’ll tune Kai to your investing style.
@@ -268,10 +262,8 @@ export function KaiPreferencesWizard(props: {
                 role="heading"
                 aria-level={1}
                 className={cn(
-                  "tracking-normal text-balance text-foreground",
-                  isPageLayout
-                    ? "text-[30px] font-medium leading-[1.06] sm:text-[34px]"
-                    : kaiAppSectionTitleClassName
+                  "text-balance text-foreground",
+                  isPageLayout ? "type-title1" : kaiAppSectionTitleClassName
                 )}
               >
                 {activeQuestion.prompt}
@@ -281,11 +273,13 @@ export function KaiPreferencesWizard(props: {
             <RadioGroup
               value={activeValue ?? ""}
               onValueChange={handleSelect}
-              className={cn(isPageLayout ? "mt-8 gap-3 sm:mt-9" : "gap-3")}
+              className={cn(isPageLayout ? "mt-8 sm:mt-9" : "mt-6")}
             >
-              {activeQuestion.options.map((opt) => (
-                <RadioCardItem key={opt.value} value={opt.value} label={opt.label} />
-              ))}
+              <SettingsGroup testId="kai-wizard-options">
+                {activeQuestion.options.map((opt) => (
+                  <RadioOptionRow key={opt.value} value={opt.value} label={opt.label} />
+                ))}
+              </SettingsGroup>
             </RadioGroup>
 
             <div className={cn("space-y-3", isPageLayout ? "pt-8" : "mt-auto pt-6")}>
@@ -300,14 +294,15 @@ export function KaiPreferencesWizard(props: {
                 loading={isSubmitting}
                 showRipple
                 className={cn(
-                  "h-12 rounded-full text-[15.5px] font-medium shadow-[0_16px_34px_-24px_rgba(0,113,227,0.85)]",
+                  "h-12 rounded-full type-headline",
+                  "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+                  "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
                   canContinue
                     ? "!bg-primary !text-primary-foreground hover:!bg-primary/90"
-                    : "!bg-muted !text-muted-foreground shadow-none"
+                    : "!bg-muted !text-muted-foreground"
                 )}
               >
                 {isSubmitting ? "Saving..." : primaryLabel}
-                {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
               </Button>
             </div>
           </div>
@@ -400,34 +395,33 @@ export function KaiPreferencesWizard(props: {
   );
 }
 
-function RadioCardItem(props: { value: string; label: string }) {
+function RadioOptionRow(props: { value: string; label: string }) {
   return (
-    <RadioGroupPrimitive.Item
-      value={props.value}
-      className={cn(
-        "group w-full rounded-[18px] border px-4 py-3.5 text-left transition-[background-color,border-color,box-shadow,transform] sm:px-5",
-        "min-h-[54px] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/35",
-        "border-black/[0.08] bg-white/68 shadow-[0_10px_30px_-28px_rgba(0,0,0,0.5)] backdrop-blur-xl",
-        "hover:-translate-y-0.5 hover:bg-white/86 hover:shadow-[0_16px_38px_-32px_rgba(0,0,0,0.55)]",
-        "data-[state=checked]:border-primary/55 data-[state=checked]:bg-primary/[0.08] data-[state=checked]:shadow-[0_16px_38px_-32px_rgba(0,113,227,0.7)]",
-        "dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.09] dark:data-[state=checked]:bg-primary/15"
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className={cn(kaiAppCardTitleClassName, "text-foreground")}>
-          {props.label}
-        </p>
-        <div
+    <SettingsRow
+      asChild
+      title={props.label}
+      trailing={
+        <Check
           aria-hidden="true"
+          strokeWidth={2.5}
           className={cn(
-            "grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-colors",
-            "border-muted-foreground/28 bg-background/60",
-            "group-data-[state=checked]:border-primary"
+            "h-[18px] w-[18px] shrink-0 text-accent-strong",
+            "opacity-0 motion-safe:scale-90",
+            "transition-[opacity,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none",
+            "group-data-[state=checked]/opt:opacity-100 group-data-[state=checked]/opt:scale-100"
           )}
-        >
-          <RadioGroupPrimitive.Indicator className="h-2.5 w-2.5 rounded-full bg-primary" />
-        </div>
-      </div>
-    </RadioGroupPrimitive.Item>
+        />
+      }
+    >
+      <RadioGroupPrimitive.Item
+        value={props.value}
+        className={cn(
+          "group/opt",
+          "[&]:focus-visible:ring-2 [&]:focus-visible:ring-ring [&]:focus-visible:ring-inset",
+          "transition-[background-color] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none",
+          "data-[state=checked]:bg-accent-surface"
+        )}
+      />
+    </SettingsRow>
   );
 }

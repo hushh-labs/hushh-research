@@ -420,16 +420,14 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              // Lean flat track matching the search button + top app bar
-              // (ShellActionSurface): soft translucent surface, no shadow/blur.
-              "bg-black/[0.05] shadow-none backdrop-blur-none dark:bg-white/[0.07]",
-              // Active segment: Foundation gold "you are here" marker, matching
-              // hushh-search-console's canonical active recipe (gold-tint fill +
-              // gold-deep ink). Active label uses the deep-gold accent token
-              // (auto-brightens in dark); the moving indicator is a warm gold
-              // tint instead of the old neutral black/white wash.
-              "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
-              "[&_[data-segment-indicator]]:bg-accent/20 [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-accent/25",
+              // Liquid-glass footer material (2c cinematic): translucent frosted
+              // surface + saturation boost + specular inset rim + hairline,
+              // mirroring the vault sheet glass. Symmetric in light + dark.
+              "bg-white/55 backdrop-blur-[18px] backdrop-saturate-[1.9] [-webkit-backdrop-filter:blur(18px)_saturate(1.9)] dark:bg-white/[0.06]",
+              "ring-1 ring-black/5 shadow-[inset_1.5px_1.5px_1px_rgba(255,255,255,0.8),inset_-1px_-1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.10)] dark:ring-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_8px_24px_rgba(0,0,0,0.5)]",
+              // Active segment: solid ink "#111" pill with white icon + label.
+              "[&_[aria-checked=true]]:text-white [&_[aria-checked=true]]:font-semibold",
+              "[&_[data-segment-indicator]]:bg-[#111] [&_[data-segment-indicator]]:shadow-[0_4px_12px_rgba(0,0,0,0.22)] [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-[#111]",
             )}
           />
         </div>
@@ -440,11 +438,11 @@ export const Navbar = () => {
             // Stretch to the pill height and stay a perfect circle so the search
             // bubble and the bottom-nav pill read as one symmetric row.
             "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
-            // Flat surface matching the top app bar controls (ShellActionSurface):
-            // soft translucent track, no border/shadow/blur, symmetric in light + dark.
-            "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
+            // Liquid-glass circle matching the footer pill (2c cinematic).
+            "bg-white/55 text-[#1d1d1f] backdrop-blur-[18px] backdrop-saturate-[1.9] [-webkit-backdrop-filter:blur(18px)_saturate(1.9)] dark:bg-white/[0.06] dark:text-[#f5f5f7]",
+            "ring-1 ring-black/5 shadow-[inset_1.5px_1.5px_1px_rgba(255,255,255,0.8),inset_-1px_-1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.10)] dark:ring-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_8px_24px_rgba(0,0,0,0.5)]",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "hover:bg-white/70 hover:text-primary dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {

@@ -4210,12 +4210,12 @@ function ProfilePageContent() {
           data-slot="page-header"
           data-page-primary="true"
         >
-          <Avatar className="h-14 w-14 shrink-0 ring-4 ring-primary/18 sm:h-16 sm:w-16">
+          <Avatar className="h-24 w-24 shrink-0 ring-4 ring-white shadow-[0_12px_30px_rgba(94,92,230,0.35)] sm:h-28 sm:w-28 dark:ring-white/15">
             <AvatarImage
               src={user.photoURL || undefined}
               alt={user.displayName || "Profile"}
             />
-            <AvatarFallback className="bg-muted text-base font-semibold text-muted-foreground sm:text-lg">
+            <AvatarFallback className="bg-gradient-to-br from-[#2E1065] to-[#5E5CE6] text-3xl font-extrabold text-white sm:text-4xl">
               {user.displayName ? (
                 user.displayName
                   .split(" ")
@@ -4229,7 +4229,7 @@ function ProfilePageContent() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
+            <h1 className="font-[family-name:var(--font-app-display)] text-[30px] font-extrabold leading-[1.05] tracking-[-1px] text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}
             </h1>
             <div
@@ -4259,7 +4259,7 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
+          <div className={`space-y-4 sm:space-y-5 ${styles.cinematicSettings}`}>
             <SettingsGroup title="Settings">
               <SettingsRow
                 icon={KeyRound}

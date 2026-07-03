@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowRight, Shield, Target, TrendingUp, type LucideIcon } from "lucide-react";
+import { Shield, Target, TrendingUp, type LucideIcon } from "lucide-react";
 
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { cn } from "@/lib/utils";
 import {
   kaiAppBodyClassName,
   kaiAppDisplayTitleClassName,
@@ -75,7 +76,7 @@ export function KaiPersonaScreen(props: {
             </div>
 
             <div className="mt-5 space-y-3">
-              <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <p className="type-caption text-muted-foreground">
                 {cfg.pill}
               </p>
               <h1 className={`text-balance ${kaiAppDisplayTitleClassName} text-foreground`}>
@@ -86,14 +87,14 @@ export function KaiPersonaScreen(props: {
               </p>
             </div>
 
-            <div className="mt-8 w-full border-y border-black/[0.08] py-5 text-left dark:border-white/10">
-              <p className="text-[13px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            <div className="mt-8 w-full border-y border-[color:var(--foundation-hairline)] py-5 text-left">
+              <p className="type-caption text-muted-foreground">
                 Kai profile
               </p>
-              <p className="mt-2 text-[18px] font-medium leading-[1.45] text-foreground sm:text-[19px]">
+              <p className="mt-2 type-title3 text-foreground">
                 {cfg.headline}
               </p>
-              <p className="mt-3 text-[15px] leading-[1.45] text-muted-foreground">
+              <p className="mt-3 type-subhead text-muted-foreground">
                 {cfg.footerTagline}
               </p>
             </div>
@@ -101,14 +102,20 @@ export function KaiPersonaScreen(props: {
             <div className="mt-7 w-full space-y-3">
               <Button
                 type="button"
+                variant="none"
+                effect="fill"
                 size="lg"
                 fullWidth
                 onClick={props.onLaunchDashboard}
                 showRipple
-                className="h-11 rounded-full text-[15px] font-semibold shadow-[0_16px_34px_-24px_rgba(0,113,227,0.85)]"
+                className={cn(
+                  "h-11 rounded-full type-headline",
+                  "!bg-primary !text-primary-foreground hover:!bg-primary/90",
+                  "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+                  "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100"
+                )}
               >
                 Connect portfolio
-                <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
               </Button>
 
               {props.onEditAnswers && (
@@ -120,7 +127,7 @@ export function KaiPersonaScreen(props: {
                   fullWidth
                   onClick={props.onEditAnswers}
                   showRipple={false}
-                  className="h-11 rounded-full !bg-primary/10 text-[15px] font-semibold !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
+                  className="h-11 rounded-full !bg-primary/10 type-headline !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
                 >
                   Edit answers
                 </Button>

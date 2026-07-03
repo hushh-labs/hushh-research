@@ -4,11 +4,11 @@ import type { User } from "firebase/auth";
 
 import { VaultFlow } from "@/components/vault/vault-flow";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 
 type VaultUnlockDialogProps = {
   user: User;
@@ -31,37 +31,46 @@ export function VaultUnlockDialog({
   enableGeneratedDefault = false,
   dismissible = true,
 }: VaultUnlockDialogProps) {
+  // Presented as a native iOS bottom sheet (vaul Drawer): anchored to the
+  // bottom, rounded top, grabber handle, slide-up, with a modal blur scrim that
+  // blocks the app underneath. When it is the hard vault gate (dismissible
+  // false) vaul disables swipe/scrim/escape dismissal; the onOpenChange guard is
+  // a belt-and-suspenders backstop.
   return (
-    <Dialog
-      // The vault unlock is a true modal gate: it must render the blurred scrim
-      // behind it and block interaction with the app underneath. The shared
-      // Dialog wrapper defaults to modal={false}, which suppresses the overlay
-      // scrim, so opt back into modal behaviour here.
-      modal
+    <Drawer
       open={open}
+      modal
+      dismissible={dismissible}
       onOpenChange={(nextOpen) => {
         if (!dismissible && !nextOpen) return;
         onOpenChange?.(nextOpen);
       }}
     >
-      <DialogContent
-        showCloseButton={false}
-        className="left-1/2 top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] -translate-x-1/2 translate-y-0 border-none bg-transparent p-0 shadow-none sm:top-[50%] sm:max-w-sm sm:-translate-y-1/2"
-        onEscapeKeyDown={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
+      <DrawerContent
+        className={[
+          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[26px] sm:max-w-md",
+          // Liquid Glass material: a highly translucent surface + heavy
+          // background blur + saturation/brightness boost so the app behind
+          // reads through as frosted glass, with a bright specular top rim, a
+          // hairline light edge, and a deep lifted shadow.
+          "border-t border-white/60 bg-background/40 dark:border-white/15 dark:bg-background/30",
+          "backdrop-blur-[34px] backdrop-saturate-[2] backdrop-brightness-[1.06] [-webkit-backdrop-filter:blur(34px)_saturate(2)_brightness(1.06)]",
+          "shadow-[0_-16px_64px_rgba(15,23,42,0.30),inset_0_1px_0_rgba(255,255,255,0.75),inset_0_0_0_0.5px_rgba(255,255,255,0.30)] dark:shadow-[0_-16px_64px_rgba(0,0,0,0.62),inset_0_1px_0_rgba(255,255,255,0.20)]",
+        ].join(" ")}
       >
-        <DialogTitle className="sr-only">{title}</DialogTitle>
-        <DialogDescription className="sr-only">{description}</DialogDescription>
+        {/* Specular sheen — the top-edge highlight that gives Liquid Glass its lift. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-white/40 via-white/10 to-transparent dark:from-white/[0.12] dark:via-white/[0.03]"
+        />
+        <DrawerTitle className="sr-only">{title}</DrawerTitle>
+        <DrawerDescription className="sr-only">{description}</DrawerDescription>
         <VaultFlow
           user={user}
           enableGeneratedDefault={enableGeneratedDefault}
           onSuccess={onSuccess}
         />
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }

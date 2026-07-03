@@ -1,30 +1,41 @@
 import Link from "next/link";
-import {
-  ChevronRight,
-  LayoutDashboard,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowUpRight, ChevronRight, Lock, type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
-import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
-import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
+import {
+  ONE_CAPABILITIES,
+  type OneCapabilityTone,
+} from "@/lib/onboarding/one-capabilities";
 import {
   getCapabilityStatusDisplay,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import {
   isCapabilitySetupActionable,
+  isCapabilitySetupComplete,
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { ROUTES } from "@/lib/navigation/routes";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
+
+/**
+ * ONE HOME — "Cinematic Cards" design.
+ *
+ * Content + logic are unchanged: identity comes from the shared
+ * `ONE_CAPABILITIES` catalog and live status from the capability setup-state
+ * resolver (`getCapabilityStatusDisplay`). Only the presentation changed — the
+ * grouped inset list was replaced by full-width gradient "workflow" cards
+ * (bright when actionable, dark + lock when vault-gated), a black
+ * "Finish setup — X% done" bar, and calm Memory/Access rows. Colors here are an
+ * intentional, DASHBOARD-LOCAL design choice; the shared monochrome tone map
+ * (`ONE_CAPABILITY_ICON_CLASS_BY_TONE`, still consumed by the setup hub +
+ * onboarding preview) is deliberately untouched.
+ */
 
 type OneDashboardMode = {
   id: string;
@@ -34,43 +45,62 @@ type OneDashboardMode = {
   icon: LucideIcon;
   status: string;
   statusTone: CapabilityStatusTone;
-  tone:
-    | "finance"
-    | "gmail"
-    | "email"
-    | "location"
-    | "pkm"
-    | "consent"
-    | "connected";
+  tone: OneCapabilityTone;
   group: "workflow" | "memory" | "access";
+  /** True when the capability is gated behind an (elsewhere) vault unlock. */
+  locked: boolean;
+  /** True for capabilities set up by looking once (Explore) rather than configuring. */
+  isExploreOnly: boolean;
 };
 
-// Borderless neutral glass per the Card Depth Model: depth comes from the
-// shared shadow tokens, NOT from per-tone outline borders or tinted chrome.
-const MODE_TILE_CLASS =
-  "group relative isolate flex min-h-[5.8rem] flex-col overflow-hidden rounded-lg border border-transparent bg-card/78 p-3 text-left shadow-[var(--app-card-shadow-standard)] transition-[background-color,box-shadow] duration-200 hover:bg-card hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-[6.15rem]";
+const MONO_INDEX_FONT = 'ui-monospace, "SF Mono", Menlo, monospace';
 
-// Tone tints the ICON WELL only — the one place tone color is sanctioned. Outer
-// card chrome stays neutral.
-const MODE_ICON_CLASS_BY_TONE: Record<OneDashboardMode["tone"], string> = {
-  finance: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  gmail: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
-  email: "bg-accent-surface text-accent-strong",
-  location: "bg-teal-500/12 text-teal-700 dark:text-teal-300",
-  pkm: "bg-amber-500/12 text-amber-700 dark:text-amber-300",
-  consent: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
-  connected: "bg-slate-500/12 text-slate-700 dark:text-slate-300",
+// DASHBOARD-LOCAL per-tone color set for the cinematic cards. Bright cards use
+// the gradient + tinted lift; dark (locked) tiles use only the glow blob.
+const CARD_COLORS: Record<
+  OneCapabilityTone,
+  { gradient: string; shadow: string; glow: string }
+> = {
+  finance: {
+    gradient: "linear-gradient(135deg,#0B3D2E 0%,#12A150 100%)",
+    shadow: "0 14px 30px rgba(18,161,80,0.28)",
+    glow: "rgba(18,161,80,0.35)",
+  },
+  connected: {
+    gradient: "linear-gradient(135deg,#2E1065 0%,#5E5CE6 100%)",
+    shadow: "0 14px 30px rgba(94,92,230,0.26)",
+    glow: "rgba(94,92,230,0.35)",
+  },
+  email: {
+    gradient: "linear-gradient(135deg,#0A2540 0%,#3C82F6 100%)",
+    shadow: "0 14px 30px rgba(60,130,246,0.28)",
+    glow: "rgba(60,130,246,0.35)",
+  },
+  location: {
+    gradient: "linear-gradient(135deg,#4A2A00 0%,#FF9500 100%)",
+    shadow: "0 14px 30px rgba(255,149,0,0.28)",
+    glow: "rgba(255,149,0,0.32)",
+  },
+  gmail: {
+    gradient: "linear-gradient(135deg,#0A2540 0%,#3C82F6 100%)",
+    shadow: "0 14px 30px rgba(60,130,246,0.28)",
+    glow: "rgba(60,130,246,0.35)",
+  },
+  pkm: {
+    gradient: "linear-gradient(135deg,#3A2A00 0%,#F5A623 100%)",
+    shadow: "0 14px 30px rgba(245,166,35,0.26)",
+    glow: "rgba(245,166,35,0.32)",
+  },
+  consent: {
+    gradient: "linear-gradient(135deg,#2E1065 0%,#8B5CF6 100%)",
+    shadow: "0 14px 30px rgba(139,92,246,0.26)",
+    glow: "rgba(139,92,246,0.32)",
+  },
 };
 
-// State emphasis via neutral copy weight only — no tinted/bordered status pills.
-const MODE_STATUS_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
-  ready: "border-transparent bg-transparent px-0 text-muted-foreground",
-  action: "border-transparent bg-transparent px-0 font-medium text-foreground",
-  attention: "border-transparent bg-transparent px-0 font-medium text-foreground",
-  muted: "border-transparent bg-transparent px-0 text-muted-foreground",
-};
-
-function buildModes(statusById: Record<string, CapabilityStatus>): OneDashboardMode[] {
+function buildModes(
+  statusById: Record<string, CapabilityStatus>,
+): OneDashboardMode[] {
   // Stable identity (title/desc/href/icon/tone/group) comes from the shared
   // ONE_CAPABILITIES catalog; live per-tile status comes from the capability
   // setup-state resolver via `statusById` so the dashboard never fabricates
@@ -80,6 +110,13 @@ function buildModes(statusById: Record<string, CapabilityStatus>): OneDashboardM
     const display = status
       ? getCapabilityStatusDisplay(status, { isExploreOnly: cap.isExploreOnly })
       : { label: "Checking…", tone: "muted" as CapabilityStatusTone };
+    // "Locked" (dark tile + padlock) means the real state can only be read after
+    // a vault unlock done elsewhere. An OAuth `blocked` ("Connect to set up") is
+    // NOT locked — it is an actionable bright card.
+    const locked =
+      !!status &&
+      (status.requiresUnlock === true ||
+        (status.state === "blocked" && status.prerequisite === "vault"));
     return {
       id: cap.id,
       title: cap.title,
@@ -90,92 +127,181 @@ function buildModes(statusById: Record<string, CapabilityStatus>): OneDashboardM
       statusTone: display.tone,
       tone: cap.tone,
       group: cap.group,
+      locked,
+      isExploreOnly: cap.isExploreOnly === true,
     };
   });
 }
 
-function ModeTile({
+/** Right-aligned action word color for the Memory/Access list rows. */
+function listActionClass(mode: OneDashboardMode): string {
+  if (mode.locked) return "text-black/35 dark:text-white/40";
+  if (mode.statusTone === "ready") return "text-[#0A0A0A] dark:text-white";
+  // Explore-only invitations ("Explore"/"Explored") read as neutral ink, not a
+  // setup CTA.
+  if (mode.isExploreOnly && mode.statusTone === "action")
+    return "text-[#0A0A0A] dark:text-white";
+  return "text-[#5E5CE6] dark:text-[#8b8aff]";
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+function WorkflowCard({
   mode,
-  className,
+  size,
+  index,
 }: {
   mode: OneDashboardMode;
-  className?: string;
+  size: "hero" | "wide" | "tile";
+  index: string;
 }) {
-  const Icon = mode.icon;
+  const colors = CARD_COLORS[mode.tone];
+  const bright = !mode.locked;
+  const isTile = size === "tile";
   return (
     <Link
       href={mode.href}
       aria-label={`Open ${mode.title}`}
-      className={cn(MODE_TILE_CLASS, className)}
+      className={cn(
+        "group relative flex flex-col justify-between overflow-hidden rounded-[26px] p-5 sm:p-6",
+        "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        size === "hero" ? "min-h-[190px]" : "min-h-[150px]",
+        bright
+          ? "focus-visible:ring-white/70"
+          : "bg-[#16181D] focus-visible:ring-white/40",
+      )}
+      style={bright ? { background: colors.gradient, boxShadow: colors.shadow } : undefined}
     >
-      <MaterialRipple variant="link" effect="glass" className="rounded-lg" />
-      <span className="flex items-start justify-between gap-2">
-        <span
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute rounded-full blur-3xl",
+          isTile ? "-right-8 -top-8 h-28 w-28" : "-right-10 -top-10 h-44 w-44",
+        )}
+        style={{ background: colors.glow }}
+      />
+
+      <div className="relative flex items-start justify-between gap-2">
+        {bright ? (
+          <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+            {mode.status}
+          </span>
+        ) : (
+          <span
+            className="text-[12px] font-bold text-white/40"
+            style={{ fontFamily: MONO_INDEX_FONT }}
+          >
+            {index}
+          </span>
+        )}
+        {bright ? (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#111]">
+            <ArrowUpRight className="h-5 w-5" aria-hidden />
+          </span>
+        ) : (
+          <Lock className="h-4 w-4 shrink-0 text-white/40" aria-hidden />
+        )}
+      </div>
+
+      <div className="relative mt-8">
+        <h3
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10",
-            MODE_ICON_CLASS_BY_TONE[mode.tone],
+            "font-[family-name:var(--font-app-display)] font-extrabold leading-[1.05] text-white",
+            size === "hero"
+              ? "text-[28px] tracking-[-0.5px]"
+              : "text-[22px] tracking-[-0.3px]",
           )}
         >
-          <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden />
-        </span>
-        <Badge
-          variant="secondary"
-          className={cn(
-            "max-w-[8.5rem] shrink-0 truncate text-[10px] sm:max-w-[9rem] sm:text-xs",
-            MODE_STATUS_CLASS_BY_TONE[mode.statusTone],
-          )}
-        >
-          {mode.status}
-        </Badge>
-      </span>
-      <span className="mt-2 block min-w-0 sm:mt-2.5">
-        <span className="block truncate text-[15px] font-semibold leading-5 text-foreground sm:text-lg sm:leading-6">
+          {mode.title}
+        </h3>
+        {bright ? (
+          <p
+            className={cn(
+              "mt-1.5 max-w-[24rem] leading-snug text-white/75",
+              isTile ? "text-[13px]" : "text-[14px]",
+            )}
+          >
+            {mode.description}
+          </p>
+        ) : (
+          <p className="mt-1 text-[13px] text-white/55">
+            {mode.status} <span aria-hidden>→</span>
+          </p>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function ListRow({ mode, last }: { mode: OneDashboardMode; last: boolean }) {
+  return (
+    <Link
+      href={mode.href}
+      aria-label={`Open ${mode.title}`}
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-lg py-3.5",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        !last && "border-b border-black/10 dark:border-white/10",
+      )}
+    >
+      <span className="min-w-0">
+        <span className="block text-[17px] font-bold leading-tight text-[#0A0A0A] dark:text-white">
           {mode.title}
         </span>
-        <span className="mt-1 hidden truncate text-sm leading-5 text-muted-foreground sm:block">
+        <span className="mt-0.5 block truncate text-[13px] text-black/40 dark:text-white/45">
           {mode.description}
         </span>
+      </span>
+      <span
+        className={cn(
+          "shrink-0 whitespace-nowrap text-[14px] font-semibold",
+          listActionClass(mode),
+        )}
+      >
+        {mode.status}
       </span>
     </Link>
   );
 }
 
-function ModeSection({
-  title,
-  description,
-  accent,
-  modes,
-  gridClassName,
-}: {
-  title: string;
-  description: string;
-  accent: "neutral" | "kai" | "consent";
-  modes: OneDashboardMode[];
-  gridClassName: string;
-}) {
-  if (modes.length === 0) {
-    return null;
-  }
-
+function SectionLabel({ id, children }: { id: string; children: string }) {
   return (
-    <section
-      aria-labelledby={`one-section-${title.toLowerCase()}`}
-      className="space-y-2"
+    <div className="mb-2 mt-6 flex items-center gap-3">
+      <span
+        id={id}
+        className="text-[12px] font-semibold uppercase tracking-[0.15em] text-black/35 dark:text-white/40"
+      >
+        {children}
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+    </div>
+  );
+}
+
+function FinishSetupBar({ percent }: { percent: number }) {
+  return (
+    <Link
+      href={ROUTES.ONE_SETUP}
+      aria-label="Finish setting up One"
+      className="flex items-center gap-4 rounded-[20px] bg-[#111] p-4 transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none motion-reduce:active:scale-100"
     >
-      <SectionHeader
-        id={`one-section-${title.toLowerCase()}`}
-        title={title}
-        description={description}
-        accent={accent}
-        className="px-0"
-        testId={`one-${title.toLowerCase()}-section`}
-      />
-      <div className={cn("grid gap-2 sm:gap-2.5", gridClassName)}>
-        {modes.map((mode) => (
-          <ModeTile key={mode.id} mode={mode} />
-        ))}
-      </div>
-    </section>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="text-[15px] font-semibold text-white">Finish setup</span>
+          <span className="text-[13px] text-white/45">{percent}% done</span>
+        </span>
+        <span className="mt-2.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/[0.18]">
+          <span
+            className="block h-full rounded-full bg-white transition-[width] duration-500 ease-[var(--motion-ease-standard)]"
+            style={{ width: `${percent}%` }}
+          />
+        </span>
+      </span>
+      <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white text-[#111]">
+        <ChevronRight className="h-4 w-4" aria-hidden />
+      </span>
+    </Link>
   );
 }
 
@@ -203,6 +329,19 @@ export function OneDashboardPage({
   const hasSetupRemaining = Object.values(capabilityStatusById).some((status) =>
     isCapabilitySetupActionable(status),
   );
+
+  // "X% done" reflects genuinely set-up capabilities (completed/skipped) over the
+  // set-up-able ones (explore-only tabs are excluded — they are looked at, not
+  // configured). Same honest basis as the Set up One hub.
+  const setupable = ONE_CAPABILITIES.filter((cap) => !cap.isExploreOnly);
+  const doneCount = setupable.filter((cap) => {
+    const status = capabilityStatusById[cap.id];
+    return status ? isCapabilitySetupComplete(status) : false;
+  }).length;
+  const percent = setupable.length
+    ? Math.round((doneCount / setupable.length) * 100)
+    : 0;
+
   const workflowModes = modes.filter((mode) => mode.group === "workflow");
   const memoryModes = modes.filter((mode) => mode.group === "memory");
   const accessModes = modes.filter((mode) => mode.group === "access");
@@ -220,61 +359,107 @@ export function OneDashboardPage({
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow={`Good to see you, ${firstName}.`}
-          title="One dashboard"
-          description="Start a workflow, open memory, or review access."
-          icon={LayoutDashboard}
-          accent="neutral"
-          actions={
-            <span className="flex items-center gap-2">
-              {hasSetupRemaining ? (
-                <Link
-                  href={ROUTES.ONE_SETUP}
-                  className="inline-flex items-center gap-1 rounded-full bg-card/78 px-3 py-1 text-xs font-medium text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,box-shadow] duration-200 hover:bg-card hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
-                >
-                  Finish setup
-                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-              ) : null}
-              {pendingConsents > 0 ? (
-                <Badge variant="secondary" className="w-fit whitespace-nowrap">
-                  {`${pendingConsents} consent${pendingConsents === 1 ? "" : "s"} pending`}
-                </Badge>
-              ) : consentResolved ? (
-                <Badge variant="secondary" className="w-fit whitespace-nowrap">
-                  No pending consents
-                </Badge>
-              ) : null}
-            </span>
-          }
-        />
+        <header
+          data-slot="page-header"
+          data-page-primary="true"
+          data-testid="page-header"
+          className="space-y-2"
+        >
+          <p className="text-[12px] font-semibold uppercase tracking-[0.15em] text-black/35 dark:text-white/40">
+            {`Good to see you, ${firstName}.`}
+          </p>
+          <h1 className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.02] tracking-[-1px] text-foreground sm:text-[40px] sm:tracking-[-1.2px]">
+            One dashboard
+          </h1>
+          <p className="text-[15px] leading-6 text-black/45 dark:text-white/50">
+            Start a workflow, open memory, or review access.
+          </p>
+          {pendingConsents > 0 ? (
+            <Badge variant="secondary" className="w-fit whitespace-nowrap">
+              {`${pendingConsents} consent${pendingConsents === 1 ? "" : "s"} pending`}
+            </Badge>
+          ) : consentResolved ? (
+            <Badge variant="secondary" className="w-fit whitespace-nowrap">
+              No pending consents
+            </Badge>
+          ) : null}
+        </header>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <SurfaceStack compact className="gap-4">
-          <ModeSection
-            title="Workflows"
-            description="Finance, email, location, and connected systems."
-            accent="kai"
-            modes={workflowModes}
-            gridClassName="grid-cols-2 md:grid-cols-4"
-          />
-          <ModeSection
-            title="Memory"
-            description="Gmail receipts and saved knowledge."
-            accent="neutral"
-            modes={memoryModes}
-            gridClassName="grid-cols-2 md:grid-cols-4"
-          />
-          <ModeSection
-            title="Access"
-            description="Approvals and revocations."
-            accent="consent"
-            modes={accessModes}
-            gridClassName="grid-cols-2 md:grid-cols-4"
-          />
-        </SurfaceStack>
+        {hasSetupRemaining ? (
+          <div className="mb-1">
+            <FinishSetupBar percent={percent} />
+          </div>
+        ) : null}
+
+        {workflowModes.length > 0 ? (
+          <section
+            aria-labelledby="one-section-workflows"
+            data-testid="one-workflows-section"
+          >
+            <SectionLabel id="one-section-workflows">Workflows</SectionLabel>
+            <div className="space-y-3">
+              {workflowModes[0] ? (
+                <WorkflowCard mode={workflowModes[0]} size="hero" index="01" />
+              ) : null}
+              {workflowModes[1] || workflowModes[2] ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {workflowModes[1] ? (
+                    <WorkflowCard mode={workflowModes[1]} size="tile" index="02" />
+                  ) : null}
+                  {workflowModes[2] ? (
+                    <WorkflowCard mode={workflowModes[2]} size="tile" index="03" />
+                  ) : null}
+                </div>
+              ) : null}
+              {workflowModes.slice(3).map((mode, i) => (
+                <WorkflowCard
+                  key={mode.id}
+                  mode={mode}
+                  size="wide"
+                  index={pad2(i + 4)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {memoryModes.length > 0 ? (
+          <section
+            aria-labelledby="one-section-memory"
+            data-testid="one-memory-section"
+          >
+            <SectionLabel id="one-section-memory">Memory</SectionLabel>
+            <div>
+              {memoryModes.map((mode, i) => (
+                <ListRow
+                  key={mode.id}
+                  mode={mode}
+                  last={i === memoryModes.length - 1}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {accessModes.length > 0 ? (
+          <section
+            aria-labelledby="one-section-access"
+            data-testid="one-access-section"
+          >
+            <SectionLabel id="one-section-access">Access</SectionLabel>
+            <div>
+              {accessModes.map((mode, i) => (
+                <ListRow
+                  key={mode.id}
+                  mode={mode}
+                  last={i === accessModes.length - 1}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
       </AppPageContentRegion>
     </AppPageShell>
   );

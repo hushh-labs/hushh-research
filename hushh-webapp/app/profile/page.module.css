@@ -1,3 +1,93 @@
 .profilePageHeaderRegion {
   padding-top: 15px;
 }
+
+/*
+ * 2c/4a "Cinematic" profile settings — scoped to the /profile ROOT list only.
+ * Restyles the shared SettingsGroup/SettingsRow into a flat, editorial list
+ * (big soft icon circles, bold titles, full-width hairlines, red sign-out)
+ * via the additive data-slot / data-tone hooks, WITHOUT changing the shared
+ * component defaults used by the setup hub and profile sub-panels.
+ * (.dark is a global theme class → wrapped in :global(); attribute selectors
+ * are left untouched by CSS Modules, so they need no :global wrapper.)
+ */
+
+/* Flatten the grouped card into a plain list (keep the inner divide-y hairlines). */
+.cinematicSettings [data-slot="settings-group-shell"] {
+  --settings-group-radius: 0px;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* Section label ("SETTINGS" / "SESSION") + trailing flex-1 hairline. */
+.cinematicSettings [data-slot="settings-group-heading"] {
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: rgba(0, 0, 0, 0.35);
+}
+.cinematicSettings [data-slot="settings-group-heading"]::after {
+  content: "";
+  flex: 1 1 0%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.1);
+}
+:global(.dark) .cinematicSettings [data-slot="settings-group-heading"] {
+  color: rgba(255, 255, 255, 0.4);
+}
+:global(.dark) .cinematicSettings [data-slot="settings-group-heading"]::after {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Rows read as a flat list on the page background. */
+.cinematicSettings [data-testid="settings-row"] {
+  background: transparent;
+}
+
+/* Soft neutral icon circle (46px). */
+.cinematicSettings [data-slot="settings-row-icon"] {
+  height: 46px;
+  width: 46px;
+  border-radius: 9999px;
+}
+.cinematicSettings [data-tone="default"] [data-slot="settings-row-icon"] {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+}
+:global(.dark)
+  .cinematicSettings
+  [data-tone="default"]
+  [data-slot="settings-row-icon"] {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Title 17/700, detail 13px. */
+.cinematicSettings [data-slot="settings-row-title"] {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #0a0a0a;
+}
+:global(.dark) .cinematicSettings [data-slot="settings-row-title"] {
+  color: #ffffff;
+}
+.cinematicSettings [data-slot="settings-row-description"] {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.42);
+}
+:global(.dark) .cinematicSettings [data-slot="settings-row-description"] {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Sign out (destructive) — red circle + red label. */
+.cinematicSettings [data-tone="destructive"] [data-slot="settings-row-icon"] {
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+}
+.cinematicSettings [data-tone="destructive"] [data-slot="settings-row-title"] {
+  color: #ff3b30;
+}

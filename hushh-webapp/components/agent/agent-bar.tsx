@@ -30,7 +30,7 @@ import {
 } from "@/lib/agent/agent-voice-state";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
 import {
   GeminiLiveClient,
   type GeminiLiveVoiceState,
@@ -226,6 +226,13 @@ export function AgentBar() {
   const path = pathname ?? "";
   const unmountBar =
     !agentPopover ||
+    // The One setup surface is a focused onboarding flow (like Apple's "Finish
+    // Setting Up" in Settings): a centered translucent agent launcher reads
+    // over the wide grouped-list rows on scroll (they show through it / beside
+    // it), so it is unmounted across the whole setup surface. isOneSetupRoute
+    // (not an exact match) is required because the Capacitor build uses
+    // trailingSlash, so the runtime pathname is "/one/setup/".
+    isOneSetupRoute(path) ||
     path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     path === ROUTES.DEVELOPERS ||
@@ -305,12 +312,13 @@ export function AgentBar() {
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // Flat surface matching the top app bar controls and bottom nav. While
-          // in conversation mode the bar lifts to a highlighted, primary-tinted
-          // surface so it reads as a live, active listening session.
+          // Resting: solid ink "#111" ask pill (2c cinematic) with a hairline
+          // rim so it reads on both light and dark shells. While in conversation
+          // mode the bar lifts to a highlighted, primary-tinted surface so it
+          // reads as a live, active listening session.
           conversationActive
             ? "bg-primary/10 text-foreground ring-1 ring-primary/30 dark:bg-primary/15"
-            : "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
+            : "bg-[#111] text-white ring-1 ring-white/10",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
@@ -371,7 +379,7 @@ export function AgentBar() {
                 "transition-colors duration-200 active:scale-[0.99]",
               )}
             >
-              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground/70">
+              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-white/55">
                 {hint}
               </span>
             </button>
@@ -381,9 +389,9 @@ export function AgentBar() {
               aria-label="Talk to your agent"
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
+                "bg-white/10 text-white/70",
                 "transition-[background-color,transform] duration-200",
-                "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90",
+                "hover:bg-white/20 hover:text-white active:scale-90",
               )}
             >
               <Mic className="h-4 w-4" />
@@ -394,13 +402,13 @@ export function AgentBar() {
               aria-label="Start a conversational session"
               title="Conversational mode"
               className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                "bg-white text-[#111]",
                 "transition-[background-color,transform] duration-200",
-                "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90",
+                "hover:bg-white/90 active:scale-90",
               )}
             >
-              <AudioLines className="h-4 w-4" />
+              <AudioLines className="h-[18px] w-[18px]" />
             </button>
           </>
         )}

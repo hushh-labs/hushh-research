@@ -92,6 +92,7 @@ export function SettingsGroup({
   description,
   children,
   embedded = false,
+  separatorInset = false,
   className,
   testId = "settings-group",
 }: {
@@ -100,18 +101,33 @@ export function SettingsGroup({
   description?: ReactNode;
   children: ReactNode;
   embedded?: boolean;
+  /**
+   * Opt-in iOS inset-grouped separators: hairlines that start after the leading
+   * icon (aligned to the text) instead of full-width dividers. Default false
+   * preserves the existing full-width `divide-y` for all other consumers.
+   */
+  separatorInset?: boolean;
   className?: string;
   testId?: string;
 }) {
   const shell = (
     <div
+      data-slot="settings-group-shell"
       className={cn(
         "relative isolate [--settings-group-radius:30px] overflow-hidden rounded-[calc(var(--app-card-radius-feature)+6px)]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
         !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
       )}
     >
-      <div className="relative isolate divide-y divide-border/60">{children}</div>
+      <div
+        className={cn(
+          "relative isolate",
+          separatorInset ? "group/settings-list" : "divide-y divide-border/60"
+        )}
+        data-inset-separators={separatorInset ? "true" : undefined}
+      >
+        {children}
+      </div>
     </div>
   );
 
@@ -121,6 +137,7 @@ export function SettingsGroup({
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow || title ? (
             <div
+              data-slot="settings-group-heading"
               role="heading"
               aria-level={embedded ? 3 : 2}
               className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[12px] font-medium uppercase leading-tight tracking-[0.14em] text-muted-foreground [overflow-wrap:anywhere]"
@@ -194,6 +211,9 @@ export function SettingsRow({
     "[--settings-row-top-radius:0px] [--settings-row-bottom-radius:0px] first:[--settings-row-top-radius:calc(var(--settings-group-radius)-1px)] last:[--settings-row-bottom-radius:calc(var(--settings-group-radius)-1px)] [border-top-left-radius:var(--settings-row-top-radius)] [border-top-right-radius:var(--settings-row-top-radius)] [border-bottom-left-radius:var(--settings-row-bottom-radius)] [border-bottom-right-radius:var(--settings-row-bottom-radius)]";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
+    // iOS inset hairline separator — active only inside a SettingsGroup with
+    // separatorInset; starts after the leading icon and hides on the last row.
+    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:left-[3.75rem] group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--foundation-hairline)] group-data-[inset-separators=true]/settings-list:after:content-[''] sm:group-data-[inset-separators=true]/settings-list:after:left-[4.25rem] last:after:hidden",
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
     className
@@ -209,6 +229,7 @@ export function SettingsRow({
         <span className="inline-flex shrink-0 self-center">{leading}</span>
       ) : icon ? (
         <span
+          data-slot="settings-row-icon"
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl bg-muted/65 text-muted-foreground sm:h-10 sm:w-10",
             tone === "destructive" && "bg-destructive/10 text-destructive"
@@ -219,6 +240,7 @@ export function SettingsRow({
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
         <div
+          data-slot="settings-row-title"
           className={cn(
             "text-[14px] font-medium tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
             tone === "destructive" && "text-destructive"
@@ -227,7 +249,10 @@ export function SettingsRow({
           {title}
         </div>
         {description ? (
-          <div className="text-[12px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
+          <div
+            data-slot="settings-row-description"
+            className="text-[12px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]"
+          >
             {description}
           </div>
         ) : null}
@@ -278,7 +303,7 @@ export function SettingsRow({
 
   if (splitPrimaryAction) {
     return (
-      <div className={rowShellClassName} data-testid={testId}>
+      <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
         <div
           className={cn(
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
@@ -314,7 +339,7 @@ export function SettingsRow({
 
   if (resolvedAsChild) {
     return (
-      <div className={rowShellClassName} data-testid={testId}>
+      <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
         {isInteractive ? (
           <span
             aria-hidden
@@ -336,7 +361,7 @@ export function SettingsRow({
   }
 
   return (
-    <div className={rowShellClassName} data-testid={testId}>
+    <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
       {isInteractive ? (
         <span
           aria-hidden

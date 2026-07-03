@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ListChecks, type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -12,6 +12,7 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { Button } from "@/components/ui/button";
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -46,9 +47,9 @@ import { cn } from "@/lib/utils";
  * LAYOUT (Card Depth Model + recompose-by-breakpoint)
  * - Lives inside the normal app shell (`standard` chrome) so a person who has
  *   finished onboarding can still browse here without being trapped in a flow.
- * - Phone: a single scrollable column of full-width setup tiles.
- * - Tablet / desktop: a two-column grid. The shell itself owns the scroll; the
- *   header region stays put.
+ * - A single grouped inset list (SettingsGroup) of full-width setup rows in
+ *   actionable-first order. The shell itself owns the scroll; the header region
+ *   stays put.
  * - One owns the voice: "Set up One", plain language, no system nouns.
  */
 export function OneSetupHub() {
@@ -144,7 +145,7 @@ export function OneSetupHub() {
     <AppPageShell
       as="main"
       width="standard"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="relative isolate pb-[calc(var(--app-safe-area-bottom-effective,0px)+2.5rem)]"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -154,10 +155,8 @@ export function OneSetupHub() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="Set up One"
           title={allReady ? "You're all set" : "Finish setting up One"}
           description={summary}
-          icon={ListChecks}
           accent="neutral"
           actions={
             <Button
@@ -167,6 +166,14 @@ export function OneSetupHub() {
               disabled={dismissing}
               onClick={() => void handleMasterAck()}
               data-testid="one-setup-master-ack"
+              className={cn(
+                "rounded-full type-subhead font-medium",
+                "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+                "active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+                masterSkipped
+                  ? "text-primary hover:bg-primary/10"
+                  : "!bg-primary !text-primary-foreground hover:!bg-primary/90",
+              )}
             >
               {masterActionLabel}
             </Button>
@@ -175,25 +182,21 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <ol
-          className="grid grid-cols-1 gap-2.5 md:grid-cols-2"
-          aria-label="Setup steps"
-        >
+        <SettingsGroup testId="one-setup-capabilities" separatorInset>
           {items.map((item) => (
-            <li key={item.id} className={cn(item.isCurrent && "md:col-span-2")}>
-              <CapabilitySetupTile
-                title={item.copy.setupTitle}
-                description={item.copy.setupBlurb}
-                href={item.copy.href}
-                icon={item.icon}
-                tone={item.tone}
-                status={item.status}
-                isExploreOnly={item.isExploreOnly}
-                isCurrent={item.isCurrent}
-              />
-            </li>
+            <CapabilitySetupTile
+              key={item.id}
+              title={item.copy.setupTitle}
+              description={item.copy.setupBlurb}
+              href={item.copy.href}
+              icon={item.icon}
+              tone={item.tone}
+              status={item.status}
+              isExploreOnly={item.isExploreOnly}
+              isCurrent={item.isCurrent}
+            />
           ))}
-        </ol>
+        </SettingsGroup>
       </AppPageContentRegion>
     </AppPageShell>
   );
