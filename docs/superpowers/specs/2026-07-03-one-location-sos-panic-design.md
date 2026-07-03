@@ -15,6 +15,20 @@ the user to a small, configured set of real developer accounts so SOS works end-
 Of the six Location "Quick Actions" (Check-In, SOS, Drive To, Pick Me Up, Meeting, Safe
 Arrival), **only SOS is built now**; the rest remain future work.
 
+## Visual Map
+
+```text
+SEED (post vault-unlock)   PostUnlockSyncService → POST /api/one/location/seed-trusted
+  → if user has 0 active connections, link them to SOS_SEED_DEV_USER_IDS
+    via one_location_network_connections (→ they become share recipients)
+
+PANIC (Location · Now tab · SosPanel)
+  TAP TO PANIC → 3–5s countdown (Cancel) → for each share-ready trusted contact:
+    createGrant(8h, reason:"sos_panic") → grant + FCM/in-app notify + audit
+    existing watch loop streams encrypted envelopes; record grant ids (localStorage)
+  LIVE LOCATION ACTIVE banner → "I'm safe" revokes the incident grants (8h TTL backstop)
+```
+
 ## Guiding principle: reuse, don't rebuild
 
 Live-location sharing **already works** end-to-end via `OneLocationAgentService`. SOS is

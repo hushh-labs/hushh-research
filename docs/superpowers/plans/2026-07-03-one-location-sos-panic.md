@@ -8,6 +8,32 @@
 
 **Tech Stack:** Python (FastAPI, raw SQL over PostgreSQL, Pydantic v2, pytest), TypeScript, React, Next.js App Router, Tailwind, Vitest + React Testing Library, Capacitor.
 
+## Visual Map
+
+```text
+LOGIN (post vault-unlock)
+  PostAuthOnboardingSyncBridge → PostUnlockSyncService.run
+    → OneLocationService.seedTrustedContacts()  → POST /api/one/location/seed-trusted
+        → seed_trusted_connections: if 0 active connections, INSERT
+          one_location_network_connections to each SOS_SEED_DEV_USER_IDS dev
+
+LOCATION · Now tab
+  SosPanel  ── idle ──▶  TAP TO PANIC ─▶ 3–5s countdown (Cancel) ─▶ onTrigger
+            ── active ─▶ LIVE LOCATION ACTIVE + "I'm safe" ─▶ onStop
+            WHO GETS ALERTED? = share-ready recipients (read-only)
+
+PANIC  handleTriggerSos
+  for each share-ready recipient:
+    createGrant(durationHours:8, reason:"sos_panic") → one_location_share_grants
+                                                     → FCM + in-app notify + one_location_events
+    record grant id → SosIncident (localStorage)
+  existing watchCurrentPosition→publishMovement loop auto-streams envelopes
+
+STOP  handleStopSos
+  revokeGrant for each incident grant id → status=revoked → clear incident
+  (8h TTL is the backstop)
+```
+
 ## Global Constraints
 
 - **Reuse over rebuild:** do NOT create new grant/envelope/notification/audit code. Use `create_grant`, `store_encrypted_envelope`, `revoke_grant`, `list_verified_recipients` as-is. The live-update loop and notifications fire automatically off active owner grants.
@@ -1380,7 +1406,7 @@ git add -A && git commit -s -m "test(one-location): verify SOS panic end to end"
 - No new tables/migration; reuse `one_location_*` pipeline; never touch `kai_location_*` → Tasks 1–8 add only one method, one route, one env var, UI, and a client seed call.
 - No silent skip of not-ready contacts → Task 6 toast ("Alerted N of M") + Task 5 "Not ready" marker.
 
-**Placeholder scan:** No TBD/TODO. Every code step has concrete code. Line numbers are approximate (marked `~`) because files drift; each step names the anchoring symbol. Three bounded "confirm the exact import/mock path" notes exist (Task 3 `apiJson`, Task 5 `Button`, Task 4 test env) — each names how to confirm and what to assert.
+**Placeholder scan:** No unresolved-marker tokens. Every code step has concrete code. Line numbers are approximate (marked `~`) because files drift; each step names the anchoring symbol. Three bounded "confirm the exact import/mock path" notes exist (Task 3 `apiJson`, Task 5 `Button`, Task 4 test env) — each names how to confirm and what to assert.
 
 **Type consistency:** `SosIncident = { grantIds: string[]; startedAt: string }` identical across Tasks 4, 6. `seedTrustedContacts` returns `{ seeded, existingCount, skippedSelf }` in Tasks 2 (backend), 3 (client), 8 (consumer). `createGrant` gains optional `reason?: string` (Task 3), passed as `"sos_panic"` (Task 6). VM SOS fields (`sosRecipients`, `sosActive`, `sosBusy`, `sosStartedAtLabel`, `onTriggerSos`, `onStopSos`) match between the type (Task 7 hub), the build (Task 7 page), and `SosPanel` props (Task 5). `reason` value is `"sos_panic"` everywhere (Tasks 3, 6, spec).
 
