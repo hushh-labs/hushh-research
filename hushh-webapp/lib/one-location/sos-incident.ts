@@ -63,5 +63,7 @@ export function reconcileSosIncident(
   if (!incident) return null;
   const active = new Set(activeGrantIds);
   const grantIds = incident.grantIds.filter((id) => active.has(id));
-  return grantIds.length ? { ...incident, grantIds } : null;
+  if (!grantIds.length) return null;
+  if (grantIds.length === incident.grantIds.length) return incident; // unchanged → stable ref
+  return { ...incident, grantIds };
 }

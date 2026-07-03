@@ -45,4 +45,8 @@ describe("sos-incident store", () => {
     expect(reconcileSosIncident(incident, ["other"])).toBeNull();
     expect(reconcileSosIncident(null, ["g1"])).toBeNull();
   });
+
+  it("reconcile returns the same reference when all ids remain active", () => {
+    expect(reconcileSosIncident(incident, ["g1", "g2"])).toBe(incident);
+  });
 });
