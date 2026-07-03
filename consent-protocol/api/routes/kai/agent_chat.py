@@ -12,6 +12,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
+from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
+from hushh_mcp.agents.orchestrator.tools import classify_specialist_domain
 from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     AgentChatConversation,
@@ -27,14 +30,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent Chat"])
 
 
+class DelegateResultModel(BaseModel):
+    delegate_agent_id: str = Field(..., max_length=64)
+    kind: str = Field(..., max_length=24)  # "action" | "selection"
+    id: str = Field(..., max_length=64)
+    type: Optional[str] = Field(default=None, max_length=48)
+    status: Optional[str] = Field(default=None, max_length=24)
+    public_url: Optional[str] = Field(default=None, alias="publicUrl", max_length=2048)
+    detail: Optional[str] = Field(default=None, max_length=500)
+    selected: Optional[list[dict]] = Field(default=None)
+    confirmed: Optional[bool] = Field(default=None)
+    free_text: Optional[str] = Field(default=None, alias="freeText", max_length=4000)
+    # promptKind carries the location ClientPrompt kind ("select"|"confirm") for
+    # selection delegate_results so the A2A discriminator ("selection") is never
+    # misread as the prompt kind. See location_agent.py for the mapping.
+    prompt_kind: Optional[str] = Field(default=None, alias="promptKind", max_length=24)
+
+
 class AgentChatStreamRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128)
-    message: str = Field(..., min_length=1, max_length=8000)
+    message: str = Field(default="", max_length=8000)
     conversation_id: Optional[str] = Field(default=None, max_length=128)
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
     screen_context: Optional[dict] = Field(default=None)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
+    delegate_result: Optional[DelegateResultModel] = Field(default=None)
 
 
 class AgentChatRenameRequest(BaseModel):
@@ -80,6 +101,56 @@ class AgentChatHistoryResponse(BaseModel):
 class AgentChatDeleteResponse(BaseModel):
     conversation_id: str = Field(..., max_length=256)
     deleted: bool
+
+
+def resolve_delegate_target(message: str) -> str | None:
+    """Return a WIRED specialist agent id for this message, else None.
+
+    Fail-closed: no classifier match, or a classified-but-unwired specialist
+    (finance/privacy/kyc in slice 1), returns None so the existing central
+    planner path runs unchanged.
+    """
+    classified = classify_specialist_domain(message or "")
+    if classified is None:
+        return None
+    _domain, target_agent = classified
+    return target_agent if is_wired_specialist(target_agent) else None
+
+
+def specialist_result_to_frames(
+    result: SpecialistTurnResult, delegate_agent_id: str
+) -> list[tuple[str, dict]]:
+    """Format a specialist turn as ordered additive SSE (event, data) tuples."""
+    frames: list[tuple[str, dict]] = [
+        ("start", {"conversation_id": result.conversation_id, "model": result.model}),
+        ("token", {"token": result.text}),
+    ]
+    if result.directive is not None:
+        frames.append(
+            (
+                "specialist_directive",
+                {
+                    "delegate_agent_id": delegate_agent_id,
+                    "directive": {
+                        "kind": result.directive.kind,
+                        "payload": result.directive.payload,
+                    },
+                    "message": result.text,
+                    "state_changed": result.state_changed,
+                },
+            )
+        )
+    frames.append(
+        (
+            "complete",
+            {
+                "conversation_id": result.conversation_id,
+                "status": "complete",
+                "model": result.model,
+            },
+        )
+    )
+    return frames
 
 
 def _event(event: str, data: dict[str, Any]) -> str:
@@ -157,6 +228,58 @@ async def stream_agent_chat(
 
     _assert_user(token_data, body.user_id)
     service = get_agent_chat_service()
+
+    # --- One → specialist delegation (slice 1: location) --------------------
+    # Fail-closed: only a WIRED specialist match (or an explicit delegate_result)
+    # is intercepted; everything else falls through to the existing planner.
+    import hushh_mcp.adk_bridge  # noqa: F401  (ensures specialists are registered)
+    from hushh_mcp.adk_bridge.contract import A2ATask
+    from hushh_mcp.adk_bridge.dispatch import dispatch as a2a_dispatch
+
+    delegate_agent_id: str | None = None
+    delegate_result_payload: dict | None = None
+    if body.delegate_result is not None:
+        delegate_agent_id = body.delegate_result.delegate_agent_id
+        delegate_result_payload = body.delegate_result.model_dump(by_alias=True, exclude_none=True)
+    elif body.message:
+        delegate_agent_id = resolve_delegate_target(body.message)
+
+    if delegate_agent_id is not None and is_wired_specialist(delegate_agent_id):
+        task = A2ATask(
+            user_id=body.user_id,
+            consent_token=token_data.get("token", ""),
+            conversation_id=body.conversation_id,
+            message=body.message or None,
+            delegate_result=delegate_result_payload,
+        )
+
+        async def generate_delegated():
+            try:
+                result = await a2a_dispatch(delegate_agent_id, task)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("agent_chat.delegation_failed user_id=%s: %s", body.user_id, error)
+                yield _event(
+                    "error",
+                    {
+                        "message": "Agent chat failed. Please try again.",
+                        "conversation_id": body.conversation_id or "",
+                    },
+                )
+                return
+            for name, data in specialist_result_to_frames(result, delegate_agent_id):
+                yield _event(name, data)
+
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+        }
+        return StreamingResponse(
+            generate_delegated(), media_type="text/event-stream", headers=headers
+        )
+    # --- end delegation branch --------------------------------------------
+
     try:
         runtime = await service.prepare_agent_runtime(
             runtime_credential=body.runtime_credential,

@@ -82,6 +82,17 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "accreditation",
         ),
     ),
+    (
+        "location",
+        "agent_location",
+        (
+            "location",
+            "where is",
+            "where am i",
+            "share my location",
+            "live location",
+        ),
+    ),
 )
 
 
