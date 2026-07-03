@@ -195,6 +195,21 @@ const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
 const SHOW_REFERRAL_SECTION = false;
 
+// The mobile-first redesign hub (Now | People | Links | Inbox) is the active UI.
+// The legacy compose/activity sections only render as a fallback when the page
+// hits a hard load error. Deep-link focus (from notification "Open" buttons)
+// must therefore be handled by the hub's own searchParams-driven tab switching,
+// NOT the legacy scroll-to-section path — which switched to a non-existent
+// "activity" page tab and, worse, clobbered the deep-link query params via a
+// stale `searchParams` closure inside `setLocationTab`, so the hub never saw the
+// `section`/`grantId`/`requestId` and never switched to Inbox.
+// Typed as `boolean` (not the inferred literal `true`) so the redesign-mode
+// early-return inside `focusOneLocationSection` does not make the legacy
+// scroll-to-section path statically unreachable code.
+const USE_LOCATION_REDESIGN: boolean = true;
+
+
+
 type BusyState =
   | "load"
   | "share"
@@ -1922,6 +1937,20 @@ function OneLocationAgentPageContent() {
   const focusOneLocationSection = useCallback(
     (target: OneLocationFocusTarget | null) => {
       if (!target || typeof window === "undefined") return;
+      // REDESIGN MODE (active): the legacy compose/activity sections below are
+      // NOT rendered — the LocationRedesignHub (Now | People | Links | Inbox)
+      // is. The hub consumes the deep-link query params (`section`, `grantId`,
+      // `requestId`, `submissionId`) itself and switches to the correct swipe
+      // tab (Inbox for shared/approvals/my_requests/grant/request, Links for
+      // public_responses, People for people). We MUST NOT run the legacy
+      // scroll-to-section path here, because it calls `setLocationTab("activity")`
+      // which does a `router.replace` built from a STALE `searchParams` closure —
+      // that strips the very `grantId`/`section`/`locationNotification` params
+      // the notification just pushed, so the hub's own effect never sees them and
+      // the user is stranded on the wrong tab. Returning early keeps the pushed
+      // deep-link URL intact so the hub can route to Inbox / Shared-with-me.
+      if (USE_LOCATION_REDESIGN) return;
+
       const sectionRefs: Record<
         OneLocationFocusTarget,
         MutableRefObject<HTMLElement | null>
@@ -4146,11 +4175,12 @@ function OneLocationAgentPageContent() {
   // EXACT existing state + handlers, so consent gating, crypto, analytics, and
   // routing are unchanged. The full original UI remains intact below and is
   // used for the loading/error states (and as a guaranteed fallback). The
-  // global app footer is never touched.
+  // global app footer is never touched. (USE_LOCATION_REDESIGN is defined at
+  // module scope so notification/deep-link handlers above can branch on it.)
   // ---------------------------------------------------------------------------
-  const USE_LOCATION_REDESIGN = true;
 
   const locationHubVm: LocationHubViewModel = {
+
     userId: auth.userId ?? null,
     canShare,
     busy,

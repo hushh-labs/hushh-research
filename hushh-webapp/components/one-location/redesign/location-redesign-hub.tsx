@@ -210,23 +210,54 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       String(searchParams.get("submissionId") || "").trim(),
     );
     let nextTab: LocationHubTab | null = null;
+    // Which Inbox subsection the notification should land on: an access request
+    // (approvals) scrolls to "Needs your review"; a share (shared) scrolls to
+    // "Shared with me". Anything else just lands on the tab top.
+    let inboxAnchor: string | null = null;
     if (
       section === "approvals" ||
-      section === "shared" ||
       section === "my_requests" ||
-      hasRequest ||
-      hasGrant
+      hasRequest
     ) {
       nextTab = "inbox";
+      inboxAnchor = "one-location-inbox-review";
+    } else if (section === "shared" || hasGrant) {
+      nextTab = "inbox";
+      inboxAnchor = "one-location-inbox-shared";
     } else if (section === "public_responses" || hasSubmission) {
       nextTab = "links";
     } else if (section === "people") {
       nextTab = "people";
     }
     if (nextTab) {
+      // A notification deep-link must always land on the hub, never inside a
+      // half-open task flow (Share / Ask / Invite / Temp link). Close any flow
+      // first so the routed tab is actually visible.
+      setFlow("none");
       setTab(nextTab);
     }
+    // After switching to Inbox, smooth-scroll to the exact subsection so the
+    // user immediately sees the allow/deny request or the shared-with-me card
+    // (rather than the top of a long Inbox). Retry a few frames to cover the
+    // tab transition + list render.
+    if (inboxAnchor && typeof window !== "undefined") {
+      const anchorId = inboxAnchor;
+      let attempts = 0;
+      const tryScroll = () => {
+        const el = document.getElementById(anchorId);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          return;
+        }
+        attempts += 1;
+        if (attempts <= 12) {
+          window.setTimeout(tryScroll, 80);
+        }
+      };
+      window.setTimeout(tryScroll, 120);
+    }
   }, [searchParams]);
+
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
   const [locationType, setLocationType] =
@@ -687,7 +718,12 @@ function InboxHub({ vm }: { vm: LocationHubViewModel }) {
   const received = vm.receivedGrants;
   return (
     <div className="space-y-5">
+      {/* Anchor: notification deep-links for access requests (approve/deny)
+          scroll here via #one-location-inbox-review. `scroll-mt` keeps the
+          heading clear of the sticky header after scrollIntoView. */}
+      <div id="one-location-inbox-review" className="scroll-mt-24">
       <SectionCard title="Needs your review">
+
         {vm.pendingOwnerRequests.length ? (
           <div className="space-y-2.5">
             {vm.pendingOwnerRequests.map((request) => (
@@ -712,9 +748,15 @@ function InboxHub({ vm }: { vm: LocationHubViewModel }) {
           />
         )}
       </SectionCard>
+      </div>
 
+      {/* Anchor: notification deep-links for received shares scroll here via
+          #one-location-inbox-shared so the recipient lands directly on the
+          person's live-location card. */}
+      <div id="one-location-inbox-shared" className="scroll-mt-24">
       <SectionCard title="Shared with me">
         {received.length ? (
+
           <div className="space-y-2.5">
             {received.map((grant) => {
               const point = vm.decryptedPoints[grant.id];
@@ -745,8 +787,10 @@ function InboxHub({ vm }: { vm: LocationHubViewModel }) {
           />
         )}
       </SectionCard>
+      </div>
 
       {vm.requestedByMe.length ? (
+
         <SectionCard title="Sent by you">
           <div className="space-y-2.5">
             {vm.requestedByMe.map((request) => (
