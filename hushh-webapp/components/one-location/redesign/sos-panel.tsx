@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ShieldAlert, TriangleAlert, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ export function SosPanel({
 }: SosPanelProps) {
   const [remaining, setRemaining] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const firedRef = useRef(false);
 
   const stopTimer = () => {
     if (timerRef.current) {
@@ -52,28 +53,39 @@ export function SosPanel({
 
   useEffect(() => stopTimer, []);
 
+  // Stable reference so the active-flip effect can list it without re-firing every render.
+  const cancelCountdown = useCallback(() => {
+    stopTimer();
+    firedRef.current = false;
+    setRemaining(null);
+  }, []);
+
   const startCountdown = () => {
     if (busy || active) return;
+    firedRef.current = false;
     setRemaining(countdownSeconds);
     stopTimer();
     timerRef.current = setInterval(() => {
-      setRemaining((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          stopTimer();
-          setRemaining(null);
-          onTrigger();
-          return null;
-        }
-        return prev - 1;
-      });
+      // Pure decrement only — side-effects (onTrigger) live in a useEffect below.
+      setRemaining((prev) => (prev === null ? null : prev - 1));
     }, 1000);
   };
 
-  const cancelCountdown = () => {
-    stopTimer();
-    setRemaining(null);
-  };
+  // Fire onTrigger exactly once when the countdown reaches zero.
+  // Keeping it outside the functional updater prevents double-firing under StrictMode.
+  useEffect(() => {
+    if (remaining === 0 && !firedRef.current) {
+      firedRef.current = true;
+      stopTimer();
+      setRemaining(null);
+      onTrigger();
+    }
+  }, [remaining, onTrigger]);
+
+  // Cancel any running countdown when the SOS becomes active externally.
+  useEffect(() => {
+    if (active) cancelCountdown();
+  }, [active, cancelCountdown]);
 
   const readyCount = recipients.filter(isRecipientShareReady).length;
 
