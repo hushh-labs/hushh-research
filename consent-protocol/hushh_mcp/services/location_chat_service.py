@@ -350,6 +350,36 @@ def _selection_seed_text(selection_result: dict) -> str:
     return f"I selected: {refs}. Use exactly these ids — do not guess — and proceed."
 
 
+def _selection_display_text(selection_result: dict) -> str:
+    """Human-readable, coordinate-free summary of the user's choice for the UI chip.
+
+    Prefers a frontend-supplied ``display`` label (which knows the friendly names).
+    Falls back to option values (never the raw id seed) so a missing label never
+    leaks ``recipientUserId=…`` into the transcript.
+    """
+    if str(selection_result.get("status")) == "cancelled":
+        return "Cancelled"
+    display = selection_result.get("display")
+    if isinstance(display, str) and display.strip():
+        return display.strip()
+    free = selection_result.get("free_text") or selection_result.get("freeText")
+    if free:
+        return str(free)
+    if str(selection_result.get("kind")) == "confirm":
+        return "Confirmed" if selection_result.get("confirmed") else "Declined"
+    selected = selection_result.get("selected") or []
+    labels: list[str] = []
+    for ref in selected:
+        if not isinstance(ref, dict):
+            continue
+        # Show human-facing values only; skip opaque id keys.
+        for key, value in ref.items():
+            if key in ("recipientUserId", "recipientKeyId", "grantId"):
+                continue
+            labels.append(str(value))
+    return ", ".join(labels) if labels else "Your selection"
+
+
 class LocationChatService:
     def __init__(
         self,
@@ -706,16 +736,21 @@ class LocationChatService:
             conv_id, user_id=user_id, limit=_MAX_HISTORY
         )
         seed = _selection_seed_text(selection_result)
+        display = _selection_display_text(selection_result)
         # Persist the user's choice so a later turn in a multi-step clarification
         # chain (e.g. pick recipient -> then pick duration) still sees the earlier
         # answer. History was fetched above, so the current turn's contents are not
         # duplicated; future turns' get_recent_messages will include this choice.
+        # `content` keeps the raw seed (the LLM needs exact ids — "do not guess");
+        # the UI-facing display string rides in encrypted metadata so the transcript
+        # shows "Abdul Zalil", not the id dump.
         await self._chat_store.add_message(
             conversation_id=conv_id,
             user_id=user_id,
             role="user",
             content=seed,
             status="complete",
+            metadata={"kind": "selection", "display": display},
         )
         contents = _history_contents(history, types)
         contents.append(types.Content(role="user", parts=[types.Part(text=seed)]))

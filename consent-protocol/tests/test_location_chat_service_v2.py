@@ -30,7 +30,9 @@ class _FakeStore:
     async def prepare_turn(self, *, user_id, message, conversation_id=None):
         return _Turn(conversation_id or "conv-new", [])
 
-    async def add_message(self, *, conversation_id, user_id, role, content, status, model=None):
+    async def add_message(
+        self, *, conversation_id, user_id, role, content, status, model=None, metadata=None
+    ):
         self.added.append({"role": role, "content": content, "status": status})
 
 
