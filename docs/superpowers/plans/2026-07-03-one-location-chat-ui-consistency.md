@@ -8,6 +8,26 @@
 
 **Tech Stack:** Python (FastAPI, asyncpg-style raw SQL, Pydantic v2), PostgreSQL migrations, TypeScript, React, Tailwind, Vitest/Jest, pytest.
 
+## Visual Map
+
+```text
+User taps a card option (recipient / duration / confirm)
+  │  browser: describeSelection(prompt, sel) → display  (coordinate/id-free)
+  │           append SelectionChip ("Abdul Zalil · 8h") + clear the card
+  ▼
+  central One chat:  POST /agent/chat/stream { delegate_result: { …, display } }
+  Location chat:     POST /api/one/location/chat { selectionResult: { …, display } }
+  │
+  ▼  LocationChatService._handle_selection_result  (persist role="user")
+       content  = raw seed            → LLM keeps exact ids ("do not guess")
+       metadata = { kind:"selection", display }  → ENCRYPTED at rest
+  │
+  ▼  history reload → API returns UI-safe { kind, display } only
+       browser renders the chip from metadata.display — never the raw seed
+
+Both chats share the same cards (primary palette) and the same SelectionChip.
+```
+
 ## Global Constraints
 
 - **Coordinate-free invariant:** no `latitude`/`longitude`/coordinate keys may appear in the `display` string, `metadata`, SSE frames, or `delegate_result`. Assert at code level.
@@ -1319,7 +1339,7 @@ git add -A && git commit -m "test: verify One+Location chat consistency end to e
 - Coordinate-free invariant → enforced in `describeSelection`, `_selection_display_text`, and asserted in Tasks 3 & 5.
 - Encrypted metadata → Task 1 (columns) + Task 2 (encrypt/decrypt).
 
-**Placeholder scan:** No TBD/TODO; every code step has concrete code. Line numbers are approximate (marked ~) because files drift; each step names the anchoring symbol to relocate it.
+**Placeholder scan:** No unresolved placeholder markers; every code step has concrete code. Line numbers are approximate (marked ~) because files drift; each step names the anchoring symbol to relocate it.
 
 **Type consistency:** `display` is optional across `DelegateResultModel`, `SelectionResultModel`, `DelegateResult`, `SelectionResult`. `metadata` shape `{ kind?, display? }` matches between backend serializer (Task 4), client type (Task 6), and workspace mapping (Task 8). `describeSelection` signature is identical in Tasks 5, 8, 10. `SelectionChip({ label })` identical in Tasks 7, 8, 10.
 

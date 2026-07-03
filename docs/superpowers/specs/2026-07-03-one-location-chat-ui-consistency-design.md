@@ -6,6 +6,26 @@
 - **Builds on:** `docs/superpowers/specs/2026-07-02-one-a2a-location-central-chat-design.md`
   (the A2A delegation slice that surfaced Location inside the central chat).
 
+## Visual Map
+
+```text
+User taps a card option (recipient / duration / confirm)
+  │  browser: describeSelection(prompt, sel) → display  (coordinate/id-free)
+  │           append SelectionChip ("Abdul Zalil · 8h") + clear the card
+  ▼
+  central One chat:  POST /agent/chat/stream { delegate_result: { …, display } }
+  Location chat:     POST /api/one/location/chat { selectionResult: { …, display } }
+  │
+  ▼  LocationChatService._handle_selection_result  (persist role="user")
+       content  = raw seed            → LLM keeps exact ids ("do not guess")
+       metadata = { kind:"selection", display }  → ENCRYPTED at rest
+  │
+  ▼  history reload → API returns UI-safe { kind, display } only
+       browser renders the chip from metadata.display — never the raw seed
+
+Both chats share the same cards (primary palette) and the same SelectionChip.
+```
+
 ## 1. Problem
 
 Two chat surfaces now run the same Location flow but look and behave differently:
