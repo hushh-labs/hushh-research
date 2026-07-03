@@ -73,6 +73,15 @@ def test_no_keys_at_all_falls_back_to_your_selection():
     assert _selection_display_text({}) == "Your selection"
 
 
+def test_display_text_fallback_does_not_leak_coordinate_values():
+    text = _selection_display_text(
+        {"selected": [{"latitude": 37.7749, "longitude": -122.4194, "label": "Home"}]}
+    )
+    assert "37.7749" not in text
+    assert "-122.4194" not in text
+    assert "Home" in text  # non-coordinate value is fine to show
+
+
 # ---------------------------------------------------------------------------
 # Integration test: _handle_selection_result persists metadata
 # ---------------------------------------------------------------------------

@@ -33,7 +33,9 @@ class _FakeStore:
     async def add_message(
         self, *, conversation_id, user_id, role, content, status, model=None, metadata=None
     ):
-        self.added.append({"role": role, "content": content, "status": status})
+        self.added.append(
+            {"role": role, "content": content, "status": status, "metadata": metadata}
+        )
 
 
 def _fake_tool(name, recorder, *, result):

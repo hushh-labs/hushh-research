@@ -41,6 +41,21 @@ from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 logger = logging.getLogger(__name__)
 
 _MAX_HISTORY = 12
+
+# Keys that must never appear in the human-readable selection display string.
+# Includes opaque id keys and every coordinate-variant key name.
+_NON_DISPLAY_REF_KEYS = {
+    "recipientUserId",
+    "recipientKeyId",
+    "grantId",
+    "latitude",
+    "longitude",
+    "coordinates",
+    "lat",
+    "lng",
+    "lon",
+    "accuracyM",
+}
 _MAX_TOOL_STEPS = 5
 _LLM_TIMEOUT_S = 30.0
 _HISTORY_CHARS = 2000
@@ -372,9 +387,9 @@ def _selection_display_text(selection_result: dict) -> str:
     for ref in selected:
         if not isinstance(ref, dict):
             continue
-        # Show human-facing values only; skip opaque id keys.
+        # Show human-facing values only; skip opaque id keys and coordinate keys.
         for key, value in ref.items():
-            if key in ("recipientUserId", "recipientKeyId", "grantId"):
+            if key in _NON_DISPLAY_REF_KEYS:
                 continue
             labels.append(str(value))
     return ", ".join(labels) if labels else "Your selection"
