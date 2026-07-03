@@ -143,7 +143,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "marketplace",
-    title: "Data Marketplace",
+    title: "Marketplace",
     description: "Preview priced slices of your data you could publish.",
     previewLabel: "Priced data slices",
     href: ROUTES.ONE_MARKETPLACE,

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 73,
+  "expected_migration_version": 74,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -166,6 +166,7 @@
       "visibility_posture",
       "default_projection_ready",
       "default_projection_updated_at",
+      "owner_consent_override",
       "created_at",
       "updated_at"
     ],

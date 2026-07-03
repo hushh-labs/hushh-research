@@ -145,6 +145,10 @@ class ScopeRegistryEntry:
     visibility_posture: str = "consent_required"
     default_projection_ready: bool = False
     default_projection_updated_at: Optional[str] = None
+    # Explicit per-scope owner consent to publish a safe projection of their own
+    # `restricted`-tier data as `default_available` (marketplace override). Lifts
+    # only the restricted-tier block; structural blocked keys stay hard-blocked.
+    owner_consent_override: bool = False
     summary_projection: dict = field(default_factory=dict)
 
 
@@ -672,6 +676,7 @@ class PersonalKnowledgeModelService:
         consumer_visible: bool = True,
         sensitivity_tier: str | None = None,
         top_level_scope_path: str | None = None,
+        owner_override: bool = False,
     ) -> str:
         if not exposure_enabled or not consumer_visible:
             return "private"
@@ -679,11 +684,18 @@ class PersonalKnowledgeModelService:
         requested = requested if requested in cls._VISIBILITY_POSTURES else "consent_required"
         normalized_path = cls._normalize_manifest_path(top_level_scope_path)
         if requested == "default_available":
-            if str(sensitivity_tier or "").strip().lower() == "restricted":
-                return "consent_required"
+            # Structural blocked keys are NEVER publishable, even with explicit
+            # owner consent — they are system/non-shareable paths, not the
+            # owner's personal data.
             if any(
                 part in cls._DEFAULT_AVAILABLE_BLOCKED_KEYS for part in normalized_path.split(".")
             ):
+                return "consent_required"
+            # The `restricted` sensitivity tier is consent-gated by default, but
+            # an owner may explicitly consent to publishing a safe projection of
+            # their OWN restricted-tier data via the marketplace. That override
+            # lifts only this tier block.
+            if str(sensitivity_tier or "").strip().lower() == "restricted" and not owner_override:
                 return "consent_required"
         return requested
 
@@ -770,6 +782,7 @@ class PersonalKnowledgeModelService:
             or "confidential"
         )
         exposure_enabled = raw_row.get("exposure_enabled") is not False
+        owner_consent_override = raw_row.get("owner_consent_override") is True
         visibility_posture = cls._normalize_visibility_posture(
             raw_row.get("visibility_posture"),
             exposure_enabled=exposure_enabled,
@@ -777,6 +790,7 @@ class PersonalKnowledgeModelService:
             and visibility_projection.get("internal_only") is not True,
             sensitivity_tier=sensitivity_tier,
             top_level_scope_path=top_level_scope_path,
+            owner_override=owner_consent_override,
         )
         default_projection_updated_at = cls._clean_text(
             str(raw_row.get("default_projection_updated_at") or ""),
@@ -815,6 +829,7 @@ class PersonalKnowledgeModelService:
             "default_projection_updated_at": default_projection_updated_at
             if default_projection_ready
             else None,
+            "owner_consent_override": owner_consent_override,
             "summary_projection": summary_projection,
             "manifest_version": cls._to_non_negative_int(raw_row.get("manifest_version")),
         }
@@ -1003,6 +1018,7 @@ class PersonalKnowledgeModelService:
             "visibility_posture": entry.visibility_posture,
             "default_projection_ready": entry.default_projection_ready,
             "default_projection_updated_at": entry.default_projection_updated_at,
+            "owner_consent_override": entry.owner_consent_override,
             "summary_projection": json.dumps(entry.summary_projection or {}),
             "manifest_version": manifest.manifest_version,
         }
@@ -2028,16 +2044,20 @@ class PersonalKnowledgeModelService:
         default_ready_by_top_level: dict[str, bool] = {}
         default_updated_by_handle: dict[str, str | None] = {}
         default_updated_by_top_level: dict[str, str | None] = {}
+        override_by_handle: dict[str, bool] = {}
+        override_by_top_level: dict[str, bool] = {}
         for row in current_registry_rows:
             if not isinstance(row, dict):
                 continue
             handle = self._clean_text(str(row.get("scope_handle") or ""), allow_none=True)
+            row_override = row.get("owner_consent_override") is True
             row_posture = self._normalize_visibility_posture(
                 row.get("visibility_posture"),
                 exposure_enabled=row.get("exposure_enabled") is not False,
                 consumer_visible=True,
                 sensitivity_tier=str(row.get("sensitivity_tier") or "confidential"),
                 top_level_scope_path=self._top_level_scope_path_for_registry_entry(row),
+                owner_override=row_override,
             )
             row_default_ready = (
                 row_posture == "default_available" and row.get("default_projection_ready") is True
@@ -2051,12 +2071,14 @@ class PersonalKnowledgeModelService:
                 posture_by_handle[handle] = row_posture
                 default_ready_by_handle[handle] = row_default_ready
                 default_updated_by_handle[handle] = row_default_updated
+                override_by_handle[handle] = row_override
             top_level_path = self._top_level_scope_path_for_registry_entry(row)
             if top_level_path:
                 exposure_by_top_level[top_level_path] = row.get("exposure_enabled") is not False
                 posture_by_top_level[top_level_path] = row_posture
                 default_ready_by_top_level[top_level_path] = row_default_ready
                 default_updated_by_top_level[top_level_path] = row_default_updated
+                override_by_top_level[top_level_path] = row_override
 
         for entry in normalized_manifest.scope_registry:
             if entry.scope_handle in exposure_by_handle:
@@ -2070,6 +2092,9 @@ class PersonalKnowledgeModelService:
                 entry.default_projection_updated_at = default_updated_by_handle.get(
                     entry.scope_handle
                 )
+                entry.owner_consent_override = override_by_handle.get(
+                    entry.scope_handle, entry.owner_consent_override
+                )
                 continue
             top_level_path = self._top_level_scope_path_for_registry_entry(entry)
             if top_level_path in exposure_by_top_level:
@@ -2079,6 +2104,9 @@ class PersonalKnowledgeModelService:
                 )
                 entry.default_projection_ready = default_ready_by_top_level.get(
                     top_level_path, False
+                )
+                entry.owner_consent_override = override_by_top_level.get(
+                    top_level_path, entry.owner_consent_override
                 )
                 entry.default_projection_updated_at = default_updated_by_top_level.get(
                     top_level_path
@@ -2099,6 +2127,10 @@ class PersonalKnowledgeModelService:
                 allow_none=True,
             )
             exposure_enabled = raw_change.get("exposure_enabled") is not False
+            # Explicit per-scope owner consent to publish restricted-tier data as
+            # `default_available` (marketplace override). Only the marketplace
+            # publish path sends this; the Profile flow never does.
+            change_override = raw_change.get("owner_consent_override") is True
             matched = False
             for entry in normalized_manifest.scope_registry:
                 entry_top_level = self._top_level_scope_path_for_registry_entry(entry)
@@ -2113,10 +2145,31 @@ class PersonalKnowledgeModelService:
                     ),
                     sensitivity_tier=entry.sensitivity_tier,
                     top_level_scope_path=entry_top_level,
+                    owner_override=change_override,
                 )
+                # Persist the override marker only while the slice is actually
+                # published as available under that consent; any other posture
+                # clears it so a later read never resurrects a stale override.
+                next_override = bool(change_override and next_posture == "default_available")
+                if (explicit_posture == "default_available" or change_override) and (
+                    (target_handle and entry.scope_handle == target_handle)
+                    or (target_top_level and entry_top_level == target_top_level)
+                ):
+                    logger.info(
+                        "[slice-override] domain=%s handle=%s top=%s tier=%s "
+                        "change_override=%s -> next_posture=%s next_override=%s",
+                        canonical_domain,
+                        entry.scope_handle,
+                        entry_top_level,
+                        entry.sensitivity_tier,
+                        change_override,
+                        next_posture,
+                        next_override,
+                    )
                 if target_handle and entry.scope_handle == target_handle:
                     entry.visibility_posture = next_posture
                     entry.exposure_enabled = next_posture != "private"
+                    entry.owner_consent_override = next_override
                     if next_posture != "default_available":
                         entry.default_projection_ready = False
                         entry.default_projection_updated_at = None
@@ -2129,6 +2182,7 @@ class PersonalKnowledgeModelService:
                 if target_top_level and entry_top_level == target_top_level:
                     entry.visibility_posture = next_posture
                     entry.exposure_enabled = next_posture != "private"
+                    entry.owner_consent_override = next_override
                     if next_posture != "default_available":
                         entry.default_projection_ready = False
                         entry.default_projection_updated_at = None
@@ -2150,6 +2204,16 @@ class PersonalKnowledgeModelService:
         normalized_manifest.last_structured_at = now
         normalized_manifest.last_content_at = now
         normalized_manifest.summary_projection["manifest_version"] = next_manifest_version
+
+        for _dbg_entry in normalized_manifest.scope_registry:
+            logger.info(
+                "[slice-persist] domain=%s handle=%s top=%s posture=%s override=%s",
+                canonical_domain,
+                _dbg_entry.scope_handle,
+                self._top_level_scope_path_for_registry_entry(_dbg_entry),
+                _dbg_entry.visibility_posture,
+                _dbg_entry.owner_consent_override,
+            )
 
         manifest_ok = await self.upsert_domain_manifest(normalized_manifest)
         if not manifest_ok:
@@ -2291,6 +2355,7 @@ class PersonalKnowledgeModelService:
             else True,
             sensitivity_tier=str(matching_entry.get("sensitivity_tier") or "confidential"),
             top_level_scope_path=normalized_path,
+            owner_override=matching_entry.get("owner_consent_override") is True,
         )
         if posture != "default_available":
             result["message"] = "Section is not set to available by default."
@@ -2329,6 +2394,20 @@ class PersonalKnowledgeModelService:
             self.supabase.table("pkm_default_available_projections").insert(row)
         )
 
+        # Snapshot the already-persisted sharing state before rebuilding the
+        # manifest. `_normalize_manifest_payload` regenerates scope_registry from
+        # paths and resets every scope to `consent_required` (override=False), so
+        # without this we would clobber the posture that the immediately-preceding
+        # scope-exposure write just persisted — the slice would "vanish" for EVERY
+        # published section, not just this one.
+        prior_scope_state: dict[str, dict] = {}
+        for existing in manifest.get("scope_registry") or []:
+            if not isinstance(existing, dict):
+                continue
+            existing_top = self._top_level_scope_path_for_registry_entry(existing)
+            if existing_top:
+                prior_scope_state[existing_top] = existing
+
         current_manifest = self._normalize_manifest_payload(
             user_id,
             canonical_domain,
@@ -2339,7 +2418,22 @@ class PersonalKnowledgeModelService:
             ),
         )
         for entry in current_manifest.scope_registry:
-            if self._top_level_scope_path_for_registry_entry(entry) == normalized_path:
+            entry_top = self._top_level_scope_path_for_registry_entry(entry)
+            prior = prior_scope_state.get(entry_top)
+            if prior is not None:
+                entry.visibility_posture = (
+                    str(prior.get("visibility_posture") or "").strip() or entry.visibility_posture
+                )
+                entry.exposure_enabled = entry.visibility_posture != "private"
+                entry.owner_consent_override = prior.get("owner_consent_override") is True
+                entry.default_projection_ready = prior.get("default_projection_ready") is True
+                entry.default_projection_updated_at = (
+                    prior.get("default_projection_updated_at")
+                    or entry.default_projection_updated_at
+                )
+            if entry_top == normalized_path:
+                entry.visibility_posture = "default_available"
+                entry.exposure_enabled = True
                 entry.default_projection_ready = True
                 entry.default_projection_updated_at = now.isoformat()
         await self.upsert_domain_manifest(current_manifest)

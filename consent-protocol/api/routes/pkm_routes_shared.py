@@ -736,6 +736,10 @@ class ScopeExposureChangePayload(BaseModel):
     top_level_scope_path: Optional[str] = Field(default=None, max_length=1024)
     exposure_enabled: Optional[bool] = Field(default=None)
     visibility_posture: Optional[str] = Field(default=None, max_length=128)
+    # Explicit owner consent to publish a safe projection of their own
+    # restricted-tier data as `default_available` (marketplace override). Only
+    # lifts the restricted-tier block; structural blocked keys stay blocked.
+    owner_consent_override: Optional[bool] = Field(default=None)
 
 
 class ScopeExposureRequest(BaseModel):

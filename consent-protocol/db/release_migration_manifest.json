@@ -51,7 +51,8 @@
     "070_developer_registry.sql",
     "071_enterprise_crm_registry.sql",
     "072_crm_registry_mulesoft_pbkdf2_cbc.sql",
-    "073_crm_registry_mulesoft_simplify.sql"
+    "073_crm_registry_mulesoft_simplify.sql",
+    "074_pkm_scope_registry_owner_consent_override.sql"
   ],
   "groups": {
     "iam": [
@@ -100,7 +101,8 @@
       "043_ria_pick_share_artifacts.sql",
       "048_merge_pkm_domain_summary_rpc.sql",
       "062_consent_exports_export_key_guard.sql",
-      "063_pkm_default_available_visibility.sql"
+      "063_pkm_default_available_visibility.sql",
+      "074_pkm_scope_registry_owner_consent_override.sql"
     ],
     "developer": [
       "070_developer_registry.sql"
