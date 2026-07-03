@@ -2614,6 +2614,7 @@ export class ApiService {
     screenContext?: Record<string, unknown> | null;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
+    delegateResult?: Record<string, unknown>;
     signal?: AbortSignal;
   }): Promise<Response> {
     return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
@@ -2629,6 +2630,7 @@ export class ApiService {
         screen_context: data.screenContext || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
+        delegate_result: data.delegateResult || undefined,
       }),
       signal: data.signal,
     });

@@ -93,7 +93,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
     expect(screen.getByText("2 consents pending")).toBeTruthy(); // header badge
     expect(screen.getByText("Gmail receipts and saved knowledge.")).toBeTruthy();
-    expect(container.querySelectorAll(".morphy-ripple-host").length).toBe(7);
+    expect(container.querySelectorAll(".morphy-ripple-host").length).toBe(8);
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 

@@ -15,6 +15,7 @@ export default [
       ".next-prod/**/*",
       "out/**",
       "node_modules/**",
+      "node_modules*/**",
       "dist/**",
       "build/**",
       "android/**",

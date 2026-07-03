@@ -6,6 +6,7 @@ import {
   MailCheck,
   MapPin,
   ShieldCheck,
+  Store,
   type LucideIcon,
 } from "lucide-react";
 
@@ -137,6 +138,17 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     href: buildConsentCenterHref("pending"),
     icon: ShieldCheck,
     tone: "consent",
+    group: "access",
+    isExploreOnly: true,
+  },
+  {
+    id: "marketplace",
+    title: "Marketplace",
+    description: "Preview priced slices of your data you could publish.",
+    previewLabel: "Priced data slices",
+    href: ROUTES.ONE_MARKETPLACE,
+    icon: Store,
+    tone: "pkm",
     group: "access",
     isExploreOnly: true,
   },
