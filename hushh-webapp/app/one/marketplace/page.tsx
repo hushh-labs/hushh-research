@@ -82,9 +82,9 @@ const POSTURE_OPTIONS: { value: PkmVisibilityPosture; label: string }[] = [
   { value: "default_available", label: "Available" },
 ];
 
-// Mirrors the backend: `default_available` is refused (downgraded to
-// consent_required) for restricted scopes and these structural keys. Restricted
-// data is deliberately never publishable as available-by-default.
+// Structural (system / non-personal) scope keys that can NEVER be published as
+// `default_available`, even with explicit owner consent — the backend
+// hard-blocks these too. These are not the owner's personal data.
 const DEFAULT_AVAILABLE_BLOCKED_KEYS = new Set([
   "hash",
   "metadata",
@@ -94,11 +94,11 @@ const DEFAULT_AVAILABLE_BLOCKED_KEYS = new Set([
   "workflow_id",
 ]);
 
-function isRestrictedForPublish(
-  sensitivityTier: string | undefined,
-  topLevelScopePath: string
-): boolean {
-  if ((sensitivityTier || "").trim().toLowerCase() === "restricted") return true;
+// Only structural blocked keys are refused up front. `restricted`-tier data is
+// the owner's own sensitive data: it IS publishable once the owner explicitly
+// consents in the marketplace (the backend honors that consent via
+// owner_consent_override), so we no longer block it client-side.
+function isStructurallyBlockedForPublish(topLevelScopePath: string): boolean {
   return topLevelScopePath
     .split(".")
     .some((part) => DEFAULT_AVAILABLE_BLOCKED_KEYS.has(part));
@@ -528,12 +528,14 @@ export default function OneMarketplacePage() {
       }
       if (
         nextPosture === "default_available" &&
-        isRestrictedForPublish(section.permission.sensitivityTier, section.permission.topLevelScopePath)
+        isStructurallyBlockedForPublish(section.permission.topLevelScopePath)
       ) {
-        // The backend would silently downgrade this to "Ask first"; block it up
-        // front so the toggle doesn't appear to revert.
+        // Structural (system) keys can never publish, even with owner consent —
+        // the backend hard-blocks them too. Restricted-tier personal data is
+        // allowed through: the owner's explicit consent (owner_consent_override)
+        // lets the backend publish it, so we do not block it here.
         toast.error(
-          "This section is protected — restricted data stays consent-gated and can't be published as Available."
+          "This section is system data (not your personal data) and can't be published to the marketplace."
         );
         return;
       }
@@ -563,6 +565,10 @@ export default function OneMarketplacePage() {
           vaultKey: vaultKey ?? undefined,
           vaultOwnerToken,
           source: "marketplace_owner",
+          // Publishing Available from the marketplace goes through the explicit
+          // owner consent modal, so forward that consent as the override. The
+          // backend still hard-blocks structural (non-personal) scope keys.
+          ownerConsentOverride: true,
         });
 
         // Authoritative re-fetch: the consent guardrail decides the final posture
@@ -638,9 +644,9 @@ export default function OneMarketplacePage() {
   const onTogglePosture = useCallback(
     (section: Section, nextPosture: PkmVisibilityPosture) => {
       if (nextPosture === "default_available") {
-        if (isRestrictedForPublish(section.permission.sensitivityTier, section.permission.topLevelScopePath)) {
+        if (isStructurallyBlockedForPublish(section.permission.topLevelScopePath)) {
           toast.error(
-            "This section is protected — restricted data stays consent-gated and can't be published as Available."
+            "This section is system data (not your personal data) and can't be published to the marketplace."
           );
           return;
         }
@@ -790,8 +796,7 @@ export default function OneMarketplacePage() {
                 sections.map((section) => {
                   const isAvailable = section.permission.visibilityPosture === "default_available";
                   const busy = pending[section.key] === true;
-                  const restricted = isRestrictedForPublish(
-                    section.permission.sensitivityTier,
+                  const structurallyBlocked = isStructurallyBlockedForPublish(
                     section.permission.topLevelScopePath
                   );
                   return (
@@ -817,9 +822,9 @@ export default function OneMarketplacePage() {
                                 {section.permission.sensitivityTier}
                               </span>
                             ) : null}
-                            {restricted ? (
+                            {structurallyBlocked ? (
                               <span className="rounded-full bg-rose-500/12 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:text-rose-300">
-                                protected · can’t publish
+                                system data · can’t publish
                               </span>
                             ) : null}
                           </div>
@@ -836,10 +841,11 @@ export default function OneMarketplacePage() {
                           mobileColumns={1}
                         />
                       </div>
-                      {restricted ? (
+                      {structurallyBlocked ? (
                         <div className="mt-2 text-[12px] text-muted-foreground">
-                          Restricted data stays consent-gated to protect you — it can’t be set to
-                          “Available”. Only non-restricted sections can be published to the marketplace.
+                          This is system data (not your personal data), so it can’t be published to the
+                          marketplace. Your own sections — including restricted ones — can be set to
+                          “Available” with your explicit consent.
                         </div>
                       ) : null}
 

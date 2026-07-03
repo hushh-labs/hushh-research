@@ -198,6 +198,10 @@ export interface PkmScopeExposureChange {
   topLevelScopePath?: string;
   exposureEnabled?: boolean;
   visibilityPosture?: PkmVisibilityPosture;
+  // Explicit owner consent to publish their own restricted-tier data as
+  // `default_available` (marketplace override). Only set by the marketplace
+  // publish flow; the backend still hard-blocks structural blocked keys.
+  ownerConsentOverride?: boolean;
 }
 
 export interface PkmScopeExposureResult {
@@ -2293,6 +2297,7 @@ export class PersonalKnowledgeModelService {
                   ? change.visibilityPosture !== "private"
                   : undefined,
             visibility_posture: change.visibilityPosture,
+            owner_consent_override: change.ownerConsentOverride,
           })),
         }),
       }
