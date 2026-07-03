@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -56,6 +57,7 @@ class AgentChatStreamRequest(BaseModel):
     conversation_id: Optional[str] = Field(default=None, max_length=128)
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
     screen_context: Optional[dict] = Field(default=None)
+    timezone: Optional[str] = Field(default=None, max_length=64)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
     delegate_result: Optional[DelegateResultModel] = Field(default=None)
@@ -124,13 +126,13 @@ def resolve_delegate_target(message: str) -> str | None:
 
 
 def specialist_result_to_frames(
-    result: SpecialistTurnResult, delegate_agent_id: str
+    result: SpecialistTurnResult, delegate_agent_id: str, *, include_start: bool = True
 ) -> list[tuple[str, dict]]:
     """Format a specialist turn as ordered additive SSE (event, data) tuples."""
-    frames: list[tuple[str, dict]] = [
-        ("start", {"conversation_id": result.conversation_id, "model": result.model}),
-        ("token", {"token": result.text}),
-    ]
+    frames: list[tuple[str, dict]] = []
+    if include_start:
+        frames.append(("start", {"conversation_id": result.conversation_id, "model": result.model}))
+    frames.append(("token", {"token": result.text}))
     if result.directive is not None:
         frames.append(
             (
@@ -256,19 +258,61 @@ async def stream_agent_chat(
         delegate_agent_id = resolve_delegate_target(body.message)
 
     if delegate_agent_id is not None and is_wired_specialist(delegate_agent_id):
+        delegated_turn: PreparedAgentChatTurn | None = None
+        delegated_conversation_id = body.conversation_id
+        prepare_started = time.perf_counter()
+        prepare_ms = 0.0
+        if body.message.strip():
+            try:
+                delegated_turn = await service.prepare_turn(
+                    user_id=body.user_id,
+                    message=body.message,
+                    conversation_id=body.conversation_id,
+                )
+                delegated_conversation_id = delegated_turn.conversation_id
+                prepare_ms = (time.perf_counter() - prepare_started) * 1000
+            except Exception as error:
+                logger.exception(
+                    "agent_chat.delegation_prepare_failed user_id=%s: %s",
+                    body.user_id,
+                    error,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Agent chat could not be started",
+                ) from error
+
         task = A2ATask(
             user_id=body.user_id,
             consent_token=token_data.get("token", ""),
-            conversation_id=body.conversation_id,
+            conversation_id=delegated_conversation_id,
             message=body.message or None,
             delegate_result=delegate_result_payload,
+            timezone=body.timezone,
         )
 
         async def generate_delegated():
+            yield _event(
+                "start",
+                {
+                    "conversation_id": delegated_conversation_id or "",
+                    "model": "delegated",
+                    "delegate_agent_id": delegate_agent_id,
+                },
+            )
+            dispatch_started = time.perf_counter()
             try:
                 result = await a2a_dispatch(delegate_agent_id, task)
             except Exception as error:  # noqa: BLE001
-                logger.exception("agent_chat.delegation_failed user_id=%s: %s", body.user_id, error)
+                dispatch_ms = (time.perf_counter() - dispatch_started) * 1000
+                logger.exception(
+                    "agent_chat.delegation_failed user_id=%s delegate_agent_id=%s prepare_ms=%.1f dispatch_ms=%.1f: %s",
+                    body.user_id,
+                    delegate_agent_id,
+                    prepare_ms,
+                    dispatch_ms,
+                    error,
+                )
                 yield _event(
                     "error",
                     {
@@ -277,7 +321,38 @@ async def stream_agent_chat(
                     },
                 )
                 return
-            for name, data in specialist_result_to_frames(result, delegate_agent_id):
+            dispatch_ms = (time.perf_counter() - dispatch_started) * 1000
+            conversation_id = result.conversation_id or delegated_conversation_id
+            save_ms = 0.0
+            if conversation_id:
+                save_turn = PreparedAgentChatTurn(
+                    conversation_id=conversation_id,
+                    user_message_id=delegated_turn.user_message_id if delegated_turn else "",
+                    history=delegated_turn.history if delegated_turn else [],
+                    model=result.model,
+                )
+                save_started = time.perf_counter()
+                await _save_assistant_message(
+                    service=service,
+                    turn=save_turn,
+                    user_id=body.user_id,
+                    text=result.text,
+                    status_value="complete",
+                )
+                save_ms = (time.perf_counter() - save_started) * 1000
+            logger.info(
+                "agent_chat.delegation_timing user_id=%s conversation_id=%s delegate_agent_id=%s prepare_ms=%.1f dispatch_ms=%.1f save_ms=%.1f total_ms=%.1f",
+                body.user_id,
+                conversation_id or "",
+                delegate_agent_id,
+                prepare_ms,
+                dispatch_ms,
+                save_ms,
+                prepare_ms + dispatch_ms + save_ms,
+            )
+            for name, data in specialist_result_to_frames(
+                result, delegate_agent_id, include_start=False
+            ):
                 yield _event(name, data)
 
         headers = {
@@ -286,6 +361,8 @@ async def stream_agent_chat(
             "X-Accel-Buffering": "no",
             "X-Content-Type-Options": "nosniff",
         }
+        if delegated_conversation_id:
+            headers["X-Agent-Conversation-Id"] = delegated_conversation_id
         return StreamingResponse(
             generate_delegated(), media_type="text/event-stream", headers=headers
         )

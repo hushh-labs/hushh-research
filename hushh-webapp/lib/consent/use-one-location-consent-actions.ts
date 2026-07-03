@@ -226,6 +226,7 @@ export function useOneLocationConsentActions(
             emitComplete({ action: "approve", requestId });
           } catch (error) {
             console.error("[OneLocationConsent] approve failed:", error);
+            throw error;
           }
         },
       );
@@ -267,6 +268,7 @@ export function useOneLocationConsentActions(
             emitComplete({ action: "deny", requestId });
           } catch (error) {
             console.error("[OneLocationConsent] deny failed:", error);
+            throw error;
           }
         },
       );
@@ -332,6 +334,7 @@ export function useOneLocationConsentActions(
             emitComplete({ action: "revoke", scope: scope || undefined });
           } catch (error) {
             console.error("[OneLocationConsent] revoke failed:", error);
+            throw error;
           }
         },
       );

@@ -2612,6 +2612,7 @@ export class ApiService {
     vaultOwnerToken: string;
     pkmContext?: string;
     screenContext?: Record<string, unknown> | null;
+    timezone?: string;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
     delegateResult?: Record<string, unknown>;
@@ -2628,6 +2629,7 @@ export class ApiService {
         conversation_id: data.conversationId,
         pkm_context: data.pkmContext,
         screen_context: data.screenContext || undefined,
+        timezone: data.timezone || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
         delegate_result: data.delegateResult || undefined,

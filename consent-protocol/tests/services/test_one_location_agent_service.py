@@ -756,6 +756,12 @@ class FourUserMemoryService(OneLocationAgentService):
             return row
         if "FROM one_location_share_grants" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
+            if (
+                "recipient_user_id = :owner_user_id" in sql
+                and grant
+                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
+            ):
+                return grant
             if grant and grant["owner_user_id"] == params["owner_user_id"]:
                 return grant
             return None
@@ -1062,7 +1068,13 @@ class FourUserMemoryService(OneLocationAgentService):
             grant = self.grants.get(params["grant_id"])
             if (
                 grant
-                and grant["owner_user_id"] == params["owner_user_id"]
+                and (
+                    grant["owner_user_id"] == params["owner_user_id"]
+                    or (
+                        "recipient_user_id = :owner_user_id" in sql
+                        and grant["recipient_user_id"] == params["owner_user_id"]
+                    )
+                )
                 and grant["status"] == "active"
             ):
                 grant["status"] = "revoked"
@@ -1552,6 +1564,43 @@ def test_four_user_location_workflow_contract() -> None:
     assert "longitude" not in serialized_state
 
 
+def test_location_grant_recipient_can_mark_share_revoked() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.revoke_grant(owner_user_id="user_c", grant_id=grant["id"])
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+    revoked = service.revoke_grant(owner_user_id="user_b", grant_id=grant["id"])
+
+    assert revoked["status"] == "revoked"
+    assert service.grants[grant["id"]]["status"] == "revoked"
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked"
+    ]
+    assert revoke_events[-1]["actor_user_id"] == "user_b"
+    assert revoke_events[-1]["metadata"]["reason"] == "recipient_revoke"
+    assert service.notifications[-1]["user_id"] == "user_a"
+
+    already_revoked = service.revoke_grant(owner_user_id="user_b", grant_id=grant["id"])
+    assert already_revoked["status"] == "revoked"
+
+
 def test_location_request_creation_does_not_require_requester_key_material() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -1910,7 +1959,6 @@ def test_explicit_network_connection_overrides_marketplace_visibility_off() -> N
 
 
 def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> None:
-
     service = FourUserMemoryService()
     service.register_recipient_key(
         user_id="user_b",

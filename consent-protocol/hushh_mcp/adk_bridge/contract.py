@@ -20,6 +20,7 @@ class A2ATask:
     conversation_id: str | None
     message: str | None = None
     delegate_result: dict | None = None
+    timezone: str | None = None
 
 
 @dataclass(frozen=True)

@@ -87,8 +87,11 @@ describe("agent chat client", () => {
       conversationId: undefined,
       vaultOwnerToken: "vault-token",
       pkmContext: undefined,
+      screenContext: undefined,
+      timezone: expect.any(String),
       runtimeCredential: undefined,
       runtimeCredentialMode: undefined,
+      delegateResult: undefined,
       signal: undefined,
     });
   });
@@ -116,8 +119,11 @@ describe("agent chat client", () => {
       conversationId: undefined,
       vaultOwnerToken: "vault-token",
       pkmContext: "Saved domains: Financial",
+      screenContext: undefined,
+      timezone: expect.any(String),
       runtimeCredential: "USER_BYOK_KEY",
       runtimeCredentialMode: "byok",
+      delegateResult: undefined,
       signal: undefined,
     });
   });
