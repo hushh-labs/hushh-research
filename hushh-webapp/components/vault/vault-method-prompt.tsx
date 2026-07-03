@@ -130,8 +130,8 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
 
         setTargetMethod(capability.recommendedMethod as VaultMethod);
         setOpen(true);
-      } catch (error) {
-        console.warn("[VaultMethodPrompt] Skipping method prompt:", error);
+      } catch {
+        // Handled implicitly by simply not opening the prompt
       }
     }
 
