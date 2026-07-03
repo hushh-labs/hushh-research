@@ -8,6 +8,30 @@
 
 **Tech Stack:** Python 3 / FastAPI / `google.genai` (backend, `consent-protocol/`), `pytest` (`uv run python -m pytest`); Next.js / React / TypeScript (frontend, `hushh-webapp/`), `vitest` (`npm run test`), `tsc --noEmit`.
 
+## Visual Map
+
+```text
+Central "Ask your agent anything" chat  →  One (router/relay)  →  Location over in-process A2A
+
+Browser (AgentChatWorkspace)                 │  Server
+─────────────────────────────────────────── │  ──────────────────────────────────────────────
+"share my location with Mom"                 │  /agent/chat/stream
+  POST /agent/chat/stream ───────────────────►  classify → location? (fail-closed)
+                                             │     └─ build A2ATask ──► dispatch("agent_location")
+                                             │            └─ LocationAgentA2A → LocationChatService
+                                             │               (existing tool loop, HushhContext)
+       ◄── SSE: specialist_directive ────────┘               returns coordinate-free directive
+  render directive card (action | prompt)    │
+   confirm ► runLocationDirective (capture+encrypt in browser; JWK from getState)
+   POST { delegate_result } ─────────────────►  dispatch → LocationAgentA2A → confirm turn
+       ◄── SSE: token + complete ────────────┘
+
+Task map: (1) classifier route → (2) A2A contract+dispatch → (3) LocationAgentA2A →
+(4) register agent_location → (5) delegation helpers → (6) route branch →
+(7) SSE client → (8) directive runtime → (9) card+workspace → (10) verification.
+Non-location turns bypass all of this and keep the existing planner path.
+```
+
 ## Global Constraints
 
 - **Zero regression:** existing Kai action-plan turns, text turns, and the standalone `/api/one/location/chat` flow must behave identically. Only `location`-classified turns are intercepted; the classifier is **fail-closed** (no match → existing path).
@@ -43,7 +67,7 @@
 ## Task 1: Add a `location` route to the shared classifier
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/agents/orchestrator/tools.py:33-85` (`_SPECIALIST_ROUTES`)
+- Modify: `consent-protocol/hushh_mcp/agents/orchestrator/tools.py` (`_SPECIALIST_ROUTES`) (`_SPECIALIST_ROUTES`)
 - Test: `consent-protocol/tests/test_orchestrator_location_route.py`
 
 **Interfaces:**
@@ -508,7 +532,7 @@ git commit -m "feat(a2a): add in-process LocationAgentA2A wrapping the existing 
 ## Task 4: Register `agent_location` + auto-wire the dispatch registry
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/adk_bridge/delegation.py:10-15` (scope map)
+- Modify: `consent-protocol/hushh_mcp/adk_bridge/delegation.py` (`SPECIALIST_A2A_SCOPE_MAP`) (scope map)
 - Create: `consent-protocol/hushh_mcp/adk_bridge/__init__.py` registration (append; file currently empty)
 - Test: `consent-protocol/tests/test_adk_dispatch.py` (extend)
 
@@ -763,7 +787,7 @@ git commit -m "feat(one): add central-chat location delegation helpers + delegat
 ## Task 6: Wire the delegation branch into the stream route
 
 **Files:**
-- Modify: `consent-protocol/api/routes/kai/agent_chat.py:150-384` (`stream_agent_chat`)
+- Modify: `consent-protocol/api/routes/kai/agent_chat.py` (`stream_agent_chat`) (`stream_agent_chat`)
 - Test: `consent-protocol/tests/test_agent_chat_delegation_route.py`
 
 **Interfaces:**
