@@ -88,6 +88,17 @@ function formatAgentChatErrorMessage(message: string, code?: string): string {
   return message || "Agent chat failed. Please try again.";
 }
 
+function resolveBrowserTimeZone(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEvent {
   return {
     callId: readString(payload, "call_id"),
@@ -130,6 +141,7 @@ export async function streamAgentChat(input: {
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
+  const timezone = resolveBrowserTimeZone();
   const response = await ApiService.streamAgentChat({
     userId: input.userId,
     message: input.message,
@@ -137,6 +149,7 @@ export async function streamAgentChat(input: {
     vaultOwnerToken: input.vaultOwnerToken,
     pkmContext: input.pkmContext,
     screenContext: input.screenContext,
+    ...(timezone ? { timezone } : {}),
     runtimeCredential: input.runtimeCredential,
     runtimeCredentialMode: input.runtimeCredentialMode,
     delegateResult: input.delegateResult,
