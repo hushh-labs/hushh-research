@@ -56,7 +56,7 @@ unchanged, tagging its grants so they can be found and stopped as a group.
 | Activation | **Tap → 3–5s countdown with a large Cancel**, then fires |
 | Live share ends | User taps **"I'm safe / Stop sharing"**, with a safety **8h** auto-expiry cap |
 | Login seed | Create real `one_location_network_connections` to a **configured list of 3–4 dev user IDs**, only when the user has none |
-| SOS grant identity | Tag `reason:'sos'` in the grant's existing JSON `metadata` (no migration) |
+| SOS grant identity | Pass `reason:'sos_panic'` (backend writes it to grant `metadata`); active incident tracked client-side in localStorage |
 | Seed idempotency | "Zero active connections" check only — **no tracking table** |
 | Branch | `feat/one-location-sos-panic` from `origin/main` |
 
@@ -76,11 +76,16 @@ unchanged, tagging its grants so they can be found and stopped as a group.
   comma-separated) — the list changes without a code edit.
 - **Endpoint:** `POST /api/one/location/seed-trusted` (gated by `require_vault_owner_token`),
   idempotent; re-runs when connections already exist are no-ops.
-- **Key-bootstrap safety:** a recipient can only receive an encrypted envelope if it has
-  **published its location public key**. The seed **skips and logs** any configured dev ID
-  without a published key, so SOS never half-works silently.
-  - **Prerequisite:** the 3–4 dev accounts supplied for seeding must have opened One
-    Location at least once (to bootstrap and publish their location keys).
+- **Key-bootstrap safety (no silent half-works):** a recipient can only *receive* an
+  encrypted envelope if it has published a location key (active `one_location_recipient_keys`
+  row) and is phone-verified — otherwise `create_grant` returns 409. The seed inserts
+  connections for **all** configured dev IDs (so they self-heal once keys are published), and
+  the **panic action only alerts share-ready recipients** (`canReceiveLocation === true`),
+  surfacing any skipped-but-not-ready contacts in a toast ("Alerted N of M; X not ready")
+  rather than failing silently. The "WHO GETS ALERTED?" list marks not-ready contacts.
+  - **Prerequisite:** the 3–4 dev accounts you supply must be **phone-verified** and have
+    **opened One Location at least once** (to publish their location keys). Not-yet-ready
+    accounts appear in the list but aren't alerted until ready.
 
 ### Component 2 — SOS panel UI (`sos-panel.tsx`)
 
@@ -92,9 +97,9 @@ unchanged, tagging its grants so they can be found and stopped as a group.
     (never the legacy gold `#b8894d`/`#d4a574`).
   - **WHO GETS ALERTED?** — the trusted recipient list (from `recipients`); per-contact
     toggles rendered read-only for now (all are always alerted).
-  - **LIVE LOCATION ACTIVE** — a banner shown while any `reason:'sos'` grant is active,
+  - **LIVE LOCATION ACTIVE** — a banner shown while the tracked SOS incident is active,
     with the **"I'm safe / Stop sharing"** control.
-- **Design system:** `primary` / `destructive` tokens only; passes `verify:design-system`.
+- **Design system:** `destructive` / critical tokens for the panic + stop affordances.
 
 ### Component 3 — Panic activation flow (client orchestration)
 
@@ -102,30 +107,33 @@ unchanged, tagging its grants so they can be found and stopped as a group.
    side effects.
 2. On expiry:
    a. Fetch trusted recipients (`GET /api/one/location/recipients`).
-   b. **Loop** `createGrant({ recipientUserId, recipientKeyId, duration_hours: 8, metadata: { reason: 'sos' } })`
-      per recipient (reusing the existing per-recipient loop). Notifications + audit fire
-      automatically inside `create_grant`.
-   c. Start the existing `watchCurrentPosition` → `publishMovement` loop so each GPS fix
-      re-stores encrypted envelopes to all SOS grants.
+   b. **Loop** `createGrant({ recipientUserId, recipientKeyId, durationHours: 8, reason: 'sos_panic' })`
+      per share-ready recipient (reusing the existing per-recipient loop + `ensureForegroundLocationReady`).
+      Notifications + audit fire automatically inside `create_grant`. Record the created grant
+      ids as the active SOS incident (localStorage).
+   c. The existing `watchCurrentPosition` → `publishMovement` effect (keyed on
+      `activeOwnerGrants`) auto-starts once the SOS grants land, re-storing encrypted
+      envelopes on each GPS fix — no new live-loop code.
 - Coordinate-free/encrypted-at-rest invariants are already enforced by the reused paths.
 
 ### Component 4 — "I'm safe" / stop
 
-- The stop control revokes **only `reason:'sos'` grants** (`revoke_grant` per grant → flips
-  status, notifies recipients) and clears the GPS watch (`clearLocationWatch`). Non-SOS
-  shares are untouched.
+- The stop control revokes **only the incident's grants** (the ids recorded in localStorage),
+  calling `revokeGrant` per grant (→ flips status, notifies recipients), then clears the
+  incident. The GPS watch tears itself down when no active owner grants remain
+  (`clearLocationWatch`, existing effect cleanup). Non-SOS shares are untouched.
 - The 8h grant TTL is the backstop: even if the user never taps stop, sharing auto-expires.
 
 ## Backend touches (minimal)
 
 - **New:** `POST /api/one/location/seed-trusted` route + `SosContactsSeedService` logic
-  (insert `one_location_network_connections`; skip keyless dev IDs; env-var config).
+  (insert `one_location_network_connections` for all configured dev IDs, gated on the user
+  having zero active connections; env-var config).
 - **Reused:** `create_grant`, `revoke_grant`, `store_encrypted_envelope`,
-  `list_verified_recipients`, `view_latest_envelope`. SOS carries `reason:'sos'` in the
-  grant's JSON `metadata`. The plan will confirm whether `create_grant` already accepts a
-  caller-supplied `metadata`/`reason`; if not, it adds one **optional additive** parameter
-  (default `None`) that merges into the existing metadata dict — no behavior change for
-  existing callers.
+  `list_verified_recipients`, `view_latest_envelope`. Backend `create_grant` **already**
+  accepts `reason` and writes it to the grant's `metadata` JSONB — no backend signature
+  change. The only frontend adjustment is adding `reason` to `OneLocationService.createGrant`
+  (it currently drops it) so SOS grants are tagged `reason:'sos_panic'`.
 - **No new tables, no new migration.**
 
 ## Data flow
@@ -136,13 +144,13 @@ LOGIN (post vault-unlock)
     → SosContactsSeedService: if 0 active connections →
         POST /api/one/location/seed-trusted
           → insert one_location_network_connections to each configured dev ID
-            (skip + log dev IDs without a published location key)
+            (idempotent ON CONFLICT; only when user has 0 active connections)
 
 PANIC
   tap → 3–5s countdown (Cancel) → on expiry:
     GET /api/one/location/recipients        (trusted list)
-    for each recipient:
-      createGrant(duration_hours=8, metadata.reason='sos')   → one_location_share_grants
+    for each share-ready recipient:
+      createGrant(durationHours=8, reason='sos_panic')       → one_location_share_grants
                                                               → FCM + in-app notify
                                                               → one_location_events (created)
     watchCurrentPosition → publishMovement (per GPS fix):
@@ -150,7 +158,7 @@ PANIC
                                             → one_location_events (envelope_updated)
 
 STOP ("I'm safe")
-  for each active reason='sos' grant:
+  for each grant id in the tracked SOS incident:
     revokeGrant                             → one_location_share_grants (status=revoked)
                                             → notify recipient
                                             → one_location_events (revoked)
@@ -163,8 +171,12 @@ STOP ("I'm safe")
 - **Coordinate-free:** no `latitude`/`longitude`/coordinate keys in grant metadata, events,
   notifications, or any non-ciphertext field. Enforced by the reused paths.
 - **Encrypted at rest:** position data exists only inside `one_location_envelopes.ciphertext`.
-- **Palette:** SOS UI uses `primary` / `destructive` tokens only — no `#b8894d`/`#d4a574`.
-- **Backward compatible:** all new fields (`metadata.reason`, new endpoint) are additive and
+- **Palette:** SOS UI uses the purpose-built **`destructive` / critical** tokens
+  (`variant="destructive"`, `.app-critical-*`) — the correct high-severity treatment for a
+  panic button. Note: `verify:design-system` does **not** forbid the legacy tan hexes
+  (`#d4a574` is the current de-facto brand accent), so avoiding raw hexes in new SOS code is
+  a self-imposed cleanliness convention, not a CI-enforced gate.
+- **Backward compatible:** all new fields (`createGrant.reason`, new seed endpoint) are additive and
   optional; existing share/chat flows are untouched.
 
 ## Testing & verification
