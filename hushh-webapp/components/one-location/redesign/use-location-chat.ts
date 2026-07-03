@@ -14,6 +14,7 @@ import type {
   PlainLocationPoint,
   SelectionResult,
 } from "@/lib/one-location/types";
+import { describeSelection } from "@/lib/agent/describe-selection";
 
 export interface ChatMessage {
   id: string;
@@ -21,6 +22,7 @@ export interface ChatMessage {
   text: string;
   stateChanged?: boolean;
   errored?: boolean;
+  kind?: "selection";
 }
 
 export interface UseLocationChat {
@@ -183,25 +185,40 @@ export function useLocationChat(params: {
     async (refs: Record<string, unknown>[]) => {
       const prompt = pendingPrompt;
       if (!prompt || busy) return;
-      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered" });
+      const display = describeSelection(prompt, { selected: refs });
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", text: display, kind: "selection" },
+      ]);
+      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered", display });
     },
-    [pendingPrompt, busy, reportSelection],
+    [pendingPrompt, busy, reportSelection, nextId],
   );
 
   const confirmPrompt = useCallback(
     async (yes: boolean) => {
       const prompt = pendingPrompt;
       if (!prompt || busy) return;
-      await reportSelection({ id: prompt.id, kind: prompt.kind, confirmed: yes, status: "answered" });
+      const display = describeSelection(prompt, { confirmed: yes });
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", text: display, kind: "selection" },
+      ]);
+      await reportSelection({ id: prompt.id, kind: prompt.kind, confirmed: yes, status: "answered", display });
     },
-    [pendingPrompt, busy, reportSelection],
+    [pendingPrompt, busy, reportSelection, nextId],
   );
 
   const cancelPrompt = useCallback(async () => {
     const prompt = pendingPrompt;
     if (!prompt || busy) return;
-    await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled" });
-  }, [pendingPrompt, busy, reportSelection]);
+    const display = describeSelection(prompt, { status: "cancelled" });
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role: "user", text: display, kind: "selection" },
+    ]);
+    await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled", display });
+  }, [pendingPrompt, busy, reportSelection, nextId]);
 
   const confirmAction = useCallback(async () => {
     const action = pendingAction;

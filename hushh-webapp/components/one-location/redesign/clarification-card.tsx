@@ -40,7 +40,7 @@ export function ClarificationCard({
   return (
     <div
       data-testid="clarification-card"
-      className="rounded-2xl border border-[#b8894d]/40 bg-[#b8894d]/5 p-4"
+      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
     >
       <p className="text-sm font-medium">{prompt.question}</p>
 
@@ -58,8 +58,8 @@ export function ClarificationCard({
                 className={
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors " +
                   (active
-                    ? "border-[#b8894d] bg-[#b8894d]/15 text-[#b8894d]"
-                    : "border-[color:var(--app-card-border-standard)] text-foreground hover:border-[#d4a574]/50")
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-[color:var(--app-card-border-standard)] text-foreground hover:border-primary/40")
                 }
               >
                 {opt.label}

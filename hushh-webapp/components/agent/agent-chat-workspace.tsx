@@ -36,6 +36,8 @@ import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { SpecialistDirectiveCard, SpecialistPromptCard } from "@/components/agent/specialist-directive-card";
+import { SelectionChip } from "@/components/agent/selection-chip";
+import { describeSelection } from "@/lib/agent/describe-selection";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
@@ -115,6 +117,7 @@ type AgentMessage = {
   timestamp: string;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  kind?: "selection";
 };
 
 type AgentDebugEvent = {
@@ -682,13 +685,41 @@ function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
   );
 }
 
-function storedMessageToAgentMessage(message: StoredAgentChatMessage): AgentMessage | null {
+// Safety-net for legacy DB rows written before Task 8 metadata was added.
+// Those rows carry no metadata and their content is the raw recipient/duration
+// seed "I selected: recipientUserId=…; … do not guess — and proceed."
+// Matching them prevents the ugly id-dump from ever rendering as a user bubble.
+// The shorter acknowledgement seeds ("Yes, go ahead.", "No, do not proceed.",
+// "I changed my mind — cancel that, take no action.") are already human-readable
+// and must NOT be reclassified — the pattern is intentionally narrow.
+const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
+
+export function storedMessageToAgentMessage(
+  message: StoredAgentChatMessage,
+): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
   const createdAt = message.created_at ? new Date(message.created_at) : null;
+  // A selection message must never re-render its raw `I selected:` seed on
+  // reload: prefer the persisted display label and render it as a chip. The
+  // backend (Task 3) guarantees metadata.display for new selection messages;
+  // legacy rows without metadata are detected via LEGACY_SELECTION_SEED below.
+  const isSelection = message.metadata?.kind === "selection";
+  // Detect legacy rows: user message with raw seed content and no usable metadata.
+  const isLegacySelectionSeed =
+    !isSelection &&
+    message.role === "user" &&
+    LEGACY_SELECTION_SEED.test(message.content);
+
+  const displayText =
+    isSelection && message.metadata?.display
+      ? message.metadata.display
+      : isLegacySelectionSeed
+      ? "Your selection"
+      : message.content;
   return {
     id: message.id,
     role: message.role,
-    text: message.content,
+    text: displayText,
     timestamp:
       createdAt && !Number.isNaN(createdAt.getTime())
         ? new Intl.DateTimeFormat(undefined, {
@@ -697,6 +728,7 @@ function storedMessageToAgentMessage(message: StoredAgentChatMessage): AgentMess
           }).format(createdAt)
         : formatNow(),
     status: message.status === "error" ? "error" : "done",
+    ...(isSelection || isLegacySelectionSeed ? { kind: "selection" as const } : {}),
   };
 }
 
@@ -3476,18 +3508,22 @@ export function AgentChatWorkspace({
                 />
               ) : null}
 
-              {visibleMessages.map((message) => (
-                <AgentBubble
-                  key={message.id}
-                  message={message}
-                  retryDisabled={isChatLoading || isStreaming}
-                  onRetry={
-                    message.id === latestRetryableAssistantId
-                      ? () => handleRetryAssistantResponse(message.id)
-                      : undefined
-                  }
-                />
-              ))}
+              {visibleMessages.map((message) =>
+                message.kind === "selection" ? (
+                  <SelectionChip key={message.id} label={message.text} />
+                ) : (
+                  <AgentBubble
+                    key={message.id}
+                    message={message}
+                    retryDisabled={isChatLoading || isStreaming}
+                    onRetry={
+                      message.id === latestRetryableAssistantId
+                        ? () => handleRetryAssistantResponse(message.id)
+                        : undefined
+                    }
+                  />
+                ),
+              )}
 
               {pkmActivity.map((item) => (
                 <AgentPkmActivityLine key={item.id} item={item} />
@@ -3517,9 +3553,18 @@ export function AgentChatWorkspace({
                     onAnswer={async (refs) => {
                       const evt = pendingSpecialistDirective;
                       const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { selected: refs });
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-sel`,
+                          role: "user",
+                          text: display,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
                         await sendDelegateResult({
                           delegate_agent_id: evt.delegateAgentId as "agent_location",
                           kind: "selection",
@@ -3527,6 +3572,7 @@ export function AgentChatWorkspace({
                           promptKind: prompt.kind,
                           selected: refs,
                           status: "answered",
+                          display,
                         });
                       } finally {
                         setSpecialistBusy(false);
@@ -3535,9 +3581,18 @@ export function AgentChatWorkspace({
                     onConfirm={async (yes) => {
                       const evt = pendingSpecialistDirective;
                       const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { confirmed: yes });
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-sel`,
+                          role: "user",
+                          text: display,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
                         await sendDelegateResult({
                           delegate_agent_id: evt.delegateAgentId as "agent_location",
                           kind: "selection",
@@ -3545,6 +3600,7 @@ export function AgentChatWorkspace({
                           promptKind: prompt.kind,
                           confirmed: yes,
                           status: "answered",
+                          display,
                         });
                       } finally {
                         setSpecialistBusy(false);
@@ -3553,13 +3609,23 @@ export function AgentChatWorkspace({
                     onCancel={async () => {
                       const evt = pendingSpecialistDirective;
                       const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { status: "cancelled" });
                       setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-sel`,
+                        role: "user",
+                        text: display,
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
                       await sendDelegateResult({
                         delegate_agent_id: evt.delegateAgentId as "agent_location",
                         kind: "selection",
                         id: prompt.id,
                         promptKind: prompt.kind,
                         status: "cancelled",
+                        display,
                       });
                     }}
                   />
@@ -3583,6 +3649,14 @@ export function AgentChatWorkspace({
                           addErrorMessage("Vault access expired. Unlock again to continue.");
                           return;
                         }
+                        appendMessage({
+                          id: `msg-${Date.now()}-act`,
+                          role: "user",
+                          text: "Share",
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
                         const result = await runLocationDirective(directive.directive, token);
                         setPendingSpecialistDirective(null);
                         // view_envelope fetches a coordinate-free result here; the
@@ -3603,6 +3677,14 @@ export function AgentChatWorkspace({
                     onCancel={async () => {
                       const directive = pendingSpecialistDirective;
                       setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-act`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
                       await sendDelegateResult({
                         delegate_agent_id: directive.delegateAgentId as "agent_location",
                         kind: "action",

@@ -21,7 +21,7 @@ _ACTION_RESULT_KEYS = ("id", "type", "status", "publicUrl", "detail")
 # must never be forwarded as the location prompt kind ("select"|"confirm").
 # The location prompt kind is carried in a separate "promptKind" field and mapped
 # below when building the selection_result.
-_SELECTION_RESULT_KEYS = ("id", "selected", "confirmed", "freeText", "status")
+_SELECTION_RESULT_KEYS = ("id", "selected", "confirmed", "freeText", "status", "display")
 
 
 def _pick(source: dict, keys: tuple[str, ...]) -> dict:

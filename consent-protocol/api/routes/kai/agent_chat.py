@@ -45,6 +45,9 @@ class DelegateResultModel(BaseModel):
     # selection delegate_results so the A2A discriminator ("selection") is never
     # misread as the prompt kind. See location_agent.py for the mapping.
     prompt_kind: Optional[str] = Field(default=None, alias="promptKind", max_length=24)
+    # Human-readable label for the UI chip (e.g. "Abdul Zalil · 8 hours").
+    # Coordinate-free; the backend persists it as encrypted metadata.
+    display: Optional[str] = Field(default=None, max_length=200)
 
 
 class AgentChatStreamRequest(BaseModel):
@@ -86,6 +89,9 @@ class AgentChatMessageModel(BaseModel):
     model: Optional[str] = Field(default=None, max_length=128)
     created_at: Optional[str] = Field(default=None, max_length=64)
     completed_at: Optional[str] = Field(default=None, max_length=64)
+    # UI-safe metadata subset: only "kind" and "display" are returned.
+    # Server-only keys are never exposed to clients.
+    metadata: Optional[dict] = Field(default=None)
 
 
 class AgentChatConversationsResponse(BaseModel):
@@ -180,6 +186,11 @@ def _message_model(message: AgentChatMessage) -> AgentChatMessageModel:
         model=message.model,
         created_at=message.created_at,
         completed_at=message.completed_at,
+        metadata=(
+            {k: message.metadata[k] for k in ("kind", "display") if k in message.metadata}
+            if isinstance(getattr(message, "metadata", None), dict)
+            else None
+        ),
     )
 
 

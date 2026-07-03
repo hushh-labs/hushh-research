@@ -6,7 +6,7 @@ export function BotAvatar(props: { size?: number }) {
   const size = props.size ?? 32;
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-[#d4a574]/15 text-[#b8894d]"
+      className="flex shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
       style={{ width: size, height: size }}
       aria-hidden
     >

@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
+import { SelectionChip } from "@/components/agent/selection-chip";
 import type { ChatMessage } from "./use-location-chat";
 import { BotAvatar, StateChangedNote, TypingIndicator } from "./location-chat-atoms";
 
@@ -22,11 +23,15 @@ export function ChatMessageList(props: {
     >
       {messages.map((message) =>
         message.role === "user" ? (
-          <div key={message.id} className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[#d4a574]/15 px-3.5 py-2 text-sm text-foreground">
-              {message.text}
+          message.kind === "selection" ? (
+            <SelectionChip key={message.id} label={message.text} />
+          ) : (
+            <div key={message.id} className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm text-primary-foreground">
+                {message.text}
+              </div>
             </div>
-          </div>
+          )
         ) : (
           <div key={message.id} className="flex items-start gap-2">
             <BotAvatar size={28} />
@@ -47,7 +52,7 @@ export function ChatMessageList(props: {
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="mt-1 text-xs font-semibold text-[#b8894d] hover:underline"
+                  className="mt-1 text-xs font-semibold text-primary hover:underline"
                 >
                   Retry
                 </button>

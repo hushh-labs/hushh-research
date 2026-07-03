@@ -21,6 +21,8 @@ export type DelegateResult = {
   selected?: Record<string, unknown>[];
   confirmed?: boolean;
   freeText?: string;
+  // Human-readable label for the chat chip (e.g. "Abdul Zalil · 8 hours").
+  display?: string;
 };
 
 type Share = {

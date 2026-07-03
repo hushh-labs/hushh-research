@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -278,6 +279,7 @@ class AgentChatMessage:
     model: str | None
     created_at: str | None
     completed_at: str | None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -1253,9 +1255,13 @@ class AgentChatService:
         status: MessageStatus,
         model: str | None = None,
         error_code: str | None = None,
+        metadata: dict | None = None,
     ) -> AgentChatMessage:
         message_id = str(uuid4())
         encrypted = self._encrypt_text(content)
+        encrypted_metadata = (
+            self._encrypt_text(json.dumps(metadata)) if metadata is not None else None
+        )
         result = await self._execute_raw(
             """
             INSERT INTO agent_chat_messages (
@@ -1270,6 +1276,10 @@ class AgentChatService:
               content_algorithm,
               model,
               error_code,
+              metadata_ciphertext,
+              metadata_iv,
+              metadata_tag,
+              metadata_algorithm,
               completed_at
             )
             VALUES (
@@ -1284,6 +1294,10 @@ class AgentChatService:
               :content_algorithm,
               :model,
               :error_code,
+              :metadata_ciphertext,
+              :metadata_iv,
+              :metadata_tag,
+              :metadata_algorithm,
               now()
             )
             RETURNING *
@@ -1300,6 +1314,12 @@ class AgentChatService:
                 "content_algorithm": encrypted.algorithm,
                 "model": model,
                 "error_code": error_code,
+                "metadata_ciphertext": encrypted_metadata.ciphertext
+                if encrypted_metadata
+                else None,
+                "metadata_iv": encrypted_metadata.iv if encrypted_metadata else None,
+                "metadata_tag": encrypted_metadata.tag if encrypted_metadata else None,
+                "metadata_algorithm": encrypted_metadata.algorithm if encrypted_metadata else None,
             },
         )
         await self._execute_raw(
@@ -1897,6 +1917,15 @@ class AgentChatService:
         except Exception:
             logger.warning("agent_chat.message_decrypt_failed message_id=%s", row.get("id"))
             content = ""
+        metadata: dict | None = None
+        if row.get("metadata_ciphertext"):
+            try:
+                raw = self._decrypt_text(row, "metadata")
+                parsed = json.loads(raw) if raw else None
+                metadata = parsed if isinstance(parsed, dict) else None
+            except Exception:
+                logger.warning("agent_chat.metadata_decrypt_failed message_id=%s", row.get("id"))
+                metadata = None
         return AgentChatMessage(
             id=str(row.get("id") or ""),
             conversation_id=str(row.get("conversation_id") or ""),
@@ -1907,6 +1936,7 @@ class AgentChatService:
             model=str(row.get("model")) if row.get("model") else None,
             created_at=_iso(row.get("created_at")),
             completed_at=_iso(row.get("completed_at")),
+            metadata=metadata,
         )
 
 
