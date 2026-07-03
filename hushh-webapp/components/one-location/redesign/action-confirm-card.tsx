@@ -32,10 +32,10 @@ export function ActionConfirmCard({
   return (
     <div
       data-testid="action-confirm-card"
-      className="rounded-2xl border border-[#b8894d]/40 bg-[#b8894d]/5 p-4"
+      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 text-[#b8894d]">
+        <span className="mt-0.5 text-primary">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
         <p className="flex-1 text-sm font-medium">{action.summary}</p>
