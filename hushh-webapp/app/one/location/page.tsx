@@ -146,6 +146,10 @@ import {
   saveSosIncident,
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
+import {
+  runSosPanic,
+  selectSosConnectedRecipients,
+} from "@/lib/one-location/sos-trigger";
 import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
@@ -1900,20 +1904,15 @@ function OneLocationAgentPageContent() {
   // SOS alerts ONLY your actual One Network connections (e.g. the seeded trusted
   // contacts), never the broad phone-verified directory that `recipients` also
   // includes. Connection membership comes straight from networkConnections.
-  const sosTrustedRecipients = useMemo(() => {
-    const connectedIds = new Set<string>();
-    for (const connection of state?.networkConnections ?? []) {
-      if (connection.status !== "active") continue;
-      const otherId =
-        connection.userAId === auth.userId
-          ? connection.userBId
-          : connection.userAId;
-      if (otherId && otherId !== auth.userId) connectedIds.add(otherId);
-    }
-    return rankedRecipients.filter((recipient) =>
-      connectedIds.has(recipient.userId),
-    );
-  }, [state?.networkConnections, rankedRecipients, auth.userId]);
+  const sosTrustedRecipients = useMemo(
+    () =>
+      selectSosConnectedRecipients(
+        rankedRecipients,
+        state?.networkConnections,
+        auth.userId,
+      ),
+    [rankedRecipients, state?.networkConnections, auth.userId],
+  );
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
@@ -2949,7 +2948,6 @@ function OneLocationAgentPageContent() {
       return;
     }
     setBusy("sos");
-    const grantIds: string[] = [];
     try {
       const readiness = await ensureForegroundLocationReady({
         capturePoint: true,
@@ -2960,22 +2958,13 @@ function OneLocationAgentPageContent() {
         return;
       }
       const point = readiness.point;
-      for (const recipient of readyRecipients) {
-        const grant = await OneLocationService.createGrant({
-          vaultOwnerToken,
-          recipientUserId: recipient.userId,
-          recipientKeyId: recipient.keyId as string,
-          durationHours: 8,
-          reason: "sos_panic",
-        });
-        grantIds.push(grant.id); // record before publish so the id is never orphaned
-        await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-      }
-      const incident: SosIncident = {
-        grantIds,
-        startedAt: new Date().toISOString(),
-      };
-      saveSosIncident(incident);
+      const incident = await runSosPanic({
+        vaultOwnerToken,
+        recipients: readyRecipients,
+        point,
+        publish: (grant, recipient, pt) =>
+          publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+      });
       setSosIncident(incident);
       const skipped = totalTrusted - readyRecipients.length;
       toast.success(
@@ -2985,13 +2974,8 @@ function OneLocationAgentPageContent() {
       );
       await refresh();
     } catch (error) {
-      if (grantIds.length) {
-        // Publish threw after some grants were created — persist a partial incident
-        // so handleStopSos can still revoke everything that was created.
-        const partial: SosIncident = { grantIds, startedAt: new Date().toISOString() };
-        saveSosIncident(partial);
-        setSosIncident(partial);
-      }
+      // Sync React state to whatever the core persisted (may be a partial incident).
+      setSosIncident(loadSosIncident());
       toast.error(
         error instanceof Error ? error.message : "Could not send SOS alert.",
       );
@@ -3000,7 +2984,6 @@ function OneLocationAgentPageContent() {
     }
   }, [
     ensureForegroundLocationReady,
-    isShareReadyRecipient,
     permission,
     publishEnvelopeWithRetry,
     sosTrustedRecipients,
