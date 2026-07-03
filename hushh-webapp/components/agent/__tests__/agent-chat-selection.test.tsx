@@ -64,6 +64,48 @@ describe("storedMessageToAgentMessage — selection history mapping", () => {
     } as unknown as AgentChatMessage;
     expect(storedMessageToAgentMessage(stored)).toBeNull();
   });
+
+  // Fix 1: legacy-row safety-net — raw selection seed with no metadata
+  it("maps legacy raw selection seed (no metadata) to a selection chip with generic label", () => {
+    const stored: AgentChatMessage = {
+      ...base,
+      role: "user",
+      content:
+        "I selected: recipientUserId=u_abc123; recipientKeyId=k_xyz789. Use exactly these ids — do not guess — and proceed.",
+      metadata: null,
+    };
+    const mapped = storedMessageToAgentMessage(stored);
+    expect(mapped).not.toBeNull();
+    expect(mapped?.kind).toBe("selection");
+    expect(mapped?.text).toBe("Your selection");
+    expect(mapped?.text).not.toContain("I selected:");
+    expect(mapped?.text).not.toContain("recipientUserId");
+    expect(mapped?.text).not.toContain("do not guess");
+  });
+
+  it("does not reclassify a normal user message (hello) as a selection", () => {
+    const stored: AgentChatMessage = {
+      ...base,
+      role: "user",
+      content: "hello",
+      metadata: null,
+    };
+    const mapped = storedMessageToAgentMessage(stored);
+    expect(mapped?.kind).toBeUndefined();
+    expect(mapped?.text).toBe("hello");
+  });
+
+  it("does not reclassify 'Yes, go ahead.' acknowledgement seed as a selection", () => {
+    const stored: AgentChatMessage = {
+      ...base,
+      role: "user",
+      content: "Yes, go ahead.",
+      metadata: null,
+    };
+    const mapped = storedMessageToAgentMessage(stored);
+    expect(mapped?.kind).toBeUndefined();
+    expect(mapped?.text).toBe("Yes, go ahead.");
+  });
 });
 
 describe("SelectionChip render branch", () => {

@@ -685,6 +685,15 @@ function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
   );
 }
 
+// Safety-net for legacy DB rows written before Task 8 metadata was added.
+// Those rows carry no metadata and their content is the raw recipient/duration
+// seed "I selected: recipientUserId=…; … do not guess — and proceed."
+// Matching them prevents the ugly id-dump from ever rendering as a user bubble.
+// The shorter acknowledgement seeds ("Yes, go ahead.", "No, do not proceed.",
+// "I changed my mind — cancel that, take no action.") are already human-readable
+// and must NOT be reclassified — the pattern is intentionally narrow.
+const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
+
 export function storedMessageToAgentMessage(
   message: StoredAgentChatMessage,
 ): AgentMessage | null {
@@ -693,11 +702,19 @@ export function storedMessageToAgentMessage(
   // A selection message must never re-render its raw `I selected:` seed on
   // reload: prefer the persisted display label and render it as a chip. The
   // backend (Task 3) guarantees metadata.display for new selection messages;
-  // legacy rows without metadata fall back gracefully to content.
+  // legacy rows without metadata are detected via LEGACY_SELECTION_SEED below.
   const isSelection = message.metadata?.kind === "selection";
+  // Detect legacy rows: user message with raw seed content and no usable metadata.
+  const isLegacySelectionSeed =
+    !isSelection &&
+    message.role === "user" &&
+    LEGACY_SELECTION_SEED.test(message.content);
+
   const displayText =
     isSelection && message.metadata?.display
       ? message.metadata.display
+      : isLegacySelectionSeed
+      ? "Your selection"
       : message.content;
   return {
     id: message.id,
@@ -711,7 +728,7 @@ export function storedMessageToAgentMessage(
           }).format(createdAt)
         : formatNow(),
     status: message.status === "error" ? "error" : "done",
-    ...(isSelection ? { kind: "selection" as const } : {}),
+    ...(isSelection || isLegacySelectionSeed ? { kind: "selection" as const } : {}),
   };
 }
 
