@@ -4,7 +4,7 @@
 
 **Goal:** Make the central One chat and the standalone Location chat visually consistent (both on the `primary` palette) and render every user selection as a clean chip + collapsed card instead of the raw `I selected: recipientUserId=…` dump.
 
-**Architecture:** The raw selection text is a backend persistence artifact: `_selection_seed_text` doubles as the LLM instruction seed *and* the persisted `role="user"` content. We keep the seed as `content` (unchanged, so the LLM still receives exact ids) and add an **encrypted** `metadata` column carrying a human-readable `display` string. History returns `metadata.display`; both chat frontends render it as a chip and collapse the source card. The location confirmation/selection cards are shared between surfaces, so retheming them to `primary` fixes both at once.
+**Architecture:** The raw selection text is a backend persistence artifact: `_selection_seed_text` doubles as the LLM instruction seed _and_ the persisted `role="user"` content. We keep the seed as `content` (unchanged, so the LLM still receives exact ids) and add an **encrypted** `metadata` column carrying a human-readable `display` string. History returns `metadata.display`; both chat frontends render it as a chip and collapse the source card. The location confirmation/selection cards are shared between surfaces, so retheming them to `primary` fixes both at once.
 
 **Tech Stack:** Python (FastAPI, asyncpg-style raw SQL, Pydantic v2), PostgreSQL migrations, TypeScript, React, Tailwind, Vitest/Jest, pytest.
 
@@ -22,9 +22,11 @@
 ## File Structure
 
 **Backend (create):**
+
 - `consent-protocol/db/migrations/075_agent_chat_message_metadata.sql` — encrypted metadata columns.
 
 **Backend (modify):**
+
 - `consent-protocol/hushh_mcp/services/agent_chat_service.py` — `AgentChatMessage.metadata`, `add_message(metadata=…)`, `_message_from_row` decrypt.
 - `consent-protocol/hushh_mcp/services/location_chat_service.py` — persist `display` + `metadata` on selection turns; `_selection_display_text` fallback.
 - `consent-protocol/hushh_mcp/adk_bridge/location_agent.py` — thread `display` into `selection_result`.
@@ -32,10 +34,12 @@
 - `consent-protocol/api/routes/one/location_chat.py` — `SelectionResultModel.display`.
 
 **Frontend (create):**
+
 - `hushh-webapp/lib/agent/describe-selection.ts` — refs → human-readable display string.
 - `hushh-webapp/components/agent/selection-chip.tsx` — shared user-side selection chip.
 
 **Frontend (modify):**
+
 - `hushh-webapp/lib/agent/specialist-directive-runtime.ts` — `DelegateResult.display`.
 - `hushh-webapp/lib/one-location/types.ts` — `SelectionResult.display`.
 - `hushh-webapp/lib/services/agent-chat-client.ts` — `AgentChatMessage.metadata`; parse it.
@@ -51,9 +55,11 @@
 ## Task 1: DB migration — encrypted `metadata` columns
 
 **Files:**
+
 - Create: `consent-protocol/db/migrations/075_agent_chat_message_metadata.sql`
 
 **Interfaces:**
+
 - Produces: columns `metadata_ciphertext`, `metadata_iv`, `metadata_tag`, `metadata_algorithm` (all nullable `text`) on `agent_chat_messages`.
 
 - [ ] **Step 1: Write the migration**
@@ -99,10 +105,12 @@ git commit -m "feat(agent-chat): add encrypted metadata column to messages"
 ## Task 2: Chat store — read/write encrypted metadata
 
 **Files:**
+
 - Modify: `consent-protocol/hushh_mcp/services/agent_chat_service.py` (dataclass ~271; `add_message` ~1246; `_message_from_row` ~1894)
 - Test: `consent-protocol/tests/test_agent_chat_service_metadata.py` (create)
 
 **Interfaces:**
+
 - Consumes: `_encrypt_text(text) -> EncryptedPayload`, `_decrypt_text(row, prefix) -> str` (existing).
 - Produces:
   - `AgentChatMessage.metadata: dict | None`
@@ -269,10 +277,12 @@ git commit -m "feat(agent-chat): persist and read encrypted message metadata"
 ## Task 3: Location service — persist display + metadata on selection turns
 
 **Files:**
+
 - Modify: `consent-protocol/hushh_mcp/services/location_chat_service.py` (`_selection_seed_text` ~336; `_handle_selection_result` persist ~708-719)
 - Test: `consent-protocol/tests/test_location_chat_selection_display.py` (create)
 
 **Interfaces:**
+
 - Consumes: `add_message(..., metadata=…)` from Task 2; `selection_result` dict may now carry a `display` string (supplied by the frontend, Tasks 4/6).
 - Produces: on a selection turn the persisted `role="user"` message has `content = seed` (unchanged) and `metadata = {"kind": "selection", "display": <str>}`.
 - New helper: `_selection_display_text(selection_result) -> str` (fallback when frontend omits `display`).
@@ -431,12 +441,14 @@ git commit -m "feat(one-location): persist display metadata for selection turns"
 ## Task 4: API — thread `display` in and metadata out
 
 **Files:**
+
 - Modify: `consent-protocol/api/routes/kai/agent_chat.py` (`DelegateResultModel` ~33; `AgentChatMessageModel` ~76; message serialization `_message_to_response` ~160-183)
 - Modify: `consent-protocol/api/routes/one/location_chat.py` (`SelectionResultModel` ~33)
 - Modify: `consent-protocol/hushh_mcp/adk_bridge/location_agent.py` (`_SELECTION_RESULT_KEYS` ~24)
 - Test: `consent-protocol/tests/test_agent_chat_history_metadata.py` (create)
 
 **Interfaces:**
+
 - Consumes: `AgentChatMessage.metadata` (Task 2).
 - Produces:
   - `DelegateResultModel.display: Optional[str]` and `SelectionResultModel.display: Optional[str]`.
@@ -535,10 +547,12 @@ git commit -m "feat(agent-chat): thread selection display through API"
 ## Task 5: Frontend — `describeSelection` helper
 
 **Files:**
+
 - Create: `hushh-webapp/lib/agent/describe-selection.ts`
 - Test: `hushh-webapp/lib/agent/__tests__/describe-selection.test.ts`
 
 **Interfaces:**
+
 - Produces: `describeSelection(prompt: ClientPrompt, sel: { selected?: Record<string, unknown>[]; confirmed?: boolean; freeText?: string; status?: string }) => string`.
 
 - [ ] **Step 1: Write the failing test**
@@ -550,46 +564,78 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 import type { ClientPrompt } from "@/lib/one-location/types";
 
 const recipientPrompt: ClientPrompt = {
-  id: "p1", kind: "select", purpose: "recipient", question: "Who?",
+  id: "p1",
+  kind: "select",
+  purpose: "recipient",
+  question: "Who?",
   options: [
-    { label: "Abdul Zalil", ref: { recipientUserId: "5dM8", recipientKeyId: "WlUg" } },
+    {
+      label: "Abdul Zalil",
+      ref: { recipientUserId: "5dM8", recipientKeyId: "WlUg" },
+    },
     { label: "Mom", ref: { recipientUserId: "mom1", recipientKeyId: "momK" } },
   ],
 };
 
 const durationPrompt: ClientPrompt = {
-  id: "p2", kind: "select", purpose: "duration", question: "How long?",
+  id: "p2",
+  kind: "select",
+  purpose: "duration",
+  question: "How long?",
   options: [{ label: "8 hours", ref: { hours: 8 } }],
 };
 
 describe("describeSelection", () => {
   it("maps selected refs to option labels", () => {
-    expect(describeSelection(recipientPrompt, { selected: [{ recipientUserId: "5dM8", recipientKeyId: "WlUg" }] }))
-      .toBe("Abdul Zalil");
+    expect(
+      describeSelection(recipientPrompt, {
+        selected: [{ recipientUserId: "5dM8", recipientKeyId: "WlUg" }],
+      }),
+    ).toBe("Abdul Zalil");
   });
 
   it("joins multiple selections", () => {
-    expect(describeSelection(recipientPrompt, {
-      selected: [
-        { recipientUserId: "5dM8", recipientKeyId: "WlUg" },
-        { recipientUserId: "mom1", recipientKeyId: "momK" },
-      ],
-    })).toBe("Abdul Zalil, Mom");
+    expect(
+      describeSelection(recipientPrompt, {
+        selected: [
+          { recipientUserId: "5dM8", recipientKeyId: "WlUg" },
+          { recipientUserId: "mom1", recipientKeyId: "momK" },
+        ],
+      }),
+    ).toBe("Abdul Zalil, Mom");
   });
 
   it("maps a duration selection", () => {
-    expect(describeSelection(durationPrompt, { selected: [{ hours: 8 }] })).toBe("8 hours");
+    expect(
+      describeSelection(durationPrompt, { selected: [{ hours: 8 }] }),
+    ).toBe("8 hours");
   });
 
   it("describes confirm / cancel / free text", () => {
-    expect(describeSelection({ ...recipientPrompt, kind: "confirm" }, { confirmed: true })).toBe("Confirmed");
-    expect(describeSelection({ ...recipientPrompt, kind: "confirm" }, { confirmed: false })).toBe("Declined");
-    expect(describeSelection(recipientPrompt, { status: "cancelled" })).toBe("Cancelled");
-    expect(describeSelection(recipientPrompt, { freeText: "share with my sister" })).toBe("share with my sister");
+    expect(
+      describeSelection(
+        { ...recipientPrompt, kind: "confirm" },
+        { confirmed: true },
+      ),
+    ).toBe("Confirmed");
+    expect(
+      describeSelection(
+        { ...recipientPrompt, kind: "confirm" },
+        { confirmed: false },
+      ),
+    ).toBe("Declined");
+    expect(describeSelection(recipientPrompt, { status: "cancelled" })).toBe(
+      "Cancelled",
+    );
+    expect(
+      describeSelection(recipientPrompt, { freeText: "share with my sister" }),
+    ).toBe("share with my sister");
   });
 
   it("never leaks raw ids when a ref has no matching option", () => {
-    const out = describeSelection(recipientPrompt, { selected: [{ recipientUserId: "ghost", recipientKeyId: "x" }] });
+    const out = describeSelection(recipientPrompt, {
+      selected: [{ recipientUserId: "ghost", recipientKeyId: "x" }],
+    });
     expect(out).not.toContain("recipientUserId");
     expect(out).not.toContain("recipientKeyId");
   });
@@ -607,7 +653,10 @@ Expected: FAIL — module not found.
 // hushh-webapp/lib/agent/describe-selection.ts
 import type { ClientPrompt } from "@/lib/one-location/types";
 
-function sameRef(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+function sameRef(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
@@ -627,18 +676,24 @@ export function describeSelection(
 ): string {
   if (sel.status === "cancelled") return "Cancelled";
   if (sel.freeText && sel.freeText.trim()) return sel.freeText.trim();
-  if (prompt.kind === "confirm") return sel.confirmed ? "Confirmed" : "Declined";
+  if (prompt.kind === "confirm")
+    return sel.confirmed ? "Confirmed" : "Declined";
 
   const options = prompt.options ?? [];
-  const labels = (sel.selected ?? []).map((ref) => {
-    const match = options.find((o) => sameRef(o.ref, ref));
-    if (match) return match.label;
-    // No matching option: surface non-id values only.
-    const values = Object.entries(ref)
-      .filter(([k]) => !["recipientUserId", "recipientKeyId", "grantId"].includes(k))
-      .map(([, v]) => String(v));
-    return values.join(" ");
-  }).filter((s) => s.length > 0);
+  const labels = (sel.selected ?? [])
+    .map((ref) => {
+      const match = options.find((o) => sameRef(o.ref, ref));
+      if (match) return match.label;
+      // No matching option: surface non-id values only.
+      const values = Object.entries(ref)
+        .filter(
+          ([k]) =>
+            !["recipientUserId", "recipientKeyId", "grantId"].includes(k),
+        )
+        .map(([, v]) => String(v));
+      return values.join(" ");
+    })
+    .filter((s) => s.length > 0);
 
   return labels.length ? labels.join(", ") : "Your selection";
 }
@@ -661,11 +716,13 @@ git commit -m "feat(agent): add describeSelection helper for chat chips"
 ## Task 6: Frontend types + client — carry `display` and message metadata
 
 **Files:**
+
 - Modify: `hushh-webapp/lib/agent/specialist-directive-runtime.ts` (`DelegateResult` ~9)
 - Modify: `hushh-webapp/lib/one-location/types.ts` (`SelectionResult` ~379)
 - Modify: `hushh-webapp/lib/services/agent-chat-client.ts` (`AgentChatMessage` ~4)
 
 **Interfaces:**
+
 - Produces:
   - `DelegateResult.display?: string`
   - `SelectionResult.display?: string`
@@ -715,10 +772,12 @@ git commit -m "feat(agent): carry selection display in types and client"
 ## Task 7: Shared `SelectionChip` component
 
 **Files:**
+
 - Create: `hushh-webapp/components/agent/selection-chip.tsx`
 - Test: `hushh-webapp/components/agent/__tests__/selection-chip.test.tsx`
 
 **Interfaces:**
+
 - Produces: `SelectionChip({ label }: { label: string })` — a right-aligned `primary` user-side pill with a check icon.
 
 - [ ] **Step 1: Write the failing test**
@@ -789,10 +848,12 @@ git commit -m "feat(agent): add SelectionChip component"
 ## Task 8: Central chat — append chip, send display, render history chips, collapse card
 
 **Files:**
+
 - Modify: `hushh-webapp/components/agent/agent-chat-workspace.tsx` (message type ~111; specialist render block ~3506-3621; history hydration where `AgentChatMessage`→`AgentMessage`; user-bubble render ~561-569)
 - Test: covered by the workspace's existing test file (extend it) — search for the existing `agent-chat-workspace` test; if none, add `hushh-webapp/components/agent/__tests__/agent-chat-selection.test.tsx`.
 
 **Interfaces:**
+
 - Consumes: `describeSelection` (Task 5), `SelectionChip` (Task 7), `AgentChatMessage.metadata` (Task 6), `sendDelegateResult` (existing, ~2356).
 - Produces: on selection, a local `AgentMessage` with `kind: "selection"` + `text = display`; `delegate_result.display` set; history messages with `metadata.kind === "selection"` render via `SelectionChip`.
 
@@ -858,14 +919,14 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 In the `SpecialistDirectiveCard` render (~3568-3619), the action summary is the card's `summary`. On confirm, append a chip with the confirm label; on cancel, append "Cancelled". In `onConfirm` (~3575), right after `setSpecialistBusy(true)` and before running crypto, append:
 
 ```tsx
-                        appendMessage({
-                          id: `msg-${Date.now()}-act`,
-                          role: "user",
-                          text: "Share",
-                          timestamp: formatNow(),
-                          status: "done",
-                          kind: "selection",
-                        });
+appendMessage({
+  id: `msg-${Date.now()}-act`,
+  role: "user",
+  text: "Share",
+  timestamp: formatNow(),
+  status: "done",
+  kind: "selection",
+});
 ```
 
 In `onCancel` (~3603), append a chip with text `"Cancelled"` before `sendDelegateResult`.
@@ -875,13 +936,18 @@ In `onCancel` (~3603), append a chip with text `"Cancelled"` before `sendDelegat
 Where messages are mapped to `MessageBubble` (search for `messages.map(`), branch on `message.kind === "selection"` to render `SelectionChip`:
 
 ```tsx
-        {messages.map((message) =>
-          message.kind === "selection" ? (
-            <SelectionChip key={message.id} label={message.text} />
-          ) : (
-            <MessageBubble key={message.id} message={message} /* …existing props… */ />
-          ),
-        )}
+{
+  messages.map((message) =>
+    message.kind === "selection" ? (
+      <SelectionChip key={message.id} label={message.text} />
+    ) : (
+      <MessageBubble
+        key={message.id}
+        message={message} /* …existing props… */
+      />
+    ),
+  );
+}
 ```
 
 Import `SelectionChip`:
@@ -903,7 +969,9 @@ import { SelectionChip } from "@/components/agent/selection-chip";
 describe("selection rendering", () => {
   it("renders a chip for a selection message", () => {
     render(<SelectionChip label="Abdul Zalil" />);
-    expect(screen.getByTestId("selection-chip")).toHaveTextContent("Abdul Zalil");
+    expect(screen.getByTestId("selection-chip")).toHaveTextContent(
+      "Abdul Zalil",
+    );
   });
 });
 ```
@@ -913,14 +981,17 @@ describe("selection rendering", () => {
 Find where `getAgentChatHistory` results are converted into `AgentMessage[]` (search for `getAgentChatHistory` usage in the workspace). For each history message, set `kind` and prefer the display string:
 
 ```ts
-        const mapped: AgentMessage[] = history.map((m) => ({
-          id: m.id,
-          role: m.role === "assistant" ? "assistant" : "user",
-          text: m.metadata?.kind === "selection" && m.metadata.display ? m.metadata.display : m.content,
-          timestamp: formatTimestamp(m.created_at),  // use the existing timestamp formatter in this file
-          status: "done",
-          ...(m.metadata?.kind === "selection" ? { kind: "selection" as const } : {}),
-        }));
+const mapped: AgentMessage[] = history.map((m) => ({
+  id: m.id,
+  role: m.role === "assistant" ? "assistant" : "user",
+  text:
+    m.metadata?.kind === "selection" && m.metadata.display
+      ? m.metadata.display
+      : m.content,
+  timestamp: formatTimestamp(m.created_at), // use the existing timestamp formatter in this file
+  status: "done",
+  ...(m.metadata?.kind === "selection" ? { kind: "selection" as const } : {}),
+}));
 ```
 
 > Match the existing history-mapping shape in the file (role coercion, timestamp helper). The key change is the `text` fallback to `metadata.display` and setting `kind: "selection"`. This is what removes the raw `I selected:` bubble on reload even for messages persisted before the frontend sent a `display` (the backend fallback in Task 3 guarantees a clean `metadata.display`).
@@ -942,11 +1013,13 @@ git commit -m "feat(agent-chat): render selections as chips and send display"
 ## Task 9: Retheme shared cards to `primary` + collapsed state
 
 **Files:**
+
 - Modify: `hushh-webapp/components/one-location/redesign/clarification-card.tsx`
 - Modify: `hushh-webapp/components/one-location/redesign/action-confirm-card.tsx`
 - Test: `hushh-webapp/components/one-location/redesign/__tests__/cards-primary-theme.test.tsx` (create)
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: both cards render with `primary` tokens; no `#b8894d`/`#d4a574` remain. Behavior/props unchanged (this keeps the central `SpecialistPromptCard`/`SpecialistDirectiveCard` wrappers working and fixes the standalone chat simultaneously).
 
@@ -961,16 +1034,29 @@ import { ActionConfirmCard } from "@/components/one-location/redesign/action-con
 import type { ClientAction, ClientPrompt } from "@/lib/one-location/types";
 
 const prompt: ClientPrompt = {
-  id: "p1", kind: "select", purpose: "recipient", question: "Who?",
+  id: "p1",
+  kind: "select",
+  purpose: "recipient",
+  question: "Who?",
   options: [{ label: "Mom", ref: { recipientUserId: "m" } }],
 };
-const action: ClientAction = { id: "a1", type: "publish_share", summary: "Share with Mom" };
+const action: ClientAction = {
+  id: "a1",
+  type: "publish_share",
+  summary: "Share with Mom",
+};
 const noop = () => {};
 
 describe("cards use primary theme", () => {
   it("ClarificationCard has no cream tokens", () => {
     const { container } = render(
-      <ClarificationCard prompt={prompt} busy={false} onAnswer={noop} onConfirm={noop} onCancel={noop} />,
+      <ClarificationCard
+        prompt={prompt}
+        busy={false}
+        onAnswer={noop}
+        onConfirm={noop}
+        onCancel={noop}
+      />,
     );
     expect(container.innerHTML).not.toContain("#b8894d");
     expect(container.innerHTML).not.toContain("#d4a574");
@@ -978,7 +1064,12 @@ describe("cards use primary theme", () => {
 
   it("ActionConfirmCard has no cream tokens", () => {
     const { container } = render(
-      <ActionConfirmCard action={action} busy={false} onConfirm={noop} onCancel={noop} />,
+      <ActionConfirmCard
+        action={action}
+        busy={false}
+        onConfirm={noop}
+        onCancel={noop}
+      />,
     );
     expect(container.innerHTML).not.toContain("#b8894d");
     expect(container.innerHTML).not.toContain("#d4a574");
@@ -996,7 +1087,7 @@ Expected: FAIL — both cards still contain `#b8894d`.
 Replace the container className (line ~43):
 
 ```tsx
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+className = "rounded-2xl border border-primary/20 bg-primary/5 p-4";
 ```
 
 Replace the option-button className expression (lines ~58-63):
@@ -1015,7 +1106,7 @@ Replace the option-button className expression (lines ~58-63):
 Replace the container className (line ~35):
 
 ```tsx
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+className = "rounded-2xl border border-primary/20 bg-primary/5 p-4";
 ```
 
 Replace the icon color span (line ~38):
@@ -1041,12 +1132,14 @@ git commit -m "feat(one-location): retheme shared cards to primary palette"
 ## Task 10: Retheme location chat surface + append chip on selection
 
 **Files:**
+
 - Modify: `hushh-webapp/components/one-location/redesign/location-chat-message-list.tsx`
 - Modify: `hushh-webapp/components/one-location/redesign/location-chat-atoms.tsx`
 - Modify: `hushh-webapp/components/one-location/redesign/use-location-chat.ts` (`ChatMessage` ~18; `answerPrompt` ~182; `confirmPrompt` ~191; `cancelPrompt` ~200)
 - Test: `hushh-webapp/components/one-location/redesign/__tests__/location-chat-selection.test.tsx` (create)
 
 **Interfaces:**
+
 - Consumes: `describeSelection` (Task 5).
 - Produces: location chat bubbles/atoms use `primary`; on card selection the hook appends a `ChatMessage` with `role:"user"` + `kind:"selection"` and the display text.
 
@@ -1061,7 +1154,7 @@ In `location-chat-message-list.tsx`, replace the user bubble className (line ~26
 Replace the retry button color (line ~50):
 
 ```tsx
-                  className="mt-1 text-xs font-semibold text-primary hover:underline"
+className = "mt-1 text-xs font-semibold text-primary hover:underline";
 ```
 
 (The assistant bubble already uses `var(--app-card-surface-compact)` — neutral, leave it.)
@@ -1071,7 +1164,8 @@ Replace the retry button color (line ~50):
 In `location-chat-atoms.tsx`, replace the `BotAvatar` span className (line ~9):
 
 ```tsx
-      className="flex shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
+className =
+  "flex shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary";
 ```
 
 (`StateChangedNote` uses emerald for the "Updated" confirmation — semantic success color, keep it. `TypingIndicator` uses `muted-foreground` — neutral, keep it.)
@@ -1127,16 +1221,25 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 In `answerPrompt` (~182), append a chip before `reportSelection`:
 
 ```ts
-  const answerPrompt = useCallback(
-    async (refs: Record<string, unknown>[]) => {
-      const prompt = pendingPrompt;
-      if (!prompt || busy) return;
-      const display = describeSelection(prompt, { selected: refs });
-      setMessages((prev) => [...prev, { id: nextId(), role: "user", text: display, kind: "selection" }]);
-      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered", display });
-    },
-    [pendingPrompt, busy, reportSelection, nextId],
-  );
+const answerPrompt = useCallback(
+  async (refs: Record<string, unknown>[]) => {
+    const prompt = pendingPrompt;
+    if (!prompt || busy) return;
+    const display = describeSelection(prompt, { selected: refs });
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role: "user", text: display, kind: "selection" },
+    ]);
+    await reportSelection({
+      id: prompt.id,
+      kind: prompt.kind,
+      selected: refs,
+      status: "answered",
+      display,
+    });
+  },
+  [pendingPrompt, busy, reportSelection, nextId],
+);
 ```
 
 Apply the same pattern to `confirmPrompt` (`describeSelection(prompt, { confirmed: yes })`, append chip, pass `display`) and `cancelPrompt` (`describeSelection(prompt, { status: "cancelled" })`, append chip, pass `display`). `SelectionResult.display` already exists (Task 6).
@@ -1208,6 +1311,7 @@ git add -A && git commit -m "test: verify One+Location chat consistency end to e
 ## Self-Review
 
 **Spec coverage:**
+
 - Consistent styling (both → primary) → Tasks 9, 10 (shared cards + location surface); central chat already primary.
 - Visible selection as chip + collapsed card → Tasks 7 (chip), 8 (central: append chip, collapse via clearing `pendingSpecialistDirective`, history chips), 10 (location: append chip, clear prompt).
 - Fix raw text at backend source (structured metadata + display, seed internal) → Tasks 1-4.
@@ -1219,4 +1323,4 @@ git add -A && git commit -m "test: verify One+Location chat consistency end to e
 
 **Type consistency:** `display` is optional across `DelegateResultModel`, `SelectionResultModel`, `DelegateResult`, `SelectionResult`. `metadata` shape `{ kind?, display? }` matches between backend serializer (Task 4), client type (Task 6), and workspace mapping (Task 8). `describeSelection` signature is identical in Tasks 5, 8, 10. `SelectionChip({ label })` identical in Tasks 7, 8, 10.
 
-**Note on "collapsed card":** the approved spec chose "chip + collapsed card" with a compact single-line default. This plan realizes collapse by clearing the active card and leaving the chip as the record of the choice (the established pattern — single-select cards already auto-answer and dismiss). If you want the *source card itself* to persist as a greyed compact line rather than disappear, say so and I'll add a `collapsed` render branch to Task 9 before execution.
+**Note on "collapsed card":** the approved spec chose "chip + collapsed card" with a compact single-line default. This plan realizes collapse by clearing the active card and leaving the chip as the record of the choice (the established pattern — single-select cards already auto-answer and dismiss). If you want the _source card itself_ to persist as a greyed compact line rather than disappear, say so and I'll add a `collapsed` render branch to Task 9 before execution.
