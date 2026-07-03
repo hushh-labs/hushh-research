@@ -139,6 +139,13 @@ import {
 } from "@/components/one-location/redesign/location-redesign-hub";
 import { LocationRedesignSkeleton } from "@/components/one-location/redesign/location-redesign-skeleton";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+import {
+  clearSosIncident,
+  loadSosIncident,
+  reconcileSosIncident,
+  saveSosIncident,
+  type SosIncident,
+} from "@/lib/one-location/sos-incident";
 import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
@@ -220,6 +227,7 @@ type BusyState =
   | "deny"
   | "refer"
   | "revoke"
+  | "sos"
   | "locationSettings"
   | "selfLocation"
   | "contactSync"
@@ -1695,6 +1703,12 @@ function OneLocationAgentPageContent() {
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
 
+  const [sosIncident, setSosIncident] = useState<SosIncident | null>(null);
+
+  // Hydrate the persisted SOS incident once on mount.
+  useEffect(() => {
+    setSosIncident(loadSosIncident());
+  }, []);
 
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
@@ -1882,6 +1896,26 @@ function OneLocationAgentPageContent() {
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+
+  // Reconcile the incident against live grants: drop grant ids that are no longer
+  // active (revoked/expired). Clears the banner automatically when the incident ends.
+  useEffect(() => {
+    setSosIncident((current) => {
+      const reconciled = reconcileSosIncident(
+        current,
+        activeOwnerGrants.map((grant) => grant.id),
+      );
+      if (!reconciled) {
+        if (current) clearSosIncident();
+        return null;
+      }
+      if (reconciled.grantIds.length !== current?.grantIds.length) {
+        saveSosIncident(reconciled);
+      }
+      return reconciled;
+    });
+  }, [activeOwnerGrants]);
+
   const activeVisibleReceivedGrants = visibleReceivedGrants;
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
@@ -2883,6 +2917,64 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
+  const handleTriggerSos = useCallback(async () => {
+    if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
+    const readyRecipients = rankedRecipients.filter(isShareReadyRecipient);
+    const totalTrusted = rankedRecipients.length;
+    if (!readyRecipients.length) {
+      toast.error("No trusted contacts are ready to receive your location yet.");
+      return;
+    }
+    setBusy("sos");
+    const grantIds: string[] = [];
+    try {
+      const readiness = await ensureForegroundLocationReady({
+        capturePoint: true,
+        autoOpenSettings: true,
+      });
+      if (!readiness.ready || !readiness.point) return;
+      const point = readiness.point;
+      for (const recipient of readyRecipients) {
+        const grant = await OneLocationService.createGrant({
+          vaultOwnerToken,
+          recipientUserId: recipient.userId,
+          recipientKeyId: recipient.keyId as string,
+          durationHours: 8,
+          reason: "sos_panic",
+        });
+        await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+        grantIds.push(grant.id);
+      }
+      const incident: SosIncident = {
+        grantIds,
+        startedAt: new Date().toISOString(),
+      };
+      saveSosIncident(incident);
+      setSosIncident(incident);
+      const skipped = totalTrusted - readyRecipients.length;
+      toast.success(
+        skipped > 0
+          ? `SOS sent. Alerted ${readyRecipients.length} of ${totalTrusted} contacts (${skipped} not ready).`
+          : `SOS sent. Alerting ${readyRecipients.length} trusted contact(s).`,
+      );
+      await refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not send SOS alert.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    ensureForegroundLocationReady,
+    isShareReadyRecipient,
+    permission,
+    publishEnvelopeWithRetry,
+    rankedRecipients,
+    refresh,
+    vaultOwnerToken,
+  ]);
+
   const handlePublish = useCallback(
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
@@ -3235,6 +3327,32 @@ function OneLocationAgentPageContent() {
     [refresh, vaultOwnerToken],
   );
 
+  const handleStopSos = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    const incident = sosIncident;
+    if (!incident?.grantIds.length) return;
+    setBusy("sos");
+    try {
+      for (const grantId of incident.grantIds) {
+        await OneLocationService.revokeGrant({ vaultOwnerToken, grantId }).catch(
+          (error) => {
+            // A grant may already be expired/revoked — keep tearing the rest down.
+            console.warn("[OneLocationAgent] SOS stop: grant revoke skipped:", error);
+          },
+        );
+      }
+      clearSosIncident();
+      setSosIncident(null);
+      toast.success("SOS ended. Live location sharing stopped.");
+      await refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not stop SOS sharing.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [refresh, sosIncident, vaultOwnerToken]);
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -4260,6 +4378,12 @@ function OneLocationAgentPageContent() {
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
     decryptedPoints,
+    sosRecipients: rankedRecipients,
+    sosActive: Boolean(sosIncident?.grantIds.length),
+    sosBusy: busy === "sos",
+    sosStartedAtLabel: sosIncident ? formatDateTime(sosIncident.startedAt) : null,
+    onTriggerSos: () => void handleTriggerSos(),
+    onStopSos: () => void handleStopSos(),
   };
 
   if (USE_LOCATION_REDESIGN && !loadError) {
