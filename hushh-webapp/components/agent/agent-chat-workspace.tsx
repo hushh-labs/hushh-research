@@ -36,6 +36,8 @@ import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { SpecialistDirectiveCard, SpecialistPromptCard } from "@/components/agent/specialist-directive-card";
+import { SelectionChip } from "@/components/agent/selection-chip";
+import { describeSelection } from "@/lib/agent/describe-selection";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
@@ -115,6 +117,7 @@ type AgentMessage = {
   timestamp: string;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  kind?: "selection";
 };
 
 type AgentDebugEvent = {
@@ -682,13 +685,24 @@ function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
   );
 }
 
-function storedMessageToAgentMessage(message: StoredAgentChatMessage): AgentMessage | null {
+export function storedMessageToAgentMessage(
+  message: StoredAgentChatMessage,
+): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
   const createdAt = message.created_at ? new Date(message.created_at) : null;
+  // A selection message must never re-render its raw `I selected:` seed on
+  // reload: prefer the persisted display label and render it as a chip. The
+  // backend (Task 3) guarantees metadata.display for new selection messages;
+  // legacy rows without metadata fall back gracefully to content.
+  const isSelection = message.metadata?.kind === "selection";
+  const displayText =
+    isSelection && message.metadata?.display
+      ? message.metadata.display
+      : message.content;
   return {
     id: message.id,
     role: message.role,
-    text: message.content,
+    text: displayText,
     timestamp:
       createdAt && !Number.isNaN(createdAt.getTime())
         ? new Intl.DateTimeFormat(undefined, {
@@ -697,6 +711,7 @@ function storedMessageToAgentMessage(message: StoredAgentChatMessage): AgentMess
           }).format(createdAt)
         : formatNow(),
     status: message.status === "error" ? "error" : "done",
+    ...(isSelection ? { kind: "selection" as const } : {}),
   };
 }
 
@@ -3476,18 +3491,22 @@ export function AgentChatWorkspace({
                 />
               ) : null}
 
-              {visibleMessages.map((message) => (
-                <AgentBubble
-                  key={message.id}
-                  message={message}
-                  retryDisabled={isChatLoading || isStreaming}
-                  onRetry={
-                    message.id === latestRetryableAssistantId
-                      ? () => handleRetryAssistantResponse(message.id)
-                      : undefined
-                  }
-                />
-              ))}
+              {visibleMessages.map((message) =>
+                message.kind === "selection" ? (
+                  <SelectionChip key={message.id} label={message.text} />
+                ) : (
+                  <AgentBubble
+                    key={message.id}
+                    message={message}
+                    retryDisabled={isChatLoading || isStreaming}
+                    onRetry={
+                      message.id === latestRetryableAssistantId
+                        ? () => handleRetryAssistantResponse(message.id)
+                        : undefined
+                    }
+                  />
+                ),
+              )}
 
               {pkmActivity.map((item) => (
                 <AgentPkmActivityLine key={item.id} item={item} />
@@ -3517,9 +3536,18 @@ export function AgentChatWorkspace({
                     onAnswer={async (refs) => {
                       const evt = pendingSpecialistDirective;
                       const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { selected: refs });
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-sel`,
+                          role: "user",
+                          text: display,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
                         await sendDelegateResult({
                           delegate_agent_id: evt.delegateAgentId as "agent_location",
                           kind: "selection",
@@ -3527,6 +3555,7 @@ export function AgentChatWorkspace({
                           promptKind: prompt.kind,
                           selected: refs,
                           status: "answered",
+                          display,
                         });
                       } finally {
                         setSpecialistBusy(false);
@@ -3535,9 +3564,18 @@ export function AgentChatWorkspace({
                     onConfirm={async (yes) => {
                       const evt = pendingSpecialistDirective;
                       const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { confirmed: yes });
                       setSpecialistBusy(true);
                       try {
                         setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-sel`,
+                          role: "user",
+                          text: display,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
                         await sendDelegateResult({
                           delegate_agent_id: evt.delegateAgentId as "agent_location",
                           kind: "selection",
@@ -3545,6 +3583,7 @@ export function AgentChatWorkspace({
                           promptKind: prompt.kind,
                           confirmed: yes,
                           status: "answered",
+                          display,
                         });
                       } finally {
                         setSpecialistBusy(false);
@@ -3553,13 +3592,23 @@ export function AgentChatWorkspace({
                     onCancel={async () => {
                       const evt = pendingSpecialistDirective;
                       const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { status: "cancelled" });
                       setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-sel`,
+                        role: "user",
+                        text: display,
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
                       await sendDelegateResult({
                         delegate_agent_id: evt.delegateAgentId as "agent_location",
                         kind: "selection",
                         id: prompt.id,
                         promptKind: prompt.kind,
                         status: "cancelled",
+                        display,
                       });
                     }}
                   />
@@ -3575,6 +3624,14 @@ export function AgentChatWorkspace({
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
                       setSpecialistBusy(true);
+                      appendMessage({
+                        id: `msg-${Date.now()}-act`,
+                        role: "user",
+                        text: "Share",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
                       try {
                         // Source the vault owner token from the same place every
                         // other authed call uses (never hardcoded/invented).
@@ -3603,6 +3660,14 @@ export function AgentChatWorkspace({
                     onCancel={async () => {
                       const directive = pendingSpecialistDirective;
                       setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-act`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
                       await sendDelegateResult({
                         delegate_agent_id: directive.delegateAgentId as "agent_location",
                         kind: "action",
