@@ -1356,17 +1356,15 @@ export function KaiFlow({
               "Portfolio sync completed."
             );
           })
-          .catch((syncError) => {
-            console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
+          .catch((_syncError) => {
             AppBackgroundTaskService.failTask(
               taskId,
-              syncError instanceof Error ? syncError.message : "Sync failed",
+              _syncError instanceof Error ? _syncError.message : "Sync failed",
               "Portfolio sync failed. You can continue using dashboard."
             );
           });
       })
-      .catch((pendingError) => {
-        console.warn("[KaiFlow] Failed to preflight profile sync state:", pendingError);
+      .catch((_pendingError) => {
       });
   }, [effectiveVaultOwnerToken, userId, vaultKey]);
 
