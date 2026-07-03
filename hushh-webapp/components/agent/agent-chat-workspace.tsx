@@ -3641,14 +3641,6 @@ export function AgentChatWorkspace({
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
                       setSpecialistBusy(true);
-                      appendMessage({
-                        id: `msg-${Date.now()}-act`,
-                        role: "user",
-                        text: "Share",
-                        timestamp: formatNow(),
-                        status: "done",
-                        kind: "selection",
-                      });
                       try {
                         // Source the vault owner token from the same place every
                         // other authed call uses (never hardcoded/invented).
@@ -3657,6 +3649,14 @@ export function AgentChatWorkspace({
                           addErrorMessage("Vault access expired. Unlock again to continue.");
                           return;
                         }
+                        appendMessage({
+                          id: `msg-${Date.now()}-act`,
+                          role: "user",
+                          text: "Share",
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
                         const result = await runLocationDirective(directive.directive, token);
                         setPendingSpecialistDirective(null);
                         // view_envelope fetches a coordinate-free result here; the

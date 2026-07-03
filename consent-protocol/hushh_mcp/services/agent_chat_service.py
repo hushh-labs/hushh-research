@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -1256,12 +1257,10 @@ class AgentChatService:
         error_code: str | None = None,
         metadata: dict | None = None,
     ) -> AgentChatMessage:
-        import json as _json
-
         message_id = str(uuid4())
         encrypted = self._encrypt_text(content)
         encrypted_metadata = (
-            self._encrypt_text(_json.dumps(metadata)) if metadata is not None else None
+            self._encrypt_text(json.dumps(metadata)) if metadata is not None else None
         )
         result = await self._execute_raw(
             """
@@ -1913,8 +1912,6 @@ class AgentChatService:
         )
 
     def _message_from_row(self, row: dict[str, Any]) -> AgentChatMessage:
-        import json as _json
-
         try:
             content = self._decrypt_text(row, "content")
         except Exception:
@@ -1924,7 +1921,7 @@ class AgentChatService:
         if row.get("metadata_ciphertext"):
             try:
                 raw = self._decrypt_text(row, "metadata")
-                parsed = _json.loads(raw) if raw else None
+                parsed = json.loads(raw) if raw else None
                 metadata = parsed if isinstance(parsed, dict) else None
             except Exception:
                 logger.warning("agent_chat.metadata_decrypt_failed message_id=%s", row.get("id"))
