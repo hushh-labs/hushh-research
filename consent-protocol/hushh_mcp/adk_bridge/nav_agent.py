@@ -6,7 +6,9 @@ changing the core Nav manifest or the working Location A2A path.
 
 from __future__ import annotations
 
+import logging
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ from hushh_mcp.services.consent_center_service import ConsentCenterService
 
 DELEGATED_MODEL = "one+nav"
 NAV_AGENT_ID = "agent_nav"
+logger = logging.getLogger(__name__)
 
 
 class NavAgent:
@@ -97,6 +100,7 @@ class NavAgent:
     async def _active_consent_answer(
         self, user_id: str, *, timezone: ZoneInfo
     ) -> tuple[str, Any | None]:
+        started = time.perf_counter()
         try:
             payload = await ConsentCenterService().list_center(
                 user_id,
@@ -105,7 +109,21 @@ class NavAgent:
                 top=10,
             )
         except Exception:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.exception(
+                "nav_agent.consent_center_failed user_id=%s surface=active elapsed_ms=%.1f",
+                user_id,
+                elapsed_ms,
+            )
             return "Nav could not load approved consent requests right now. Please try again.", None
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.info(
+            "nav_agent.consent_center_timing user_id=%s surface=active elapsed_ms=%.1f items=%s total=%s",
+            user_id,
+            elapsed_ms,
+            len(list(payload.get("items") or [])),
+            payload.get("total"),
+        )
 
         grants = list(payload.get("items") or [])
         total = int(payload.get("total") or len(grants))
@@ -140,6 +158,7 @@ class NavAgent:
     async def _previous_consent_answer(
         self, user_id: str, *, timezone: ZoneInfo
     ) -> tuple[str, Any | None]:
+        started = time.perf_counter()
         try:
             payload = await ConsentCenterService().list_center(
                 user_id,
@@ -148,7 +167,21 @@ class NavAgent:
                 top=10,
             )
         except Exception:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.exception(
+                "nav_agent.consent_center_failed user_id=%s surface=previous elapsed_ms=%.1f",
+                user_id,
+                elapsed_ms,
+            )
             return "Nav could not load revoked consent requests right now. Please try again.", None
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.info(
+            "nav_agent.consent_center_timing user_id=%s surface=previous elapsed_ms=%.1f items=%s total=%s",
+            user_id,
+            elapsed_ms,
+            len(list(payload.get("items") or [])),
+            payload.get("total"),
+        )
 
         entries = list(payload.get("items") or [])
         total = int(payload.get("total") or len(entries))
