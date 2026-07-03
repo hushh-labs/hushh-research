@@ -10,6 +10,7 @@ export type AgentChatMessage = {
   model?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
+  metadata?: { kind?: string; display?: string } | null;
 };
 
 export type AgentChatConversation = {

@@ -383,6 +383,7 @@ export interface SelectionResult {
   confirmed?: boolean;
   freeText?: string;
   status: "answered" | "cancelled";
+  display?: string;
 }
 
 export interface LocationChatResponse {
