@@ -56,9 +56,13 @@ class NavAgent:
 
         message = (hussh_task.message or "").strip()
         timezone = _safe_timezone(hussh_task.metadata.get("timezone"))
+        answer_text, directive = await self._answer(
+            message, user_id=hussh_task.user_id, timezone=timezone
+        )
         hussh_result = _hussh_result(
             conversation_id=hussh_task.conversation_id,
-            text=await self._answer(message, user_id=hussh_task.user_id, timezone=timezone),
+            text=answer_text,
+            directive=directive,
             is_complete=True,
             model=DELEGATED_MODEL,
             metadata={
@@ -69,22 +73,30 @@ class NavAgent:
         )
         return _research_result(hussh_result)
 
-    async def _answer(self, message: str, *, user_id: str, timezone: ZoneInfo) -> str:
-        instruction = " ".join((self._manifest.system_instruction or "").split())
+    async def _answer(
+        self, message: str, *, user_id: str, timezone: ZoneInfo
+    ) -> tuple[str, Any | None]:
         if not message:
             return (
                 "Nav is ready to review consent, scope release, vault access, "
-                "deletion, and revocation questions."
+                "deletion, and revocation questions.",
+                None,
             )
+        if _is_previous_consent_query(message):
+            return await self._previous_consent_answer(user_id, timezone=timezone)
         if _is_active_consent_query(message):
             return await self._active_consent_answer(user_id, timezone=timezone)
         return (
-            f"{instruction} For this request: {message} Nav can review the "
-            "requested access, explain the trust boundary, and help narrow, "
-            "approve, or revoke scopes before personal context is released."
+            f"For this request: {message}. I can help review consent requests, "
+            "explain what access was granted, "
+            "and help you approve, narrow, or revoke access. Ask me to show active, "
+            "pending, or revoked consent requests.",
+            None,
         )
 
-    async def _active_consent_answer(self, user_id: str, *, timezone: ZoneInfo) -> str:
+    async def _active_consent_answer(
+        self, user_id: str, *, timezone: ZoneInfo
+    ) -> tuple[str, Any | None]:
         try:
             payload = await ConsentCenterService().list_center(
                 user_id,
@@ -93,25 +105,66 @@ class NavAgent:
                 top=10,
             )
         except Exception:
-            return "Nav could not load approved consent requests right now. Please try again."
+            return "Nav could not load approved consent requests right now. Please try again.", None
 
         grants = list(payload.get("items") or [])
         total = int(payload.get("total") or len(grants))
         if not grants:
-            return "You do not have any approved consent requests right now."
+            return "You do not have any approved consent requests right now.", None
 
         lines = [
             f"You have {total} approved consent request"
             f"{'' if total == 1 else 's'} active right now:"
         ]
+        action_items: list[dict[str, Any]] = []
         for index, grant in enumerate(grants[:10], start=1):
             label = _entry_label(grant)
             access = _friendly_scope(grant)
             expires = _friendly_expiry(grant, timezone=timezone)
             lines.append(f"{index}. {label} can {access}{expires}.")
+            action_item = _consent_action_item(grant, label=label, access=access)
+            if action_item is not None:
+                action_items.append(action_item)
         if total > len(grants):
             lines.append(f"There are {total - len(grants)} more approved requests.")
-        return "\n".join(lines)
+        directive = (
+            _hussh_directive(
+                kind="prompt",
+                payload={"kind": "consent_actions", "items": action_items},
+            )
+            if action_items
+            else None
+        )
+        return "\n".join(lines), directive
+
+    async def _previous_consent_answer(
+        self, user_id: str, *, timezone: ZoneInfo
+    ) -> tuple[str, Any | None]:
+        try:
+            payload = await ConsentCenterService().list_center(
+                user_id,
+                actor="investor",
+                surface="previous",
+                top=10,
+            )
+        except Exception:
+            return "Nav could not load revoked consent requests right now. Please try again.", None
+
+        entries = list(payload.get("items") or [])
+        total = int(payload.get("total") or len(entries))
+        if not entries:
+            return "You do not have any revoked or previous consent requests right now.", None
+
+        lines = [f"You have {total} previous consent request{'' if total == 1 else 's'}:"]
+        for index, entry in enumerate(entries[:10], start=1):
+            label = _entry_label(entry)
+            access = _friendly_scope(entry)
+            ended = _friendly_terminal_time(entry, timezone=timezone)
+            status = str(entry.get("status") or "previous").strip().lower()
+            lines.append(f"{index}. {label} had access to {access}{ended} ({status}).")
+        if total > len(entries):
+            lines.append(f"There are {total - len(entries)} more previous requests.")
+        return "\n".join(lines), None
 
 
 _singleton: NavAgent | None = None
@@ -131,11 +184,30 @@ def _default_manifest_path() -> Path:
 def _is_active_consent_query(message: str) -> bool:
     text = message.lower()
     consent_words = ("consent", "access", "grant", "permission", "scope")
-    active_words = ("approved", "active", "granted", "who has access")
+    active_words = (
+        "approved",
+        "active",
+        "granted",
+        "request",
+        "requests",
+        "who has access",
+    )
     list_words = ("show", "list", "all", "what", "who")
     return (
         any(word in text for word in consent_words)
         and any(word in text for word in active_words)
+        and any(word in text for word in list_words)
+    )
+
+
+def _is_previous_consent_query(message: str) -> bool:
+    text = message.lower()
+    consent_words = ("consent", "access", "grant", "permission", "scope", "request")
+    previous_words = ("revoked", "revoke", "expired", "previous", "past", "history", "ended")
+    list_words = ("show", "list", "all", "what", "who", "about")
+    return (
+        any(word in text for word in consent_words)
+        and any(word in text for word in previous_words)
         and any(word in text for word in list_words)
     )
 
@@ -174,6 +246,51 @@ def _friendly_scope(entry: dict[str, Any]) -> str:
     return "access an approved scope"
 
 
+def _consent_action_item(
+    entry: dict[str, Any],
+    *,
+    label: str,
+    access: str,
+) -> dict[str, Any] | None:
+    entry_id = str(entry.get("id") or "").strip()
+    scope = str(entry.get("scope") or "").strip()
+    metadata = dict(entry.get("metadata") or {})
+    request_source = str(metadata.get("request_source") or "").strip()
+    is_location_grant = (
+        entry_id.startswith("one_location_grant:")
+        or request_source == "one_location_share_grant"
+        or scope.startswith("cap.location.")
+    )
+    if not is_location_grant:
+        return None
+
+    grant_id = str(metadata.get("grant_id") or "").strip()
+    if not grant_id and entry_id.startswith("one_location_grant:"):
+        grant_id = entry_id.split(":", 1)[1].strip()
+    if not grant_id:
+        raw_id = str(entry.get("id") or "").strip()
+        if raw_id and not raw_id.startswith("one_location_"):
+            grant_id = raw_id
+    if not grant_id:
+        return None
+
+    item_id = f"one_location_grant:{grant_id}"
+    action_metadata = {
+        **metadata,
+        "request_source": "one_location_share_grant",
+        "grant_id": grant_id,
+    }
+    return {
+        "id": item_id,
+        "label": label,
+        "summary": f"{label} can {access}",
+        "scope": scope,
+        "expiresAt": entry.get("expires_at"),
+        "metadata": action_metadata,
+        "actions": ["revoke", "details"],
+    }
+
+
 def _friendly_expiry(entry: dict[str, Any], *, timezone: ZoneInfo) -> str:
     expires = str(entry.get("expires_at") or "").strip()
     if not expires:
@@ -190,6 +307,26 @@ def _friendly_expiry(entry: dict[str, Any], *, timezone: ZoneInfo) -> str:
         day_label = "tomorrow"
     time_label = local_expires.strftime("%-I:%M %p %Z")
     return f" until {day_label} at {time_label}"
+
+
+def _friendly_terminal_time(entry: dict[str, Any], *, timezone: ZoneInfo) -> str:
+    for key in ("revoked_at", "resolved_at", "expires_at", "updated_at", "issued_at"):
+        value = str(entry.get(key) or "").strip()
+        if not value:
+            continue
+        parsed = _parse_datetime(value)
+        if parsed is None:
+            return f" until {value}"
+        local_value = parsed.astimezone(timezone)
+        local_now = datetime.now(UTC).astimezone(timezone)
+        day_label = local_value.strftime("%b %-d, %Y")
+        if local_value.date() == local_now.date():
+            day_label = "today"
+        elif (local_value.date() - local_now.date()).days == -1:
+            day_label = "yesterday"
+        time_label = local_value.strftime("%-I:%M %p %Z")
+        return f" until {day_label} at {time_label}"
+    return ""
 
 
 def _parse_datetime(value: str) -> datetime | None:
