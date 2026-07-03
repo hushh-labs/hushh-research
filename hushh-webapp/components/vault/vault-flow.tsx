@@ -14,7 +14,10 @@ import {
   Shield,
   ArrowRight,
   Fingerprint,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { VaultService } from "@/lib/services/vault-service";
 import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
@@ -88,6 +91,7 @@ export function VaultFlow({
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [vaultMode, setVaultMode] = useState<VaultMode>("passphrase");
   const [unlockHint, setUnlockHint] = useState<string | null>(null);
   const [availableGeneratedMethod, setAvailableGeneratedMethod] =
@@ -896,11 +900,22 @@ export function VaultFlow({
           {step === "unlock" && (
             <div className="space-y-2.5">
               <div className="text-center">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.06] dark:bg-foreground/[0.10]">
+                <div
+                  className={cn(
+                    "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full transition-colors",
+                    passphrase && !isGeneratedVaultMode
+                      ? "bg-[rgba(48,209,88,0.14)]"
+                      : "bg-foreground/[0.06] dark:bg-foreground/[0.10]",
+                  )}
+                >
                   <Icon
                     icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                    size={22}
-                    className="text-foreground/70"
+                    size={24}
+                    className={
+                      passphrase && !isGeneratedVaultMode
+                        ? "text-[#248A3D]"
+                        : "text-foreground/70"
+                    }
                   />
                 </div>
                 <div
@@ -922,22 +937,37 @@ export function VaultFlow({
                 ) : null}
               </div>
               {shouldShowPassphraseUnlock && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="unlock-passphrase" className="type-footnote font-medium text-muted-foreground">
-                    Vault Key
-                  </Label>
-                  <Input
+                <div
+                  className={cn(
+                    "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-colors dark:bg-white/[0.04]",
+                    passphrase
+                      ? "border-[#111] dark:border-white/70"
+                      : "border-black/10 dark:border-white/15",
+                  )}
+                >
+                  <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                  <input
                     id="unlock-passphrase"
-                    type="password"
+                    type={showPassphrase ? "text" : "password"}
                     placeholder="Enter vault key"
+                    aria-label="Vault key"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
                     onKeyDown={(e) =>
                       e.key === "Enter" && handleUnlockPassphrase()
                     }
                     autoFocus
-                    className="h-12 rounded-[14px] px-4 text-[16px]"
+                    autoComplete="current-password"
+                    className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-foreground/35"
                   />
+                  <button
+                    type="button"
+                    aria-label={showPassphrase ? "Hide vault key" : "Show vault key"}
+                    onClick={() => setShowPassphrase((v) => !v)}
+                    className="shrink-0 text-foreground/45 transition-colors hover:text-foreground/70"
+                  >
+                    <Icon icon={showPassphrase ? EyeOff : Eye} size={18} />
+                  </button>
                 </div>
               )}
               <div className="flex flex-col gap-2 pt-1">
@@ -947,7 +977,7 @@ export function VaultFlow({
                     effect="fill"
                     size="default"
                     fullWidth
-                    className="h-12 rounded-full type-headline !bg-primary !text-primary-foreground transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-primary/90 active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-muted disabled:!text-muted-foreground"
+                    className="h-12 rounded-full type-headline !bg-[#111] !text-white shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-black active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-white dark:!text-[#111] dark:hover:!bg-white dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -1106,7 +1136,7 @@ export function VaultFlow({
                   effect="fill"
                   size="default"
                   fullWidth
-                  className="h-12 rounded-full type-headline !bg-primary !text-primary-foreground transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-primary/90 active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-muted disabled:!text-muted-foreground"
+                  className="h-12 rounded-full type-headline !bg-[#111] !text-white shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-black active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-white dark:!text-[#111] dark:hover:!bg-white dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >
