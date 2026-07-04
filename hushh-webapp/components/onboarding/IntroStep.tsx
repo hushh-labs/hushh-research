@@ -1,19 +1,18 @@
 "use client";
 
-import Image from "next/image";
 import type { ComponentType, SVGProps } from "react";
 import { cn } from "@/lib/utils";
 
 /* ────────────────────────────────────────────────────────────
  * 14a — Immersive welcome (design.md §5.7/5.8/5.10)
- * Dark hero (glass icon tile + indigo-accent wordmark) rising into
+ * Dark hero (bare quiet mark + gold-accent wordmark) rising into
  * a white sheet with a timeline feature list + consent note. The
  * "Get started" CTA is intentionally removed — Log in is the single
  * primary action. Content is OURS; the ask bar + theme toggle are
  * global chrome that overlays this screen.
  * ──────────────────────────────────────────────────────────── */
 
-// Indigo stroke glyphs (currentColor) — the parent sets the indigo color.
+// Gold stroke glyphs (currentColor) — the parent sets the accent color.
 function VaultLockIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
@@ -46,7 +45,7 @@ function InboxCapabilityIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-// Content is OURS (unchanged); presentation is the 14a timeline.
+// Content is OURS; presentation is the 14a timeline.
 const INTRO_FEATURES: Array<{
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   title: string;
@@ -94,34 +93,24 @@ export function IntroStep({
       <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
         {/* ── Dark hero ── */}
         <div className="flex flex-col items-center px-6 pt-[calc(78px+var(--app-safe-area-top-effective,0px))] pb-9 text-center">
-          <div className="relative flex h-[88px] w-[88px] items-center justify-center rounded-[23px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+          <div className="relative flex h-[88px] items-center justify-center" aria-hidden="true">
             <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 -z-10 rounded-[23px]"
-              style={{ boxShadow: "0 0 60px rgba(212,175,106,0.28)" }}
+              className="pointer-events-none absolute h-24 w-24 rounded-full bg-accent/15 blur-2xl"
             />
-            <Image
-              src="/one-quiet-emoji.png"
-              alt=""
-              width={762}
-              height={766}
-              priority
-              unoptimized
-              aria-hidden="true"
-              draggable={false}
-              className="h-11 w-11 select-none object-contain [filter:drop-shadow(0_4px_10px_rgba(0,0,0,0.35))]"
-            />
+            <span className="relative select-none text-[64px] leading-none drop-shadow-[0_10px_24px_rgba(0,0,0,0.38)]">
+              🤫
+            </span>
           </div>
 
           <div
             role="heading"
             aria-level={1}
-            aria-label="hushh One, a memory that's only yours"
-            className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-[-1.4px] text-[#FAF6EE]"
+            aria-label="hussh One, a memory that's only yours"
+            className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-normal text-[#FAF6EE]"
           >
-            hu<span style={{ color: "#D4AF6A" }}>sh</span>h{" "}
+            hu<span className="text-accent-strong">ssh</span>{" "}
             <span className="font-bold">One</span>
-            <span style={{ color: "#D4AF6A" }}>.</span>
+            <span className="text-accent-strong">.</span>
           </div>
           <p className="mt-3 text-[16px] tracking-[-0.2px] text-[rgba(250,246,238,0.62)]">
             A memory that&apos;s only yours.
@@ -160,7 +149,7 @@ export function IntroStep({
             })}
           </div>
 
-          {/* Consent note (indigo tint) */}
+          {/* Consent note (warm tint) */}
           <div className="mt-6 rounded-2xl bg-[rgba(156,116,52,0.10)] px-4 py-4 text-center text-[13.5px] leading-[1.5] text-black/55 dark:bg-white/[0.05] dark:text-white/60">
             One is consent-first. Your knowledge and information are your
             safewords. Nothing leaves your vault without your approval.
