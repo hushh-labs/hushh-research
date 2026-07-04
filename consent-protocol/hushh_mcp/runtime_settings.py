@@ -52,6 +52,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "sync_remote_enabled": "SYNC_REMOTE_ENABLED",
     "developer_api_enabled": "DEVELOPER_API_ENABLED",
     "remote_mcp_enabled": "REMOTE_MCP_ENABLED",
+    "crm_registry_db_enabled": "CRM_REGISTRY_DB_ENABLED",
     "cors_allowed_origins": "CORS_ALLOWED_ORIGINS",
     "obs_data_stale_ratio_threshold": "OBS_DATA_STALE_RATIO_THRESHOLD",
     "passkey_allowed_rp_ids": "PASSKEY_ALLOWED_RP_IDS",

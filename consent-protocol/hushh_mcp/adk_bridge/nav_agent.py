@@ -7,7 +7,6 @@ changing the core Nav manifest or the working Location A2A path.
 from __future__ import annotations
 
 import logging
-import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,16 +32,15 @@ class NavAgent:
         self._manifest = ManifestLoader.load(str(self._manifest_path))
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
-        hussh_task = _hussh_task(task)
-        validation = validate_a2a_consent_token(self.agent_id, hussh_task.consent_token)
+        validation = validate_a2a_consent_token(self.agent_id, task.consent_token)
         if not validation.ok:
-            hussh_result = _hussh_result(
-                conversation_id=hussh_task.conversation_id,
+            return SpecialistTurnResult(
+                conversation_id=task.conversation_id or "",
                 text=(
                     "Nav cannot review this request without an active "
                     f"{validation.required_scope.value} consent grant."
                 ),
-                directive=_hussh_directive(
+                directive=A2ADirective(
                     kind="prompt",
                     payload={
                         "kind": "consent_required",
@@ -53,28 +51,22 @@ class NavAgent:
                 ),
                 is_complete=True,
                 model=DELEGATED_MODEL,
-                metadata={"status": "needs_consent", "reason": validation.reason},
+                state_changed=False,
             )
-            return _research_result(hussh_result)
 
-        message = (hussh_task.message or "").strip()
-        timezone = _safe_timezone(hussh_task.metadata.get("timezone"))
+        message = (task.message or "").strip()
+        timezone = _safe_timezone(task.timezone)
         answer_text, directive = await self._answer(
-            message, user_id=hussh_task.user_id, timezone=timezone
+            message, user_id=task.user_id, timezone=timezone
         )
-        hussh_result = _hussh_result(
-            conversation_id=hussh_task.conversation_id,
+        return SpecialistTurnResult(
+            conversation_id=task.conversation_id or "",
             text=answer_text,
             directive=directive,
             is_complete=True,
             model=DELEGATED_MODEL,
-            metadata={
-                "status": "completed",
-                "agent_id": self.agent_id,
-                "required_scope": validation.required_scope.value,
-            },
+            state_changed=False,
         )
-        return _research_result(hussh_result)
 
     async def _answer(
         self, message: str, *, user_id: str, timezone: ZoneInfo
@@ -146,7 +138,7 @@ class NavAgent:
         if total > len(grants):
             lines.append(f"There are {total - len(grants)} more approved requests.")
         directive = (
-            _hussh_directive(
+            A2ADirective(
                 kind="prompt",
                 payload={"kind": "consent_actions", "items": action_items},
             )
@@ -383,76 +375,3 @@ def _safe_timezone(value: Any) -> ZoneInfo:
         return ZoneInfo(name)
     except (ValueError, ZoneInfoNotFoundError):
         return ZoneInfo("UTC")
-
-
-def _hussh_task(task: A2ATask) -> Any:
-    _ensure_hussh_package()
-    from hussh import A2ATask as HusshA2ATask
-
-    return HusshA2ATask(
-        user_id=task.user_id,
-        consent_token=task.consent_token,
-        conversation_id=task.conversation_id,
-        message=task.message,
-        payload={"delegate_result": task.delegate_result} if task.delegate_result else {},
-        metadata={"timezone": task.timezone} if task.timezone else {},
-    )
-
-
-def _hussh_directive(*, kind: str, payload: dict[str, Any]) -> Any:
-    _ensure_hussh_package()
-    from hussh import A2ADirective as HusshA2ADirective
-
-    return HusshA2ADirective(kind=kind, payload=payload)
-
-
-def _hussh_result(
-    *,
-    conversation_id: str | None,
-    text: str,
-    directive: Any = None,
-    is_complete: bool,
-    model: str,
-    metadata: dict[str, Any],
-) -> Any:
-    _ensure_hussh_package()
-    from hussh import A2AResult as HusshA2AResult
-
-    return HusshA2AResult(
-        conversation_id=conversation_id or "",
-        text=text,
-        directive=directive,
-        is_complete=is_complete,
-        model=model,
-        metadata=metadata,
-    )
-
-
-def _research_result(result: Any) -> SpecialistTurnResult:
-    directive = None
-    if result.directive is not None:
-        directive = A2ADirective(
-            kind=result.directive.kind,
-            payload=result.directive.payload,
-        )
-    return SpecialistTurnResult(
-        conversation_id=result.conversation_id,
-        text=result.text,
-        directive=directive,
-        is_complete=result.is_complete,
-        state_changed=result.state_changed,
-        model=result.model or DELEGATED_MODEL,
-    )
-
-
-def _ensure_hussh_package() -> None:
-    try:
-        import hussh  # noqa: F401
-
-        return
-    except ModuleNotFoundError:
-        checkout_path = (
-            Path(__file__).resolve().parents[3].parent / "hussh.dev" / "packages" / "sdk"
-        )
-        if checkout_path.exists() and str(checkout_path) not in sys.path:
-            sys.path.insert(0, str(checkout_path))
