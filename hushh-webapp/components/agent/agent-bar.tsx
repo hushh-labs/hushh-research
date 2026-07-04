@@ -224,6 +224,10 @@ export function AgentBar() {
   // transient auth transitions (login, logout) where the app shell is not the
   // host.
   const path = pathname ?? "";
+  // The waveform action circle is white only on the 2c dark dashboard (where a
+  // white circle pops); on every other surface (welcome, profile, kai, …) it is
+  // the indigo accent, per design.md §5.5.
+  const onDashboard = path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
   const unmountBar =
     !agentPopover ||
     // The One setup surface is a focused onboarding flow (like Apple's "Finish
@@ -411,9 +415,9 @@ export function AgentBar() {
               title="Conversational mode"
               className={cn(
                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-                isHomeRoute
-                  ? "bg-[#5E5CE6] text-white hover:bg-[#4a48c9]"
-                  : "bg-white text-[#111] hover:bg-white/90",
+                onDashboard
+                  ? "bg-white text-[#111] hover:bg-white/90"
+                  : "bg-[#5E5CE6] text-white hover:bg-[#4a48c9]",
                 "transition-[background-color,transform] duration-200 active:scale-90",
               )}
             >

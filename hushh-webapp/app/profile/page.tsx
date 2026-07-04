@@ -4205,54 +4205,69 @@ function ProfilePageContent() {
   const profileRootContent = (
     <>
       <AppPageHeaderRegion className={styles.profilePageHeaderRegion}>
-        <header
-          className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
-          data-slot="page-header"
-          data-page-primary="true"
-        >
-          <Avatar className="h-24 w-24 shrink-0 ring-4 ring-white shadow-[0_12px_30px_rgba(94,92,230,0.35)] sm:h-28 sm:w-28 dark:ring-white/15">
-            <AvatarImage
-              src={user.photoURL || undefined}
-              alt={user.displayName || "Profile"}
+        <header data-slot="page-header" data-page-primary="true">
+          {/* 12a dark identity card — dark gradient + indigo glow, photo-drop
+              avatar (photo or initials), name, and a provider email pill. */}
+          <div
+            className="relative overflow-hidden rounded-[26px] p-6 text-center"
+            style={{ background: "linear-gradient(150deg, #17171F 0%, #0B0B0F 100%)" }}
+          >
+            <span
+              aria-hidden
+              className="pointer-events-none absolute -right-10 -top-16 h-52 w-52 rounded-full"
+              style={{ background: "rgba(94,92,230,0.38)", filter: "blur(62px)" }}
             />
-            <AvatarFallback className="bg-gradient-to-br from-[#2E1065] to-[#5E5CE6] text-3xl font-extrabold text-white sm:text-4xl">
-              {user.displayName ? (
-                user.displayName
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()
-              ) : (
-                <Icon icon={User} size={48} />
-              )}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="font-[family-name:var(--font-app-display)] text-[30px] font-extrabold leading-[1.05] tracking-[-1px] text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
-              {user.displayName || "User"}
-            </h1>
-            <div
-              className="inline-flex max-w-full items-center justify-center gap-2 text-sm text-muted-foreground"
-              title={provider.name}
-            >
-              <ProviderIcon providerId={provider.id} />
-              <span className="[overflow-wrap:anywhere]">
-                {user.email || "Not available"}
-              </span>
-            </div>
-            {vaultAccess.needsUnlock && hasVault ? (
-              <div className="pt-1.5">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute -bottom-10 -left-12 h-44 w-44 rounded-full"
+              style={{ background: "rgba(18,161,80,0.14)", filter: "blur(62px)" }}
+            />
+            <div className="relative flex flex-col items-center gap-3">
+              <Avatar className="h-[104px] w-[104px] shrink-0 border-[1.5px] border-dashed border-white/25 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+                <AvatarImage
+                  src={user.photoURL || undefined}
+                  alt={user.displayName || "Profile"}
+                />
+                <AvatarFallback className="bg-white/[0.08] text-3xl font-extrabold text-white">
+                  {user.displayName ? (
+                    user.displayName
+                      .split(" ")
+                      .map((part) => part[0])
+                      .join("")
+                      .slice(0, 2)
+                      .toUpperCase()
+                  ) : (
+                    <Icon icon={User} size={44} />
+                  )}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 max-w-full space-y-2">
+                <h1 className="font-[family-name:var(--font-app-display)] text-[26px] font-extrabold leading-[1.1] tracking-[-0.6px] text-white [overflow-wrap:anywhere] sm:text-[28px]">
+                  {user.displayName || "User"}
+                </h1>
+                <div
+                  className="inline-flex max-w-full items-center gap-2 rounded-full bg-white/[0.12] px-3.5 py-1.5 text-[14px] text-white/85"
+                  title={provider.name}
+                >
+                  <ProviderIcon providerId={provider.id} />
+                  <span className="[overflow-wrap:anywhere]">
+                    {user.email || "Not available"}
+                  </span>
+                </div>
+              </div>
+              {vaultAccess.needsUnlock && hasVault ? (
                 <Button
                   size="sm"
-                  className="min-w-[148px]"
+                  variant="none"
+                  effect="fill"
+                  className="mt-1 min-w-[148px] rounded-full !bg-white !text-[#111] hover:!bg-white/90"
                   onClick={() => requestVaultUnlock("profile_data")}
                 >
                   <Icon icon={KeyRound} size="sm" className="mr-2" />
                   Unlock vault
                 </Button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         </header>
       </AppPageHeaderRegion>
