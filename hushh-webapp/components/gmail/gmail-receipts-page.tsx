@@ -501,7 +501,6 @@ export default function ProfileReceiptsPage() {
       toast.message("Syncing your receipts now.");
     } catch (error) {
       pendingSyncFeedbackRef.current = false;
-      console.error("[ProfileReceiptsPage] Failed to start Gmail sync:", error);
       toast.error(
         sanitizeGmailUserMessage(error, {
           fallback:
@@ -839,10 +838,6 @@ export default function ProfileReceiptsPage() {
         setReceiptMemoryArtifact(artifact);
         setReceiptMemoryMessage("Your shopping summary is ready to review.");
       } catch (error) {
-        console.error(
-          "[ProfileReceiptsPage] Failed to build receipt summary:",
-          error,
-        );
         const message = sanitizeGmailUserMessage(error, {
           fallback:
             "We couldn't create a shopping summary right now. Please try again in a moment.",
@@ -977,10 +972,6 @@ export default function ProfileReceiptsPage() {
       setReceiptMemoryMessage("Your shopping summary is saved.");
       toast.success("Insights saved");
     } catch (error) {
-      console.error(
-        "[ProfileReceiptsPage] Failed to save receipt insights:",
-        error,
-      );
       const message = sanitizeGmailUserMessage(error, {
         fallback:
           "We couldn't save your insights right now. Please try again in a moment.",
@@ -1003,11 +994,7 @@ export default function ProfileReceiptsPage() {
   const handleLoadMore = useCallback(async () => {
     try {
       await loadReceipts(page + 1);
-    } catch (error) {
-      console.error(
-        "[ProfileReceiptsPage] Failed to load older receipts:",
-        error,
-      );
+    } catch {
       toast.error(
         "We couldn't load older receipts right now. Please try again.",
       );
