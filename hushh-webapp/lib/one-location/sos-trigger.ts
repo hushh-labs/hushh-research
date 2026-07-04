@@ -85,11 +85,11 @@ export function selectSosConnectedRecipients(
   const connectedIds = new Set<string>();
   for (const connection of networkConnections ?? []) {
     if (connection.status !== "active") continue;
-    const otherId =
-      connection.userAId === myUserId
-        ? connection.userBId
-        : connection.userAId;
-    if (otherId && otherId !== myUserId) connectedIds.add(otherId);
+    // Add BOTH sides so the set is correct regardless of whether myUserId is
+    // known. Self is excluded below.
+    for (const id of [connection.userAId, connection.userBId]) {
+      if (id && id !== myUserId) connectedIds.add(id);
+    }
   }
   return recipients.filter((r) => connectedIds.has(r.userId));
 }
