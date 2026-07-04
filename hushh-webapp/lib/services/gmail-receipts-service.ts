@@ -139,6 +139,8 @@ export interface GmailNudge {
   received_at: string | null;
   /** Meeting start time for upcoming_meeting nudges; null otherwise. */
   starts_at?: string | null;
+  /** Conferencing "join" link for upcoming_meeting nudges; null when unavailable. */
+  meeting_url?: string | null;
 }
 
 export interface GmailNudgesResponse {

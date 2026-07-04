@@ -30,16 +30,30 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/** Human when-label for a future meeting time (e.g. "in 2h · Mon, Jul 6, 4:00 PM"). */
+/**
+ * Countdown to a future meeting plus the absolute time, e.g.
+ * "in 2d 3h · Mon, Jul 6, 4:00 PM". Granularity: days+hours when ≥1 day,
+ * hours+minutes when ≥1 hour, minutes when <1 hour.
+ */
 function meetingWhen(iso: string | null | undefined): string {
   if (!iso) return "";
   const when = new Date(iso);
   if (Number.isNaN(when.getTime())) return "";
-  const diffMin = Math.round((when.getTime() - Date.now()) / 60000);
-  let relative = "";
-  if (diffMin < 60) relative = `in ${Math.max(diffMin, 0)}m`;
-  else if (diffMin < 60 * 24) relative = `in ${Math.round(diffMin / 60)}h`;
-  else relative = `in ${Math.round(diffMin / (60 * 24))}d`;
+  const totalMin = Math.round((when.getTime() - Date.now()) / 60000);
+  let relative: string;
+  if (totalMin <= 0) {
+    relative = "now";
+  } else if (totalMin < 60) {
+    relative = `in ${totalMin}m`;
+  } else if (totalMin < 60 * 24) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    relative = m ? `in ${h}h ${m}m` : `in ${h}h`;
+  } else {
+    const d = Math.floor(totalMin / (60 * 24));
+    const h = Math.floor((totalMin % (60 * 24)) / 60);
+    relative = h ? `in ${d}d ${h}h` : `in ${d}d`;
+  }
   const absolute = when.toLocaleString(undefined, {
     weekday: "short",
     month: "short",
@@ -56,15 +70,9 @@ function gmailThreadUrl(threadId: string): string {
 
 function NudgeCard({ nudge }: { nudge: GmailNudge }) {
   const isMeeting = nudge.type === "upcoming_meeting";
-  let subtitle: string;
-  if (isMeeting && nudge.starts_at) {
-    subtitle = `${nudge.sender ? `${nudge.sender} · ` : ""}${meetingWhen(nudge.starts_at)}`;
-  } else if (isMeeting) {
-    // Body mention with no parseable time.
-    subtitle = `Mentioned by ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
-  } else {
-    subtitle = `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
-  }
+  const subtitle = isMeeting
+    ? `${nudge.sender ? `${nudge.sender} · ` : ""}${meetingWhen(nudge.starts_at)}`
+    : `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
   return (
     <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
       <div className="min-w-0 space-y-1">
@@ -77,15 +85,31 @@ function NudgeCard({ nudge }: { nudge: GmailNudge }) {
         </div>
         <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
       </div>
-      <Button
-        variant="muted"
-        size="sm"
-        onClick={() =>
-          window.open(gmailThreadUrl(nudge.thread_id), "_blank", "noopener,noreferrer")
-        }
-      >
-        {isMeeting ? "View" : "Draft reply"}
-      </Button>
+      {isMeeting ? (
+        <Button
+          variant="muted"
+          size="sm"
+          onClick={() =>
+            window.open(
+              nudge.meeting_url ?? gmailThreadUrl(nudge.thread_id),
+              "_blank",
+              "noopener,noreferrer",
+            )
+          }
+        >
+          {nudge.meeting_url ? "Join" : "View"}
+        </Button>
+      ) : (
+        // Draft-reply flow isn't built yet — surface it as coming soon, disabled.
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="secondary" className="whitespace-nowrap text-[10px]">
+            Draft coming soon
+          </Badge>
+          <Button variant="muted" size="sm" disabled>
+            Draft
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
