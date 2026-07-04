@@ -8,26 +8,39 @@ The `hushh-desktop` directory is structured as follows:
 
 ```text
 hushh-desktop/
-├── electron/          # Electron shell process scripts
-│   ├── main/          # Electron main process (Node.js)
-│   │   ├── launcher.js # Process orchestrator (Next.js server & Python FastAPI)
-│   │   └── main.js    # Window and app lifecycle management
-│   ├── preload/       # Preload scripts (Context bridge)
-│   │   └── preload.js # Maps native Capacitor plugins to Electron IPC
-│   └── ipc/           # IPC handlers (capabilities, runtime, settings, etc.)
-├── config/            # Shared runtime configuration (e.g. port allocations)
-├── frontend/          # Standalone Next.js frontend build (copied from hushh-webapp)
-├── backend/           # Embedded Python backend codebase (copied from consent-protocol)
-├── docs/              # Developer guides and packaging pipeline docs
-├── sync/              # Manifests tracking original commit baselines
-└── installer/         # Packaging build outputs (untracked, portable ZIP)
+├── electron/              # Electron shell process scripts
+│   ├── main/              # Electron main process (Node.js)
+│   │   ├── main.js        # Entry point: registers IPC, orchestrates startup
+│   │   ├── services/      # Modular main-process services (see below)
+│   │   │   ├── runtime/       # Shared RuntimeContext (ports, URLs, dev/prod)
+│   │   │   ├── ports/         # Free-port allocation
+│   │   │   ├── environment/   # .env parsing + per-machine key generation
+│   │   │   ├── launcher/      # Builds backend/frontend spawn commands
+│   │   │   ├── supervisor/    # Spawns/monitors/recovers child processes
+│   │   │   ├── models/        # On-device AI (GenieX) lifecycle (registry.js)
+│   │   │   └── logging/       # Tees console + child streams to log files
+│   │   └── ipc/           # IPC handlers (platform, runtime, models, settings, …)
+│   └── preload/           # Preload scripts (contextBridge → window.hushh)
+├── ai-library/            # On-device AI assets
+│   └── geniex/            # Portable GenieX runtime bundled via extraResources
+├── frontend/              # Next.js frontend (shared hushh-webapp codebase)
+├── backend/               # FastAPI backend (PyInstaller-compiled for release)
+├── docs/                  # Developer guide, pipeline, known issues
+├── sync/                  # Manifests tracking original commit baselines
+└── installer/             # Packaging build outputs (untracked, portable ZIP)
 ```
+
+> **Note:** The Alpha's monolithic `electron/main/launcher.js` has been replaced
+> by the modular `electron/main/services/` layout above. `launcher/` now only
+> builds spawn commands; `supervisor/` owns process lifecycle. See
+> [docs/DEVELOPER_GUIDE.md](./docs/DEVELOPER_GUIDE.md).
 
 ## 2. Desktop/Web Integration Philosophy
 
-- **Standalone Next.js standalone server**: We compile the Next.js frontend (`frontend/`) in `standalone` mode, which generates a minimal self-contained Node server (`server.js`). Electron boots this standalone server locally.
-- **Embedded Python Backend**: The FastAPI Python backend is packaged directly in the bundle (`backend/`) and executed in a virtual environment by `launcher.js` on port 8000.
-- **Unified Launch Orchestrator (`launcher.js`)**: Coordinates the boot sequence of both frontend and backend child processes, manually parses `.env.local` and `.env.production` at startup, and pipes standard streams to the console/logs.
+- **Standalone Next.js server**: We compile the Next.js frontend (`frontend/`) in `standalone` mode, which generates a minimal self-contained Node server (`server.js`). Electron boots this standalone server locally. (In dev, `next dev` is used instead.)
+- **Embedded Python Backend**: For release, the FastAPI backend is compiled to a single `hushh-backend.exe` via PyInstaller and spawned directly — no system Python required. In dev it runs via `uvicorn --reload` from `backend/.venv`.
+- **Service-based orchestration**: `main.js` registers IPC handlers, then `services/supervisor` spawns and monitors the backend and frontend child processes. `services/environment` parses `.env*` and injects it into both; `services/runtime` allocates ports and builds the shared runtime context. Streams are teed to log files by `services/logging`.
+- **On-device inference**: `services/models/registry.js` manages the GenieX NPU engine (`localhost:18181`) — provisioning, spawn/kill, and bounded crash recovery.
 
 ## 3. IPC Philosophy & Preload Context Bridge
 

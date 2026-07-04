@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -902,6 +903,16 @@ class AgentChatService:
         runtime_credential: str | None = None,
         runtime_credential_mode: str | None = None,
     ) -> PreparedAgentRuntime:
+        if runtime_credential_mode == "local":
+            return PreparedAgentRuntime(
+                mode="local",
+                provider="local",
+                model="Llama-3.2-3B-Instruct",
+                credential_ref=None,
+                client=None,
+                evidence={"framework": "local"},
+            )
+
         contract = self.prepare_runtime_contract(
             runtime_credential=runtime_credential,
             runtime_credential_mode=runtime_credential_mode,
@@ -1294,6 +1305,80 @@ class AgentChatService:
         action_plan: AgentChatActionPlan | None = None,
         pkm_context: str | None = None,
     ) -> AsyncGenerator[str, None]:
+        if runtime_model == "Llama-3.2-3B-Instruct" or runtime_client is None:
+            import aiohttp
+            url = "http://localhost:18181/v1/chat/completions"
+            messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+            # On-device NPU inference is far more compute-constrained than the
+            # cloud path, and prompt-processing time scales with total context
+            # size -- keep history/PKM context small so each turn's prefill
+            # stays fast instead of growing every turn as the conversation gets
+            # longer.
+            local_history_limit = 4
+            local_message_char_limit = 400
+            local_pkm_char_limit = 1500
+            for msg in history[-local_history_limit:]:
+                if msg.role not in {"user", "assistant"}:
+                    continue
+                messages.append({"role": "user" if msg.role == "user" else "assistant", "content": msg.content[:local_message_char_limit]})
+            local_pkm_context = (pkm_context or "")[:local_pkm_char_limit]
+            turn_context = self._build_turn_context(action_plan=action_plan, pkm_context=local_pkm_context)
+            # The smaller on-device model follows the base system prompt's
+            # "use PKM context when relevant" nuance far less reliably than
+            # Gemini does, and tends to cite the PKM note on every turn even
+            # for plain greetings/chit-chat. Gemini doesn't need this extra
+            # nudge, so it's scoped to the local path only.
+            local_relevance_reminder = (
+                "Only mention or reference the PKM context above if the user's "
+                "latest message is actually asking about their personal data, "
+                "preferences, portfolio, or memory. For greetings, small talk, "
+                "or general questions unrelated to their PKM data, respond "
+                "naturally and do not bring up the PKM note."
+            )
+            messages.append({
+                "role": "user",
+                "content": f"{turn_context}\n\n{local_relevance_reminder}\n\nLatest user message:\n{user_message}",
+            })
+
+            payload = {
+                "model": "qualcomm/qwen3_4b_instruct_2507",
+                "messages": messages,
+                "stream": True,
+                "temperature": 0.7,
+                "max_tokens": 4096
+            }
+            
+            # aiohttp.ClientSession defaults to a 300s total timeout if none
+            # is given -- disable it so a genuinely slow (but progressing)
+            # on-device generation is never cut off mid-stream.
+            no_timeout = aiohttp.ClientTimeout(total=None)
+            async with aiohttp.ClientSession(timeout=no_timeout) as session:
+                async with session.post(url, json=payload) as response:
+                    if response.status != 200:
+                        yield "Local engine connection failure"
+                        return
+                    async for line in response.content:
+                        line = line.decode("utf-8").strip()
+                        if not line.startswith("data:"):
+                            continue
+                        # GenieX emits "data:{...}" with no space after the colon,
+                        # unlike the space-delimited "data: {...}" SSE convention.
+                        payload_str = line[len("data:"):].strip()
+                        if payload_str == "[DONE]":
+                            continue
+                        try:
+                            data = json.loads(payload_str)
+                            choice = data.get("choices", [{}])[0]
+                            # GenieX normally streams token deltas, but for some
+                            # (slow/heavy) completions it emits a single final
+                            # frame in the non-streaming "message" shape instead.
+                            delta = choice.get("delta", {}).get("content", "") or choice.get("message", {}).get("content", "")
+                            if delta:
+                                yield delta
+                        except Exception as exc:
+                            logger.warning(f"[LocalChat] Failed to parse GenieX SSE line: {exc!r} line={payload_str[:200]!r}")
+            return
+
         contents = self._build_contents(
             user_message=user_message,
             history=history,
@@ -1347,6 +1432,13 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
     ) -> AgentChatActionPlan | None:
+        if runtime_model == "Llama-3.2-3B-Instruct" or runtime_client is None:
+            # Local models don't get Gemini's structured function-calling (that layer
+            # is Gemini-SDK-specific and only covers routing/navigation intents, not
+            # financial analysis itself). They do get the same deterministic
+            # regex-based action detection cloud mode falls back to when Gemini's
+            # own function call comes up empty.
+            return self.plan_action(user_message)
         crm_action = self._plan_crm_action(user_message)
         if crm_action is not None:
             return crm_action

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "next build --webpack && node ./scripts/postbuild-standalone-assets.mjs",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",

@@ -27,10 +27,14 @@
       "backend/dist/hushh-backend.exe",
       "frontend/.env*",
       "frontend/.next/standalone/**/*",
-      "frontend/.next/static/**/*",
-      "frontend/public/**/*",
       "backend/.env",
       "backend/dist/hushh-backend.exe"
+    ],
+    "extraResources": [
+      {
+        "from": "ai-library/geniex",
+        "to": "geniex"
+      }
     ],
     "win": {
       "target": "zip"

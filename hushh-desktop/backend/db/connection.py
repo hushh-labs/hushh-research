@@ -232,6 +232,11 @@ async def get_pool() -> asyncpg.Pool:
         db_password = os.getenv("DB_PASSWORD", "")
         db_name = os.getenv("DB_NAME", "postgres")
         db_port = int(os.getenv("DB_PORT", "5432"))
+        
+        # Limit pool to avoid exhausting Supabase session pooler (max 15)
+        pool_max_size = int(os.getenv("DB_POOL_MAX_SIZE", "2"))
+        pool_min_size = min(2, pool_max_size)
+        
         target = db_unix_socket or db_host
         logger.info("Connecting to PostgreSQL at %s...", target)
         if ssl_config:
@@ -244,21 +249,23 @@ async def get_pool() -> asyncpg.Pool:
                     database=db_name,
                     host=db_unix_socket,
                     port=db_port,
-                    min_size=2,
-                    max_size=10,
+                    min_size=pool_min_size,
+                    max_size=pool_max_size,
                     timeout=connect_timeout_seconds,
                     command_timeout=60,
                     max_inactive_connection_lifetime=300,
+                    statement_cache_size=0,
                 )
             else:
                 _pool = await asyncpg.create_pool(
                     database_url,
-                    min_size=2,
-                    max_size=10,
+                    min_size=pool_min_size,
+                    max_size=pool_max_size,
                     timeout=connect_timeout_seconds,
                     command_timeout=60,
                     max_inactive_connection_lifetime=300,
                     ssl=ssl_config,
+                    statement_cache_size=0,
                 )
         except Exception as exc:
             if _is_connection_unavailable_error(exc):

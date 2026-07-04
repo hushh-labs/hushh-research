@@ -18,7 +18,7 @@ export interface StreamingCursorProps {
   /** Whether text is actively streaming (solid) or idle (blinking) */
   isStreaming: boolean;
   /** Cursor color variant */
-  color?: "primary" | "muted" | "accent" | "success" | "error";
+  color?: "primary" | "muted" | "accent" | "success" | "error" | "local";
   /** Size variant */
   size?: "sm" | "md" | "lg";
   /** Additional CSS classes */
@@ -37,6 +37,8 @@ const colorClasses = {
   accent: "bg-[#fbbf24]",
   success: "bg-emerald-500",
   error: "bg-red-500",
+  /** On-device NPU generation: hue-shifting blue -> violet -> pink glow */
+  local: "agent-local-cursor-glow",
 } as const;
 
 export function StreamingCursor({

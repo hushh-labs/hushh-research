@@ -286,18 +286,20 @@ function AgentWelcomePanel({
   suggestions,
   disabled,
   onPromptSelect,
+  isLocalActive,
 }: {
   name: string;
   suggestions: AgentWelcomeSuggestion[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
+  isLocalActive: boolean;
 }) {
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          Kai workspace
+          {isLocalActive ? "Agent - Local" : "Kai workspace"}
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
           Hi {name}
@@ -417,7 +419,7 @@ function AgentMarkdown({ text }: { text: string }) {
   );
 }
 
-function useAnimatedAssistantText(targetText: string, active: boolean) {
+function useAnimatedAssistantText(targetText: string, active: boolean, smooth: boolean = false) {
   const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
   const displayedTextRef = useRef(displayedText);
   const targetTextRef = useRef(targetText);
@@ -461,7 +463,20 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
       const elapsedMs = lastPaintAt ? Math.max(12, now - lastPaintAt) : AGENT_STREAM_RENDER_FRAME_MS;
       lastPaintAt = now;
       const backlog = target.length - current.length;
-      const charsPerSecond = backlog > 900 ? 2600 : backlog > 260 ? 1500 : 620;
+      // Local/on-device mode uses a much gentler cadence so letters trickle in
+      // one at a time (paired with a per-letter fade-in) instead of arriving
+      // in visible chunks; cloud mode keeps its original snappy reveal.
+      const charsPerSecond = smooth
+        ? backlog > 900
+          ? 1800
+          : backlog > 260
+            ? 500
+            : 60
+        : backlog > 900
+          ? 2600
+          : backlog > 260
+            ? 1500
+            : 620;
       const step = Math.max(
         1,
         Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000))
@@ -486,12 +501,29 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
         window.cancelAnimationFrame(frame);
       }
     };
-  }, [active, targetText]);
+  }, [active, targetText, smooth]);
 
   return {
     displayedText,
     isAnimating: active || displayedText.length < targetText.length,
   };
+}
+
+function LocalTypingText({ text }: { text: string }) {
+  const characters = useMemo(() => Array.from(text), [text]);
+  return (
+    <span className="whitespace-pre-wrap break-words">
+      {characters.map((char, index) =>
+        char === "\n" ? (
+          <br key={index} />
+        ) : (
+          <span key={index} className="agent-local-letter-in">
+            {char}
+          </span>
+        )
+      )}
+    </span>
+  );
 }
 
 function AgentThinkingDots() {
@@ -508,10 +540,12 @@ function AgentBubble({
   message,
   onRetry,
   retryDisabled = false,
+  isLocalActive = false,
 }: {
   message: AgentMessage;
   onRetry?: () => void;
   retryDisabled?: boolean;
+  isLocalActive?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -519,11 +553,13 @@ function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
-  const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
+  const showLocalGlow = !isUser && isLocalActive && !isError;
+  const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming, showLocalGlow);
   const assistantText = isUser ? message.text : animated.displayedText;
   const showStreamingAffordance = !isUser && animated.isAnimating;
   const showResponseActions =
     !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
+  const showLocalTyping = showLocalGlow && isStreaming;
 
   const handleCopy = async () => {
     try {
@@ -561,20 +597,25 @@ function AgentBubble({
               ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
               : "px-0 py-1 text-foreground",
             isError &&
-              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
+              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive",
+            showLocalGlow && cn("agent-local-text-glow", isStreaming && "is-streaming")
           )}
         >
           {isUser ? (
             <span className="whitespace-pre-wrap break-words">{message.text}</span>
           ) : assistantText ? (
-            <AgentMarkdown text={assistantText} />
+            showLocalTyping ? (
+              <LocalTypingText text={assistantText} />
+            ) : (
+              <AgentMarkdown text={assistantText} />
+            )
           ) : (
             <AgentThinkingDots />
           )}
           {showStreamingAffordance ? (
             <StreamingCursor
               isStreaming={isStreaming}
-              color={isError ? "error" : "primary"}
+              color={isError ? "error" : showLocalGlow ? "local" : "primary"}
               size="md"
               className="ml-1"
             />
@@ -783,6 +824,42 @@ export function AgentChatWorkspace({
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const typedSubmitInFlightRef = useRef(false);
+
+  // Seeded from the last-known status so a fresh mount (e.g. opening a brand
+  // new chat) doesn't briefly read as cloud mode while the async IPC status
+  // check below is still in flight -- welcome suggestions are only shown
+  // pre-first-message, so without this seed they'd consistently lose that race.
+  const [isLocalActive, setIsLocalActive] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("hushh:local-ai-running") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [telemetry, setTelemetry] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    const applyStatus = (status: any) => {
+      const running = !!status?.running;
+      setIsLocalActive(running);
+      try {
+        window.localStorage.setItem("hushh:local-ai-running", running ? "1" : "0");
+      } catch {
+        // best-effort cache; ignore storage failures (e.g. private mode)
+      }
+    };
+
+    // 1. Fetch initial state on mount
+    (window as any).hushh?.models?.status("Llama-3.2-3B-Instruct").then(applyStatus);
+
+    // 2. Listen for native push notifications from Electron Main
+    const unsubscribe = (window as any).hushh?.models?.onStatusChange?.(applyStatus);
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   const voiceActive = voiceState !== "idle";
   const voiceMuted = voiceState === "muted";
@@ -2253,6 +2330,7 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        runtimeCredentialMode: isLocalActive ? "local" : undefined,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -2311,6 +2389,10 @@ export function AgentChatWorkspace({
             queueAssistantDelta(delta);
             queueVoiceAssistantDelta(delta);
           },
+          onTelemetry: (telemetryPayload) => {
+            if (streamAbortController.signal.aborted) return;
+            setTelemetry(telemetryPayload);
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             clearVoiceStreamWatchdog();
@@ -2328,6 +2410,7 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
+            setTelemetry(null);
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
@@ -2344,6 +2427,7 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
+            setTelemetry(null);
           },
         },
       });
@@ -2379,6 +2463,7 @@ export function AgentChatWorkspace({
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
+      setTelemetry(null);
     } catch (error) {
       if (streamAbortController.signal.aborted) {
         if (voiceStreamTimeoutMessage) {
@@ -2405,6 +2490,7 @@ export function AgentChatWorkspace({
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
+      setTelemetry(null);
     } finally {
       clearVoiceStreamWatchdog();
       cancelAssistantFlush();
@@ -2460,6 +2546,7 @@ export function AgentChatWorkspace({
     setIsVoiceConnecting(false);
     setIsChatLoading(false);
     setIsStreaming(false);
+    setTelemetry(null);
     setVoiceTranscriptReview(null);
     setVoiceState("idle");
     resetGlobalVoiceState();
@@ -2931,12 +3018,22 @@ export function AgentChatWorkspace({
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
-                  Agent
+                  {isLocalActive ? "Agent - Local" : "Agent"}
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
                   Kai workspace
                 </p>
               </div>
+              
+              {/* Hardware Telemetry Pill */}
+              {telemetry && (
+                <div className="flex animate-in fade-in zoom-in items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur">
+                  <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+                  {telemetry.npu_load && <span>NPU: {telemetry.npu_load}</span>}
+                  {telemetry.npu_load && telemetry.tokens_per_sec && <span className="opacity-50">|</span>}
+                  {telemetry.tokens_per_sec && <span>{telemetry.tokens_per_sec} t/s</span>}
+                </div>
+              )}
             </div>
 
             <div className="relative z-10 flex shrink-0 items-center gap-2">
@@ -3004,6 +3101,7 @@ export function AgentChatWorkspace({
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
               isPopover ? "pb-4 pt-5" : "pb-6 pt-8 sm:pt-10 lg:px-8 lg:pt-6"
             )}
+            data-no-auto-fade="true"
           >
             <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
               {accessMessage ? (
@@ -3029,6 +3127,7 @@ export function AgentChatWorkspace({
                   suggestions={welcomeSuggestions}
                   disabled={!hasChatAccess || isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
+                  isLocalActive={isLocalActive}
                 />
               ) : null}
 
@@ -3037,6 +3136,7 @@ export function AgentChatWorkspace({
                   key={message.id}
                   message={message}
                   retryDisabled={isChatLoading || isStreaming}
+                  isLocalActive={isLocalActive}
                   onRetry={
                     message.id === latestRetryableAssistantId
                       ? () => handleRetryAssistantResponse(message.id)
@@ -3131,7 +3231,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
+                <div className={cn("agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20", isLocalActive && "agent-local-glow")}>
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message Agent"

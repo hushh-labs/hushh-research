@@ -35,10 +35,6 @@ const AGENT_VOICE_TTS_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS",
 });
-const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
-  developmentFloorMs: 120_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS",
-});
 
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
@@ -166,7 +162,10 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
     return AGENT_VOICE_TTS_PROXY_TIMEOUT_MS;
   }
   if (path === "agent/chat/stream") {
-    return AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS;
+    // No proxy-imposed timeout: local on-device generation can legitimately
+    // take several minutes, and a cut-off here is worse than just waiting --
+    // the backend/GenieX side has its own (now also unbounded) handling.
+    return null;
   }
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;

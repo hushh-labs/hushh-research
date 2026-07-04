@@ -4,6 +4,21 @@ const fs = require("fs");
 const path = require("path");
 const { app } = require("electron");
 
+// The GenieX model identifier, distinct from the internal `modelId` used
+// for on-disk/IPC bookkeeping ("Llama-3.2-3B-Instruct"). Pre-compiled QAIRT
+// asset pulled directly from AI Hub (real NPU execution, no local export
+// needed) -- Meta's Llama variants don't offer this due to licensing, so
+// this is Qwen3-4B-Instruct instead.
+const GENIEX_MODEL_ID = "qualcomm/qwen3_4b_instruct_2507";
+const GENIEX_MODEL_HUB = "aihub";
+const GENIEX_PORT = 18181;
+
+// Crash-recovery tuning for the occasional native QAIRT crash under memory
+// pressure -- bounded retries so a genuinely broken install doesn't loop forever.
+const MAX_RESTART_ATTEMPTS = 3;
+const RESTART_WINDOW_MS = 5 * 60 * 1000;
+const RESTART_DELAY_MS = 1500;
+
 class ModelRegistry {
   constructor() {
     this.modelsDir = this._getModelsDir();
@@ -71,208 +86,295 @@ class ModelRegistry {
   getModelsDir() {
     return this.modelsDir;
   }
-  
+
+  broadcastStatusChange(modelId = "Llama-3.2-3B-Instruct") {
+      const { BrowserWindow } = require("electron");
+      const status = this.getStatus(modelId);
+      BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+              win.webContents.send("hushh:models:statusChange", status);
+          }
+      });
+  }
+
   /**
-   * Scaffolds the download UX for fetching hushh-ai-runtime.exe
-   * by copying it from the workspace 'ai-library' folder.
+   * Resolves the GenieX CLI executable.
+   * Packaged builds ship a portable copy under resources/geniex (see
+   * ai-library/geniex + package.json extraResources) so end users don't need
+   * GenieX's own Inno Setup installer. Dev runs still use the system install
+   * at %LOCALAPPDATA%\GenieX CLI so the existing local dev workflow is untouched.
    */
-  async downloadLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
-    console.log(`[ModelRegistry] 🔄 Initiating download (local copy) for decoupled AI engine and ${modelId} folder...`);
-    this._cancelDownloadFlag = false;
-    
-    // __dirname is electron/main/services/models. 
-    // Go up 4 levels to hit hushh-desktop, then into ai-library.
-    const workspaceAiLibrary = path.join(__dirname, "..", "..", "..", "..", "ai-library");
-    const aiDir = path.join(this.modelsDir, "..", "AI");
-    const modelDir = path.join(this.modelsDir, modelId);
-    
-    if (!fs.existsSync(aiDir)) fs.mkdirSync(aiDir, { recursive: true });
-    if (!fs.existsSync(modelDir)) fs.mkdirSync(modelDir, { recursive: true });
-    
-    // Simulate a slow download so the UI has time to show the cancellation X button
-    for (let i = 0; i < 20; i++) {
-        if (this._cancelDownloadFlag) {
-            console.log(`[ModelRegistry] 🛑 Download cancelled for ${modelId}.`);
-            return { success: false, status: "cancelled" };
-        }
-        await new Promise(resolve => setTimeout(resolve, 100));
+  _getGenieXExePath() {
+    if (process.platform !== "win32") return null;
+
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, "geniex", "geniex.exe");
     }
-    
-    try {
-        // Copy Engine Directory (built by PyInstaller)
-        const sourceEngine = path.join(workspaceAiLibrary, "hushh-ai-runtime");
-        if (fs.existsSync(sourceEngine)) {
-            fs.cpSync(sourceEngine, aiDir, { recursive: true, force: true });
-        } else {
-            console.warn(`[ModelRegistry] ⚠️ Source Engine not found at ${sourceEngine}. Creating mock exe so verification passes.`);
-            fs.writeFileSync(path.join(aiDir, "hushh-ai-runtime.exe"), "MOCK_EXE_CONTENT");
-        }
-        
-        // Copy Model ONNX
-        const sourceOnnx = path.join(workspaceAiLibrary, modelId, "model.onnx");
-        const destOnnx = path.join(modelDir, "model.onnx");
-        if (fs.existsSync(sourceOnnx)) {
-            fs.copyFileSync(sourceOnnx, destOnnx);
-        } else {
-            console.warn(`[ModelRegistry] ⚠️ Source ONNX not found at ${sourceOnnx}. Creating sparse 1.6GB file.`);
-            const { execSync } = require('child_process');
-            execSync(`fsutil file createnew "${destOnnx}" 1717986918`);
-        }
-        
-        // Write completion lock
-        fs.writeFileSync(path.join(modelDir, "verification.lock"), "DOWNLOAD_COMPLETE");
-        
-        console.log(`[ModelRegistry] ✅ Download complete. Wrote verification.lock for ${modelId}.`);
+
+    if (process.env.LOCALAPPDATA) {
+      return path.join(process.env.LOCALAPPDATA, "GenieX CLI", "geniex.exe");
+    }
+    return null;
+  }
+
+  _isGenieXInstalled() {
+    const exe = this._getGenieXExePath();
+    return !!exe && fs.existsSync(exe);
+  }
+
+  /**
+   * Pulls the GenieX model into its local cache (idempotent — skips if
+   * already present, per `geniex list`).
+   */
+  async provisionGenieXModel(modelId = "Llama-3.2-3B-Instruct") {
+    const geniexExe = this._getGenieXExePath();
+    if (!geniexExe || !fs.existsSync(geniexExe)) {
+        console.error(`[ModelRegistry] ❌ GenieX CLI not found at ${geniexExe}. Install GenieX CLI first.`);
+        return { success: false, status: "error", error: "geniex_not_installed" };
+    }
+
+    if (this.verifyLocalInferenceEngine(modelId)) {
+        console.log(`[ModelRegistry] ✅ ${GENIEX_MODEL_ID} already cached, skipping pull.`);
         return { success: true, status: "downloaded" };
-    } catch (err) {
-        console.error(`[ModelRegistry] ❌ Failed to copy local library files:`, err);
-        return { success: false, status: "error", error: err.message };
     }
+
+    console.log(`[ModelRegistry] 🔄 Pulling ${GENIEX_MODEL_ID} via GenieX...`);
+    this._cancelDownloadFlag = false;
+
+    const { spawn } = require("child_process");
+    return await new Promise((resolve) => {
+        const pullProcess = spawn(geniexExe, [
+            "pull", GENIEX_MODEL_ID,
+            "--model-hub", GENIEX_MODEL_HUB,
+        ], { stdio: ["pipe", "pipe", "pipe"] });
+
+        this._pullProcess = pullProcess;
+
+        pullProcess.stdout.on("data", (data) => {
+            console.log(`[GenieX pull] ${data.toString().trim()}`);
+        });
+        pullProcess.stderr.on("data", (data) => {
+            console.error(`[GenieX pull] ⚠️ ${data.toString().trim()}`);
+        });
+
+        pullProcess.on("exit", (code) => {
+            this._pullProcess = null;
+            if (this._cancelDownloadFlag) {
+                console.log(`[ModelRegistry] 🛑 Download cancelled for ${modelId}.`);
+                resolve({ success: false, status: "cancelled" });
+                return;
+            }
+            if (code === 0) {
+                console.log(`[ModelRegistry] ✅ Pull complete for ${GENIEX_MODEL_ID}.`);
+                resolve({ success: true, status: "downloaded" });
+            } else {
+                console.error(`[ModelRegistry] ❌ geniex pull exited with code ${code}.`);
+                resolve({ success: false, status: "error", error: `geniex pull exited with code ${code}` });
+            }
+        });
+    });
   }
 
   cancelDownloadLocalInferenceEngine() {
       this._cancelDownloadFlag = true;
+      if (this._pullProcess) {
+          this._pullProcess.kill();
+      }
       return true;
   }
 
   /**
-   * Validates that the engine and model weights are fully downloaded and not corrupted.
+   * Checks GenieX's own model cache (`geniex list`) rather than local
+   * scaffold files — GenieX manages its own model storage internally.
    */
   verifyLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
-    const aiDir = path.join(this.modelsDir, "..", "AI");
-    const engineExe = path.join(aiDir, "hushh-ai-runtime.exe");
-    const modelDir = path.join(this.modelsDir, modelId);
-    const lockFile = path.join(modelDir, "verification.lock");
-    const onnxFile = path.join(modelDir, "model.onnx");
-    
-    if (!fs.existsSync(engineExe) || !fs.existsSync(lockFile)) {
+    const geniexExe = this._getGenieXExePath();
+    if (!geniexExe || !fs.existsSync(geniexExe)) {
         return false;
-    }
-    
-    // In scaffold mode, we return true early so we don't trip the 1.5GB check
-    // Remove this early return once real downloading is implemented.
-    if (fs.readFileSync(lockFile, "utf-8") === "DOWNLOAD_COMPLETE") {
-        return true;
     }
 
     try {
-        const stats = fs.statSync(onnxFile);
-        const sizeInGB = stats.size / (1024 * 1024 * 1024);
-        
-        if (sizeInGB < 1.5) {
-            return false;
-        }
+        const { execFileSync } = require("child_process");
+        const output = execFileSync(geniexExe, ["list", "--format", "json"], { encoding: "utf-8" });
+        const cached = JSON.parse(output);
+        return cached.some((m) => m.name === GENIEX_MODEL_ID);
     } catch (err) {
+        console.error(`[ModelRegistry] Failed to check GenieX model cache:`, err.message);
         return false;
     }
-
-    return true;
   }
 
   /**
-   * Spawns the decoupled Python PyInstaller executable in the background.
+   * Spawns `geniex serve` in the background. Preserves the dead man's
+   * switch: stdin stays piped, so if Electron dies/closes the pipe,
+   * GenieX sees EOF on stdin and exits on its own — no taskkill needed
+   * for the happy path (kept as a fallback in killLocalInferenceEngine).
    */
-  async spawnLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct", port = 8001) {
+  async spawnLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct", port = GENIEX_PORT) {
     if (this.aiProcess) {
         console.log(`[ModelRegistry] AI Engine is already running.`);
         return this.aiProcess;
     }
-    
+
     const { spawn } = require("child_process");
     const waitOn = require("wait-on");
-    const aiDir = path.join(this.modelsDir, "..", "AI");
-    const engineExe = path.join(aiDir, "hushh-ai-runtime.exe");
-    const modelDir = path.join(this.modelsDir, modelId);
-    
+    const geniexExe = this._getGenieXExePath();
+
     if (!this.verifyLocalInferenceEngine(modelId)) {
-        console.error(`[ModelRegistry] ❌ Verification failed. Cannot spawn AI Runtime.`);
+        console.error(`[ModelRegistry] ❌ Verification failed. Cannot spawn GenieX server.`);
         return null;
     }
-    
-    console.log(`[ModelRegistry] 🚀 Spawning AI Engine from ${engineExe} on port ${port}...`);
-    
-    this.aiProcess = spawn(engineExe, [], {
-        env: {
-            ...process.env,
-            MODEL_DIR: modelDir,
-            PORT: port.toString()
-        },
-        cwd: aiDir
+
+    console.log(`[ModelRegistry] 🚀 Spawning GenieX server from ${geniexExe} on port ${port}...`);
+
+    this.aiProcess = spawn(geniexExe, ["serve"], {
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe']
     });
-    
+
     this.aiProcess.stdout.on("data", (data) => {
-        console.log(`[AI-RUNTIME] ${data.toString().trim()}`);
+        console.log(`[GenieX] ${data.toString().trim()}`);
     });
-    
+
     this.aiProcess.stderr.on("data", (data) => {
-        console.error(`[AI-RUNTIME] ⚠️ ${data.toString().trim()}`);
+        console.error(`[GenieX] ⚠️ ${data.toString().trim()}`);
     });
-    
+
     this.aiProcess.on("exit", (code, signal) => {
-        console.log(`[ModelRegistry] AI Runtime exited with code ${code} and signal ${signal}`);
+        console.log(`[ModelRegistry] GenieX server exited with code ${code} and signal ${signal}`);
         this.aiProcess = null;
+        const wasIntentional = this._intentionalShutdown;
+        this._intentionalShutdown = false;
+
+        if (wasIntentional) {
+            this.broadcastStatusChange(modelId);
+            return;
+        }
+
+        console.warn(`[ModelRegistry] ⚠️ GenieX server exited unexpectedly (code=${code}, signal=${signal}). This is a known occasional native crash in Qualcomm's QAIRT library, not an app bug -- attempting automatic recovery.`);
+        this._attemptCrashRecovery(modelId, port);
     });
-    
-    console.log(`[ModelRegistry] ⏳ Waiting for AI Engine to respond on port ${port}...`);
+
+    console.log(`[ModelRegistry] ⏳ Waiting for GenieX server to respond on port ${port}...`);
     try {
         await waitOn({
-            resources: [`http-get://127.0.0.1:${port}/health`],
-            interval: 500,
-            timeout: 60000,
-        });
-        console.log(`[ModelRegistry] ✅ AI Engine is online and ready!`);
+        resources: [`http-get://127.0.0.1:${port}/v1/models`],
+        interval: 500,
+        timeout: 60000,
+      });
+        console.log(`[ModelRegistry] ✅ GenieX server is online and ready!`);
+        this.broadcastStatusChange(modelId);
         return this.aiProcess;
     } catch (err) {
-        console.error(`[ModelRegistry] ❌ AI Engine failed to come online:`, err);
+        console.error(`[ModelRegistry] ❌ GenieX server failed to come online:`, err);
         this.killLocalInferenceEngine(modelId);
         return null;
     }
   }
-  
+
   /**
-   * Kills the running decoupled engine gracefully using taskkill for PyInstaller trees.
+   * Handles an unexpected GenieX exit (e.g. the native QAIRT crash we've seen
+   * under memory pressure) by respawning it automatically, with a bounded
+   * number of attempts per time window so a truly broken install doesn't
+   * crash-loop forever.
+   */
+  _attemptCrashRecovery(modelId, port) {
+      const now = Date.now();
+      if (!this._crashRestartState || now - this._crashRestartState.windowStart > RESTART_WINDOW_MS) {
+          this._crashRestartState = { count: 0, windowStart: now };
+      }
+      this._crashRestartState.count += 1;
+
+      if (this._crashRestartState.count > MAX_RESTART_ATTEMPTS) {
+          console.error(
+              `[ModelRegistry] ❌ GenieX crashed ${this._crashRestartState.count} times within ` +
+              `${Math.round(RESTART_WINDOW_MS / 60000)} minutes. Giving up automatic recovery -- ` +
+              `manual restart required.`
+          );
+          this._restarting = false;
+          this.broadcastStatusChange(modelId);
+          return;
+      }
+
+      this._restarting = true;
+      this.broadcastStatusChange(modelId);
+      console.log(
+          `[ModelRegistry] 🔄 Attempting GenieX recovery ` +
+          `(attempt ${this._crashRestartState.count}/${MAX_RESTART_ATTEMPTS})...`
+      );
+
+      this._recoveryTimer = setTimeout(() => {
+          this._recoveryTimer = null;
+          this.spawnLocalInferenceEngine(modelId, port)
+              .then((proc) => {
+                  this._restarting = false;
+                  if (proc) {
+                      console.log(`[ModelRegistry] ✅ Recovered from GenieX crash.`);
+                  } else {
+                      console.error(`[ModelRegistry] ❌ Recovery attempt failed to bring GenieX back online.`);
+                  }
+                  this.broadcastStatusChange(modelId);
+              })
+              .catch((err) => {
+                  this._restarting = false;
+                  console.error(`[ModelRegistry] ❌ Recovery attempt threw:`, err);
+                  this.broadcastStatusChange(modelId);
+              });
+      }, RESTART_DELAY_MS);
+  }
+
+  /**
+   * Kills the running GenieX server. Closing stdin (dead man's switch)
+   * is GenieX's primary shutdown signal; taskkill is a forceful fallback
+   * in case it doesn't exit on its own.
    */
   async killLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
+      // Cancel any pending auto-restart -- an explicit stop/remove should win.
+      if (this._recoveryTimer) {
+          clearTimeout(this._recoveryTimer);
+          this._recoveryTimer = null;
+          this._restarting = false;
+      }
+
       if (this.aiProcess) {
-          console.log(`[ModelRegistry] 🛑 Sending shutdown request to AI Runtime...`);
-          
-          try {
-              // Graceful NPU memory flush
-              const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-              await fetch('http://localhost:8001/shutdown', { method: 'POST' }).catch(() => {});
-          } catch (e) {
-              // Ignore network errors if the process is already dead
-          }
+          console.log(`[ModelRegistry] 🛑 Stopping GenieX server...`);
+          this._intentionalShutdown = true;
 
           if (this.aiProcess.pid && this.aiProcess.pid !== 99999) {
               const { exec } = require('child_process');
               exec(`taskkill /PID ${this.aiProcess.pid} /T /F`, (err) => {
                   if (err) {
-                      console.error('Failed to kill AI tree:', err);
+                      console.error('Failed to kill GenieX process tree:', err);
                   }
               });
           } else if (this.aiProcess.kill) {
               this.aiProcess.kill();
           }
           this.aiProcess = null;
+          this.broadcastStatusChange(modelId);
       }
       return true;
   }
-  
+
   /**
-   * Deletes the local files to reclaim SSD space.
+   * Removes the model from GenieX's cache to reclaim SSD space.
    */
   async deleteLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
       await this.killLocalInferenceEngine(modelId);
-      
-      const aiDir = path.join(this.modelsDir, "..", "AI");
-      const engineExe = path.join(aiDir, "hushh-ai-runtime.exe");
-      const modelDir = path.join(this.modelsDir, modelId);
-      
-      if (fs.existsSync(engineExe)) fs.unlinkSync(engineExe);
-      if (fs.existsSync(modelDir)) fs.rmSync(modelDir, { recursive: true, force: true });
-      
-      console.log(`[ModelRegistry] 🗑️ Deleted AI Engine and ${modelId} from disk.`);
+
+      const geniexExe = this._getGenieXExePath();
+      if (!geniexExe || !fs.existsSync(geniexExe)) {
+          console.warn(`[ModelRegistry] GenieX CLI not found, nothing to remove.`);
+          return true;
+      }
+
+      try {
+          const { execFileSync } = require("child_process");
+          execFileSync(geniexExe, ["remove", GENIEX_MODEL_ID, "--yes"], { encoding: "utf-8" });
+          console.log(`[ModelRegistry] 🗑️ Removed ${GENIEX_MODEL_ID} from GenieX cache.`);
+      } catch (err) {
+          console.error(`[ModelRegistry] Failed to remove GenieX model:`, err.message);
+      }
       return true;
   }
   
@@ -282,7 +384,8 @@ class ModelRegistry {
   getStatus(modelId = "Llama-3.2-3B-Instruct") {
       return {
           downloaded: this.verifyLocalInferenceEngine(modelId),
-          running: !!this.aiProcess
+          running: !!this.aiProcess,
+          restarting: !!this._restarting
       };
   }
 }

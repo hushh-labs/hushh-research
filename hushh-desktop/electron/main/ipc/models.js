@@ -19,7 +19,7 @@ function registerModelsHandlers() {
 
   ipcMain.handle("hushh:models:install", async (_event, modelId) => {
     const { registry } = require("../services/models/registry");
-    return await registry.downloadLocalInferenceEngine(modelId);
+    return await registry.provisionGenieXModel(modelId);
   });
 
   ipcMain.handle("hushh:models:cancelInstall", (_event, modelId) => {

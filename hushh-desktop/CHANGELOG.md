@@ -1,5 +1,52 @@
 # Changelog
 
+## [desktop-beta-v1.0] - 2026-07-04
+
+### 🧠 On-device Kai agent (headline feature)
+- **Local NPU inference**: Kai can now run entirely on the device's Snapdragon
+  NPU via Qualcomm GenieX (`qualcomm/qwen3_4b_instruct_2507`), exposed as an
+  OpenAI-compatible server on `localhost:18181`. Chat stays fully local.
+- **Bundled runtime**: The GenieX CLI runtime now ships inside the app
+  (`resources/geniex` via `extraResources`) — end users no longer need to run
+  GenieX's separate installer. `registry.js` resolves the bundled exe when
+  packaged, and the system install in dev.
+- **Lifecycle & recovery**: Robust engine lifecycle (provision → serve → kill)
+  with bounded automatic recovery from the occasional native QAIRT crash
+  (max 3 restarts / 5 min).
+- **Local-mode UX**: Distinct glowing composer outline + per-letter fade-in
+  streaming animation when talking to the on-device model; the "On-device AI"
+  setting is now labeled **Experimental** with an explicit slow/RAM warning and
+  correctly names the model (Qwen3-4B).
+- **Correct routing**: New-chat suggestion prompts now respect local mode
+  instead of racing to the cloud model on first click.
+
+### 🐛 Notable fixes
+- **Stuck "Loading…" screen**: Next.js standalone output omits `.next/static`
+  and `public/`; added a postbuild step to copy them into the standalone tree,
+  fixing a packaged build that hung on a blank loader with no error.
+- **Local chat reliability**: Fixed empty/cut-off on-device responses (missing
+  `json` import silently breaking SSE parsing) and removed artificial stream
+  timeouts (Next proxy + aiohttp default) so slow-but-progressing generations
+  complete.
+- **Context tuning**: Tightened local-mode history/PKM limits + relevance
+  reminder so the model stops over-referencing unrelated PKM notes every turn.
+
+### 🏗️ Architecture
+- Replaced the monolithic `launcher.js` with modular `electron/main/services/`
+  (`runtime`, `ports`, `environment`, `launcher`, `supervisor`, `models`,
+  `logging`).
+- Backend now compiled to a standalone `hushh-backend.exe` (PyInstaller) for
+  release — no system Python dependency.
+- Per-machine `VAULT_DATA_KEY` / `APP_SIGNING_KEY` generated on first launch.
+
+### ⚠️ Known limitations
+See [docs/KNOWN_ISSUES.md](./docs/KNOWN_ISSUES.md) for the full, current list.
+Headlines: on-device AI is slow and RAM-heavy (memory-bandwidth-bound decode);
+secrets still ship in the installer (internal builds only); no offline data
+sync-back; full account deletion is broken; Windows ARM64 only.
+
+---
+
 ## [desktop-alpha-v0.1.0] - 2026-06-30
 
 ### 🚀 Desktop Alpha Release

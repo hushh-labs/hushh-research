@@ -4078,13 +4078,21 @@ function ProfilePageContent() {
           <SettingsGroup title="Device">
             <SettingsRow
               icon={Monitor}
-              title="Local Inference Engine (Llama 3.2 3B)"
-              description="Download the Decoupled AI Runtime and strictly route all queries through the Snapdragon NPU."
+              title={
+                <span className="inline-flex items-center gap-2">
+                  Local Inference Engine (Qwen3 4B)
+                  <Badge variant="outline" className="gap-1 text-[10px] font-normal">
+                    <AlertTriangle className="h-3 w-3" />
+                    Experimental
+                  </Badge>
+                </span>
+              }
+              description="Downloads the on-device AI runtime and routes chat entirely through the Snapdragon NPU — no data leaves this device. Experimental: responses are slow and it uses several GB of RAM while running."
               trailing={
                 <div className="flex items-center gap-3">
                   {!localAiStatus.downloaded && !localAiStatus.isDownloading && (
                     <Button 
-                      className="bg-transparent hover:bg-muted shadow-none p-2 rounded-md"
+                      className="bg-transparent hover:bg-muted shadow-none h-9 w-9 rounded-full border border-border p-0"
                       onClick={(e) => {
                         e.stopPropagation();
                         setLocalAiStatus(s => ({ ...s, isDownloading: true }));
@@ -4112,7 +4120,7 @@ function ProfilePageContent() {
                   )}
                   {localAiStatus.isDownloading && (
                     <Button 
-                      className="bg-transparent hover:bg-muted shadow-none p-2 rounded-md"
+                      className="bg-transparent hover:bg-muted shadow-none h-9 w-9 rounded-full border border-border p-0"
                       onClick={(e) => {
                         e.stopPropagation();
                         void (window as any).hushh?.models?.cancelInstall("Llama-3.2-3B-Instruct")
@@ -4125,7 +4133,7 @@ function ProfilePageContent() {
                   )}
                   {localAiStatus.downloaded && !localAiStatus.running && (
                     <Button 
-                      className="bg-transparent hover:bg-muted shadow-none p-2 rounded-md"
+                      className="bg-transparent hover:bg-muted shadow-none h-9 w-9 rounded-full border border-border p-0"
                       onClick={(e) => {
                         e.stopPropagation();
                         void (window as any).hushh?.models?.remove("Llama-3.2-3B-Instruct")

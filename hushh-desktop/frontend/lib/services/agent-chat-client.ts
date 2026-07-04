@@ -43,6 +43,7 @@ export type AgentChatStreamHandlers = {
   onToken?: (token: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onError?: (message: string) => void;
+  onTelemetry?: (payload: Record<string, string>) => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -161,6 +162,13 @@ export async function streamAgentChat(input: {
       if (conversationId) {
         input.handlers?.onStart?.({ conversationId, model: model || undefined });
       }
+      return;
+    }
+    if (event === "telemetry") {
+      const telemetryPayload = Object.fromEntries(
+        Object.entries(payload).map(([k, v]) => [k, typeof v === "string" ? v : String(v)])
+      );
+      input.handlers?.onTelemetry?.(telemetryPayload);
       return;
     }
     if (event === "token") {
