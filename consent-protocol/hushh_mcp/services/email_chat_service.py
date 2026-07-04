@@ -226,10 +226,10 @@ class EmailChatService:
 
         async def list_needs_reply(limit: int = 10) -> dict:
             res = await gmail.list_nudges(user_id=user_id, limit=min(int(limit or 10), 25))
-            return {
-                "nudges": res.get("nudges", []),
-                "account_email": res.get("account_email"),
-            }
+            needs_reply = [
+                nudge for nudge in res.get("nudges", []) if nudge.get("type") == "needs_reply"
+            ]
+            return {"nudges": needs_reply, "account_email": res.get("account_email")}
 
         async def search_inbox(query: str, limit: int = 10) -> dict:
             results = await gmail.search_inbox(

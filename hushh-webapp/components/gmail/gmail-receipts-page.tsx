@@ -1121,14 +1121,14 @@ export default function ProfileReceiptsPage() {
             ) : null}
           </SurfaceInset>
 
+          {isConnected ? <GmailChatPanel vaultOwnerToken={vaultOwnerToken} /> : null}
+
           <GmailNudgesSection
             userId={user?.uid || null}
             vaultOwnerToken={vaultOwnerToken}
             isConnected={isConnected}
             idTokenProvider={user?.getIdToken ? () => user.getIdToken() : null}
           />
-
-          {isConnected ? <GmailChatPanel vaultOwnerToken={vaultOwnerToken} /> : null}
 
           <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
             <div className="space-y-1">

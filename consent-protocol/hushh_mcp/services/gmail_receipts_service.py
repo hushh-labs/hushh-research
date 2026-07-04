@@ -43,6 +43,8 @@ from hushh_mcp.services.gmail_nudges import (
     NudgeMessage,
     NudgeThread,
     derive_nudges,
+    derive_upcoming_meeting_nudges,
+    parse_ics_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,9 @@ _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
 _NUDGE_INBOX_QUERY = "in:inbox category:primary newer_than:30d"
 _NUDGE_MAX_THREADS = 25
 _NUDGE_DEFAULT_LIMIT = 10
+# Calendar invites carry an .ics attachment; scan recent ones for upcoming meetings.
+_NUDGE_MEETING_QUERY = "filename:ics newer_than:45d"
+_NUDGE_MAX_MEETINGS = 20
 
 _RECEIPT_SUBJECT_RE = re.compile(
     r"\b(receipt|invoice|order(?:\s+confirmation)?|payment|transaction|purchase|paid)\b",
@@ -1820,12 +1825,121 @@ class GmailReceiptsService:
                 threads.append(thread)
 
         bounded_limit = max(1, min(int(limit or _NUDGE_DEFAULT_LIMIT), 50))
-        nudges = derive_nudges(threads, user_email=user_email, limit=bounded_limit)
+        needs_reply = derive_nudges(threads, user_email=user_email, limit=bounded_limit)
+
+        # Upcoming meetings from calendar invites (best-effort — never fail the
+        # whole nudge response if invite parsing has trouble).
+        try:
+            events = await self._fetch_meeting_events(
+                access_token=access_token, limit=bounded_limit
+            )
+            meetings = derive_upcoming_meeting_nudges(events, limit=bounded_limit)
+        except Exception:
+            logger.warning("gmail.nudges.meetings_failed", exc_info=True)
+            meetings = []
+
         return {
             "user_id": user_id,
             "account_email": user_email or None,
-            "nudges": [nudge.to_dict() for nudge in nudges],
+            "nudges": [nudge.to_dict() for nudge in needs_reply]
+            + [nudge.to_dict() for nudge in meetings],
         }
+
+    async def _get_message_full(
+        self, *, access_token: str, gmail_message_id: str
+    ) -> dict[str, Any]:
+        return await self._http_get_json(
+            f"{_GMAIL_MESSAGES_URL}/{gmail_message_id}",
+            token=access_token,
+            params={"format": "full"},
+        )
+
+    def _find_calendar_part(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Depth-first search a message payload for a text/calendar (.ics) part."""
+        stack: list[Any] = [payload]
+        while stack:
+            part = stack.pop()
+            if not isinstance(part, dict):
+                continue
+            mime = _clean_text(part.get("mimeType")).lower()
+            filename = _clean_text(part.get("filename")).lower()
+            if mime == "text/calendar" or filename.endswith(".ics"):
+                return part
+            sub_parts = part.get("parts")
+            if isinstance(sub_parts, list):
+                stack.extend(sub_parts)
+        return None
+
+    async def _extract_ics_text(self, *, access_token: str, message: dict[str, Any]) -> str | None:
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        part = self._find_calendar_part(payload)
+        if part is None:
+            return None
+        body = part.get("body") if isinstance(part.get("body"), dict) else {}
+        data = _clean_text(body.get("data"))
+        if not data:
+            attachment_id = _clean_text(body.get("attachmentId"))
+            message_id = _clean_text(message.get("id"))
+            if attachment_id and message_id:
+                attachment = await self._http_get_json(
+                    f"{_GMAIL_MESSAGES_URL}/{message_id}/attachments/{attachment_id}",
+                    token=access_token,
+                )
+                data = _clean_text(attachment.get("data"))
+        if not data:
+            return None
+        try:
+            return base64.urlsafe_b64decode(data + "===").decode("utf-8", errors="replace")
+        except (ValueError, TypeError):
+            return None
+
+    async def _fetch_meeting_events(self, *, access_token: str, limit: int) -> list:
+        """List recent calendar-invite emails and parse their .ics into events."""
+        scan = min(max(int(limit), 1) * 2, _NUDGE_MAX_MEETINGS)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_NUDGE_MEETING_QUERY,
+            page_token=None,
+            max_results=scan,
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        message_ids: list[str] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+            if len(message_ids) >= scan:
+                break
+
+        events: list = []
+        for message_id in message_ids:
+            try:
+                message = await self._get_message_full(
+                    access_token=access_token, gmail_message_id=message_id
+                )
+                ics_text = await self._extract_ics_text(access_token=access_token, message=message)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "gmail.nudges.meeting_fetch_failed id=%s reason=%s",
+                    message_id,
+                    str(exc)[:200],
+                )
+                continue
+            if not ics_text:
+                continue
+            event = parse_ics_event(
+                ics_text,
+                message_id=message_id,
+                thread_id=_clean_text(message.get("threadId")),
+            )
+            if event is not None:
+                events.append(event)
+        return events
 
     async def search_inbox(
         self, *, user_id: str, query: str, limit: int = 10

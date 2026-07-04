@@ -127,7 +127,7 @@ export interface ReceiptListResponse {
   has_more: boolean;
 }
 
-export type GmailNudgeType = "needs_reply";
+export type GmailNudgeType = "needs_reply" | "upcoming_meeting";
 
 export interface GmailNudge {
   type: GmailNudgeType;
@@ -137,6 +137,8 @@ export interface GmailNudge {
   sender: string;
   sender_email: string;
   received_at: string | null;
+  /** Meeting start time for upcoming_meeting nudges; null otherwise. */
+  starts_at?: string | null;
 }
 
 export interface GmailNudgesResponse {

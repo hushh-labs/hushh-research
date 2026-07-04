@@ -56,9 +56,32 @@ Consent is still enforced per request via `VAULT_OWNER`.
   (title = subject, "From {sender} · {time ago}") with a **Draft reply** CTA.
   v1 CTA opens the Gmail thread in a new tab; wiring it to the in-app draft flow
   is a follow-up.
-- **`components/gmail/gmail-receipts-page.tsx`** — renders `<GmailNudgesSection>`
-  and `<GmailChatPanel>` above the receipts list. Reached via the **Email/Gmail**
+- **`components/gmail/gmail-receipts-page.tsx`** — above the receipts list, in
+  order: `<GmailChatPanel>` (top), then `<GmailNudgesSection>` (which renders
+  **Needs a reply** then **Upcoming meeting**). Reached via the **Email/Gmail**
   workflow card on the One home (`ROUTES.GMAIL`).
+
+## What is built (Phase 1 — "Upcoming meeting")
+
+Second nudge type, composed behind the same `list_nudges` response (the array
+now carries both `needs_reply` and `upcoming_meeting` items, discriminated by
+`type`).
+
+### Backend
+- **`hushh_mcp/services/gmail_nudges.py`** — `parse_ics_event` /
+  `parse_ics_datetime` (pure iCalendar parsing: SUMMARY, DTSTART, ORGANIZER, with
+  line-unfolding) and `derive_upcoming_meeting_nudges` (future events within a
+  30-day horizon, de-duped, soonest-first). `Nudge` gained `starts_at`.
+- **`hushh_mcp/services/gmail_receipts_service.py`** — `_fetch_meeting_events`
+  scans recent calendar-invite emails (`filename:ics newer_than:45d`), pulls the
+  `text/calendar` part (inline or attachment), and parses it. Folded into
+  `list_nudges` (best-effort — invite failures never break the needs-reply list).
+- Tests: 6 more in `tests/test_gmail_nudges.py` (ics parse + meeting deriver).
+
+### Frontend
+- **`components/gmail/gmail-nudges-section.tsx`** — splits nudges by `type` and
+  renders two labelled groups; the meeting card shows the parsed start time
+  ("in 2h · Mon, Jul 6, 4:00 PM").
 
 ## What is built (Phase 1 — inline chat / "agent chatbot")
 
@@ -103,9 +126,9 @@ Gmail page (connected)
    (binds `127.0.0.1:8000`, proxy on `127.0.0.1:6543`).
 2. Frontend: `cd hushh-webapp && npm run dev` (`http://localhost:3000`).
 3. Sign in → One home → **Email/Gmail** card. Connect Gmail (receipts) if not
-   already — that grants the readonly scope. Above receipts you get the **Needs a
-   reply** flashcards and the **Email assistant** chat ("what needs a reply?",
-   "find unread emails from this week", "any invoices?").
+   already — that grants the readonly scope. Above receipts, in order: the
+   **Email assistant** chat, then **Needs a reply** flashcards, then **Upcoming
+   meeting** (parsed from calendar invites in your inbox).
 
 Tests:
 - Backend: `.venv/bin/python -m pytest tests/test_gmail_nudges.py tests/test_email_chat_service.py -q`
@@ -113,9 +136,9 @@ Tests:
 
 ## Next steps
 
-- **More nudge types** (compose behind `derive_nudges`): **Upcoming meeting**
-  (calendar-invite `.ics` emails + meeting-language), **Waiting on them** (you sent
-  last, no reply), **Follow-up / due**.
+- **More nudge types**: **Waiting on them** (you sent last, no reply),
+  **Follow-up / due** (deadline language). Meeting nudges could also read
+  meeting-language emails, not just `.ics` invites.
 - **Better "needs a reply"**: fold the reply detection into a `derive` refinement,
   add snooze/dismiss state.
 - **Draft-reply hand-off**: route the CTA (and a chat "draft a reply" intent)

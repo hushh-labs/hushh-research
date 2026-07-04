@@ -8,11 +8,16 @@ from datetime import datetime, timedelta, timezone
 
 from hushh_mcp.services.gmail_nudges import (
     NUDGE_NEEDS_REPLY,
+    NUDGE_UPCOMING_MEETING,
+    MeetingEvent,
     NudgeMessage,
     NudgeThread,
     derive_needs_reply_nudges,
+    derive_upcoming_meeting_nudges,
     is_automated_sender,
     parse_from_header,
+    parse_ics_datetime,
+    parse_ics_event,
 )
 
 _NOW = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
@@ -116,3 +121,79 @@ def test_parse_from_header():
     assert parse_from_header("Ravi Kumar <ravi@acme.com>") == ("Ravi Kumar", "ravi@acme.com")
     # No display name -> falls back to local part.
     assert parse_from_header("sam@acme.com") == ("sam", "sam@acme.com")
+
+
+# --- upcoming meeting -------------------------------------------------------
+
+
+def test_parse_ics_datetime_forms():
+    assert parse_ics_datetime("20260710T150000Z") == datetime(
+        2026, 7, 10, 15, 0, 0, tzinfo=timezone.utc
+    )
+    assert parse_ics_datetime("20260710T150000") == datetime(
+        2026, 7, 10, 15, 0, 0, tzinfo=timezone.utc
+    )
+    assert parse_ics_datetime("20260710") == datetime(2026, 7, 10, 0, 0, 0, tzinfo=timezone.utc)
+    assert parse_ics_datetime("not-a-date") is None
+
+
+_ICS = "\r\n".join(
+    [
+        "BEGIN:VCALENDAR",
+        "BEGIN:VEVENT",
+        "SUMMARY:Q3 planning sync",
+        "DTSTART:20260706T160000Z",
+        "ORGANIZER;CN=Ravi Kumar:mailto:ravi@acme.com",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+)
+
+
+def test_parse_ics_event_extracts_fields():
+    event = parse_ics_event(_ICS, message_id="m1", thread_id="t1")
+    assert event is not None
+    assert event.summary == "Q3 planning sync"
+    assert event.starts_at == datetime(2026, 7, 6, 16, 0, 0, tzinfo=timezone.utc)
+    assert event.organizer_email == "ravi@acme.com"
+    assert event.organizer_name == "Ravi Kumar"
+
+
+def test_parse_ics_event_without_dtstart_is_none():
+    assert parse_ics_event("SUMMARY:No time here", message_id="m", thread_id="t") is None
+
+
+def _event(summary: str, hours_from_now: int, *, message_id: str = "m") -> MeetingEvent:
+    return MeetingEvent(
+        message_id=message_id,
+        thread_id="t",
+        summary=summary,
+        organizer_name="Org",
+        organizer_email="org@x.com",
+        starts_at=_NOW + timedelta(hours=hours_from_now),
+    )
+
+
+def test_upcoming_meetings_future_only_sorted_and_limited():
+    events = [
+        _event("later", 48, message_id="a"),
+        _event("past", -5, message_id="b"),
+        _event("soon", 2, message_id="c"),
+        _event("too far", 24 * 40, message_id="d"),  # beyond 30-day horizon
+    ]
+    nudges = derive_upcoming_meeting_nudges(events, now=_NOW, limit=5)
+    assert [n.title for n in nudges] == ["soon", "later"]
+    assert nudges[0].type == NUDGE_UPCOMING_MEETING
+    assert nudges[0].starts_at == _NOW + timedelta(hours=2)
+
+
+def test_upcoming_meetings_dedupe_same_summary_and_time():
+    events = [_event("standup", 3, message_id="a"), _event("standup", 3, message_id="b")]
+    nudges = derive_upcoming_meeting_nudges(events, now=_NOW)
+    assert len(nudges) == 1
+
+
+def test_meeting_nudge_serializes_starts_at():
+    payload = derive_upcoming_meeting_nudges([_event("sync", 6)], now=_NOW)[0].to_dict()
+    assert payload["type"] == NUDGE_UPCOMING_MEETING
+    assert isinstance(payload["starts_at"], str)
