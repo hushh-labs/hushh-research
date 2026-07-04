@@ -7,7 +7,9 @@ import pytest
 from hushh_mcp.services.connected_systems_service import (
     CONNECTED_SYSTEM_SALESFORCE_ID,
     EXTERNAL_CRM_TOOL_CATALOG,
+    SALESFORCE_CRM_SYSTEM,
     ConnectedSystemBlockedError,
+    ConnectedSystemDefinition,
     ConnectedSystemNotFoundError,
     ConnectedSystemsService,
     ConnectedSystemValidationError,
@@ -74,6 +76,7 @@ def build_service(
         adapter=adapter,
         store=InMemoryConnectedSystemIntentStore(),
         delete_enabled=delete_enabled,
+        registry=(SALESFORCE_CRM_SYSTEM,),
     )
     return service, adapter
 
@@ -82,6 +85,7 @@ def test_default_service_lists_real_registry_backed_salesforce_endpoint_without_
     service = ConnectedSystemsService(
         store=InMemoryConnectedSystemIntentStore(),
         delete_enabled=False,
+        registry=(SALESFORCE_CRM_SYSTEM,),
     )
 
     systems = service.list_systems()
@@ -105,6 +109,7 @@ async def test_registry_simulator_path_remains_available_for_deterministic_local
         adapter=adapter,
         store=InMemoryConnectedSystemIntentStore(),
         delete_enabled=False,
+        registry=(SALESFORCE_CRM_SYSTEM,),
     )
 
     schema = await service.get_schema(
@@ -785,6 +790,96 @@ def test_adapter_passes_transport_headers_into_streamable_client(monkeypatch):
     assert captured["kwargs"]["headers"] == {"client_id": "cid-1", "client_secret": "secret-1"}
 
 
+def test_adapter_passes_gateway_headers_and_private_tool_arguments(monkeypatch):
+    """Gateway auth stays in headers; registry private args are merged into tool args."""
+    import contextlib
+
+    captured: dict = {}
+
+    @contextlib.asynccontextmanager
+    async def fake_streamable(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+
+        class _R:
+            pass
+
+        yield (_R(), _R(), None)
+
+    class _FakeSession:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def initialize(self):
+            return None
+
+        async def call_tool(self, name, arguments):
+            captured["tool_name"] = name
+            captured["arguments"] = arguments
+
+            class _Result:
+                isError = False
+                content = []
+
+            return _Result()
+
+    import mcp.client.session as session_mod
+    import mcp.client.streamable_http as streamable_mod
+
+    monkeypatch.setattr(streamable_mod, "streamablehttp_client", fake_streamable)
+    monkeypatch.setattr(session_mod, "ClientSession", _FakeSession)
+
+    definition = ConnectedSystemDefinition(
+        system_id="crm-x",
+        display_name="X",
+        customer_display_name="X",
+        system_type="Salesforce",
+        system_name="X",
+        target="X",
+        object_type_default="Contact",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://gateway.invalid/crm-connect/v1/mcp",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=({"name": "object-schema", "operation": "schema"},),
+        transport_headers=(("client_id", "gateway-client"), ("client_secret", "gateway-secret")),
+        transport_tool_arguments={
+            "crmBaseUrl": "https://example.my.salesforce.com",
+            "crmMcpEndpoint": "/services/mcp/v1",
+            "clientId": "plain-salesforce-client-id",
+            "clientSecret": "encrypted-salesforce-client-secret",
+            "crmTokenUrl": "https://example.my.salesforce.com/services/oauth2/token",
+            "objectType": "Contact",
+        },
+    )
+
+    adapter = ExternalCrmStreamableMcpAdapter.from_registry(definition)
+
+    import asyncio
+
+    asyncio.run(adapter.object_schema({"target": "X", "objectType": "Contact"}))
+
+    assert captured["kwargs"]["headers"] == {
+        "client_id": "gateway-client",
+        "client_secret": "gateway-secret",
+    }
+    assert captured["arguments"]["clientId"] == "plain-salesforce-client-id"
+    assert captured["arguments"]["clientSecret"] == "encrypted-salesforce-client-secret"
+    assert captured["arguments"]["crmBaseUrl"] == "https://example.my.salesforce.com"
+    assert captured["arguments"]["crmMcpEndpoint"] == "/services/mcp/v1"
+    assert (
+        captured["arguments"]["crmTokenUrl"]
+        == "https://example.my.salesforce.com/services/oauth2/token"
+    )
+    assert captured["arguments"]["objectType"] == "Contact"
+    assert captured["arguments"]["target"] == "X"
+
+
 def test_adapter_without_headers_omits_headers_kwarg(monkeypatch):
     """Legacy in-code definitions (no headers) pass no headers kwarg."""
     import contextlib
@@ -865,6 +960,7 @@ def test_resolve_system_uses_db_registry_when_flag_enabled(monkeypatch):
     import hushh_mcp.services.crm_registry_repo as repo
 
     monkeypatch.setattr(repo, "load_active_definition", lambda system_id, db=None: db_definition)
+    monkeypatch.setattr(repo, "load_active_definitions", lambda db=None: (db_definition,))
 
     service = ConnectedSystemsService(
         adapter=FakeExternalCrmAdapter(), store=InMemoryConnectedSystemIntentStore()
@@ -897,8 +993,10 @@ def test_resolve_system_raises_when_db_row_missing(monkeypatch):
     import hushh_mcp.services.crm_registry_repo as repo
 
     monkeypatch.setattr(repo, "load_active_definition", lambda system_id, db=None: None)
+    monkeypatch.setattr(repo, "load_active_definitions", lambda db=None: ())
 
+    service = ConnectedSystemsService(
+        adapter=FakeExternalCrmAdapter(), store=InMemoryConnectedSystemIntentStore()
+    )
     with pytest.raises(ConnectedSystemNotFoundError):
-        ConnectedSystemsService(
-            adapter=FakeExternalCrmAdapter(), store=InMemoryConnectedSystemIntentStore()
-        )
+        service.get_system(CONNECTED_SYSTEM_SALESFORCE_ID)

@@ -2064,6 +2064,38 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/marketplace",
+      "page_file": "app/one/marketplace/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/one/marketplace",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fmarketplace",
+        "expectedMarker": "native-route-one-marketplace",
+        "expectedRoute": "/one/marketplace",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/pkm",
       "page_file": "app/one/pkm/page.tsx",
       "physical_page_exists": true,

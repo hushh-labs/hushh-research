@@ -5,6 +5,8 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
@@ -78,6 +80,7 @@ from api.routes.pkm_routes_shared import (
 from api.routes.pkm_routes_shared import (
     validate_store_domain as _validate_store_domain,
 )
+from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
@@ -305,3 +308,59 @@ async def preview_pkm_structure(
         simulated_state=request.simulated_state,
     )
     return PKMAgentLabStructureResponse(**payload)
+
+
+class SlicePriceRequest(BaseModel):
+    """Public slice metadata + demo audience band. No ciphertext, no user data."""
+
+    category: Literal[
+        "identifiers",
+        "quasi_identifiers",
+        "demographics_lifestyle",
+        "private_financial",
+    ] = "demographics_lifestyle"
+    attribute_count: int = Field(default=1, ge=0, le=10000)
+    power: Literal["mass", "mid", "affluent", "hnw", "uhnw"] = "mass"
+    mood: Literal["passive", "affinity", "in_market", "hot"] = "passive"
+    weeks_stale: int = Field(default=0, ge=0, le=520)
+    exclusivity: Literal["shared", "limited", "exclusive"] = "shared"
+    geography: Literal["us", "non_us"] = "us"
+
+
+class SlicePriceResponse(BaseModel):
+    suggested_price_cents: int
+    currency: str
+    floor_cents: int
+    breakdown: dict
+
+
+@router.post("/slice-price", response_model=SlicePriceResponse)
+async def compute_slice_price(
+    request: SlicePriceRequest,
+    _auth: dict = Depends(require_pkm_metadata_access),
+):
+    """
+    Suggested 30-day price for a published default_available slice.
+
+    Display-only (Phase 1): stateless, reads no ciphertext, persists nothing, and
+    does not change any consent scope. The owner sets the real price in a later
+    phase; this endpoint keeps the number server-authoritative so the browser
+    cannot fabricate it. See docs/future/pkm-slice-marketplace-plan.md.
+    """
+    breakdown = compute_suggested_price(
+        SlicePricingInput(
+            category=request.category,
+            attribute_count=request.attribute_count,
+            power=request.power,
+            mood=request.mood,
+            weeks_stale=request.weeks_stale,
+            exclusivity=request.exclusivity,
+            geography=request.geography,
+        )
+    )
+    return SlicePriceResponse(
+        suggested_price_cents=breakdown.suggested_price_cents,
+        currency=breakdown.currency,
+        floor_cents=breakdown.floor_cents,
+        breakdown=breakdown.as_dict(),
+    )

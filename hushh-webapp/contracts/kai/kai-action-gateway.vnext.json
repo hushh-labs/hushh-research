@@ -6,6 +6,7 @@
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
+    "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
@@ -101,6 +102,23 @@
         },
         "speaker_persona": "kyc",
         "delegate_agent_id": "kyc"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_marketplace",
+      "surface_title": "Information Marketplace",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
       }
     },
     {
@@ -2021,6 +2039,76 @@
       "expected_effects": {
         "state_changes": [
           "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_marketplace",
+      "surface_id": "one_marketplace",
+      "label": "Open Information Marketplace",
+      "aliases": [
+        "open information marketplace",
+        "open the information marketplace",
+        "open data marketplace",
+        "go to information marketplace",
+        "go to the data marketplace",
+        "take me to the information marketplace",
+        "show me the information marketplace",
+        "open my data marketplace"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "data marketplace",
+        "data slices",
+        "sell my data",
+        "published slices"
+      ],
+      "meaning": "Navigates to the One Information Marketplace (personal data-slice) route.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/marketplace"
+        ],
+        "screens": [
+          "one_marketplace"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/marketplace"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/marketplace"
         ],
         "backend_effects": []
       },

@@ -61,7 +61,7 @@ export default function ConnectedSystemsPage() {
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Unlock vault"
-          description="Unlock your vault to inspect Salesforce CRM and approve Connected Systems actions."
+          description="Unlock your vault to inspect CRM records and approve Connected Systems actions."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

@@ -354,6 +354,7 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Docs/runtime parity | `npm run verify:docs` | Yes |
 | TypeScript | `npm run typecheck` | Yes |
 | Lint | `npm run lint -- --max-warnings=${WEB_LINT_WARNING_BUDGET}` | Yes |
+| Phone verification regression | `npm run verify:phone-verification` | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |
 | Security audit budget | `npm audit --json` + budget gate (`moderate/high/critical`) | Yes |
 | Tests | `npm run test:ci` (manifest-driven curated suites) | Yes |

@@ -25,8 +25,9 @@ REGISTRY_SOURCE = "customer0_connected_system_registry"
 # missing. Points at the secured Omni Gateway, but the in-code definition carries
 # NO transport_headers — so an unauthenticated fallback call fails closed at the
 # gateway (411/401) rather than silently reaching an unauthenticated endpoint.
-# Production must use the DB registry (CRM_REGISTRY_DB_ENABLED=true) so credentials
-# are supplied as decrypted headers.
+# Production must use the DB registry (CRM_REGISTRY_DB_ENABLED=true) so gateway
+# transport auth and CRM credential custody come from the enterprise registry
+# contract rather than the public fallback definition.
 REGISTRY_MCP_ENDPOINT = (
     "https://hussh-og-nonprod-ingress-a3e0me.y4rjsf.usa-e2.cloudhub.io/crm-connect/v1/mcp"
 )
@@ -598,6 +599,9 @@ class ConnectedSystemDefinition:
     # the hardcoded in-code definitions backward compatible. NEVER surfaced in
     # to_summary() — headers must not leak through the API.
     transport_headers: tuple[tuple[str, str], ...] = ()
+    # Extra MCP tool arguments sourced from the private registry row. These are
+    # never exposed in to_summary(); they are merged into the tool call payload.
+    transport_tool_arguments: dict[str, Any] | None = None
     # Salesforce delete uses a different endpoint path than schema/CRUD-read, so
     # the registry can carry a dedicated delete endpoint. None → fall back to
     # transport_endpoint. Only consulted when supports_delete is enabled.
@@ -656,11 +660,13 @@ class ExternalCrmStreamableMcpAdapter:
         timeout_seconds: float = 30.0,
         tool_catalog: tuple[dict[str, Any], ...] | None = None,
         headers: tuple[tuple[str, str], ...] = (),
+        tool_arguments: dict[str, Any] | None = None,
     ):
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.tool_catalog = tuple(tool_catalog or ())
         self.headers = tuple(headers or ())
+        self.tool_arguments = _deepcopy_json(tool_arguments or {})
         self._demo_record: dict[str, Any] = {
             "Id": "003gK00000jlmaLQAQ",
             "FirstName": "Maria",
@@ -684,6 +690,7 @@ class ExternalCrmStreamableMcpAdapter:
             endpoint=system.transport_endpoint,
             tool_catalog=system.tool_catalog,
             headers=system.transport_headers,
+            tool_arguments=system.transport_tool_arguments,
         )
 
     @property
@@ -713,6 +720,11 @@ class ExternalCrmStreamableMcpAdapter:
         if self.endpoint.startswith("registry://"):
             return self._call_registry_tool(name, arguments)
 
+        tool_arguments = {
+            **_deepcopy_json(self.tool_arguments),
+            **_deepcopy_json(arguments),
+        }
+
         async def _run() -> dict[str, Any]:
             from mcp.client.session import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
@@ -728,7 +740,7 @@ class ExternalCrmStreamableMcpAdapter:
             ):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
-                    result = await session.call_tool(name, arguments)
+                    result = await session.call_tool(name, tool_arguments)
             return _normalize_mcp_tool_result(result)
 
         try:
@@ -742,6 +754,14 @@ class ExternalCrmStreamableMcpAdapter:
                 status_code=504,
             ) from error
         except Exception as error:
+            logger.exception(
+                "connected_systems.crm_mcp_request_failed tool=%s endpoint_configured=%s "
+                "headers_present=%s tool_argument_keys=%s",
+                name,
+                bool(self.endpoint),
+                bool(self.headers),
+                _stable_keys(tool_arguments),
+            )
             raise ConnectedSystemsError(
                 "Salesforce CRM MCP request failed.",
                 code="CONNECTED_SYSTEM_MCP_FAILED",
@@ -1288,11 +1308,25 @@ class ConnectedSystemsService:
         delete_enabled: bool | None = None,
         registry: tuple[ConnectedSystemDefinition, ...] | None = None,
     ):
-        self.registry = registry or REGISTERED_CONNECTED_SYSTEMS
-        default_system = self._resolve_system(CONNECTED_SYSTEM_SALESFORCE_ID)
-        self.adapter = adapter or ExternalCrmStreamableMcpAdapter.from_registry(default_system)
+        self._registry_explicit = registry is not None
+        self.registry = registry or self._load_registry()
+        self.adapter = adapter
         self.store = store or DatabaseConnectedSystemIntentStore()
         self.delete_enabled = True if delete_enabled is None else delete_enabled
+
+    def _load_registry(self) -> tuple[ConnectedSystemDefinition, ...]:
+        from hushh_mcp.runtime_settings import crm_registry_db_enabled
+
+        if crm_registry_db_enabled():
+            from hushh_mcp.services import crm_registry_repo
+
+            return crm_registry_repo.load_active_definitions()
+        return REGISTERED_CONNECTED_SYSTEMS
+
+    def _adapter_for_system(
+        self, system: ConnectedSystemDefinition
+    ) -> ExternalCrmStreamableMcpAdapter:
+        return self.adapter or ExternalCrmStreamableMcpAdapter.from_registry(system)
 
     def list_systems(self) -> list[dict[str, Any]]:
         return [
@@ -1318,6 +1352,9 @@ class ConnectedSystemsService:
         When the flag is off, the legacy hardcoded in-code registry is used.
         """
         from hushh_mcp.runtime_settings import crm_registry_db_enabled
+
+        if self._registry_explicit:
+            return self._registry_system(system_id)
 
         if crm_registry_db_enabled():
             from hushh_mcp.services import crm_registry_repo
@@ -1345,7 +1382,7 @@ class ConnectedSystemsService:
             "target": system.target,
             "objectType": _normalize_object_type(object_type),
         }
-        result = await self.adapter.object_schema(payload)
+        result = await self._adapter_for_system(system).object_schema(payload)
         schema_fields = _schema_fields_from_schema_result(result)
         return {
             "systemId": system.system_id,
@@ -1375,7 +1412,8 @@ class ConnectedSystemsService:
             search_fields=search_fields,
             return_fields=return_fields,
         )
-        result = await self.adapter.read_record(payload)
+        system = self.get_system(system_id)
+        result = await self._adapter_for_system(system).read_record(payload)
         self._audit(
             user_id=user_id or "",
             system_id=system_id,
@@ -1613,7 +1651,7 @@ class ConnectedSystemsService:
     async def approve_intent(
         self, *, user_id: str, system_id: str, intent_id: str
     ) -> dict[str, Any]:
-        self.get_system(system_id)
+        system = self.get_system(system_id)
         intent = self._get_pending_intent(user_id=user_id, system_id=system_id, intent_id=intent_id)
         approval = _approval_id()
         intent = self.store.update_intent(
@@ -1622,13 +1660,17 @@ class ConnectedSystemsService:
         )
         try:
             if intent["action"] == "create":
-                result = await self.adapter.create_record(intent["request_payload"])
+                result = await self._adapter_for_system(system).create_record(
+                    intent["request_payload"]
+                )
             elif intent["action"] == "update":
-                result = await self.adapter.update_record(intent["request_payload"])
+                result = await self._adapter_for_system(system).update_record(
+                    intent["request_payload"]
+                )
             else:
                 raise ConnectedSystemValidationError("Unsupported approval action.")
             record_id = intent.get("record_id") or _extract_record_id(result)
-            readback = await self._readback(intent)
+            readback = await self._readback(intent, system=system)
             if not record_id and isinstance(readback.get("mcp"), dict):
                 record_id = _extract_record_id(readback.get("mcp") or {})
             readback_class = self._classify_readback(intent, readback)
@@ -1749,7 +1791,7 @@ class ConnectedSystemsService:
         }
         if not payload["id"]:
             raise ConnectedSystemValidationError("id is required for delete.")
-        result = await self.adapter.delete_record(payload)
+        result = await self._adapter_for_system(system).delete_record(payload)
         status = "failed" if result.get("isError") else "succeeded"
         deleted_binding = None
         if user_id and status == "succeeded":
@@ -1861,7 +1903,9 @@ class ConnectedSystemsService:
             )
         return intent
 
-    async def _readback(self, intent: dict[str, Any]) -> dict[str, Any]:
+    async def _readback(
+        self, intent: dict[str, Any], *, system: ConnectedSystemDefinition
+    ) -> dict[str, Any]:
         readback_payload = intent.get("readback_payload") or {}
         if not readback_payload:
             return {
@@ -1869,7 +1913,7 @@ class ConnectedSystemsService:
                 "reason": "readback_locator_missing",
             }
         try:
-            result = await self.adapter.read_record(readback_payload)
+            result = await self._adapter_for_system(system).read_record(readback_payload)
             return {
                 "resultClass": "succeeded" if not result.get("isError") else "failed",
                 "mcp": result,

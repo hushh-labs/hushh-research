@@ -180,11 +180,7 @@ export function PhoneVerificationFlow({
     setSelectedCountry(nextFields.countryValue);
     setLocalPhoneNumber(nextFields.localPhoneNumber);
     setSubmittedPhoneNumber(currentPhoneNumber || "");
-    setCountryQuery(
-      getCountryOptionLabel(
-        getCountryOption(nextFields.countryValue)
-      )
-    );
+    setCountryQuery("");
     setVerificationCode("");
     setStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
   }, [currentPhoneNumber, mode]);
@@ -194,6 +190,11 @@ export function PhoneVerificationFlow({
     () => COUNTRY_PHONE_OPTIONS.find((option) => option.value === selectedCountry),
     [selectedCountry]
   );
+  const selectedCountryLabel = useMemo(
+    () => getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!),
+    [selectedCountryOption]
+  );
+  const countryInputValue = countryComboboxOpen ? countryQuery : selectedCountryLabel;
   const filteredCountryOptions = useMemo(() => {
     const normalizedQuery = countryQuery.trim().toLowerCase();
     if (!normalizedQuery) {
@@ -232,7 +233,7 @@ export function PhoneVerificationFlow({
     }
 
     setSelectedCountry(nextOption.value);
-    setCountryQuery(getCountryOptionLabel(nextOption));
+    setCountryQuery("");
     setCountryComboboxOpen(false);
   }, []);
 
@@ -241,7 +242,7 @@ export function PhoneVerificationFlow({
     if (nextInput.countryValue) {
       const nextOption = getCountryOption(nextInput.countryValue);
       setSelectedCountry(nextOption.value);
-      setCountryQuery(getCountryOptionLabel(nextOption));
+      setCountryQuery("");
     }
     setLocalPhoneNumber(nextInput.localPhoneNumber);
   }, []);
@@ -370,11 +371,7 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  if (!open) {
-                    setCountryQuery(
-                      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
-                    );
-                  }
+                  setCountryQuery("");
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
@@ -383,7 +380,7 @@ export function PhoneVerificationFlow({
                 <ComboboxInput
                   id="phone-flow-country"
                   placeholder="Search country code"
-                  value={countryQuery}
+                  value={countryInputValue}
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                     setCountryQuery(event.target.value);
                     if (!countryComboboxOpen) {

@@ -21,6 +21,7 @@ export const ROUTES = {
   ONE_SETUP_KAI: "/one/setup/kai",
   GMAIL: "/one/gmail",
   PKM: "/one/pkm",
+  ONE_MARKETPLACE: "/one/marketplace",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   CONSENTS: "/consents",
   AGENT: "/agent",

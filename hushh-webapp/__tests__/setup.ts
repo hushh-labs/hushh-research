@@ -6,6 +6,7 @@
  * Configures mock environment for API route testing and JSDOM compatibility.
  */
 
+import "@testing-library/jest-dom";
 import { vi, beforeEach } from "vitest";
 
 // Mock environment variables for testing

@@ -838,11 +838,27 @@ function setupNativeListeners(): void {
             });
           } else if (
             data &&
-            typeof data.type === "string" &&
-            String(data.type).startsWith("location_")
+            ((typeof data.type === "string" &&
+              data.type.startsWith("location_")) ||
+              (typeof data.notification_category === "string" &&
+                data.notification_category === "ONE_LOCATION"))
           ) {
+            // One Location pushes (share/access-request/approval/etc). The
+            // backend puts the full in-app deep-link (with section / requestId /
+            // grantId / submissionId query params) in `request_url`; the
+            // redesign hub reads those params to open the correct tab
+            // (inbox / links / people). Fall back to `deep_link` or the hub
+            // root so a tap always lands on One Location, never Home.
+            const locationHref =
+              (typeof data.request_url === "string" && data.request_url.trim()
+                ? data.request_url.trim()
+                : "") ||
+              (typeof data.deep_link === "string" && data.deep_link.trim()
+                ? data.deep_link.trim()
+                : "") ||
+              buildNativeOneLocationTarget(data);
             requestInternalAppNavigation({
-              href: buildNativeOneLocationTarget(data),
+              href: locationHref,
               scroll: false,
             });
           } else {
@@ -851,6 +867,7 @@ function setupNativeListeners(): void {
               scroll: false,
             });
           }
+
         }
       );
 

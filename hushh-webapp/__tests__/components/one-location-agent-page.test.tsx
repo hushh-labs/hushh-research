@@ -162,6 +162,34 @@ vi.mock("sonner", () => {
   };
 });
 
+// Capture the props passed to LocationChatPanel so we can assert on userId.
+let lastLocationChatPanelProps: {
+  vaultOwnerToken: string | null;
+  userId?: string;
+  onStateChanged?: () => void;
+} | null = null;
+
+// LocationChatPanel now renders unconditionally (locked stub when vault is locked).
+// Mock it here so its suggestion chips don't collide with the hub's own buttons
+// (e.g. "Ask someone") in tests that query by accessible name.
+vi.mock(
+  "@/components/one-location/redesign/location-chat-panel",
+  () => ({
+    LocationChatPanel: (props: {
+      vaultOwnerToken: string | null;
+      userId?: string;
+      onStateChanged?: () => void;
+    }) => {
+      lastLocationChatPanelProps = props;
+      return props.vaultOwnerToken ? null : (
+        <section data-testid="location-chat-panel">
+          <p>Unlock your vault to use the assistant.</p>
+        </section>
+      );
+    },
+  }),
+);
+
 import OneLocationAgentPage from "@/app/one/location/page";
 
 if (!window.localStorage) {
@@ -536,6 +564,15 @@ describe("OneLocationAgentPage", () => {
     });
   });
 
+  it("passes userId into the location chat panel", async () => {
+    lastLocationChatPanelProps = null;
+    render(<OneLocationAgentPage />);
+    // The panel renders immediately (before the location entry flow), so props
+    // are captured synchronously on first render.
+    await waitFor(() => expect(lastLocationChatPanelProps).not.toBeNull());
+    expect(lastLocationChatPanelProps?.userId).toBe("user_a");
+  });
+
   it("renders the One-owned encrypted location control surface", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -885,13 +922,16 @@ describe("OneLocationAgentPage", () => {
       "https://www.google.com/maps/dir/?api=1&destination=28.613900%2C77.209000&travelmode=driving",
     );
 
-    const startLink = screen.getByRole("link", {
-      name: "Start Google Maps navigation to shared live location",
-    });
-    expect(startLink.getAttribute("target")).toBe("_blank");
-    expect(startLink.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(startLink.getAttribute("href")).toContain("dir_action=navigate");
+    // The duplicate "Start" navigation button was removed from location
+    // previews (it opened the same Google Maps navigation as "Directions").
+    // Only the single "Directions" action should remain.
+    expect(
+      screen.queryByRole("link", {
+        name: "Start Google Maps navigation to shared live location",
+      }),
+    ).toBeNull();
   });
+
 
   it("tracks public location link creation without analytics identity payloads", async () => {
     const longPublicUrl =

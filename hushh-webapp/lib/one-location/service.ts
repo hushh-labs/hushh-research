@@ -1,6 +1,9 @@
 import { HushhLocation } from "@/lib/capacitor";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import type {
+  ActionResult,
+  LocationChatResponse,
+  SelectionResult,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -138,6 +141,25 @@ export class OneLocationService {
   static async getState(vaultOwnerToken: string): Promise<OneLocationState> {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
+    });
+  }
+
+  static async chat(params: {
+    vaultOwnerToken: string;
+    message?: string;
+    conversationId?: string | null;
+    actionResult?: ActionResult;
+    selectionResult?: SelectionResult;
+  }): Promise<LocationChatResponse> {
+    return apiJson<LocationChatResponse>("/api/one/location/chat", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        message: params.message ?? null,
+        conversationId: params.conversationId ?? null,
+        actionResult: params.actionResult ?? null,
+        selectionResult: params.selectionResult ?? null,
+      }),
     });
   }
 
@@ -298,6 +320,7 @@ export class OneLocationService {
     recipientUserId: string;
     recipientKeyId: string;
     durationHours: number;
+    reason?: string;
   }): Promise<OneLocationGrant> {
     const response = await apiJson<{ grant: OneLocationGrant }>(
       "/api/one/location/grants",
@@ -308,10 +331,23 @@ export class OneLocationService {
           recipientUserId: params.recipientUserId,
           recipientKeyId: params.recipientKeyId,
           durationHours: params.durationHours,
+          ...(params.reason ? { reason: params.reason } : {}),
         }),
       },
     );
     return response.grant;
+  }
+
+  static async seedTrustedContacts(params: {
+    vaultOwnerToken: string;
+  }): Promise<{ seeded: number; existingCount: number; skippedSelf: number }> {
+    const response = await apiJson<{
+      result: { seeded: number; existingCount: number; skippedSelf: number };
+    }>("/api/one/location/seed-trusted", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+    });
+    return response.result;
   }
 
   static async storeEnvelope(params: {

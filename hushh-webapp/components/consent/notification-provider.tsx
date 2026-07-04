@@ -79,6 +79,7 @@ import {
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
 
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -345,6 +346,7 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
   const normalized = String(pathname || "").trim().toLowerCase();
   if (!normalized) return false;
   return (
+    normalized.startsWith("/agent") ||
     normalized.startsWith("/consents") ||
     normalized.startsWith("/profile") ||
     normalized.startsWith("/ria")
@@ -692,9 +694,12 @@ export function ConsentNotificationProvider({
         requestId,
         referralId,
         submissionId,
+        // Land the recipient on the section that owns this event - e.g. an
+        // access request opens the Inbox "Needs your review" (approvals) section.
         section: oneLocationSectionForWorkflowNotificationType(msgType),
         openGrant: false,
       });
+
       const created = recordOneLocationWorkflowNotification({
         userId: user.uid,
         notificationType: msgType,

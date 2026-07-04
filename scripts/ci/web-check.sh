@@ -25,6 +25,7 @@ npm run verify:analytics
 npm run verify:cache
 npm run typecheck
 npm run lint
+npm run verify:phone-verification
 npm run test:ci
 
 NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-https://api.example.com}" \
