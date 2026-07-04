@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
-import { ROUTES } from "@/lib/navigation/routes";
 
 function baseInput(actionId: string) {
   return {
@@ -30,9 +29,18 @@ describe("executeAgentGatewayAction connected systems", () => {
 
     const result = await executeAgentGatewayAction(input);
 
-    expect(input.router.push).toHaveBeenCalledWith(ROUTES.CONNECTED_SYSTEMS);
+    expect(input.router.push).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^\/one\/connected-systems\/salesforce-fsc-customer0\?agentActionId=crm_/
+      )
+    );
     expect(result.status).toBe("started");
     expect(result.screenAfter).toBe("connected_systems");
+    expect(result.data?.target).toEqual(input.router.push.mock.calls[0]?.[0]);
+    const actionId = String(input.router.push.mock.calls[0]?.[0] || "").split("agentActionId=")[1];
+    expect(window.sessionStorage.getItem(`hushh:connected-system-agent-action:${actionId}`)).toContain(
+      "connected_system.crm.update.propose"
+    );
   });
 
   it("blocks CRM deletes in Agent v1", async () => {

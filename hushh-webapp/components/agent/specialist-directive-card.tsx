@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useState } from "react";
 import { ExternalLink, ShieldCheck, ShieldOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,64 @@ export function SpecialistPromptCard({
       onConfirm={onConfirm}
       onCancel={onCancel}
     />
+  );
+}
+
+export type SpecialistFreeTextPromptCardProps = {
+  question: string;
+  placeholder?: string | null;
+  confirmLabel?: string | null;
+  cancelLabel?: string | null;
+  busy?: boolean;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+};
+
+export function SpecialistFreeTextPromptCard({
+  question,
+  placeholder,
+  confirmLabel,
+  cancelLabel,
+  busy = false,
+  onSubmit,
+  onCancel,
+}: SpecialistFreeTextPromptCardProps) {
+  const [value, setValue] = useState("");
+  const trimmed = value.trim();
+  return (
+    <div
+      data-testid="specialist-free-text-prompt-card"
+      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+    >
+      <p className="text-sm font-medium">{question}</p>
+      <textarea
+        className="mt-3 min-h-20 w-full resize-none rounded-xl border border-[color:var(--app-card-border-standard)] bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+        placeholder={placeholder || undefined}
+        value={value}
+        disabled={busy}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <div className="mt-3 flex gap-2">
+        <Button
+          data-testid="specialist-free-text-submit"
+          size="sm"
+          isLoading={busy}
+          disabled={busy || !trimmed}
+          onClick={() => onSubmit(trimmed)}
+        >
+          {confirmLabel ?? "Continue"}
+        </Button>
+        <Button
+          data-testid="specialist-free-text-cancel"
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          {cancelLabel ?? "Cancel"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

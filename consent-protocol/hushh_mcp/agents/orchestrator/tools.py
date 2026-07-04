@@ -32,6 +32,19 @@ def _create_delegation_response(
 # specialist to its delegation domain/target plus the cues that route to it.
 _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "connected_systems_crm",
+        "agent_connected_systems",
+        (
+            "crm",
+            "salesforce",
+            "connected system",
+            "connected systems",
+            "mulesoft",
+            "contact record",
+            "crm record",
+        ),
+    ),
+    (
         "finance",
         "agent_kai",
         (

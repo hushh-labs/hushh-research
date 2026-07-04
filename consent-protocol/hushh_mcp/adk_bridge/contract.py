@@ -21,6 +21,7 @@ class A2ATask:
     message: str | None = None
     delegate_result: dict | None = None
     timezone: str | None = None
+    planned_action: dict | None = None
 
 
 @dataclass(frozen=True)

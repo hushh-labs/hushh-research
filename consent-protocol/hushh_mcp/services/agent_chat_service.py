@@ -51,7 +51,7 @@ Current capability boundary:
 - When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say One cannot save to PKM.
 - Normal finance and app questions should be answered as streaming text. Use concise GitHub-flavored Markdown with headings, lists, links, code, or tables when structure makes the answer easier to scan.
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
-- For Connected Systems / Salesforce CRM, read/create/update requests are frontend tool proposals. Create and update execution requires explicit user approval in Profile > Connected Systems. Delete is blocked in v1.
+- For Connected Systems CRM, read/create/update requests require explicit user approval. Delete is blocked in v1.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
@@ -64,8 +64,14 @@ Call exactly one function only when the user clearly asks One to do one of these
 - start stock analysis for a ticker or public company
 - open a Hussh/Kai app surface
 - save, remember, or add durable personal context to the user's PKM
-- read a Salesforce CRM record or propose a Salesforce CRM create/update through Connected Systems
+- read a CRM record or propose a CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
+
+For CRM read/update planning, extract the requested target scope from the user's wording.
+Use target_scope="all_connected_crm_systems" when the user is asking to list, read, or update every connected brand,
+all brand registries, brand CRMs, or all connected CRM systems. Otherwise use target_scope="single_connected_crm_system".
+Map natural contact fields to CRM field API names in additional_fields_json, for example:
+city/current city/new city -> {"MailingCity":"Las Vegas"}.
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
 When unsure, do not call a function.
@@ -838,20 +844,23 @@ def _agent_action_tool() -> genai_types.Tool:
             genai_types.FunctionDeclaration(
                 name="read_crm_record",
                 description=(
-                    "Open the Connected Systems Salesforce CRM read workflow. Use when the "
+                    "Open the Connected Systems CRM read workflow. Use when the "
                     "user asks to read, fetch, search, or look up a CRM Contact record."
                 ),
                 parameters=_schema_object(
                     {
                         "email": _schema_string("Contact email if the user supplied it."),
                         "phone": _schema_string("Contact phone if the user supplied it."),
+                        "target_scope": _schema_string(
+                            "single_connected_crm_system or all_connected_crm_systems."
+                        ),
                     }
                 ),
             ),
             genai_types.FunctionDeclaration(
                 name="propose_crm_create",
                 description=(
-                    "Open the Connected Systems Salesforce CRM create proposal workflow. "
+                    "Open the Connected Systems CRM create proposal workflow. "
                     "Execution will still require explicit user approval."
                 ),
                 parameters=_schema_object(
@@ -861,7 +870,7 @@ def _agent_action_tool() -> genai_types.Tool:
                         "first_name": _schema_string("Contact first name if supplied."),
                         "last_name": _schema_string("Contact last name if supplied."),
                         "additional_fields_json": _schema_string(
-                            "Optional JSON object string for supported Salesforce fields."
+                            "Optional JSON object string for supported CRM fields."
                         ),
                     }
                 ),
@@ -869,16 +878,20 @@ def _agent_action_tool() -> genai_types.Tool:
             genai_types.FunctionDeclaration(
                 name="propose_crm_update",
                 description=(
-                    "Open the Connected Systems Salesforce CRM update proposal workflow. "
+                    "Open the Connected Systems CRM update proposal workflow. "
                     "Execution will still require explicit user approval."
                 ),
                 parameters=_schema_object(
                     {
-                        "record_id": _schema_string(
-                            "Salesforce record Id if the user supplied it."
+                        "record_id": _schema_string("CRM record Id if the user supplied it."),
+                        "email": _schema_string("Contact email if the user supplied it."),
+                        "phone": _schema_string("Contact phone if the user supplied it."),
+                        "target_scope": _schema_string(
+                            "single_connected_crm_system or all_connected_crm_systems."
                         ),
                         "additional_fields_json": _schema_string(
-                            "Optional JSON object string for supported Salesforce fields to update."
+                            "Optional JSON object string for supported CRM fields to update. "
+                            'Use CRM field API names, for example {"MailingCity":"Las Vegas"}.'
                         ),
                     }
                 ),
@@ -1453,12 +1466,14 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
         screen_context: dict[str, Any] | None = None,
+        deterministic_crm_first: bool = True,
     ) -> AgentChatActionPlan | None:
         current_screen = _current_screen_from_context(screen_context)
 
-        crm_action = self._plan_crm_action(user_message)
-        if crm_action is not None:
-            return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
+        if deterministic_crm_first:
+            crm_action = self._plan_crm_action(user_message)
+            if crm_action is not None:
+                return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
 
         deterministic_block = self._plan_blocked_action(user_message)
         if deterministic_block is not None:
@@ -1584,11 +1599,11 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.delete",
-                label="Blocked Salesforce CRM Delete",
+                label="Blocked CRM Delete",
                 execution="blocked",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
                 message=(
-                    "Salesforce CRM delete is blocked in Agent v1. Open Connected Systems "
+                    "CRM delete is blocked in Agent v1. Open Connected Systems "
                     "and use a maintainer-only test path if this is intentional."
                 ),
                 reason="crm_delete_manual_only",
@@ -1598,7 +1613,7 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.update.propose",
-                label="Propose Salesforce CRM Update",
+                label="Propose CRM Update",
                 execution="frontend",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
                 message="Opening Connected Systems so you can review and approve the CRM update.",
@@ -1608,7 +1623,7 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.create.propose",
-                label="Propose Salesforce CRM Create",
+                label="Propose CRM Create",
                 execution="frontend",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
                 message="Opening Connected Systems so you can review and approve the CRM create.",
@@ -1618,10 +1633,10 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.read",
-                label="Read Salesforce CRM Record",
+                label="Read CRM Record",
                 execution="frontend",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
-                message="Opening Connected Systems for the Salesforce CRM read.",
+                message="Opening Connected Systems for the CRM read.",
             )
 
         return None
@@ -1815,25 +1830,29 @@ class AgentChatService:
             )
 
         if name == "read_crm_record":
+            scope = str(args.get("target_scope") or args.get("scope") or "").strip()
+            slots: dict[str, Any] = {
+                "systemId": "salesforce-fsc-customer0",
+                "objectType": "Contact",
+                "email": str(args.get("email") or "").strip(),
+                "phone": str(args.get("phone") or "").strip(),
+            }
+            if scope == "all_connected_crm_systems":
+                slots["scope"] = scope
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.read",
-                label="Read Salesforce CRM Record",
+                label="Read CRM Record",
                 execution="frontend",
-                slots={
-                    "systemId": "salesforce-fsc-customer0",
-                    "objectType": "Contact",
-                    "email": str(args.get("email") or "").strip(),
-                    "phone": str(args.get("phone") or "").strip(),
-                },
-                message="Opening Connected Systems for the Salesforce CRM read.",
+                slots=slots,
+                message="Opening Connected Systems for the CRM read.",
             )
 
         if name == "propose_crm_create":
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.create.propose",
-                label="Propose Salesforce CRM Create",
+                label="Propose CRM Create",
                 execution="frontend",
                 slots={
                     "systemId": "salesforce-fsc-customer0",
@@ -1848,17 +1867,23 @@ class AgentChatService:
             )
 
         if name == "propose_crm_update":
+            scope = str(args.get("target_scope") or args.get("scope") or "").strip()
+            slots: dict[str, Any] = {
+                "systemId": "salesforce-fsc-customer0",
+                "objectType": "Contact",
+                "id": str(args.get("record_id") or "").strip(),
+                "email": str(args.get("email") or "").strip(),
+                "phone": str(args.get("phone") or "").strip(),
+                "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
+            }
+            if scope == "all_connected_crm_systems":
+                slots["scope"] = scope
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.update.propose",
-                label="Propose Salesforce CRM Update",
+                label="Propose CRM Update",
                 execution="frontend",
-                slots={
-                    "systemId": "salesforce-fsc-customer0",
-                    "objectType": "Contact",
-                    "id": str(args.get("record_id") or "").strip(),
-                    "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
-                },
+                slots=slots,
                 message="Opening Connected Systems so you can review and approve the CRM update.",
             )
 
