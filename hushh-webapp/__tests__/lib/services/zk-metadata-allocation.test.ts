@@ -67,13 +67,15 @@ describe("effectiveOneKycRequiredFields — ZK metadata array shape resolution",
     expect(result).toEqual(["financial_information"]);
   });
 
-  it("returns an empty array for a dynamic non-identity scope with no matching required fields", () => {
+  it("falls back to the domain aggregate field for a dynamic scope whose only required field is identity-scoped", () => {
     const result = effectiveOneKycRequiredFields({
       requiredFields: ["full_name"],
       scopes: ["attr.travel"],
     });
-    // full_name is an identity field, not valid for a dynamic travel domain.
-    expect(result).toEqual([]);
+    // full_name is an identity field, so it is filtered out of the dynamic
+    // travel domain; the resolver then falls back to the `<domain>_information`
+    // aggregate rather than returning an empty list.
+    expect(result).toEqual(["travel_information"]);
   });
 
   it("falls back to the fallbackScope when no scopes are supplied", () => {
