@@ -192,6 +192,19 @@ not the product owner for live location.
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, and related events after the retention window |
 
+### Agent One A2A
+
+Agent One exposes a scoped A2A coordination surface. The card endpoint is
+manifest-backed metadata. The message endpoint requires `X-Consent-Token`; the
+token must validate for `agent_one` with `agent.one.orchestrate`. The route
+derives `userId` from the signed token and rejects a mismatched request body
+`userId`. Specialist work still validates at the specialist boundary.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/a2a/card` | Public metadata | Return Agent One manifest, required scope, specialists, and endpoint metadata |
+| POST | `/api/one/a2a/message` | `X-Consent-Token` scoped `agent.one.orchestrate` | Invoke Agent One as the coordinator for a user request; returns either a direct One response or a specialist delegation payload |
+
 ### VAULT_OWNER (Consent-Gated)
 
 #### Consent Management
