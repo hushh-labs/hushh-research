@@ -324,7 +324,7 @@ export function AgentBar() {
             ? "bg-primary/10 text-foreground ring-1 ring-primary/30 dark:bg-primary/15"
             : isHomeRoute
               ? "bg-black/[0.05] text-[#0A0A0A] ring-1 ring-black/[0.06] dark:bg-white/[0.08] dark:text-white dark:ring-white/10"
-              : "bg-[#111] text-white ring-1 ring-white/10",
+              : "bg-[#0A0908] text-white ring-1 ring-white/10",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
@@ -417,7 +417,7 @@ export function AgentBar() {
                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
                 onDashboard
                   ? "bg-white text-[#111] hover:bg-white/90"
-                  : "bg-[#5E5CE6] text-white hover:bg-[#4a48c9]",
+                  : "bg-[linear-gradient(158deg,#E4C482,#B98A45)] text-white hover:brightness-95",
                 "transition-[background-color,transform] duration-200 active:scale-90",
               )}
             >

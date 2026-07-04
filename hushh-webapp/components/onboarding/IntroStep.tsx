@@ -78,27 +78,27 @@ export function IntroStep({
   onLogin?: () => void;
 }) {
   return (
-    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0A0C]">
+    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]">
       {/* Hero glow blobs (decorative) */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[60%]">
         <span
           className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(94,92,230,0.40)", filter: "blur(80px)" }}
+          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
         />
         <span
           className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(18,161,80,0.16)", filter: "blur(80px)" }}
+          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
         />
       </div>
 
       <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
         {/* ── Dark hero ── */}
         <div className="flex flex-col items-center px-6 pt-[calc(78px+var(--app-safe-area-top-effective,0px))] pb-9 text-center">
-          <div className="relative flex h-[88px] w-[88px] items-center justify-center rounded-[23px] border border-white/20 bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+          <div className="relative flex h-[88px] w-[88px] items-center justify-center rounded-[23px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
             <span
               aria-hidden
               className="pointer-events-none absolute inset-0 -z-10 rounded-[23px]"
-              style={{ boxShadow: "0 0 60px rgba(133,131,255,0.28)" }}
+              style={{ boxShadow: "0 0 60px rgba(212,175,106,0.28)" }}
             />
             <Image
               src="/one-quiet-emoji.png"
@@ -117,13 +117,13 @@ export function IntroStep({
             role="heading"
             aria-level={1}
             aria-label="hushh One, a memory that's only yours"
-            className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-[-1.4px] text-white"
+            className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-[-1.4px] text-[#FAF6EE]"
           >
-            hu<span style={{ color: "#E6B366" }}>sh</span>h{" "}
+            hu<span style={{ color: "#D4AF6A" }}>sh</span>h{" "}
             <span className="font-bold">One</span>
-            <span style={{ color: "#E6B366" }}>.</span>
+            <span style={{ color: "#D4AF6A" }}>.</span>
           </div>
-          <p className="mt-3 text-[16px] tracking-[-0.2px] text-white/55">
+          <p className="mt-3 text-[16px] tracking-[-0.2px] text-[rgba(250,246,238,0.62)]">
             A memory that&apos;s only yours.
           </p>
         </div>
@@ -137,13 +137,13 @@ export function IntroStep({
               return (
                 <div key={feature.title} className="flex gap-4">
                   <div className="flex flex-col items-center">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[rgba(94,92,230,0.09)] text-[#5E5CE6] dark:bg-[rgba(133,131,255,0.14)] dark:text-[#8583FF]">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[rgba(156,116,52,0.10)] text-[#9C7434] dark:bg-[rgba(212,175,106,0.16)] dark:text-[#D4AF6A]">
                       <feature.icon className="h-[19px] w-[19px]" />
                     </span>
                     {!last ? (
                       <span
                         aria-hidden
-                        className="w-[1.5px] flex-1 bg-[rgba(94,92,230,0.18)] dark:bg-[rgba(133,131,255,0.22)]"
+                        className="w-[1.5px] flex-1 bg-[rgba(156,116,52,0.18)] dark:bg-[rgba(212,175,106,0.22)]"
                       />
                     ) : null}
                   </div>
@@ -161,7 +161,7 @@ export function IntroStep({
           </div>
 
           {/* Consent note (indigo tint) */}
-          <div className="mt-6 rounded-2xl bg-[rgba(94,92,230,0.06)] px-4 py-4 text-center text-[13.5px] leading-[1.5] text-black/55 dark:bg-white/[0.05] dark:text-white/60">
+          <div className="mt-6 rounded-2xl bg-[rgba(156,116,52,0.10)] px-4 py-4 text-center text-[13.5px] leading-[1.5] text-black/55 dark:bg-white/[0.05] dark:text-white/60">
             One is consent-first. Your knowledge and information are your
             safewords. Nothing leaves your vault without your approval.
           </div>
@@ -171,7 +171,7 @@ export function IntroStep({
             <button
               type="button"
               onClick={onLogin}
-              className="flex h-[54px] w-full items-center justify-center rounded-full bg-[#111] text-[17px] font-bold tracking-[-0.3px] text-white shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-transform duration-150 hover:bg-black active:scale-[0.99] motion-reduce:active:scale-100 dark:bg-white dark:text-[#111] dark:hover:bg-white"
+              className="flex h-[54px] w-full items-center justify-center rounded-full border border-[rgba(214,175,106,0.55)] bg-[#F4EAD6] text-[17px] font-bold tracking-[-0.3px] text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-transform duration-150 hover:bg-[#F4EAD6] active:scale-[0.99] motion-reduce:active:scale-100 dark:bg-[#F4EAD6] dark:text-[#17130C] dark:hover:bg-[#F4EAD6]"
             >
               Log in
             </button>

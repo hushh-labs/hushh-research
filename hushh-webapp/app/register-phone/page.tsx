@@ -129,7 +129,7 @@ function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0A0C]">
+    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]">
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -140,11 +140,11 @@ function PhoneMandatePageContent() {
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[58%]">
         <span
           className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(94,92,230,0.40)", filter: "blur(80px)" }}
+          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
         />
         <span
           className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(18,161,80,0.16)", filter: "blur(80px)" }}
+          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
         />
       </div>
 
@@ -180,7 +180,7 @@ function PhoneMandatePageContent() {
 
         {/* Dark hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-white/20 bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
             <Image
               src="/one-quiet-emoji.png"
               alt=""
@@ -197,11 +197,11 @@ function PhoneMandatePageContent() {
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1px] text-white"
+            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1px] text-[#FAF6EE]"
           >
             Verify your phone number
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] text-white/55">
+          <p className="mt-3 max-w-[20rem] text-[16px] text-[rgba(250,246,238,0.62)]">
             Add your phone number to continue.
           </p>
         </div>

@@ -46,11 +46,11 @@ const AUTH_CANCEL_CODES = new Set([
 // 9a provider-button treatments: Apple black, Google white-with-border,
 // Reviewer indigo-tint (design.md §5.9). Passed to AuthProviderButton className.
 const APPLE_BTN_CLASS =
-  "!bg-[#111] !text-white shadow-[0_8px_20px_rgba(0,0,0,0.16)] hover:!bg-black dark:!bg-[#0A0A0A] dark:ring-1 dark:ring-white/10";
+  "!bg-[#0A0908] !text-[#FAF6EE] shadow-[0_8px_20px_rgba(0,0,0,0.16)] hover:!bg-black dark:!bg-[#0A0908] dark:ring-1 dark:ring-white/10";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#0A0A0A] border border-black/10 shadow-sm hover:!bg-black/[0.02]";
+  "!bg-white !text-[#17130C] border border-[rgba(214,175,106,0.55)] shadow-sm hover:!bg-black/[0.02]";
 const REVIEWER_BTN_CLASS =
-  "!bg-[rgba(94,92,230,0.1)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.16)]";
+  "!bg-[rgba(156,116,52,0.12)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.18)] dark:!bg-[rgba(212,175,106,0.16)] dark:!text-[#D4AF6A]";
 
 function isAuthCancel(error: unknown): boolean {
   const code =
@@ -603,7 +603,7 @@ export function AuthStep({
 
   return (
     <main
-      className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0A0C]"
+      className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]"
       data-testid="auth-step-primary"
     >
       <NativeTestBeacon
@@ -634,11 +634,11 @@ export function AuthStep({
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[58%]">
         <span
           className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(94,92,230,0.40)", filter: "blur(80px)" }}
+          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(95px)" }}
         />
         <span
           className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(18,161,80,0.16)", filter: "blur(80px)" }}
+          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
         />
       </div>
 
@@ -654,7 +654,7 @@ export function AuthStep({
       <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
         {/* Dark hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-white/20 bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
             <Image
               src="/one-quiet-emoji.png"
               alt="One"
@@ -670,11 +670,11 @@ export function AuthStep({
             role="heading"
             aria-level={1}
             aria-label="Sign in to One"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[36px] font-extrabold leading-[1.05] tracking-[-1.1px] text-white"
+            className="mt-6 font-[family-name:var(--font-app-display)] text-[36px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#FAF6EE]"
           >
-            Sign in to One<span style={{ color: "#E6B366" }}>.</span>
+            Sign in to One<span style={{ color: "#D4AF6A" }}>.</span>
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.4] text-white/55">
+          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.4] text-[rgba(250,246,238,0.62)]">
             Sign in to open your private vault, only you can.
           </p>
         </div>
@@ -711,7 +711,7 @@ export function AuthStep({
               <button
                 type="button"
                 onClick={() => openLegalDoc("terms")}
-                className="font-semibold text-[#5E5CE6] transition-opacity hover:opacity-70 dark:text-[#8583ff]"
+                className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
               >
                 Terms
               </button>{" "}
@@ -719,7 +719,7 @@ export function AuthStep({
               <button
                 type="button"
                 onClick={() => openLegalDoc("privacy")}
-                className="font-semibold text-[#5E5CE6] transition-opacity hover:opacity-70 dark:text-[#8583ff]"
+                className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
               >
                 Privacy Policy
               </button>

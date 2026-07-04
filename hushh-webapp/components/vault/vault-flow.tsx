@@ -902,7 +902,7 @@ export function VaultFlow({
                     "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full",
                     isGeneratedVaultMode
                       ? "bg-foreground/[0.06] dark:bg-foreground/[0.10]"
-                      : "bg-[rgba(94,92,230,0.1)] dark:bg-[rgba(133,131,255,0.16)]",
+                      : "bg-[rgba(156,116,52,0.10)] dark:bg-[rgba(212,175,106,0.16)]",
                   )}
                 >
                   <Icon
@@ -911,7 +911,7 @@ export function VaultFlow({
                     className={
                       isGeneratedVaultMode
                         ? "text-foreground/70"
-                        : "text-[#5E5CE6] dark:text-[#8583FF]"
+                        : "text-[#9C7434] dark:text-[#D4AF6A]"
                     }
                   />
                 </div>
@@ -928,7 +928,7 @@ export function VaultFlow({
                     : "Enter your passphrase to open Vault"}
                 </p>
                 {unlockHint ? (
-                  <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[rgba(94,92,230,0.06)] px-3.5 py-2.5 type-footnote text-muted-foreground">
+                  <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[rgba(156,116,52,0.06)] px-3.5 py-2.5 type-footnote text-muted-foreground">
                     {unlockHint}
                   </p>
                 ) : null}
@@ -944,9 +944,9 @@ export function VaultFlow({
                   <div
                     className={cn(
                       "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
-                      "focus-within:border-[#5E5CE6] focus-within:ring-4 focus-within:ring-[rgba(94,92,230,0.12)]",
+                      "focus-within:border-[#9C7434] focus-within:ring-4 focus-within:ring-[rgba(156,116,52,0.12)]",
                       passphrase
-                        ? "border-[#5E5CE6]"
+                        ? "border-[#9C7434]"
                         : "border-black/10 dark:border-white/15",
                     )}
                   >
@@ -963,10 +963,10 @@ export function VaultFlow({
                       }
                       autoFocus
                       autoComplete="current-password"
-                      className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[#5E5CE6] outline-none placeholder:text-foreground/35"
+                      className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[#9C7434] outline-none placeholder:text-foreground/35"
                     />
                     {passphrase ? (
-                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#30B550] text-white">
+                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#12A150] text-white">
                         <Icon icon={Check} size={13} />
                       </span>
                     ) : null}
@@ -980,7 +980,7 @@ export function VaultFlow({
                     effect="fill"
                     size="default"
                     fullWidth
-                    className="h-12 rounded-full type-headline !bg-[#111] !text-white shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-black active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-white dark:!text-[#111] dark:hover:!bg-white dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                    className="h-12 rounded-full type-headline border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[#F4EAD6] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#F4EAD6] dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -1043,7 +1043,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(94,92,230,0.09)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.14)]"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(156,116,52,0.09)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.14)]"
                           data-testid="vault-use-passphrase-instead"
                           onClick={() => {
                             setError(null);
@@ -1062,7 +1062,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(94,92,230,0.09)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.14)]"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(156,116,52,0.09)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.14)]"
                           onClick={() => {
                             setError(null);
                             setPassphrase("");
@@ -1082,7 +1082,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(94,92,230,0.09)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.14)]"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(156,116,52,0.09)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.14)]"
                           onClick={() => {
                             setError(null);
                             setStep("recovery");
@@ -1139,7 +1139,7 @@ export function VaultFlow({
                   effect="fill"
                   size="default"
                   fullWidth
-                  className="h-12 rounded-full type-headline !bg-[#111] !text-white shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-black active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-white dark:!text-[#111] dark:hover:!bg-white dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                  className="h-12 rounded-full type-headline border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[#F4EAD6] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#F4EAD6] dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >

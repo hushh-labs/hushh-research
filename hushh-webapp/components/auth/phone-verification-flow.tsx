@@ -39,13 +39,13 @@ import { cn } from "@/lib/utils";
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
-  "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[#5E5CE6] focus-within:ring-4 focus-within:ring-[rgba(94,92,230,0.12)] dark:border-white/10 dark:bg-white/[0.08]";
+  "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[#9C7434] focus-within:ring-4 focus-within:ring-[rgba(156,116,52,0.12)] dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
   "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 // 10a/11a immersive: solid black pill CTA (inverts to white in dark mode).
 const FLOW_CTA_CLASS_NAME =
-  "h-[54px] rounded-full !bg-[#111] !text-white shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-transform hover:!bg-black active:scale-[0.99] motion-reduce:active:scale-100 dark:!bg-white dark:!text-[#111] dark:hover:!bg-white";
+  "h-[54px] rounded-full border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-transform hover:!bg-[#EFE2C7] active:scale-[0.99] motion-reduce:active:scale-100 dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#EFE2C7]";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 
@@ -342,9 +342,9 @@ export function PhoneVerificationFlow({
     return (
       <div className={className} style={style}>
         <div
-          className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-emerald-500/20 bg-emerald-50/80 p-5 dark:bg-emerald-950/20`}
+          className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] p-5 dark:bg-[rgba(18,161,80,0.16)]`}
         >
-          <ShieldCheck className="h-10 w-10 text-emerald-600" />
+          <ShieldCheck className="h-10 w-10 text-[#12A150] dark:text-[#3FBF77]" />
           <h2 className={cn(kaiAppCardTitleClassName, "mt-4 text-foreground")}>Phone already linked</h2>
           <p className={cn(kaiAppHelperClassName, "mt-2 text-muted-foreground")}>
             This account already has a verified phone number:{" "}
@@ -477,8 +477,8 @@ export function PhoneVerificationFlow({
         </>
       ) : (
         <>
-          <div className="flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-50/80 p-4 dark:border-emerald-400/20 dark:bg-emerald-950/25">
-            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#30B550] text-white">
+          <div className="flex items-start gap-3 rounded-2xl border border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] p-4 dark:border-[rgba(18,161,80,0.35)] dark:bg-[rgba(18,161,80,0.16)]">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#12A150] text-white">
               <Check className="h-3 w-3" aria-hidden />
             </span>
             <div className="min-w-0">
@@ -506,14 +506,14 @@ export function PhoneVerificationFlow({
                       className={cn(
                         "flex h-[58px] flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
                         active
-                          ? "border-[#5E5CE6] bg-white shadow-[0_0_0_4px_rgba(94,92,230,0.12)] dark:bg-white/[0.06]"
+                          ? "border-[#9C7434] bg-white shadow-[0_0_0_4px_rgba(156,116,52,0.12)] dark:bg-white/[0.06]"
                           : "border-black/10 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.04]",
                       )}
                     >
                       {filled ? (
                         verificationCode[index]
                       ) : active ? (
-                        <span className="h-6 w-px animate-pulse bg-[#5E5CE6]" />
+                        <span className="h-6 w-px animate-pulse bg-[#9C7434]" />
                       ) : null}
                     </div>
                   );
@@ -552,7 +552,7 @@ export function PhoneVerificationFlow({
               type="button"
               onClick={() => void handleStartVerification(true)}
               disabled={busy}
-              className="font-bold text-[#5E5CE6] transition-colors hover:text-[#4a48c9] disabled:opacity-50 dark:text-[#8583ff]"
+              className="font-bold text-[#9C7434] transition-colors hover:text-[#835f27] disabled:opacity-50 dark:text-[#D4AF6A]"
             >
               Resend code
             </button>
