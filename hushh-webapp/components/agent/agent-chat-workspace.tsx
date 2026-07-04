@@ -40,8 +40,10 @@ import {
   SpecialistConsentRequiredCard,
   SpecialistDirectiveCard,
   SpecialistFreeTextPromptCard,
+  SpecialistPendingConsentRequestCard,
   SpecialistPromptCard,
   type SpecialistConsentActionItem,
+  type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
 import { SelectionChip } from "@/components/agent/selection-chip";
@@ -112,8 +114,14 @@ import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialis
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
+import {
+  ConsentCenterService,
+  type PendingConsentLookupItem,
+} from "@/lib/services/consent-center-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
@@ -176,6 +184,11 @@ type ConsentRequiredDirectivePayload = {
 type ConsentActionsDirectivePayload = {
   kind: "consent_actions";
   items: SpecialistConsentActionItem[];
+};
+
+type PendingConsentRequestDirectivePayload = {
+  kind: "pending_consent_request";
+  item: SpecialistPendingConsentRequestItem;
 };
 
 export type AgentChatWorkspaceVariant = "page" | "popover";
@@ -245,6 +258,155 @@ function getConsentActionsPayload(
     }))
     .filter((item) => item.id && item.actions.length > 0);
   return { kind: "consent_actions", items };
+}
+
+function getPendingConsentRequestPayload(
+  event: SpecialistDirectiveEvent | null,
+): PendingConsentRequestDirectivePayload | null {
+  if (!event || event.directive.kind !== "prompt") return null;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "pending_consent_request") return null;
+  const rawItem =
+    payload.item && typeof payload.item === "object"
+      ? (payload.item as Record<string, unknown>)
+      : null;
+  if (!rawItem) return null;
+  const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
+  if (!id) return null;
+  const status =
+    rawItem.status === "approved" || rawItem.status === "denied"
+      ? rawItem.status
+      : "pending";
+  return {
+    kind: "pending_consent_request",
+    item: {
+      id,
+      requesterLabel:
+        typeof rawItem.requesterLabel === "string" && rawItem.requesterLabel.trim()
+          ? rawItem.requesterLabel
+          : "An agent",
+      requesterImageUrl:
+        typeof rawItem.requesterImageUrl === "string" ? rawItem.requesterImageUrl : null,
+      requesterWebsiteUrl:
+        typeof rawItem.requesterWebsiteUrl === "string" ? rawItem.requesterWebsiteUrl : null,
+      scope: typeof rawItem.scope === "string" ? rawItem.scope : "",
+      scopeDescription:
+        typeof rawItem.scopeDescription === "string" ? rawItem.scopeDescription : null,
+      requestedAt:
+        typeof rawItem.requestedAt === "number" || typeof rawItem.requestedAt === "string"
+          ? rawItem.requestedAt
+          : null,
+      approvalTimeoutAt:
+        typeof rawItem.approvalTimeoutAt === "number" ||
+        typeof rawItem.approvalTimeoutAt === "string"
+          ? rawItem.approvalTimeoutAt
+          : null,
+      expiryHours:
+        typeof rawItem.expiryHours === "number" || typeof rawItem.expiryHours === "string"
+          ? rawItem.expiryHours
+          : null,
+      reason: typeof rawItem.reason === "string" ? rawItem.reason : null,
+      additionalAccessSummary:
+        typeof rawItem.additionalAccessSummary === "string"
+          ? rawItem.additionalAccessSummary
+          : null,
+      status,
+    },
+  };
+}
+
+function pendingConsentLookupItemToCardItem(
+  item: PendingConsentLookupItem,
+): SpecialistPendingConsentRequestItem | null {
+  const id = String(item.request_id || "").trim();
+  if (!id) return null;
+  const requesterLabel =
+    item.requester_label ||
+    item.agent_id ||
+    item.developer ||
+    "An agent";
+  return {
+    id,
+    requesterLabel,
+    requesterImageUrl: item.requester_image_url ?? null,
+    requesterWebsiteUrl: item.requester_website_url ?? null,
+    scope: item.scope || "",
+    scopeDescription: item.scope_description ?? null,
+    requestedAt: item.issued_at ?? null,
+    approvalTimeoutAt: item.poll_timeout_at ?? null,
+    reason: item.reason ?? null,
+    additionalAccessSummary: item.additional_access_summary ?? null,
+    status: "pending",
+  };
+}
+
+function pendingConsentCardItemToPendingConsent(
+  item: SpecialistPendingConsentRequestItem,
+): PendingConsent {
+  const requestedAt =
+    typeof item.requestedAt === "number"
+      ? item.requestedAt
+      : Number(item.requestedAt || Date.now());
+  const approvalTimeoutAt =
+    item.approvalTimeoutAt == null || item.approvalTimeoutAt === ""
+      ? undefined
+      : Number(item.approvalTimeoutAt);
+  const expiryHours =
+    item.expiryHours == null || item.expiryHours === ""
+      ? undefined
+      : Number(item.expiryHours);
+  return {
+    id: item.id,
+    developer: item.requesterLabel,
+    developerImageUrl: item.requesterImageUrl || undefined,
+    developerWebsiteUrl: item.requesterWebsiteUrl || undefined,
+    scope: item.scope,
+    scopeDescription: item.scopeDescription || undefined,
+    requestedAt: Number.isFinite(requestedAt) ? requestedAt : Date.now(),
+    approvalTimeoutAt:
+      typeof approvalTimeoutAt === "number" && Number.isFinite(approvalTimeoutAt)
+        ? approvalTimeoutAt
+        : undefined,
+    expiryHours:
+      typeof expiryHours === "number" && Number.isFinite(expiryHours)
+        ? expiryHours
+        : undefined,
+    reason: item.reason || undefined,
+    additionalAccessSummary: item.additionalAccessSummary || undefined,
+  };
+}
+
+function agentMessagePendingConsentRequestId(message: AgentMessage): string | null {
+  const payload = getPendingConsentRequestPayload(message.specialistDirective ?? null);
+  return payload?.item.id ?? null;
+}
+
+function markPendingConsentRequestDirectiveStatus(
+  event: SpecialistDirectiveEvent | null | undefined,
+  itemId: string,
+  status: "approved" | "denied",
+): SpecialistDirectiveEvent | null | undefined {
+  if (!event || event.directive.kind !== "prompt") return event;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "pending_consent_request") return event;
+  const item = payload.item && typeof payload.item === "object"
+    ? (payload.item as Record<string, unknown>)
+    : null;
+  if (!item || item.id !== itemId) return event;
+
+  return {
+    ...event,
+    directive: {
+      ...event.directive,
+      payload: {
+        ...payload,
+        item: {
+          ...item,
+          status,
+        },
+      },
+    },
+  };
 }
 
 function normalizeConsentActions(item: Record<string, unknown>): string[] {
@@ -647,6 +809,9 @@ function AgentBubble({
   busyConsentItemId = null,
   onConsentRevoke,
   onConsentDetails,
+  onPendingConsentApprove,
+  onPendingConsentDeny,
+  onPendingConsentDetails,
 }: {
   message: AgentMessage;
   onRetry?: () => void;
@@ -654,6 +819,9 @@ function AgentBubble({
   busyConsentItemId?: string | null;
   onConsentRevoke?: (item: SpecialistConsentActionItem) => Promise<void> | void;
   onConsentDetails?: (item: SpecialistConsentActionItem) => void;
+  onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
+  onPendingConsentDeny?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
+  onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -669,6 +837,15 @@ function AgentBubble({
     : null;
   const canRenderConsentActions = Boolean(
     consentActionsPayload && onConsentRevoke && onConsentDetails,
+  );
+  const pendingConsentRequestPayload = !isUser
+    ? getPendingConsentRequestPayload(message.specialistDirective ?? null)
+    : null;
+  const canRenderPendingConsentRequest = Boolean(
+    pendingConsentRequestPayload &&
+      onPendingConsentApprove &&
+      onPendingConsentDeny &&
+      onPendingConsentDetails,
   );
   const showResponseActions =
     !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
@@ -716,7 +893,7 @@ function AgentBubble({
             <span className="whitespace-pre-wrap break-words">{message.text}</span>
           ) : assistantText ? (
             <AgentMarkdown text={assistantText} />
-          ) : canRenderConsentActions ? (
+          ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
             null
           ) : (
             <AgentThinkingDots />
@@ -812,6 +989,23 @@ function AgentBubble({
               }}
               onDetails={(item) => {
                 onConsentDetails?.(item);
+              }}
+            />
+          </div>
+        ) : null}
+        {canRenderPendingConsentRequest && pendingConsentRequestPayload ? (
+          <div className="mt-4">
+            <SpecialistPendingConsentRequestCard
+              item={pendingConsentRequestPayload.item}
+              busy={busyConsentItemId === pendingConsentRequestPayload.item.id}
+              onApprove={(item) => {
+                void onPendingConsentApprove?.(item);
+              }}
+              onDeny={(item) => {
+                void onPendingConsentDeny?.(item);
+              }}
+              onDetails={(item) => {
+                onPendingConsentDetails?.(item);
               }}
             />
           </div>
@@ -990,10 +1184,29 @@ export function AgentChatWorkspace({
   const voiceTtsSpeakingRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
+  const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
   const oneLocationConsentActions = useOneLocationConsentActions({
     userId: user?.uid,
     onActionComplete: () => {
       setPendingSpecialistDirective(null);
+    },
+  });
+  const consentActions = useConsentActions({
+    userId: user?.uid,
+    onActionComplete: (detail) => {
+      const requestId = detail.requestId;
+      if (!requestId || detail.action === "revoke") return;
+      const status = detail.action === "approve" ? "approved" : "denied";
+      setMessages((current) =>
+        current.map((message) => ({
+          ...message,
+          specialistDirective: markPendingConsentRequestDirectiveStatus(
+            message.specialistDirective,
+            requestId,
+            status,
+          ),
+        })),
+      );
     },
   });
 
@@ -1367,6 +1580,7 @@ export function AgentChatWorkspace({
     setSpecialistBusyItemId(null);
     historyLoadKeyRef.current = null;
     latestVisibleTurnIdRef.current = null;
+    inlineConsentRequestIdsRef.current.clear();
   }, [abortAgentTurnWork, resetGlobalVoiceState, user?.uid, isVaultUnlocked]);
 
   const updateMessage = (
@@ -1381,6 +1595,120 @@ export function AgentChatWorkspace({
   const appendMessage = (message: AgentMessage) => {
     setMessages((current) => [...current, message]);
   };
+
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked) return;
+
+    let cancelled = false;
+
+    const appendPendingConsentRequest = async (requestId: string) => {
+      const normalizedRequestId = requestId.trim();
+      if (!normalizedRequestId || inlineConsentRequestIdsRef.current.has(normalizedRequestId)) {
+        return;
+      }
+      inlineConsentRequestIdsRef.current.add(normalizedRequestId);
+
+      const token = getVaultOwnerToken();
+      if (!token) {
+        inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
+        return;
+      }
+
+      try {
+        const result = await ConsentCenterService.lookupPendingRequests({
+          userId: user.uid,
+          vaultOwnerToken: token,
+          requestIds: [normalizedRequestId],
+        });
+        if (cancelled) return;
+        const item = result.items
+          .map(pendingConsentLookupItemToCardItem)
+          .find((candidate): candidate is SpecialistPendingConsentRequestItem =>
+            Boolean(candidate),
+          );
+        if (!item) {
+          inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
+          return;
+        }
+
+        const event: SpecialistDirectiveEvent = {
+          delegateAgentId: "agent_nav",
+          directive: {
+            kind: "prompt",
+            payload: {
+              kind: "pending_consent_request",
+              item,
+            },
+          },
+          message: `${item.requesterLabel} is asking for access. Review the request here in Agent One.`,
+          stateChanged: true,
+        };
+
+        setMessages((current) => {
+          if (
+            current.some(
+              (message) => agentMessagePendingConsentRequestId(message) === item.id,
+            )
+          ) {
+            return current;
+          }
+          return [
+            ...current,
+            {
+              id: `msg-${Date.now()}-pending-consent-${item.id}`,
+              role: "assistant",
+              text: event.message,
+              timestamp: formatNow(),
+              status: "done",
+              specialistDirective: event,
+            },
+          ];
+        });
+      } catch (error) {
+        inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
+        console.warn("[AgentChatWorkspace] Failed to hydrate pending consent request:", error);
+      }
+    };
+
+    const handleConsentMessage = (event: Event) => {
+      const customEvent = event as CustomEvent<{ data?: Record<string, unknown> }>;
+      const data = customEvent.detail?.data;
+      if (!data) return;
+      const type = String(data.type || "").trim();
+      const requestId = String(data.request_id || "").trim();
+      if (!requestId) return;
+      if (type === "consent_request") {
+        void appendPendingConsentRequest(requestId);
+        return;
+      }
+      if (type === "consent_resolved") {
+        const action = String(data.action || "").trim().toUpperCase();
+        const status =
+          action === "CONSENT_GRANTED"
+            ? "approved"
+            : action === "CONSENT_DENIED"
+              ? "denied"
+              : null;
+        if (!status) return;
+        setMessages((current) =>
+          current.map((message) => ({
+            ...message,
+            specialistDirective: markPendingConsentRequestDirectiveStatus(
+              message.specialistDirective,
+              requestId,
+              status,
+            ),
+          })),
+        );
+      }
+    };
+
+    window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    };
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
 
   const appendDebugEvent = useCallback(
     (_turnId: string, _event: AgentDebugEvent["event"], _payload: AgentDebugEvent["payload"]) => {
@@ -3774,6 +4102,45 @@ export function AgentChatWorkspace({
                     onConsentDetails={(item) => {
                       router.push(
                         `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}`,
+                      );
+                    }}
+                    onPendingConsentApprove={async (item) => {
+                      setSpecialistBusyItemId(item.id);
+                      try {
+                        await consentActions.handleApprove(
+                          pendingConsentCardItemToPendingConsent(item),
+                        );
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markPendingConsentRequestDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "approved",
+                          ),
+                        }));
+                      } finally {
+                        setSpecialistBusyItemId(null);
+                      }
+                    }}
+                    onPendingConsentDeny={async (item) => {
+                      setSpecialistBusyItemId(item.id);
+                      try {
+                        await consentActions.handleDeny(item.id);
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markPendingConsentRequestDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "denied",
+                          ),
+                        }));
+                      } finally {
+                        setSpecialistBusyItemId(null);
+                      }
+                    }}
+                    onPendingConsentDetails={(item) => {
+                      router.push(
+                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}`,
                       );
                     }}
                   />
