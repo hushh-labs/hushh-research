@@ -76,7 +76,7 @@ Client surfaces
 | GET | `/api/v1/tool-catalog` | Public-beta or app-filtered tool visibility |
 | GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
-| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered scope (requires `?token=<developer-token>`) |
+| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved static scope such as `agent.one.orchestrate` (requires `?token=<developer-token>`) |
 | POST | `/api/v1/default-available-export` | Read a user-published safe projection for a `default_available` scope; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 

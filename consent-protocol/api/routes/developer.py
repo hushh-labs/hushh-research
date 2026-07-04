@@ -36,7 +36,9 @@ router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
-_STATIC_REQUESTABLE_SCOPES: frozenset[str] = frozenset({"pkm.read", "pkm.write"})
+_STATIC_REQUESTABLE_SCOPES: frozenset[str] = frozenset(
+    {"agent.one.orchestrate", "pkm.read", "pkm.write"}
+)
 _MIN_PUBLIC_EXPIRY_HOURS = 24
 _MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
 _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
@@ -306,6 +308,10 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
         DeveloperScopeDescriptor(
             name="pkm.write",
             description="Write to the user personal knowledge model in governed flows.",
+        ),
+        DeveloperScopeDescriptor(
+            name="agent.one.orchestrate",
+            description="Coordinate a user request through Agent One and its specialist handoff layer.",
         ),
         DeveloperScopeDescriptor(
             name="attr.{domain}.*",

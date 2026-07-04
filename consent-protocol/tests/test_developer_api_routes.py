@@ -46,6 +46,7 @@ def test_list_scopes_returns_dynamic_catalog(monkeypatch):
     names = [item["name"] for item in payload["scopes"]]
     assert payload["scopes_are_dynamic"] is True
     assert "pkm.read" in names
+    assert "agent.one.orchestrate" in names
     assert all("world" not in name for name in names)
     assert "attr.{domain}.*" in names
     assert payload["request_endpoint"] == "/api/v1/request-consent"
@@ -686,6 +687,119 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["developer_app_display_name"] == "Demo App"
     assert inserted["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_KEY
     assert inserted["metadata"]["connector_key_id"] == _CONNECTOR_KEY_ID
+    assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
+
+
+def test_request_consent_creates_pending_agent_one_orchestration_request(monkeypatch):
+    inserted: dict[str, object] = {}
+
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return []
+
+        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+            assert user_id == "user_123"
+            return []
+
+    class _FakeIndex:
+        available_domains: list[str] = []
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def resolve_metadata_index(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert requested_scope == "agent.one.orchestrate"
+            assert agent_id == "developer:app_demo_123"
+            return []
+
+        async def get_pending_request_for_scope(
+            self,
+            user_id: str,
+            *,
+            agent_id: str,
+            scope: str,
+        ):
+            assert user_id == "user_123"
+            assert agent_id == "developer:app_demo_123"
+            assert scope == "agent.one.orchestrate"
+            return None
+
+        async def get_superseded_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert requested_scope == "agent.one.orchestrate"
+            assert agent_id == "developer:app_demo_123"
+            return []
+
+        async def was_recently_denied(
+            self,
+            user_id: str,
+            scope: str,
+            cooldown_seconds: int = 60,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert scope == "agent.one.orchestrate"
+            assert agent_id == "developer:app_demo_123"
+            return False
+
+        async def insert_event(self, **kwargs):
+            inserted.update(kwargs)
+            return 1
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": "agent.one.orchestrate",
+            "expiry_hours": 24,
+            "approval_timeout_minutes": 60,
+            "reason": "Coordinate this request through Agent One",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["scope"] == "agent.one.orchestrate"
+    assert payload["requested_scope"] == "agent.one.orchestrate"
+    assert payload["granted_scope"] is None
+    assert payload["agent_id"] == "developer:app_demo_123"
+    assert payload["approval_timeout_minutes"] == 60
+    assert inserted["action"] == "REQUESTED"
+    assert inserted["agent_id"] == "developer:app_demo_123"
+    assert inserted["scope"] == "agent.one.orchestrate"
+    assert inserted["metadata"]["reason"] == "Coordinate this request through Agent One"
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
 
 
@@ -1872,6 +1986,10 @@ def test_is_supported_scope_accepts_pkm_read():
 
 def test_is_supported_scope_accepts_pkm_write():
     assert _is_supported_scope("pkm.write") is True
+
+
+def test_is_supported_scope_accepts_agent_one_orchestrate():
+    assert _is_supported_scope("agent.one.orchestrate") is True
 
 
 def test_is_supported_scope_accepts_dynamic_attr_scope():
