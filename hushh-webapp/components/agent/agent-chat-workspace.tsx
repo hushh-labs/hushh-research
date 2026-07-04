@@ -13,8 +13,10 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowLeft,
   Bot,
   Check,
+  ChevronRight,
   Copy,
   KeyRound,
   LogIn,
@@ -27,7 +29,6 @@ import {
   ThumbsDown,
   ThumbsUp,
   UserRound,
-  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -597,13 +598,13 @@ function AgentWelcomePanel({
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <Sparkles className="h-3.5 w-3.5 text-primary max-sm:text-[#9C7434] dark:max-sm:text-[#D4AF6A]" />
           One workspace
         </div>
-        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
+        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
+        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -613,10 +614,16 @@ function AgentWelcomePanel({
               type="button"
               disabled={disabled}
               onClick={() => onPromptSelect(prompt)}
-              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[rgba(156,116,52,0.45)] max-sm:focus-visible:ring-[rgba(156,116,52,0.40)] dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
               <span className="block leading-5">{prompt}</span>
-              <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
+              <span className="mt-4 flex items-center justify-between">
+                <span className="block h-px w-10 bg-primary/50 transition group-hover:w-14 max-sm:bg-[#9C7434] dark:max-sm:bg-[#D4AF6A]" />
+                <ChevronRight
+                  className="hidden h-4 w-4 text-[#9C7434] dark:text-[#D4AF6A] max-sm:block"
+                  aria-hidden
+                />
+              </span>
             </button>
           ))}
         </div>
@@ -3963,7 +3970,7 @@ export function AgentChatWorkspace({
             className={cn(
               "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
               isPopover
-                ? "h-14 sm:h-16"
+                ? "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-16"
                 : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
               !isPopover && "lg:px-6"
             )}
@@ -3974,6 +3981,17 @@ export function AgentChatWorkspace({
             }}
           >
             <div className="flex min-w-0 items-center gap-3">
+              {isPopover && onMinimize ? (
+                <button
+                  type="button"
+                  onClick={onMinimize}
+                  aria-label="Back"
+                  title="Back"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/[0.04] text-[rgba(0,0,0,0.62)] transition-colors hover:bg-black/[0.07] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(156,116,52,0.35)] dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.10] sm:hidden"
+                >
+                  <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+                </button>
+              ) : null}
               {!isPopover ? (
                 <Button
                   type="button"
@@ -4015,19 +4033,6 @@ export function AgentChatWorkspace({
                   title="Minimize Agent"
                 >
                   <Minus className="h-4 w-4" />
-                </Button>
-              ) : null}
-              {isPopover && onMinimize ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
-                  onClick={onMinimize}
-                  aria-label="Close Agent"
-                  title="Close Agent"
-                >
-                  <X className="h-4 w-4" />
                 </Button>
               ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
@@ -4583,7 +4588,9 @@ export function AgentChatWorkspace({
             onSubmit={handleSubmit}
             className={cn(
               "shrink-0 border-t border-border/70 bg-background/92 px-3 py-3 backdrop-blur sm:px-5",
-              !isPopover && "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
+              isPopover
+                ? "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))] sm:pb-3"
+                : "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
             )}
           >
             <div className="mx-auto w-full max-w-3xl">
@@ -4611,7 +4618,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[#9C7434] max-sm:focus-within:ring-[rgba(156,116,52,0.20)] dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message One"
@@ -4636,7 +4643,7 @@ export function AgentChatWorkspace({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
+                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[#9C7434] max-sm:focus-visible:ring-[rgba(156,116,52,0.35)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[#D4AF6A]"
                       disabled={!canToggleVoice}
                       onClick={() => {
                         void startConversationalVoice();
@@ -4650,7 +4657,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[#9C7434] max-sm:enabled:text-white max-sm:enabled:shadow-[rgba(156,116,52,0.25)] max-sm:enabled:hover:bg-[#835f27] max-sm:focus-visible:ring-[rgba(156,116,52,0.45)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[#D4AF6A] dark:max-sm:enabled:text-[#1d1d1f]"
                     disabled={!canSend}
                     aria-label="Send message"
                   >
