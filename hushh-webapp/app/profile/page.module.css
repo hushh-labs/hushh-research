@@ -65,9 +65,11 @@
   color: #8583ff;
 }
 
-/* Title 17/700, detail 13px. */
+/* Title sized to match the home dashboard card titles (Email/Location = 22px);
+   weight/tracking/color unchanged so only the SIZE tracks home. Detail 13px
+   already matches the home card description size. */
 .cinematicSettings [data-slot="settings-row-title"] {
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: #0a0a0a;
