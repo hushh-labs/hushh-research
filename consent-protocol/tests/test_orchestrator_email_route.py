@@ -28,6 +28,10 @@ def test_email_intents_route_to_agent_email(message):
         ("share my location with Mom for an hour", ("location", "agent_location")),
         ("who has access to my vault", ("privacy_consent", "agent_nav")),
         ("upload my passport for kyc", ("kyc_identity_workflow", "agent_kyc")),
+        ("who has access to my email account", ("privacy_consent", "agent_nav")),
+        ("who has access to my inbox", ("privacy_consent", "agent_nav")),
+        ("delete my email", ("privacy_consent", "agent_nav")),
+        ("revoke access to my inbox", ("privacy_consent", "agent_nav")),
     ],
 )
 def test_non_email_intents_unchanged(message, expected):
