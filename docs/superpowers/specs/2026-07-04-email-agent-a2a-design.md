@@ -136,11 +136,20 @@ return {"conversationId": ..., "response": reply,
 ### Consent reconciliation
 
 Email today gates only on `VAULT_OWNER` + the `gmail.readonly` OAuth connection
-(no `HushhContext`). Via One, the delegation boundary **additionally** validates
-the A2A consent token against `AGENT_ONE_ORCHESTRATE` — as the route already
-does for every wired specialist. The existing Gmail-connection + owner check
-inside `EmailChatService` is unchanged and still enforced. The delegated path is
-therefore **strictly more gated, never less**.
+(no `HushhContext`). Via One, the delegated path runs behind the One stream
+route's own `require_vault_owner_token` dependency, and the existing
+Gmail-connection + owner check inside `EmailChatService` is unchanged and still
+enforced. So the delegated path is gated **equally, never weaker** — in fact
+`VAULT_OWNER` is a stronger gate than the mapped `AGENT_ONE_ORCHESTRATE` scope.
+
+Note on the scope map: `SPECIALIST_A2A_SCOPE_MAP["agent_email"]` records the
+least-privilege scope for the specialist, but — mirroring `location_agent.py`
+and the other read specialists — the email adapter does **not** itself call
+`validate_a2a_consent_token` (only the `nav`/`kai` adapters do today), and
+`EmailChatService` accepts `consent_token` without consuming it. The map entry
+is the declared contract; the live gate is the route's `VAULT_OWNER` dependency.
+Wiring `validate_a2a_consent_token` into the read adapters is a separate,
+cross-specialist hardening, out of scope for Phase 2a.
 
 ### Frontend
 
@@ -153,10 +162,12 @@ type does not need widening. The standalone Gmail chat panel is untouched.
 1. User types in the One chat → `POST /api/kai/agent/chat/stream` with `message`.
 2. `stream_agent_chat`: `resolve_delegate_target` → `classify_specialist_domain`
    matches an email cue → `agent_email`; `is_wired_specialist` now true.
-3. Route validates the A2A consent token (`AGENT_ONE_ORCHESTRATE`), calls
+3. Route (behind its `require_vault_owner_token` dependency) calls
    `prepare_turn` (persists user msg, gets `conversation_id` + history), builds
    `A2ATask(user_id, consent_token, conversation_id, message)`, and
-   `await a2a_dispatch("agent_email", task)`.
+   `await a2a_dispatch("agent_email", task)`. (`consent_token` is carried on the
+   task for contract parity; the read adapter does not re-validate it — see
+   Consent reconciliation.)
 4. `EmailAgentA2A.handle` → `EmailChatService.handle_turn` runs its existing
    Gemini tool loop (`list_needs_reply`, `search_inbox`) over the
    `gmail.readonly` connection → returns text.
@@ -280,7 +291,7 @@ confirmation beyond the approve/deny inbox.
 | Risk | Mitigation |
 |---|---|
 | Classifier misroutes (email cues overlap finance/marketplace/nav) | Qualified possessive cues, deliberate ordering, nav-intent guard, fail-closed to One's planner; unit-tested against overlapping phrases |
-| Consent gap (email uses no `HushhContext` today) | Delegated path adds `AGENT_ONE_ORCHESTRATE` A2A-token validation on top of the existing `VAULT_OWNER` + `gmail.readonly` check — strictly more gated |
+| Consent gap (email uses no `HushhContext` today) | Delegated path runs behind the One route's `VAULT_OWNER` dependency + the existing `gmail.readonly` + owner check — gated equally, never weaker (`VAULT_OWNER` ≥ the mapped `AGENT_ONE_ORCHESTRATE`). Read adapters don't re-validate the A2A token; that's deferred cross-specialist hardening. |
 | Phase 2b send/schedule are irreversible side-effects | Durable `pending` row is the gate; execution only after explicit owner approval; new OAuth scopes are hard prerequisites |
 | Scope creep into cross-specialist chaining | Explicitly out of scope; only One orchestrates, matching location |
 

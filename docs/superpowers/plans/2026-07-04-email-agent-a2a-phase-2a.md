@@ -504,7 +504,7 @@ git commit -m "test(email-a2a): include agent_email in delegation route expectat
 - `__init__.py` registration → Task 4. ✓
 - `orchestrator/tools.py` classifier cue → Task 2. ✓
 - `delegation.py` consent scope → Task 1. ✓
-- Consent reconciliation (route validates `AGENT_ONE_ORCHESTRATE`) → verified in Task 5 (route unchanged; scope entry from Task 1 is what the route validates against). ✓
+- Consent reconciliation → the delegated path runs behind the One route's `VAULT_OWNER` dependency + the existing `gmail.readonly`/owner check (gated equally, never weaker). The `SPECIALIST_A2A_SCOPE_MAP["agent_email"]` entry declares the least-privilege scope but is not re-validated by the read adapter (mirrors `location_agent.py`); wiring `validate_a2a_consent_token` into read adapters is deferred cross-specialist hardening. ✓
 - Frontend: none → confirmed no FE tasks. ✓
 - Routing precision (qualified cues, fail-closed, non-email unchanged) → Task 2 tests. ✓
 - Testing (classifier + adapter mapping, fake service, no live LLM/Gmail) → Tasks 2 & 3. ✓
