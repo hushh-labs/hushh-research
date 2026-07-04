@@ -1,6 +1,6 @@
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import {
   evaluateKaiActionAvailability,
@@ -57,6 +57,24 @@ function buildResult(input: Partial<AgentActionRuntimeResult>): AgentActionRunti
   };
 }
 
+function storeConnectedSystemInstruction(actionId: string, slots: Record<string, unknown>) {
+  if (typeof window === "undefined") return null;
+  const instructionId = `crm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    window.sessionStorage.setItem(
+      `hushh:connected-system-agent-action:${instructionId}`,
+      JSON.stringify({
+        actionId,
+        slots,
+        createdAt: new Date().toISOString(),
+      })
+    );
+    return instructionId;
+  } catch {
+    return null;
+  }
+}
+
 function executeConnectedSystemAgentAction(
   input: ExecuteAgentGatewayActionInput,
   routeBefore: AppRuntimeState["route"]
@@ -68,33 +86,38 @@ function executeConnectedSystemAgentAction(
     return buildResult({
       status: "blocked",
       actionId: input.actionId,
-      label: "Blocked Salesforce CRM Delete",
+      label: "Blocked CRM Delete",
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "Salesforce CRM delete is blocked in Agent v1.",
+      resultSummary: "CRM delete is blocked in Agent v1.",
       reason: "crm_delete_manual_only",
     });
   }
 
-  const target = ROUTES.CONNECTED_SYSTEMS;
+  const slots = input.slots || {};
+  const systemId = readString(slots.systemId) || "salesforce-fsc-customer0";
+  const instructionId = storeConnectedSystemInstruction(input.actionId, slots);
+  const target = instructionId
+    ? `${buildConnectedSystemRoute(systemId)}?agentActionId=${encodeURIComponent(instructionId)}`
+    : buildConnectedSystemRoute(systemId);
   input.router.push(target);
   return buildResult({
     status: "started",
     actionId: input.actionId,
     label:
       input.actionId === "connected_system.crm.read"
-        ? "Read Salesforce CRM Record"
+        ? "Read CRM Record"
         : input.actionId === "connected_system.crm.create.propose"
-          ? "Propose Salesforce CRM Create"
-          : "Propose Salesforce CRM Update",
+          ? "Propose CRM Create"
+          : "Propose CRM Update",
     routeBefore: routeBefore.pathname,
     routeAfter: target,
     screenBefore: routeBefore.screen,
     screenAfter: "connected_systems",
-    resultSummary: "Connected Systems opened for Salesforce CRM.",
+    resultSummary: "Connected Systems opened for CRM.",
     data: {
       target,
-      slots: input.slots || {},
+      slots,
     },
   });
 }

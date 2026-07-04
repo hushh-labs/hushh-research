@@ -8,6 +8,13 @@ def test_resolve_target_location_is_wired():
     assert resolve_delegate_target("share my location with Mom") == "agent_location"
 
 
+def test_resolve_target_crm_is_wired():
+    assert (
+        resolve_delegate_target("update the CRM record city to New York")
+        == "agent_connected_systems"
+    )
+
+
 def test_resolve_target_unwired_specialist_falls_through():
     # finance classifies but is NOT wired in slice 1 → no delegation.
     assert resolve_delegate_target("rebalance my portfolio") is None
@@ -33,6 +40,38 @@ def test_frames_for_action_directive():
     assert directive_frame["delegate_agent_id"] == "agent_location"
     assert directive_frame["directive"]["kind"] == "action"
     assert directive_frame["directive"]["payload"]["type"] == "publish_share"
+
+
+def test_frames_for_connected_systems_directive():
+    result = SpecialistTurnResult(
+        conversation_id="c1",
+        text="Opening Connected Systems so you can review and approve the CRM update.",
+        directive=A2ADirective(
+            kind="action",
+            payload={
+                "id": "tool-1",
+                "type": "connected_system.crm.update.propose",
+                "summary": "Opening Connected Systems so you can review and approve the CRM update.",
+                "confirmLabel": "Update",
+                "actionId": "connected_system.crm.update.propose",
+                "execution": "frontend",
+                "slots": {"systemId": "salesforce-fsc-customer0"},
+                "message": "Opening Connected Systems so you can review and approve the CRM update.",
+                "reason": None,
+            },
+        ),
+        is_complete=False,
+        state_changed=False,
+        model="one+connected-systems",
+    )
+
+    frames = specialist_result_to_frames(result, "agent_connected_systems")
+
+    events = [name for name, _ in frames]
+    assert events == ["start", "token", "specialist_directive", "complete"]
+    specialist = dict(frames)["specialist_directive"]
+    assert specialist["delegate_agent_id"] == "agent_connected_systems"
+    assert specialist["directive"]["payload"]["type"] == "connected_system.crm.update.propose"
 
 
 def test_frames_without_directive_skip_specialist_frame():

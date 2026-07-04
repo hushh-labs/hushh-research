@@ -39,6 +39,7 @@ import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
   SpecialistDirectiveCard,
+  SpecialistFreeTextPromptCard,
   SpecialistPromptCard,
   type SpecialistConsentActionItem,
 } from "@/components/agent/specialist-directive-card";
@@ -104,6 +105,7 @@ import {
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
+import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -908,7 +910,7 @@ export function AgentChatWorkspace({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isPopover = variant === "popover";
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, phoneNumber } = useAuth();
   const {
     isVaultUnlocked,
     vaultKey,
@@ -3810,6 +3812,83 @@ export function AgentChatWorkspace({
                       setPendingSpecialistDirective(null);
                     }}
                   />
+                ) : pendingSpecialistDirective.directive.kind === "prompt" &&
+                  pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" &&
+                  pendingSpecialistDirective.directive.payload.kind === "free_text" ? (
+                  <SpecialistFreeTextPromptCard
+                    question={String(
+                      pendingSpecialistDirective.directive.payload.question ??
+                        "What value should I use?",
+                    )}
+                    placeholder={String(
+                      pendingSpecialistDirective.directive.payload.placeholder ?? "",
+                    )}
+                    confirmLabel={
+                      typeof pendingSpecialistDirective.directive.payload.confirmLabel === "string"
+                        ? pendingSpecialistDirective.directive.payload.confirmLabel
+                        : null
+                    }
+                    cancelLabel={
+                      typeof pendingSpecialistDirective.directive.payload.cancelLabel === "string"
+                        ? pendingSpecialistDirective.directive.payload.cancelLabel
+                        : null
+                    }
+                    busy={specialistBusy}
+                    onSubmit={async (value) => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as Record<string, unknown>;
+                      setSpecialistBusy(true);
+                      try {
+                        setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-crm-answer`,
+                          role: "user",
+                          text: value,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        await sendDelegateResult({
+                          delegate_agent_id: "agent_connected_systems",
+                          kind: "selection",
+                          id: String(prompt.id ?? ""),
+                          type: String(prompt.type ?? ""),
+                          selected: [
+                            {
+                              slots: prompt.slots,
+                              fieldName: prompt.fieldName,
+                            },
+                          ],
+                          freeText: value,
+                          status: "answered",
+                          display: value,
+                        });
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as Record<string, unknown>;
+                      setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-crm-cancel`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      await sendDelegateResult({
+                        delegate_agent_id: "agent_connected_systems",
+                        kind: "selection",
+                        id: String(prompt.id ?? ""),
+                        type: String(prompt.type ?? ""),
+                        status: "cancelled",
+                        display: "Cancelled",
+                      });
+                    }}
+                  />
                 ) : pendingSpecialistDirective.directive.kind === "prompt" ? (
                   // ── Prompt / disambiguation mode ──────────────────────────
                   // The location specialist emits a clientPrompt (which/who?,
@@ -3896,6 +3975,76 @@ export function AgentChatWorkspace({
                         promptKind: prompt.kind,
                         status: "cancelled",
                         display,
+                      });
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .confirmLabel ?? "Update",
+                    )}
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setSpecialistBusy(true);
+                      try {
+                        const token = getVaultOwnerToken();
+                        if (!token) {
+                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          return;
+                        }
+                        const confirmLabel = String(
+                          (directive.directive.payload as Record<string, unknown>)
+                            .confirmLabel ?? "Update",
+                        );
+                        appendMessage({
+                          id: `msg-${Date.now()}-crm-act`,
+                          role: "user",
+                          text: confirmLabel,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        const result = await runConnectedSystemDirective(
+                          directive.directive,
+                          token,
+                          {
+                            email: user?.email,
+                            phone: phoneNumber,
+                          },
+                        );
+                        setPendingSpecialistDirective(null);
+                        await sendDelegateResult(result);
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-crm-cancel`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      await sendDelegateResult({
+                        delegate_agent_id: "agent_connected_systems",
+                        kind: "action",
+                        id: String(
+                          (directive.directive.payload as Record<string, unknown>).id ?? "",
+                        ),
+                        type: String(
+                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                        ),
+                        status: "cancelled",
                       });
                     }}
                   />

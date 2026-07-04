@@ -112,7 +112,7 @@ describe("ConnectedSystemsPanel", () => {
     expect(screen.getByText(/Macy's \/ Contact \/ External CRM MCP/)).toBeTruthy();
     expect(screen.getByText("5 MCP tools")).toBeTruthy();
     expect(screen.getByAltText("Macy's logo")).toBeTruthy();
-    expect(screen.getByAltText("Salesforce FSC logo")).toBeTruthy();
+    expect(screen.getByAltText("CRM platform logo")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Refresh from Macy's/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Suggest a sample change/i })).toBeNull();
   });
@@ -130,13 +130,13 @@ describe("ConnectedSystemsPanel", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Salesforce FSC \/ Contact\./)).toBeTruthy();
+      expect(screen.getByText(/Connected CRM \/ Contact\./)).toBeTruthy();
     });
 
     expect(screen.getByRole("heading", { name: "Macy's" })).toBeTruthy();
-    expect(screen.getByText(/Salesforce FSC \/ Contact/)).toBeTruthy();
+    expect(screen.getByText(/Connected CRM \/ Contact/)).toBeTruthy();
     expect(screen.getByAltText("Macy's logo")).toBeTruthy();
-    expect(screen.getByAltText("Salesforce FSC logo")).toBeTruthy();
+    expect(screen.getByAltText("CRM platform logo")).toBeTruthy();
     expect(screen.getByText(/Connected through External CRM MCP/)).toBeTruthy();
     expect(screen.getByText(/5 MCP tools/)).toBeTruthy();
     expect(screen.queryByText("Registry backed")).toBeNull();
@@ -349,7 +349,7 @@ describe("ConnectedSystemsPanel", () => {
       status: "failed",
       recordId: null,
       fieldNames: ["Email", "Phone", "LastName"],
-      errorMessage: "Salesforce rejected the create request.",
+      errorMessage: "CRM rejected the create request.",
     });
 
     render(
@@ -366,7 +366,7 @@ describe("ConnectedSystemsPanel", () => {
     await screen.findByRole("button", { name: /Create record/i });
     fireEvent.click(screen.getByRole("button", { name: /Create record/i }));
 
-    expect(await screen.findByText("Salesforce rejected the create request.")).toBeTruthy();
+    expect(await screen.findByText("CRM rejected the create request.")).toBeTruthy();
     expect(screen.queryByText("Last update")).toBeNull();
     expect(screen.queryByText(/Create result/i)).toBeNull();
     expect(screen.queryByText(/Fields: Email/i)).toBeNull();
@@ -532,5 +532,71 @@ describe("ConnectedSystemsPanel", () => {
         phone: "4155551212",
       })
     );
+  });
+
+  it("uses Agent One email and phone slots to find the CRM record before proposing updates", async () => {
+    vi.mocked(ConnectedSystemsService.searchRecord).mockResolvedValueOnce({
+      systemId: "salesforce-fsc-customer0",
+      target: "Macys",
+      objectType: "Contact",
+      resultClass: "succeeded",
+      recordId: "003gK00000agentQAA",
+      bindingStatus: "active",
+      binding: {
+        bindingId: "csb_agent",
+        systemId: "salesforce-fsc-customer0",
+        target: "Macys",
+        objectType: "Contact",
+        recordId: "003gK00000agentQAA",
+        status: "active",
+      },
+      mcp: {
+        isError: false,
+        payload: {
+          Contact: [
+            {
+              Id: "003gK00000agentQAA",
+              Email: "agent@example.com",
+              Phone: "415-555-1212",
+              LastName: "Trivedi",
+              MailingCity: "Dallas",
+            },
+          ],
+        },
+      },
+    });
+
+    render(
+      <ConnectedSystemsPanel
+        vaultOwnerToken="HCT:test"
+        mode="detail"
+        systemId="salesforce-fsc-customer0"
+        profile={{
+          displayName: "Kushal Trivedi",
+        }}
+        agentInstruction={{
+          actionId: "connected_system.crm.update.propose",
+          slots: {
+            systemId: "salesforce-fsc-customer0",
+            email: "agent@example.com",
+            phone: "415-555-1212",
+            additionalFieldsJson: JSON.stringify({ MailingCity: "New York" }),
+          },
+        }}
+      />
+    );
+
+    expect(await screen.findByText("Update my Macy's information")).toBeTruthy();
+    await waitFor(() => {
+      expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledWith(
+        "HCT:test",
+        expect.objectContaining({
+          email: "agent@example.com",
+          phone: "415-555-1212",
+          returnFields: expect.arrayContaining(["Email", "Phone"]),
+        })
+      );
+    });
+    expect(await screen.findByDisplayValue("New York")).toBeTruthy();
   });
 });

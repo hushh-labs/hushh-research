@@ -134,20 +134,46 @@ def specialist_result_to_frames(
         frames.append(("start", {"conversation_id": result.conversation_id, "model": result.model}))
     frames.append(("token", {"token": result.text}))
     if result.directive is not None:
-        frames.append(
-            (
-                "specialist_directive",
-                {
-                    "delegate_agent_id": delegate_agent_id,
-                    "directive": {
-                        "kind": result.directive.kind,
-                        "payload": result.directive.payload,
+        frontend_tool_payload = _frontend_tool_payload(result.directive.payload)
+        if frontend_tool_payload is not None:
+            frames.append(("tool_start", frontend_tool_payload))
+            if str(frontend_tool_payload.get("execution") or "") == "frontend":
+                frames.append(
+                    (
+                        "tool_waiting",
+                        {
+                            **frontend_tool_payload,
+                            "message": result.text,
+                            "status": "waiting_for_frontend",
+                        },
+                    )
+                )
+            else:
+                frames.append(
+                    (
+                        "tool_result",
+                        {
+                            **frontend_tool_payload,
+                            "message": result.text,
+                            "status": "blocked",
+                        },
+                    )
+                )
+        else:
+            frames.append(
+                (
+                    "specialist_directive",
+                    {
+                        "delegate_agent_id": delegate_agent_id,
+                        "directive": {
+                            "kind": result.directive.kind,
+                            "payload": result.directive.payload,
+                        },
+                        "message": result.text,
+                        "state_changed": result.state_changed,
                     },
-                    "message": result.text,
-                    "state_changed": result.state_changed,
-                },
+                )
             )
-        )
     frames.append(
         (
             "complete",
@@ -159,6 +185,12 @@ def specialist_result_to_frames(
         )
     )
     return frames
+
+
+def _frontend_tool_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if str(payload.get("kind") or "") != "frontend_tool":
+        return None
+    return {key: value for key, value in payload.items() if key != "kind"}
 
 
 def _event(event: str, data: dict[str, Any]) -> str:
