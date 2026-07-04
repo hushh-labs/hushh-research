@@ -318,7 +318,9 @@ export function AgentBar() {
           // reads as a live, active listening session.
           conversationActive
             ? "bg-primary/10 text-foreground ring-1 ring-primary/30 dark:bg-primary/15"
-            : "bg-[#111] text-white ring-1 ring-white/10",
+            : isHomeRoute
+              ? "bg-black/[0.05] text-[#0A0A0A] ring-1 ring-black/[0.06] dark:bg-white/[0.08] dark:text-white dark:ring-white/10"
+              : "bg-[#111] text-white ring-1 ring-white/10",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
@@ -379,7 +381,12 @@ export function AgentBar() {
                 "transition-colors duration-200 active:scale-[0.99]",
               )}
             >
-              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-white/55">
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-[14px] font-medium",
+                  isHomeRoute ? "text-black/45 dark:text-white/55" : "text-white/55",
+                )}
+              >
                 {hint}
               </span>
             </button>
@@ -389,9 +396,10 @@ export function AgentBar() {
               aria-label="Talk to your agent"
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-white/10 text-white/70",
-                "transition-[background-color,transform] duration-200",
-                "hover:bg-white/20 hover:text-white active:scale-90",
+                isHomeRoute
+                  ? "bg-black/[0.05] text-black/50 hover:bg-black/[0.09] hover:text-black/70 dark:bg-white/10 dark:text-white/70 dark:hover:bg-white/20 dark:hover:text-white"
+                  : "bg-white/10 text-white/70 hover:bg-white/20 hover:text-white",
+                "transition-[background-color,transform] duration-200 active:scale-90",
               )}
             >
               <Mic className="h-4 w-4" />
@@ -403,9 +411,10 @@ export function AgentBar() {
               title="Conversational mode"
               className={cn(
                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-                "bg-white text-[#111]",
-                "transition-[background-color,transform] duration-200",
-                "hover:bg-white/90 active:scale-90",
+                isHomeRoute
+                  ? "bg-[#5E5CE6] text-white hover:bg-[#4a48c9]"
+                  : "bg-white text-[#111] hover:bg-white/90",
+                "transition-[background-color,transform] duration-200 active:scale-90",
               )}
             >
               <AudioLines className="h-[18px] w-[18px]" />
