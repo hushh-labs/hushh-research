@@ -55,9 +55,11 @@ describe("OneDashboardPage", () => {
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(ROUTES.KAI_HOME);
     expect(financeLink.className).not.toContain("translate");
-    // Premium card model: no per-tone outline borders on outer chrome.
+    // 2a pastel-block model: no per-tone outline border on outer chrome — the
+    // tone lives in the card's flat pastel FILL (inline background), not a
+    // colored border.
     expect(financeLink.className).not.toContain("border-emerald-500");
-    expect(financeLink.className).toContain("border-transparent");
+    expect(financeLink.getAttribute("style") ?? "").toContain("background");
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
     ).toBe(ROUTES.GMAIL);
@@ -92,8 +94,14 @@ describe("OneDashboardPage", () => {
     expect(screen.getByText("Unlock to see")).toBeTruthy(); // pkm vault-gated
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
     expect(screen.getByText("2 consents pending")).toBeTruthy(); // header badge
-    expect(screen.getByText("Gmail receipts and saved knowledge.")).toBeTruthy();
-    expect(container.querySelectorAll(".morphy-ripple-host").length).toBe(8);
+    expect(
+      screen.getByText("Receipt sync and purchase-memory review."),
+    ).toBeTruthy();
+    // All 8 capabilities render as tappable links (2a redesign uses plain
+    // links, not morphy ripple hosts).
+    expect(
+      container.querySelectorAll('a[aria-label^="Open "]').length,
+    ).toBe(8);
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 
