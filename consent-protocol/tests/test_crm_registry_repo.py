@@ -239,3 +239,71 @@ def test_pbkdf2_row_missing_kdf_params_raises_configuration_error(monkeypatch):
     db = _FakeDb([row], _operation_rows())
     with pytest.raises(ConnectedSystemConfigurationError):
         crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
+
+
+def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
+    """MuleSoft-owned Bearer rows pass client id/secret row values to the MCP tool."""
+    row = _pbkdf2_row()
+    row["crm_id"] = "crm_001"
+    row["crm_enterprise_name"] = "Macys"
+    row["auth_header_style"] = "Bearer"
+    row["crm_client_id_ciphertext"] = "plain-salesforce-client-id"
+    row["crm_client_secret_ciphertext"] = "encrypted-salesforce-client-secret"
+    row["crm_client_id_blob"] = None
+    row["crm_client_secret_blob"] = None
+    db = _FakeDb([row], [])
+    monkeypatch.setattr(
+        crm_registry_repo,
+        "get_connector_secrets_key",
+        lambda: (_ for _ in ()).throw(AssertionError("should not decrypt")),
+    )
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_ID", "gateway-client")
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_SECRET", "gateway-secret")
+
+    definition = crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
+
+    assert definition.system_id == "salesforce-fsc-customer0"
+    assert definition.transport_headers == (
+        ("client_id", "gateway-client"),
+        ("client_secret", "gateway-secret"),
+    )
+    assert definition.transport_tool_arguments == {
+        "target": "Macys",
+        "crmBaseUrl": row["crm_base_url"],
+        "crmMcpEndpoint": row["crm_mcp_endpoint"],
+        "clientId": "plain-salesforce-client-id",
+        "clientSecret": "encrypted-salesforce-client-secret",
+        "crmTokenUrl": "",
+        "objectType": "Contact",
+    }
+
+
+def test_load_active_definitions_lists_all_active_rows_without_decrypt(monkeypatch):
+    macys = _pbkdf2_row()
+    macys["crm_id"] = "crm_001"
+    macys["crm_enterprise_name"] = "Macys"
+    macys["auth_header_style"] = "Bearer"
+    chase = _pbkdf2_row()
+    chase["crm_id"] = "crm_002"
+    chase["crm_enterprise_name"] = "Chase"
+    chase["auth_header_style"] = "Bearer"
+    db = _FakeDb([chase, macys], [])
+    monkeypatch.setattr(
+        crm_registry_repo,
+        "get_connector_secrets_key",
+        lambda: (_ for _ in ()).throw(AssertionError("should not decrypt")),
+    )
+    for name in (
+        "OMNIGATEWAY_CLIENT_ID",
+        "OMNIGATEWAY_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    definitions = crm_registry_repo.load_active_definitions(db=db)
+
+    assert [definition.system_id for definition in definitions] == [
+        "crm_002",
+        "salesforce-fsc-customer0",
+    ]
+    assert [definition.customer_display_name for definition in definitions] == ["Chase", "Macys"]
+    assert all(definition.transport_headers == () for definition in definitions)
