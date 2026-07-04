@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   SpecialistConsentActionsCard,
+  SpecialistPendingConsentRequestCard,
   SpecialistConsentRequiredCard,
 } from "@/components/agent/specialist-directive-card";
 
@@ -162,5 +163,72 @@ describe("SpecialistConsentActionsCard", () => {
     fireEvent.click(screen.getByTestId("specialist-consent-details"));
     expect(onDetails).toHaveBeenCalledWith(item);
     expect(onRevoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("SpecialistPendingConsentRequestCard", () => {
+  it("renders a pending consent request with approve, deny, and details actions", () => {
+    const onApprove = vi.fn();
+    const onDeny = vi.fn();
+    const onDetails = vi.fn();
+    const item = {
+      id: "req_123",
+      requesterLabel: "Macy's",
+      scope: "attr.profile.city",
+      scopeDescription: "City",
+      requestedAt: 1783212000000,
+      approvalTimeoutAt: 1783215600000,
+      reason: "Update your brand profile",
+      additionalAccessSummary: "Only your city will be shared.",
+      status: "pending",
+    } as const;
+
+    render(
+      <SpecialistPendingConsentRequestCard
+        item={item}
+        onApprove={onApprove}
+        onDeny={onDeny}
+        onDetails={onDetails}
+      />,
+    );
+
+    expect(screen.getByTestId("specialist-pending-consent-request-card")).toBeTruthy();
+    expect(screen.getByText("Consent request")).toBeTruthy();
+    expect(screen.getByText("Macy's is asking for City.")).toBeTruthy();
+    expect(screen.getByText("Only your city will be shared.")).toBeTruthy();
+    expect(screen.getByText("Reason: Update your brand profile")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("specialist-pending-consent-approve"));
+    expect(onApprove).toHaveBeenCalledWith(item);
+
+    fireEvent.click(screen.getByTestId("specialist-pending-consent-deny"));
+    expect(onDeny).toHaveBeenCalledWith(item);
+
+    fireEvent.click(screen.getByTestId("specialist-pending-consent-details"));
+    expect(onDetails).toHaveBeenCalledWith(item);
+  });
+
+  it("renders resolved requests without approve or deny actions", () => {
+    const item = {
+      id: "req_approved",
+      requesterLabel: "Chase",
+      scope: "attr.profile.city",
+      scopeDescription: "City",
+      status: "approved",
+    } as const;
+
+    render(
+      <SpecialistPendingConsentRequestCard
+        item={item}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+        onDetails={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.queryByTestId("specialist-pending-consent-approve")).toBeNull();
+    expect(screen.queryByTestId("specialist-pending-consent-deny")).toBeNull();
+    expect(screen.getByTestId("specialist-pending-consent-details")).toBeTruthy();
   });
 });

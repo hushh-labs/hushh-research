@@ -346,6 +346,7 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
   const normalized = String(pathname || "").trim().toLowerCase();
   if (!normalized) return false;
   return (
+    normalized.startsWith("/agent") ||
     normalized.startsWith("/consents") ||
     normalized.startsWith("/profile") ||
     normalized.startsWith("/ria")

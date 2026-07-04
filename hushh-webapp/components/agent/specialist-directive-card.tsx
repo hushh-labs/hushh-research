@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useState } from "react";
-import { ExternalLink, ShieldCheck, ShieldOff } from "lucide-react";
+import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
@@ -371,6 +371,136 @@ export function SpecialistConsentActionsCard({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pending consent request mode ────────────────────────────────────────────
+
+export type SpecialistPendingConsentRequestItem = {
+  id: string;
+  requesterLabel: string;
+  requesterImageUrl?: string | null;
+  requesterWebsiteUrl?: string | null;
+  scope: string;
+  scopeDescription?: string | null;
+  requestedAt?: number | string | null;
+  approvalTimeoutAt?: number | string | null;
+  expiryHours?: number | string | null;
+  reason?: string | null;
+  additionalAccessSummary?: string | null;
+  status?: "pending" | "approved" | "denied";
+};
+
+export type SpecialistPendingConsentRequestCardProps = {
+  item: SpecialistPendingConsentRequestItem;
+  busy?: boolean;
+  onApprove: (item: SpecialistPendingConsentRequestItem) => void;
+  onDeny: (item: SpecialistPendingConsentRequestItem) => void;
+  onDetails: (item: SpecialistPendingConsentRequestItem) => void;
+};
+
+function formatConsentTime(value?: number | string | null): string | null {
+  if (value == null || value === "") return null;
+  const numeric = typeof value === "number" ? value : Number(value);
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric)
+    : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+export function SpecialistPendingConsentRequestCard({
+  item,
+  busy,
+  onApprove,
+  onDeny,
+  onDetails,
+}: SpecialistPendingConsentRequestCardProps) {
+  const timeout = formatConsentTime(item.approvalTimeoutAt);
+  const resolved = item.status === "approved" || item.status === "denied";
+  const access = item.scopeDescription || item.scope || "requested context";
+  const requester = item.requesterLabel || "An agent";
+
+  return (
+    <div
+      data-testid="specialist-pending-consent-request-card"
+      className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
+    >
+      <div className="flex items-start gap-3">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
+          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">Consent request</p>
+            {item.status === "approved" ? (
+              <span className="rounded-full border border-[#6b8f71]/25 bg-[#6b8f71]/10 px-2 py-0.5 text-[11px] font-medium text-[#426548]">
+                Approved
+              </span>
+            ) : item.status === "denied" ? (
+              <span className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                Denied
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm text-foreground/75">
+            {requester} is asking for {access}.
+          </p>
+          {item.additionalAccessSummary ? (
+            <p className="mt-2 text-sm text-foreground/70">{item.additionalAccessSummary}</p>
+          ) : null}
+          {item.reason ? (
+            <p className="mt-2 text-xs text-foreground/55">Reason: {item.reason}</p>
+          ) : null}
+          {timeout ? (
+            <p className="mt-1 text-xs font-medium text-foreground/55">
+              Review by {timeout}.
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {resolved ? null : (
+          <>
+            <Button
+              data-testid="specialist-pending-consent-approve"
+              size="sm"
+              disabled={busy}
+              isLoading={busy}
+              onClick={() => onApprove(item)}
+            >
+              <Check className="h-4 w-4" aria-hidden="true" />
+              Approve
+            </Button>
+            <Button
+              data-testid="specialist-pending-consent-deny"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => onDeny(item)}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+              Deny
+            </Button>
+          </>
+        )}
+        <Button
+          data-testid="specialist-pending-consent-details"
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => onDetails(item)}
+        >
+          <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          Details
+        </Button>
       </div>
     </div>
   );
