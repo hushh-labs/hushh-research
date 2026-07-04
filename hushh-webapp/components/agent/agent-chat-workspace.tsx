@@ -43,8 +43,10 @@ import {
   SpecialistPromptCard,
   type SpecialistConsentActionItem,
 } from "@/components/agent/specialist-directive-card";
+import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import type { PublishableSlice } from "@/lib/one-marketplace/service";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
@@ -3977,6 +3979,28 @@ export function AgentChatWorkspace({
                         display,
                       });
                     }}
+                  />
+                ) : String(
+                    (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                      .type ?? "",
+                  ) === "publish_slices" ? (
+                  // ── Information Marketplace publish card ──────────────────
+                  // propose_publish delivered over A2A. Publishing needs the vault
+                  // on the marketplace surface, so hand off there.
+                  <MarketplacePublishDirectiveCard
+                    topic={
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .topic as string | null | undefined
+                    }
+                    slices={
+                      ((pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .slices as PublishableSlice[]) ?? []
+                    }
+                    onOpenMarketplace={() => {
+                      setPendingSpecialistDirective(null);
+                      router.push(ROUTES.ONE_MARKETPLACE);
+                    }}
+                    onDismiss={() => setPendingSpecialistDirective(null)}
                   />
                 ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (
                   <SpecialistDirectiveCard

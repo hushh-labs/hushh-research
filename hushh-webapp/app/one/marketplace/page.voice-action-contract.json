@@ -1,0 +1,64 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_marketplace",
+  "surface_title": "Information Marketplace",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.one_marketplace",
+      "label": "Open Information Marketplace",
+      "meaning": "Navigates to the One Information Marketplace (personal data-slice) route.",
+      "aliases": [
+        "open information marketplace",
+        "open the information marketplace",
+        "open data marketplace",
+        "go to information marketplace",
+        "go to the data marketplace",
+        "take me to the information marketplace",
+        "show me the information marketplace",
+        "open my data marketplace"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "data marketplace",
+        "data slices",
+        "sell my data",
+        "published slices"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/marketplace"
+        ],
+        "screens": [
+          "one_marketplace"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/marketplace"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "nav"
+    }
+  ]
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, Literal, Optional
 
@@ -112,6 +113,32 @@ class AgentChatDeleteResponse(BaseModel):
     deleted: bool
 
 
+# Navigation intent — "open/go to/take me to the marketplace" should OPEN the
+# page (central planner), not delegate a text answer to the specialist.
+_NAV_INTENT_RE = re.compile(
+    r"\b(?:open|go to|take me to|navigate to|launch|bring up)\b", re.IGNORECASE
+)
+
+# "marketplace" is ambiguous (Information Marketplace vs Kai Market Home). Detect
+# a bare mention (no qualifier) so One can deterministically ask which one.
+_BARE_MARKETPLACE_RE = re.compile(r"\bmarketplace\b", re.IGNORECASE)
+_MARKETPLACE_QUALIFIER_RE = re.compile(
+    r"\b(?:information marketplace|data marketplace|kai|market home)\b", re.IGNORECASE
+)
+
+_MARKETPLACE_CLARIFICATION = (
+    "Which marketplace do you mean — your **Information Marketplace** (your "
+    "personal data slices and potential earnings) or **Kai's Market Home** "
+    "(markets and investing)?"
+)
+
+
+def _is_bare_marketplace(message: str | None) -> bool:
+    """True when the user says 'marketplace' without qualifying which one."""
+    text = message or ""
+    return bool(_BARE_MARKETPLACE_RE.search(text) and not _MARKETPLACE_QUALIFIER_RE.search(text))
+
+
 def resolve_delegate_target(message: str) -> str | None:
     """Return a WIRED specialist agent id for this message, else None.
 
@@ -122,7 +149,11 @@ def resolve_delegate_target(message: str) -> str | None:
     classified = classify_specialist_domain(message or "")
     if classified is None:
         return None
-    _domain, target_agent = classified
+    domain, target_agent = classified
+    # "open the information marketplace" is a navigation intent: decline
+    # delegation so the central planner opens the page instead of answering.
+    if domain == "information_marketplace" and _NAV_INTENT_RE.search(message or ""):
+        return None
     import hushh_mcp.adk_bridge  # noqa: F401  (ensures specialists are registered)
 
     return target_agent if is_wired_specialist(target_agent) else None
@@ -428,6 +459,27 @@ async def stream_agent_chat(
             generate_delegated(), media_type="text/event-stream", headers=headers
         )
     # --- end delegation branch --------------------------------------------
+
+    # Deterministic disambiguation: a bare "marketplace" (not already delegated as
+    # a clear data-slice question) gets a fixed clarifying question instead of
+    # letting the planner guess a surface.
+    if body.delegate_result is None and _is_bare_marketplace(body.message):
+        conv_id = body.conversation_id or ""
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+        }
+
+        async def generate_clarification():
+            yield _event("start", {"conversation_id": conv_id, "model": "one"})
+            yield _event("token", {"token": _MARKETPLACE_CLARIFICATION})
+            yield _event("complete", {"conversation_id": conv_id, "status": "complete"})
+
+        return StreamingResponse(
+            generate_clarification(), media_type="text/event-stream", headers=headers
+        )
 
     try:
         runtime = await service.prepare_agent_runtime(
