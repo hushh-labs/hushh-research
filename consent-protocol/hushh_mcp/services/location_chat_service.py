@@ -69,6 +69,7 @@ _QUERY_TOOL_NAMES = {
     "list_public_links",
     "propose_public_link",
     "propose_location_view",
+    "propose_sos_panic",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -326,6 +327,16 @@ def _function_declarations_v2(types: Any) -> list:
                     },
                     required=["summary"],
                 ),
+            ),
+            types.FunctionDeclaration(
+                name="propose_sos_panic",
+                description=(
+                    "Propose an emergency SOS broadcast to all of the user's ready trusted "
+                    "contacts. The browser creates 8h grants per recipient, encrypts, "
+                    "publishes, and records the incident. Coordinate-free. Call "
+                    "request_confirmation first before proposing this."
+                ),
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
             ),
         ]
     )
@@ -611,6 +622,8 @@ class LocationChatService:
             return {"type": "create_public_link", "durationHours": result.get("durationHours")}
         if name == "propose_location_view" and result.get("proposed") == "view_envelope":
             return {"type": "view_envelope", "grantId": result.get("grantId")}
+        if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
+            return {"type": "sos_panic"}
         return None
 
     @staticmethod
@@ -663,6 +676,13 @@ class LocationChatService:
                 "type": "create_public_link",
                 "durationHours": hours,
                 "summary": f"Create a public link (viewable for {hours}h)",
+            }
+        sos = next((d for d in directives if d.get("type") == "sos_panic"), None)
+        if sos:
+            return {
+                "id": action_id,
+                "type": "sos_panic",
+                "summary": "Send an emergency SOS to all your trusted contacts",
             }
         return None
 

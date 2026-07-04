@@ -223,6 +223,15 @@ async def propose_public_link(duration_hours: float) -> dict[str, Any]:
     return {"proposed": "create_public_link", "durationHours": hours}
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_sos_panic")
+async def propose_sos_panic() -> dict[str, Any]:
+    """Propose an emergency SOS broadcast to the user's ready trusted contacts.
+    The browser creates 8h grants per recipient, encrypts, publishes, and records
+    the incident. Coordinate-free."""
+    _ctx()
+    return {"proposed": "sos_panic"}
+
+
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="propose_location_view")
 async def propose_location_view(grant_id: str) -> dict[str, Any]:
     """Propose viewing an incoming share's latest location. The browser fetches the
@@ -464,4 +473,5 @@ V2_LOCATION_TOOLS = [
     request_request_choice,
     request_incoming_choice,
     request_confirmation,
+    propose_sos_panic,
 ]
