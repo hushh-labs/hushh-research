@@ -1,10 +1,9 @@
 """DB-backed enterprise CRM registry repository.
 
-Loads an active `enterprise_crm_registry` row, decrypts the AES-256-GCM
-credential envelopes with `VAULT_DATA_KEY`, and returns the existing
-`ConnectedSystemDefinition` shape (with `transport_headers` carrying the
-decrypted client_id / client_secret) so the rest of Connected Systems is
-unchanged.
+Loads active `enterprise_crm_registry` rows into `ConnectedSystemDefinition`
+objects. List views avoid credential decryption. MuleSoft Bearer action paths
+pass the row's CRM client id and encrypted client secret directly to the MCP
+tool; MuleSoft owns secret decryption.
 
 No plaintext credentials are ever logged. Decryption failures surface as
 `ConnectedSystemConfigurationError` (fail-closed) rather than crashing the
@@ -15,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urljoin
 
 from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
@@ -22,8 +22,11 @@ from hushh_mcp.runtime_settings import (
     get_connector_kdf_iterations,
     get_connector_kdf_salt,
     get_connector_secrets_key,
+    get_omnigateway_transport_headers,
 )
 from hushh_mcp.services.connected_systems_service import (
+    EXTERNAL_CRM_TOOL_CATALOG,
+    REGISTRY_MCP_ENDPOINT,
     ConnectedSystemConfigurationError,
     ConnectedSystemDefinition,
 )
@@ -44,6 +47,162 @@ GCM_ALGORITHM = "aes-256-gcm"
 _AUTH_HEADER_STYLES: dict[str, tuple[str, str]] = {
     "client_id_secret_headers": ("client_id", "client_secret"),
 }
+_CANONICAL_CUSTOMER0_CRM_ID = "salesforce-fsc-customer0"
+_CUSTOMER0_ENTERPRISE_NAMES = ("macys", "macy's")
+
+
+def _resolve_endpoint(row: dict[str, Any]) -> str:
+    endpoint = str(row.get("crm_mcp_endpoint") or "").strip()
+    if not endpoint:
+        raise ConnectedSystemConfigurationError(
+            "CRM registry row is missing crm_mcp_endpoint.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
+    if endpoint.startswith(("http://", "https://", "registry://")):
+        return endpoint
+
+    base_url = str(row.get("crm_base_url") or "").strip()
+    if not base_url:
+        raise ConnectedSystemConfigurationError(
+            "CRM registry row has a relative crm_mcp_endpoint but no crm_base_url.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
+    return urljoin(f"{base_url.rstrip('/')}/", endpoint.lstrip("/"))
+
+
+def _is_mulesoft_managed_auth(row: dict[str, Any]) -> bool:
+    return str(row.get("auth_header_style") or "").strip().lower() == "bearer"
+
+
+def _first_text(row: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _mulesoft_tool_arguments(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "target": str(row.get("crm_enterprise_name") or "").strip(),
+        "crmBaseUrl": str(row.get("crm_base_url") or "").strip(),
+        "crmMcpEndpoint": str(row.get("crm_mcp_endpoint") or "").strip(),
+        "clientId": _first_text(
+            row, "crm_client_id", "crm_client_id_ciphertext", "crm_client_id_blob"
+        ),
+        "clientSecret": _first_text(
+            row,
+            "crm_client_secret",
+            "crm_client_secret_ciphertext",
+            "crm_client_secret_blob",
+        ),
+        "crmTokenUrl": str(row.get("crm_token_url") or "").strip(),
+        "objectType": str(row.get("user_object_name") or "Contact").strip() or "Contact",
+    }
+
+
+def _load_active_row(crm_id: str, database: Any) -> dict[str, Any] | None:
+    rows = database.execute_raw(
+        """
+        SELECT *
+        FROM enterprise_crm_registry
+        WHERE is_active = TRUE
+          AND (
+            crm_id = :crm_id
+            OR (
+              :crm_id = :customer0_crm_id
+              AND LOWER(crm_enterprise_name) IN (:customer0_name_1, :customer0_name_2)
+            )
+          )
+        ORDER BY
+          CASE WHEN crm_id = :crm_id THEN 0 ELSE 1 END,
+          updated_at DESC
+        LIMIT 1
+        """,
+        {
+            "crm_id": crm_id,
+            "customer0_crm_id": _CANONICAL_CUSTOMER0_CRM_ID,
+            "customer0_name_1": _CUSTOMER0_ENTERPRISE_NAMES[0],
+            "customer0_name_2": _CUSTOMER0_ENTERPRISE_NAMES[1],
+        },
+    ).data
+    return rows[0] if rows else None
+
+
+def _load_active_rows(database: Any) -> list[dict[str, Any]]:
+    return database.execute_raw(
+        """
+        SELECT *
+        FROM enterprise_crm_registry
+        WHERE is_active = TRUE
+        ORDER BY crm_enterprise_name ASC, crm_id ASC
+        """,
+        {},
+    ).data
+
+
+def _public_system_id(row: dict[str, Any]) -> str:
+    enterprise = str(row.get("crm_enterprise_name") or "").strip().lower()
+    if enterprise in _CUSTOMER0_ENTERPRISE_NAMES:
+        return _CANONICAL_CUSTOMER0_CRM_ID
+    return str(row.get("crm_id") or "").strip()
+
+
+def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
+    operation_rows = database.execute_raw(
+        """
+        SELECT operation, tool_name, http_method, path, description
+        FROM crm_operation_endpoints
+        WHERE crm_id = :crm_id
+        """,
+        {"crm_id": row_crm_id},
+    ).data
+    return _tool_catalog_from_rows(operation_rows) or EXTERNAL_CRM_TOOL_CATALOG
+
+
+def _definition_from_row(
+    *,
+    requested_crm_id: str,
+    row: dict[str, Any],
+    endpoint: str,
+    tool_catalog: tuple[dict[str, Any], ...],
+    transport_headers: tuple[tuple[str, str], ...] = (),
+    transport_tool_arguments: dict[str, Any] | None = None,
+) -> ConnectedSystemDefinition:
+    return ConnectedSystemDefinition(
+        system_id=requested_crm_id,
+        display_name=str(row.get("crm_enterprise_name") or ""),
+        customer_display_name=str(row.get("crm_enterprise_name") or ""),
+        system_type=str(row.get("crm_type") or ""),
+        system_name=str(row.get("crm_type") or ""),
+        target=str(row.get("crm_enterprise_name") or ""),
+        object_type_default=str(row.get("user_object_name") or "Contact"),
+        transport=EXTERNAL_CRM_TRANSPORT,
+        transport_endpoint=endpoint,
+        registry_source=REGISTRY_SOURCE,
+        tool_catalog=tool_catalog,
+        transport_headers=transport_headers,
+        transport_tool_arguments=transport_tool_arguments,
+        delete_transport_endpoint=(
+            str(row.get("crm_delete_endpoint")).strip() if row.get("crm_delete_endpoint") else None
+        ),
+    )
+
+
+def _definition_from_row_without_decrypt(
+    *, requested_crm_id: str, row: dict[str, Any], database: Any
+) -> ConnectedSystemDefinition:
+    row_crm_id = str(row.get("crm_id") or requested_crm_id)
+    endpoint = REGISTRY_MCP_ENDPOINT if _is_mulesoft_managed_auth(row) else _resolve_endpoint(row)
+    tool_catalog = _tool_catalog(row_crm_id, database)
+    mulesoft_managed_auth = _is_mulesoft_managed_auth(row)
+    return _definition_from_row(
+        requested_crm_id=requested_crm_id,
+        row=row,
+        endpoint=endpoint,
+        tool_catalog=tool_catalog,
+        transport_headers=get_omnigateway_transport_headers() if mulesoft_managed_auth else (),
+    )
 
 
 def _vault_key_hex() -> str:
@@ -167,79 +326,73 @@ def load_active_definition(
 ) -> ConnectedSystemDefinition | None:
     """Return the active CRM definition for `crm_id`, or None if not found/inactive.
 
-    Decrypts client_id / client_secret into `transport_headers`. Raises
-    `ConnectedSystemConfigurationError` if the row is malformed or cannot be
-    decrypted with the configured `VAULT_DATA_KEY`.
+    Header-auth rows decrypt credentials into transport headers. MuleSoft Bearer
+    rows do not decrypt; they pass row values directly as MCP tool arguments.
     """
     database = db if db is not None else get_db()
 
-    registry_rows = database.execute_raw(
-        """
-        SELECT *
-        FROM enterprise_crm_registry
-        WHERE crm_id = :crm_id
-          AND is_active = TRUE
-        LIMIT 1
-        """,
-        {"crm_id": crm_id},
-    ).data
-    if not registry_rows:
+    row = _load_active_row(crm_id, database)
+    if not row:
         return None
 
-    row = registry_rows[0]
-
-    endpoint = str(row.get("crm_mcp_endpoint") or "").strip()
-    if not endpoint:
-        raise ConnectedSystemConfigurationError(
-            "CRM registry row is missing crm_mcp_endpoint.",
-            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
-        )
-
-    # Decrypt credentials, branching on the row's encryption_algorithm
-    # (GCM for Hushh-written rows, PBKDF2-CBC for MuleSoft-published rows).
-    client_id, client_secret = _decrypt_credentials(row)
+    row_crm_id = str(row.get("crm_id") or crm_id)
+    mulesoft_managed_auth = _is_mulesoft_managed_auth(row)
+    endpoint = REGISTRY_MCP_ENDPOINT if mulesoft_managed_auth else _resolve_endpoint(row)
+    tool_catalog = _tool_catalog(row_crm_id, database)
 
     style = str(row.get("auth_header_style") or "client_id_secret_headers")
-    header_keys = _AUTH_HEADER_STYLES.get(style)
-    if header_keys is None:
+    transport_headers: tuple[tuple[str, str], ...]
+    transport_tool_arguments: dict[str, Any] | None = None
+    if mulesoft_managed_auth:
+        transport_headers = get_omnigateway_transport_headers()
+        transport_tool_arguments = _mulesoft_tool_arguments(row)
+    else:
+        # Decrypt credentials only for legacy header-auth rows.
+        client_id, client_secret = _decrypt_credentials(row)
+        header_keys = _AUTH_HEADER_STYLES.get(style)
+        if header_keys is None:
+            raise ConnectedSystemConfigurationError(
+                f"Unsupported CRM registry auth_header_style: {style}",
+                code="CONNECTED_SYSTEM_REGISTRY_AUTH_STYLE",
+            )
+        id_header, secret_header = header_keys
+        transport_headers = ((id_header, client_id), (secret_header, client_secret))
+    if not mulesoft_managed_auth and not transport_headers:
         raise ConnectedSystemConfigurationError(
             f"Unsupported CRM registry auth_header_style: {style}",
             code="CONNECTED_SYSTEM_REGISTRY_AUTH_STYLE",
         )
-    id_header, secret_header = header_keys
-    transport_headers = ((id_header, client_id), (secret_header, client_secret))
-
-    operation_rows = database.execute_raw(
-        """
-        SELECT operation, tool_name, http_method, path, description
-        FROM crm_operation_endpoints
-        WHERE crm_id = :crm_id
-        """,
-        {"crm_id": crm_id},
-    ).data
-    tool_catalog = _tool_catalog_from_rows(operation_rows)
 
     logger.info(
         "crm_registry.loaded crm_id=%s endpoint_configured=%s tools=%d",
-        crm_id,
+        row_crm_id,
         bool(endpoint),
         len(tool_catalog),
     )
 
-    return ConnectedSystemDefinition(
-        system_id=str(row.get("crm_id")),
-        display_name=str(row.get("crm_enterprise_name") or ""),
-        customer_display_name=str(row.get("crm_enterprise_name") or ""),
-        system_type=str(row.get("crm_type") or ""),
-        system_name=str(row.get("crm_type") or ""),
-        target=str(row.get("crm_enterprise_name") or ""),
-        object_type_default=str(row.get("user_object_name") or "Contact"),
-        transport=EXTERNAL_CRM_TRANSPORT,
-        transport_endpoint=endpoint,
-        registry_source=REGISTRY_SOURCE,
+    return _definition_from_row(
+        requested_crm_id=crm_id,
+        row=row,
+        endpoint=endpoint,
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
-        delete_transport_endpoint=(
-            str(row.get("crm_delete_endpoint")).strip() if row.get("crm_delete_endpoint") else None
-        ),
+        transport_tool_arguments=transport_tool_arguments,
     )
+
+
+def load_active_definitions(*, db: Any | None = None) -> tuple[ConnectedSystemDefinition, ...]:
+    """Return all active CRM definitions without decrypting CRM credentials."""
+    database = db if db is not None else get_db()
+    definitions: list[ConnectedSystemDefinition] = []
+    for row in _load_active_rows(database):
+        public_id = _public_system_id(row)
+        if not public_id:
+            continue
+        definitions.append(
+            _definition_from_row_without_decrypt(
+                requested_crm_id=public_id,
+                row=row,
+                database=database,
+            )
+        )
+    return tuple(definitions)

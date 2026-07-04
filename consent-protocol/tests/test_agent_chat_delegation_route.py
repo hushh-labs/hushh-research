@@ -8,8 +8,10 @@ from fastapi.testclient import TestClient
 
 from api.routes.kai import agent_chat
 from hushh_mcp.adk_bridge import dispatch as dispatch_mod
+from hushh_mcp.adk_bridge.connected_systems_agent import get_connected_systems_a2a
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
 from hushh_mcp.services.agent_chat_service import (
+    AgentChatActionPlan,
     PreparedAgentChatTurn,
     PreparedAgentRuntime,
 )
@@ -26,6 +28,7 @@ class _MinimalFakeService:
         self.runtime_client = object()
         self.stream_tokens = ["general response"]
         self.saved_messages: list[dict] = []
+        self.action_plan: AgentChatActionPlan | None = None
 
     async def prepare_agent_runtime(self, *, runtime_credential=None, runtime_credential_mode=None):
         return PreparedAgentRuntime(
@@ -54,8 +57,9 @@ class _MinimalFakeService:
         runtime_model,
         pkm_context=None,
         screen_context=None,
+        deterministic_crm_first=True,
     ):
-        return None
+        return self.action_plan
 
     async def stream_response(
         self,
@@ -136,3 +140,84 @@ def test_non_location_turn_uses_existing_path(monkeypatch):
     events = _parse_sse(resp.text)
     assert "specialist_directive" not in events
     assert events and events[0] == "start"
+
+
+def test_llm_planned_connected_systems_turn_delegates_inline(monkeypatch):
+    """Brand wording can come from the LLM planner instead of the fallback classifier."""
+
+    monkeypatch.setitem(
+        dispatch_mod._REGISTRY,
+        "agent_connected_systems",
+        lambda task: get_connected_systems_a2a().handle(task),
+    )
+    service = _MinimalFakeService()
+    service.action_plan = AgentChatActionPlan(
+        call_id="crm-plan-1",
+        action_id="connected_system.crm.update.propose",
+        label="Propose CRM Update",
+        execution="frontend",
+        slots={
+            "systemId": "salesforce-fsc-customer0",
+            "objectType": "Contact",
+            "scope": "all_connected_crm_systems",
+            "additionalFieldsJson": '{"MailingCity":"Chicago"}',
+        },
+        message="Opening Connected Systems so you can review and approve the CRM update.",
+    )
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    app = _make_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/agent/chat/stream",
+        json={"user_id": "u1", "message": "can you update all my brands with new city Chicago"},
+    )
+
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    assert events == ["start", "token", "specialist_directive", "complete"]
+    assert "Update all" in resp.text
+
+
+def test_connected_systems_delegate_result_accepts_multibrand_display(monkeypatch):
+    """Multi-brand CRM summaries are longer than selection chip labels."""
+
+    monkeypatch.setitem(
+        dispatch_mod._REGISTRY,
+        "agent_connected_systems",
+        lambda task: get_connected_systems_a2a().handle(task),
+    )
+    service = _MinimalFakeService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    display = "\n".join(
+        [
+            "Found records in 3 of 3 connected CRM brands.",
+            "- Brand One: Name: Abdul Zalil Email: abdul.zalil@gmail.com City: Las Vegas",
+            "- Brand Two: Name: Abdul Zalil Email: abdul.zalil@gmail.com City: Chicago",
+            "- Brand Three: Name: Abdul Zalil Email: abdul.zalil@gmail.com City: New York",
+        ]
+    )
+    assert len(display) > 200
+
+    app = _make_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/agent/chat/stream",
+        json={
+            "user_id": "u1",
+            "message": "",
+            "conversation_id": "conversation-gen",
+            "delegate_result": {
+                "delegate_agent_id": "agent_connected_systems",
+                "kind": "action",
+                "id": "read_all",
+                "type": "connected_system.crm.read",
+                "status": "completed",
+                "display": display,
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "Found records in 3 of 3 connected CRM brands." in resp.text

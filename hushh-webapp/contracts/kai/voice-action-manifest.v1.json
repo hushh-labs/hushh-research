@@ -905,6 +905,45 @@
       ]
     },
     {
+      "id": "route.one_marketplace",
+      "label": "Open Information Marketplace",
+      "meaning": "Navigates to the One Information Marketplace (personal data-slice) route.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open information marketplace",
+        "open the information marketplace",
+        "open data marketplace",
+        "go to information marketplace",
+        "go to the data marketplace",
+        "take me to the information marketplace",
+        "show me the information marketplace",
+        "open my data marketplace"
+      ],
+      "scope": {
+        "routes": [
+          "/one/marketplace"
+        ],
+        "screens": [
+          "one_marketplace"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/marketplace"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ]
+    },
+    {
       "id": "route.profile",
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",

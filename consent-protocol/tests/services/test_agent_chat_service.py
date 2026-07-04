@@ -362,6 +362,53 @@ def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
     assert action_plan.reason == "durable personal context"
 
 
+def test_agent_chat_translates_gemini_crm_update_scope_and_fields(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-crm",
+            name="propose_crm_update",
+            args={
+                "target_scope": "all_connected_crm_systems",
+                "email": "kushal@example.com",
+                "phone": "415-555-1212",
+                "additional_fields_json": '{"MailingCity":"Las Vegas"}',
+            },
+        )
+    )
+
+    assert action_plan is not None
+    assert action_plan.action_id == "connected_system.crm.update.propose"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots["scope"] == "all_connected_crm_systems"
+    assert action_plan.slots["email"] == "kushal@example.com"
+    assert action_plan.slots["phone"] == "415-555-1212"
+    assert action_plan.slots["additionalFieldsJson"] == '{"MailingCity":"Las Vegas"}'
+
+
+def test_agent_chat_translates_gemini_crm_read_scope(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-crm-read",
+            name="read_crm_record",
+            args={
+                "target_scope": "all_connected_crm_systems",
+                "email": "kushal@example.com",
+                "phone": "415-555-1212",
+            },
+        )
+    )
+
+    assert action_plan is not None
+    assert action_plan.action_id == "connected_system.crm.read"
+    assert action_plan.slots["scope"] == "all_connected_crm_systems"
+    assert action_plan.slots["email"] == "kushal@example.com"
+    assert action_plan.slots["phone"] == "415-555-1212"
+
+
 def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
 

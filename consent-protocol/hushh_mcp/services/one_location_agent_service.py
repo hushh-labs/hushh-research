@@ -3668,40 +3668,67 @@ class OneLocationAgentService:
             UPDATE one_location_share_grants
             SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
-              AND owner_user_id = :owner_user_id
+              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
               AND status = 'active'
             RETURNING *
             """,
             {"owner_user_id": owner_user_id, "grant_id": grant_id},
         )
         if not row:
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND", "Active location share was not found.", status_code=404
+            existing_row = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+                LIMIT 1
+                """,
+                {"owner_user_id": owner_user_id, "grant_id": grant_id},
             )
+            if existing_row:
+                return self._grant_payload(existing_row) or {}
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
+            )
+        actor_is_owner = str(row.get("owner_user_id") or "") == owner_user_id
+        recipient_user_id = str(row.get("recipient_user_id") or "") or None
         self._insert_event(
-            owner_user_id=owner_user_id,
+            owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
-            recipient_user_id=str(row.get("recipient_user_id") or "") or None,
+            recipient_user_id=recipient_user_id,
             grant_id=grant_id,
             event_type="location_share_revoked",
-            metadata={"reason": "owner_revoke"},
+            metadata={"reason": "owner_revoke" if actor_is_owner else "recipient_revoke"},
         )
-        owner_identity = self._identity_row(owner_user_id)
+        owner_identity = self._identity_row(str(row.get("owner_user_id") or owner_user_id))
         owner_label = _identity_display_label(owner_identity)
+        recipient_identity = self._identity_row(recipient_user_id or "")
+        recipient_label = _identity_display_label(recipient_identity)
+        notification_user_id = (
+            recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
+        )
         self._send_metadata_notification(
-            user_id=str(row.get("recipient_user_id") or ""),
+            user_id=notification_user_id,
             notification_type="location_share_revoked",
             title="Location access revoked",
-            body=f"{owner_label} removed your location access.",
+            body=(
+                f"{owner_label} removed your location access."
+                if actor_is_owner
+                else f"{recipient_label} stopped receiving your location share."
+            ),
             notification_tag=f"one-location-revoked:{grant_id}",
-            request_url=_one_location_url(grantId=grant_id, section="shared"),
+            request_url=_one_location_url(
+                grantId=grant_id, section="shared" if actor_is_owner else "people"
+            ),
             data={
                 "grant_id": grant_id,
-                "owner_user_id": owner_user_id,
+                "owner_user_id": str(row.get("owner_user_id") or owner_user_id),
                 "owner_display_label": owner_label,
                 "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
                 if owner_identity
                 else None,
+                "recipient_user_id": recipient_user_id,
+                "recipient_display_label": recipient_label,
             },
         )
         return self._grant_payload(row) or {}

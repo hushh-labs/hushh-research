@@ -60,11 +60,18 @@ type ConnectedSystemsPanelProps = {
   onRequestUnlock?: () => void;
   mode?: "list" | "detail";
   systemId?: string | null;
+  agentInstruction?: ConnectedSystemAgentInstruction | null;
   profile?: {
     displayName?: string | null;
     email?: string | null;
     phone?: string | null;
   };
+};
+
+export type ConnectedSystemAgentInstruction = {
+  actionId: string;
+  slots?: Record<string, unknown>;
+  createdAt?: string;
 };
 
 type CrmProfileFieldKey =
@@ -264,6 +271,13 @@ function crmTypeLogoSrc(system?: ConnectedSystemSummary | null): string | null {
   return null;
 }
 
+function crmTypeDisplayLabel(
+  system?: Pick<ConnectedSystemSummary, "systemType" | "systemName"> | null
+): string {
+  const rawLabel = [system?.systemType, system?.systemName].filter(Boolean).join(" ");
+  return rawLabel.toLowerCase().includes("salesforce") ? "Connected CRM" : rawLabel;
+}
+
 function ConnectedSystemLogo({
   system,
   size = "row",
@@ -301,12 +315,11 @@ function ConnectedSystemLogo({
 function CrmTypeLogoBadge({ system }: { system?: ConnectedSystemSummary | null }) {
   const logoSrc = crmTypeLogoSrc(system);
   if (!logoSrc) return null;
-  const label = [system?.systemType, system?.systemName].filter(Boolean).join(" ") || system?.displayName || "CRM";
   return (
     <span className="inline-flex h-7 w-20 items-center justify-center rounded-md border border-border/60 bg-white px-2 py-1 shadow-sm">
       <Image
         src={logoSrc}
-        alt={`${label} logo`}
+        alt="CRM platform logo"
         width={80}
         height={28}
         className="max-h-4 w-full object-contain"
@@ -392,6 +405,36 @@ function displayRecordValue(value: unknown): string {
 
 function cleanFieldValue(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function agentInstructionSlot(
+  instruction: ConnectedSystemAgentInstruction | null | undefined,
+  key: string
+): string {
+  const value = instruction?.slots?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function agentInstructionFields(
+  instruction: ConnectedSystemAgentInstruction | null | undefined
+): Partial<Record<CrmProfileFieldKey, string>> {
+  const raw = agentInstructionSlot(instruction, "additionalFieldsJson");
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Partial<Record<CrmProfileFieldKey, string>> = {};
+    for (const field of CRM_PROFILE_FIELDS) {
+      const value = (parsed as Record<string, unknown>)[field.key];
+      const cleaned = cleanFieldValue(value);
+      if (cleaned && !READ_ONLY_CRM_IDENTITY_FIELDS.has(field.key)) {
+        out[field.key] = cleaned;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 function crmLookupPhoneCandidates(phone: string): string[] {
@@ -500,6 +543,7 @@ export function ConnectedSystemsPanel({
   onRequestUnlock,
   mode = "detail",
   systemId,
+  agentInstruction,
   profile,
 }: ConnectedSystemsPanelProps) {
   const [systems, setSystems] = useState<ConnectedSystemSummary[]>([]);
@@ -526,6 +570,7 @@ export function ConnectedSystemsPanel({
   const [autoLinkResolvedKey, setAutoLinkResolvedKey] = useState<string | null>(null);
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
   const autoLinkAttemptKeyRef = useRef<string | null>(null);
+  const consumedAgentInstructionRef = useRef<string | null>(null);
 
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
@@ -541,9 +586,9 @@ export function ConnectedSystemsPanel({
   );
   const canUseBackend = Boolean(vaultOwnerToken);
   const customerName = selectedSystem?.customerDisplayName || "Macy's";
-  const systemType = selectedSystem?.systemType || "Salesforce";
+  const systemType = selectedSystem?.systemType || "CRM";
   const systemName = selectedSystem?.systemName || "FSC";
-  const systemLabel = [systemType, systemName].filter(Boolean).join(" ");
+  const systemLabel = crmTypeDisplayLabel({ systemType, systemName });
   const registeredEmail = cleanFieldValue(profile?.email);
   const registeredPhone = cleanFieldValue(profile?.phone);
   const hasRegisteredLookup = Boolean(registeredEmail && registeredPhone);
@@ -876,7 +921,7 @@ export function ConnectedSystemsPanel({
     if (result) {
       setSchema(result);
       if (!options.silent) {
-        toast.success("Salesforce CRM schema loaded.");
+        toast.success("CRM schema loaded.");
       }
     }
   };
@@ -970,7 +1015,7 @@ export function ConnectedSystemsPanel({
         if (recordLoaded) {
           toast.success("Macy's CRM record refreshed.");
         } else if (currentRecordId) {
-          toast.info("Macy's record is linked, but Salesforce did not return field values.");
+          toast.info("Macy's record is linked, but the CRM did not return field values.");
         } else {
           toast.info("No matching Macy's CRM record found.");
         }
@@ -978,6 +1023,61 @@ export function ConnectedSystemsPanel({
     }
     return result || null;
   };
+
+  useEffect(() => {
+    if (!agentInstruction || !vaultOwnerToken || !selectedSystem || mode !== "detail") {
+      return;
+    }
+    if (!bindingResolved) return;
+    if (!agentInstruction.actionId.startsWith("connected_system.crm.")) return;
+
+    const instructionKey = JSON.stringify(agentInstruction);
+    if (consumedAgentInstructionRef.current === instructionKey) return;
+    consumedAgentInstructionRef.current = instructionKey;
+
+    const slots = agentInstruction.slots || {};
+    const lookupEmail = cleanFieldValue(slots.email) || registeredEmail;
+    const lookupPhone = cleanFieldValue(slots.phone) || registeredPhone;
+    const recordId = cleanFieldValue(slots.id || slots.recordId || slots.record_id);
+    const proposedFields = agentInstructionFields(agentInstruction);
+
+    const applyProposedFields = () => {
+      if (Object.keys(proposedFields).length === 0) return;
+      setCrmFieldValues((current) => ({
+        ...current,
+        ...proposedFields,
+        Email: lookupEmail || registeredEmail || current.Email,
+        Phone: lookupPhone || registeredPhone || current.Phone,
+      }));
+    };
+
+    if (recordId) {
+      setUpdateId(recordId);
+      setDeleteId(recordId);
+    }
+
+    void (async () => {
+      if (lookupEmail && lookupPhone) {
+        await readRecord({
+          silent: false,
+          bindSearch: true,
+          email: lookupEmail,
+          phone: lookupPhone,
+        });
+      }
+      applyProposedFields();
+    })();
+    // readRecord is intentionally captured for this one-shot agent instruction.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    agentInstruction,
+    bindingResolved,
+    mode,
+    registeredEmail,
+    registeredPhone,
+    selectedSystem,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return;
@@ -1399,7 +1499,7 @@ export function ConnectedSystemsPanel({
             <SettingsRow
               icon={Database}
               title="No connected CRM systems"
-              description="Refresh to check the Customer 0 Salesforce CRM MCP registry."
+              description="Refresh to check the Customer 0 CRM MCP registry."
               trailing={
                 <Button
                   type="button"
@@ -1428,7 +1528,7 @@ export function ConnectedSystemsPanel({
           ) : null}
           {pagedSystems.map((system) => {
             const systemCustomer = system.customerDisplayName || system.target || "Customer";
-            const typeLabel = [system.systemType, system.systemName].filter(Boolean).join(" ");
+            const typeLabel = crmTypeDisplayLabel(system);
             return (
               <SettingsRow
                 key={system.systemId}
@@ -1521,7 +1621,7 @@ export function ConnectedSystemsPanel({
                 {customerName}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {systemLabel || selectedSystem?.displayName || "Salesforce CRM"} /{" "}
+                {systemLabel || selectedSystem?.displayName || "CRM"} /{" "}
                 {selectedSystem?.objectTypeDefault || "Contact"}.
               </p>
             </div>
@@ -1711,7 +1811,7 @@ export function ConnectedSystemsPanel({
           <SettingsRow
             icon={Trash2}
             title={`Delete ${customerName} Contact`}
-            description={`Remove record ${currentRecordId} from ${customerName} Salesforce CRM.`}
+            description={`Remove record ${currentRecordId} from ${customerName} CRM.`}
             trailing={
               <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                 <AlertDialog>
@@ -1731,7 +1831,7 @@ export function ConnectedSystemsPanel({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete this CRM record?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This deletes the Salesforce Contact in {customerName}. The One binding will be cleared after the MCP confirms deletion.
+                        This deletes the CRM Contact in {customerName}. The One binding will be cleared after the MCP confirms deletion.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

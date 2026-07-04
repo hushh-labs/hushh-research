@@ -12,7 +12,7 @@ export type SpecialistDirective = {
 };
 
 export type DelegateResult = {
-  delegate_agent_id: "agent_location";
+  delegate_agent_id: "agent_location" | "agent_connected_systems";
   kind: "action" | "selection";
   id: string;
   // promptKind is only set for kind:"selection" turns. It carries the location
