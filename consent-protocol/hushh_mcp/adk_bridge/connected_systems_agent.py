@@ -10,14 +10,19 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
-from hushh_mcp.services.agent_chat_service import AgentChatActionPlan, AgentChatService
+from hushh_mcp.services.agent_chat_service import (
+    AgentActionExecution,
+    AgentChatActionPlan,
+    AgentChatService,
+)
 
 DELEGATED_MODEL = "one+connected-systems"
 CONNECTED_SYSTEMS_A2A_AGENT_ID = "agent_connected_systems"
+ALL_CONNECTED_CRM_SYSTEMS_SCOPE = "all_connected_crm_systems"
 _FIELD_UPDATE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bmailing\s+city\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "MailingCity"),
     (re.compile(r"\bcity\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "MailingCity"),
@@ -46,7 +51,9 @@ class ConnectedSystemsAgentA2A:
                 is_complete=True,
             )
 
-        plan = self._chat_service.plan_action(message)
+        plan = _plan_from_task(task)
+        if plan is None:
+            plan = self._chat_service.plan_action(message)
         if plan is None or not str(plan.action_id or "").startswith("connected_system.crm."):
             return _result(
                 task,
@@ -129,6 +136,7 @@ def _clarification_prompt(plan: AgentChatActionPlan, message: str) -> A2ADirecti
         return None
     text = message.lower()
     if "city" not in text:
+        scope_label = "across your connected CRM brands" if _is_all_crm_scope(slots) else ""
         return A2ADirective(
             kind="prompt",
             payload={
@@ -136,7 +144,11 @@ def _clarification_prompt(plan: AgentChatActionPlan, message: str) -> A2ADirecti
                 "kind": "free_text",
                 "purpose": "crm_update_missing_change",
                 "type": plan.action_id,
-                "question": "What CRM field and value should I update?",
+                "question": (
+                    f"What CRM field and value should I update {scope_label}?"
+                    if scope_label
+                    else "What CRM field and value should I update?"
+                ),
                 "placeholder": "Example: city to New York",
                 "confirmLabel": "Continue",
                 "cancelLabel": "Cancel",
@@ -150,7 +162,11 @@ def _clarification_prompt(plan: AgentChatActionPlan, message: str) -> A2ADirecti
             "kind": "free_text",
             "purpose": "crm_update_missing_city",
             "type": plan.action_id,
-            "question": "Yes. What city should I set for your Macy's CRM record?",
+            "question": (
+                "Yes. What city should I set across your connected CRM brands?"
+                if _is_all_crm_scope(slots)
+                else "Yes. What city should I set for your Macy's CRM record?"
+            ),
             "placeholder": "New York",
             "confirmLabel": "Use this city",
             "cancelLabel": "Cancel",
@@ -167,7 +183,7 @@ def _directive_payload(plan: AgentChatActionPlan) -> dict[str, Any]:
     summary = str(payload.get("message") or "Review this CRM action before it runs.")
     confirm_label = "Continue"
     if action_id == "connected_system.crm.update.propose":
-        confirm_label = "Update"
+        confirm_label = "Update all" if _is_all_crm_scope(slots) else "Update"
     elif action_id == "connected_system.crm.create.propose":
         confirm_label = "Create"
     elif action_id == "connected_system.crm.read":
@@ -175,7 +191,11 @@ def _directive_payload(plan: AgentChatActionPlan) -> dict[str, Any]:
     return {
         "id": str(payload.get("call_id") or ""),
         "type": action_id,
-        "summary": summary,
+        "summary": (
+            "Review and confirm this update across your connected CRM brands."
+            if action_id == "connected_system.crm.update.propose" and _is_all_crm_scope(slots)
+            else summary
+        ),
         "confirmLabel": confirm_label,
         "actionId": action_id,
         "execution": payload.get("execution"),
@@ -238,7 +258,11 @@ def _answered_prompt_result(task: A2ATask, result: dict[str, Any]) -> Specialist
         label="Propose CRM Update",
         execution="frontend",
         slots=slots,
-        message="Got it. Review and confirm the CRM update before I apply it.",
+        message=(
+            "Got it. Review and confirm the CRM update across your connected brands."
+            if _is_all_crm_scope(slots)
+            else "Got it. Review and confirm the CRM update before I apply it."
+        ),
     )
     return _result(
         task,
@@ -248,9 +272,38 @@ def _answered_prompt_result(task: A2ATask, result: dict[str, Any]) -> Specialist
     )
 
 
+def _plan_from_task(task: A2ATask) -> AgentChatActionPlan | None:
+    payload = task.planned_action if isinstance(task.planned_action, dict) else None
+    if not payload:
+        return None
+    action_id = str(payload.get("action_id") or "").strip()
+    if not action_id.startswith("connected_system.crm."):
+        return None
+    slots = payload.get("slots") if isinstance(payload.get("slots"), dict) else {}
+    execution = str(payload.get("execution") or "frontend").strip()
+    if execution not in {"frontend", "blocked"}:
+        execution = "frontend"
+    return AgentChatActionPlan(
+        call_id=str(payload.get("call_id") or f"crm_{uuid4().hex[:10]}"),
+        action_id=action_id,
+        label=str(payload.get("label") or "Connected Systems CRM"),
+        execution=cast(AgentActionExecution, execution),
+        slots=dict(slots or {}),
+        message=str(
+            payload.get("message")
+            or "Opening Connected Systems so you can review and approve the CRM update."
+        ),
+        reason=str(payload.get("reason") or "").strip() or None,
+    )
+
+
 def _email_from_message(message: str) -> str | None:
     match = re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", message, flags=re.I)
     return match.group(0).strip() if match else None
+
+
+def _is_all_crm_scope(slots: dict[str, Any]) -> bool:
+    return str(slots.get("scope") or "") == ALL_CONNECTED_CRM_SYSTEMS_SCOPE
 
 
 def _phone_from_message(message: str) -> str | None:
@@ -293,7 +346,7 @@ def _field_updates_from_message(message: str) -> dict[str, Any]:
 
 def _clean_field_value(value: str) -> str:
     cleaned = re.split(
-        r"\b(?:for|on|in|and then|then|please)\b",
+        r"\b(?:for|on|in|across|at|and then|then|please)\b",
         str(value or "").strip(),
         maxsplit=1,
         flags=re.I,

@@ -67,6 +67,12 @@ Call exactly one function only when the user clearly asks One to do one of these
 - read a CRM record or propose a CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
 
+For CRM read/update planning, extract the requested target scope from the user's wording.
+Use target_scope="all_connected_crm_systems" when the user is asking to list, read, or update every connected brand,
+all brand registries, brand CRMs, or all connected CRM systems. Otherwise use target_scope="single_connected_crm_system".
+Map natural contact fields to CRM field API names in additional_fields_json, for example:
+city/current city/new city -> {"MailingCity":"Las Vegas"}.
+
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
 When unsure, do not call a function.
 """
@@ -845,6 +851,9 @@ def _agent_action_tool() -> genai_types.Tool:
                     {
                         "email": _schema_string("Contact email if the user supplied it."),
                         "phone": _schema_string("Contact phone if the user supplied it."),
+                        "target_scope": _schema_string(
+                            "single_connected_crm_system or all_connected_crm_systems."
+                        ),
                     }
                 ),
             ),
@@ -875,8 +884,14 @@ def _agent_action_tool() -> genai_types.Tool:
                 parameters=_schema_object(
                     {
                         "record_id": _schema_string("CRM record Id if the user supplied it."),
+                        "email": _schema_string("Contact email if the user supplied it."),
+                        "phone": _schema_string("Contact phone if the user supplied it."),
+                        "target_scope": _schema_string(
+                            "single_connected_crm_system or all_connected_crm_systems."
+                        ),
                         "additional_fields_json": _schema_string(
-                            "Optional JSON object string for supported CRM fields to update."
+                            "Optional JSON object string for supported CRM fields to update. "
+                            'Use CRM field API names, for example {"MailingCity":"Las Vegas"}.'
                         ),
                     }
                 ),
@@ -1451,12 +1466,14 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
         screen_context: dict[str, Any] | None = None,
+        deterministic_crm_first: bool = True,
     ) -> AgentChatActionPlan | None:
         current_screen = _current_screen_from_context(screen_context)
 
-        crm_action = self._plan_crm_action(user_message)
-        if crm_action is not None:
-            return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
+        if deterministic_crm_first:
+            crm_action = self._plan_crm_action(user_message)
+            if crm_action is not None:
+                return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
 
         deterministic_block = self._plan_blocked_action(user_message)
         if deterministic_block is not None:
@@ -1813,17 +1830,21 @@ class AgentChatService:
             )
 
         if name == "read_crm_record":
+            scope = str(args.get("target_scope") or args.get("scope") or "").strip()
+            slots: dict[str, Any] = {
+                "systemId": "salesforce-fsc-customer0",
+                "objectType": "Contact",
+                "email": str(args.get("email") or "").strip(),
+                "phone": str(args.get("phone") or "").strip(),
+            }
+            if scope == "all_connected_crm_systems":
+                slots["scope"] = scope
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.read",
                 label="Read CRM Record",
                 execution="frontend",
-                slots={
-                    "systemId": "salesforce-fsc-customer0",
-                    "objectType": "Contact",
-                    "email": str(args.get("email") or "").strip(),
-                    "phone": str(args.get("phone") or "").strip(),
-                },
+                slots=slots,
                 message="Opening Connected Systems for the CRM read.",
             )
 
@@ -1846,17 +1867,23 @@ class AgentChatService:
             )
 
         if name == "propose_crm_update":
+            scope = str(args.get("target_scope") or args.get("scope") or "").strip()
+            slots: dict[str, Any] = {
+                "systemId": "salesforce-fsc-customer0",
+                "objectType": "Contact",
+                "id": str(args.get("record_id") or "").strip(),
+                "email": str(args.get("email") or "").strip(),
+                "phone": str(args.get("phone") or "").strip(),
+                "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
+            }
+            if scope == "all_connected_crm_systems":
+                slots["scope"] = scope
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.update.propose",
                 label="Propose CRM Update",
                 execution="frontend",
-                slots={
-                    "systemId": "salesforce-fsc-customer0",
-                    "objectType": "Contact",
-                    "id": str(args.get("record_id") or "").strip(),
-                    "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
-                },
+                slots=slots,
                 message="Opening Connected Systems so you can review and approve the CRM update.",
             )
 

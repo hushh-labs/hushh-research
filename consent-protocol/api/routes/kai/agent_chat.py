@@ -46,9 +46,10 @@ class DelegateResultModel(BaseModel):
     # selection delegate_results so the A2A discriminator ("selection") is never
     # misread as the prompt kind. See location_agent.py for the mapping.
     prompt_kind: Optional[str] = Field(default=None, alias="promptKind", max_length=24)
-    # Human-readable label for the UI chip (e.g. "Abdul Zalil · 8 hours").
-    # Coordinate-free; the backend persists it as encrypted metadata.
-    display: Optional[str] = Field(default=None, max_length=200)
+    # Human-readable delegate result text. Selection prompts usually use a
+    # short chip label, but action results can contain multi-line summaries.
+    # Coordinate-free; the backend persists a metadata-safe subset separately.
+    display: Optional[str] = Field(default=None, max_length=8000)
 
 
 class AgentChatStreamRequest(BaseModel):
@@ -122,6 +123,8 @@ def resolve_delegate_target(message: str) -> str | None:
     if classified is None:
         return None
     _domain, target_agent = classified
+    import hushh_mcp.adk_bridge  # noqa: F401  (ensures specialists are registered)
+
     return target_agent if is_wired_specialist(target_agent) else None
 
 
@@ -292,6 +295,7 @@ async def stream_agent_chat(
     if delegate_agent_id is not None and is_wired_specialist(delegate_agent_id):
         delegated_turn: PreparedAgentChatTurn | None = None
         delegated_conversation_id = body.conversation_id
+        planned_action_payload: dict[str, Any] | None = None
         prepare_started = time.perf_counter()
         prepare_ms = 0.0
         if body.message.strip():
@@ -313,6 +317,30 @@ async def stream_agent_chat(
                     status_code=500,
                     detail="Agent chat could not be started",
                 ) from error
+            if delegate_agent_id == "agent_connected_systems" and delegated_turn is not None:
+                try:
+                    runtime = await service.prepare_agent_runtime(
+                        runtime_credential=body.runtime_credential,
+                        runtime_credential_mode=body.runtime_credential_mode,
+                    )
+                    planned_action = await service.plan_action_with_gemini(
+                        user_message=body.message,
+                        history=delegated_turn.history,
+                        runtime_client=runtime.client,
+                        runtime_model=runtime.model,
+                        pkm_context=body.pkm_context,
+                        screen_context=body.screen_context,
+                        deterministic_crm_first=False,
+                    )
+                    if planned_action is not None:
+                        planned_action_payload = planned_action.to_event_payload()
+                except Exception as error:  # noqa: BLE001
+                    logger.warning(
+                        "agent_chat.delegation_planner_failed user_id=%s delegate_agent_id=%s: %s",
+                        body.user_id,
+                        delegate_agent_id,
+                        error,
+                    )
 
         task = A2ATask(
             user_id=body.user_id,
@@ -321,6 +349,7 @@ async def stream_agent_chat(
             message=body.message or None,
             delegate_result=delegate_result_payload,
             timezone=body.timezone,
+            planned_action=planned_action_payload,
         )
 
         async def generate_delegated():
@@ -417,6 +446,7 @@ async def stream_agent_chat(
             runtime_model=runtime.model,
             pkm_context=body.pkm_context,
             screen_context=body.screen_context,
+            deterministic_crm_first=False,
         )
     except AgentRuntimeContractError as error:
         logger.warning(
@@ -450,6 +480,72 @@ async def stream_agent_chat(
     except Exception as error:
         logger.exception("agent_chat.prepare_failed user_id=%s: %s", body.user_id, error)
         raise HTTPException(status_code=500, detail="Agent chat could not be started") from error
+
+    if (
+        action_plan is not None
+        and str(action_plan.action_id or "").startswith("connected_system.crm.")
+        and is_wired_specialist("agent_connected_systems")
+    ):
+        task = A2ATask(
+            user_id=body.user_id,
+            consent_token=token_data.get("token", ""),
+            conversation_id=turn.conversation_id,
+            message=body.message or None,
+            timezone=body.timezone,
+            planned_action=action_plan.to_event_payload(),
+        )
+
+        async def generate_planned_delegated():
+            yield _event(
+                "start",
+                {
+                    "conversation_id": turn.conversation_id,
+                    "model": "delegated",
+                    "delegate_agent_id": "agent_connected_systems",
+                },
+            )
+            dispatch_started = time.perf_counter()
+            try:
+                result = await a2a_dispatch("agent_connected_systems", task)
+            except Exception as error:  # noqa: BLE001
+                dispatch_ms = (time.perf_counter() - dispatch_started) * 1000
+                logger.exception(
+                    "agent_chat.planned_delegation_failed user_id=%s delegate_agent_id=%s dispatch_ms=%.1f: %s",
+                    body.user_id,
+                    "agent_connected_systems",
+                    dispatch_ms,
+                    error,
+                )
+                yield _event(
+                    "error",
+                    {
+                        "message": "Agent chat failed. Please try again.",
+                        "conversation_id": turn.conversation_id,
+                    },
+                )
+                return
+            await _save_assistant_message(
+                service=service,
+                turn=turn,
+                user_id=body.user_id,
+                text=result.text,
+                status_value="complete",
+            )
+            for name, data in specialist_result_to_frames(
+                result, "agent_connected_systems", include_start=False
+            ):
+                yield _event(name, data)
+
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+            "X-Agent-Conversation-Id": turn.conversation_id,
+        }
+        return StreamingResponse(
+            generate_planned_delegated(), media_type="text/event-stream", headers=headers
+        )
 
     async def generate():
         chunks: list[str] = []

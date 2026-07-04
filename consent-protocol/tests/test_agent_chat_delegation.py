@@ -15,6 +15,10 @@ def test_resolve_target_crm_is_wired():
     )
 
 
+def test_resolve_target_all_my_brands_needs_llm_planner():
+    assert resolve_delegate_target("can you update all my brands with new city Chicago") is None
+
+
 def test_resolve_target_unwired_specialist_falls_through():
     # finance classifies but is NOT wired in slice 1 → no delegation.
     assert resolve_delegate_target("rebalance my portfolio") is None
