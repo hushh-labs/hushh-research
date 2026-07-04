@@ -311,6 +311,18 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname === ROUTES.ONE_MARKETPLACE) {
+    return {
+      backHref: ROUTES.PROFILE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Marketplace" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.GMAIL) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {

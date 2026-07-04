@@ -67,6 +67,9 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
         "cap.location.live.revoke": ConsentScope.CAP_LOCATION_LIVE_REVOKE,
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
+        "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
+        "cap.pkm.marketplace.publish": ConsentScope.CAP_PKM_MARKETPLACE_PUBLISH,
+        "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
     }
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
