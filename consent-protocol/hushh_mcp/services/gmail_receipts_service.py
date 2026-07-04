@@ -1827,6 +1827,54 @@ class GmailReceiptsService:
             "nudges": [nudge.to_dict() for nudge in nudges],
         }
 
+    async def search_inbox(
+        self, *, user_id: str, query: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Run a Gmail search and return lightweight message summaries.
+
+        Reuses the receipts ``gmail.readonly`` connection. ``query`` is a raw Gmail
+        search expression (e.g. ``from:ravi newer_than:7d``). Read-only.
+        """
+        bounded_limit = max(1, min(int(limit or 10), 25))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_clean_text(query),
+            page_token=None,
+            max_results=min(bounded_limit * 2, 50),
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        message_ids: list[str] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+            if len(message_ids) >= bounded_limit:
+                break
+
+        metas = await self._get_message_metadata_batch(
+            access_token=access_token, gmail_message_ids=message_ids
+        )
+        summaries: list[dict[str, Any]] = []
+        for meta in metas:
+            headers = self._extract_headers(meta)
+            from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            received_at = self._message_received_at(meta, headers)
+            summaries.append(
+                {
+                    "thread_id": _clean_text(meta.get("threadId")),
+                    "subject": _clean_text(headers.get("subject")) or "(no subject)",
+                    "from": from_name or from_email or "Unknown sender",
+                    "from_email": from_email or "",
+                    "snippet": _clean_text(meta.get("snippet"))[:200],
+                    "received_at": received_at.isoformat() if received_at else None,
+                }
+            )
+        return summaries
+
     async def _list_history(
         self,
         *,

@@ -57,8 +57,32 @@ Consent is still enforced per request via `VAULT_OWNER`.
   v1 CTA opens the Gmail thread in a new tab; wiring it to the in-app draft flow
   is a follow-up.
 - **`components/gmail/gmail-receipts-page.tsx`** — renders `<GmailNudgesSection>`
-  above the receipts list. Reached via the **Email/Gmail** workflow card on the
-  One home (`ROUTES.GMAIL`).
+  and `<GmailChatPanel>` above the receipts list. Reached via the **Email/Gmail**
+  workflow card on the One home (`ROUTES.GMAIL`).
+
+## What is built (Phase 1 — inline chat / "agent chatbot")
+
+Mirrors the Information Marketplace chat (`InformationChatService` +
+`MarketplaceChatPanel`): a read-only conversational agent over the inbox.
+
+### Backend
+- **`hushh_mcp/services/email_chat_service.py`** *(new)* — `EmailChatService`: a
+  Gemini function-calling loop with two read-only tools bound to the user —
+  `list_needs_reply` (the nudge deriver) and `search_inbox` (raw Gmail query →
+  message summaries). Durable conversation persistence via `AgentChatService`.
+  No `HushhContext` (Gmail auth is the connection, route gates `VAULT_OWNER`); no
+  tool mutates state. Model call is injectable (tested with fakes, no live LLM).
+- **`hushh_mcp/services/gmail_receipts_service.py`** — `search_inbox(user_id,
+  query, limit)` reusing the same connection + metadata helpers.
+- **`api/routes/one/email_chat.py`** *(new)* — `POST /api/one/email/chat`
+  (registered in `api/routes/one/__init__.py`), `VAULT_OWNER`-gated.
+- **`tests/test_email_chat_service.py`** *(new)* — 4 tests over the tool loop.
+
+### Frontend
+- **`lib/services/email-chat-service.ts`** *(new)* — `EmailChatService.chat(...)`.
+- **`components/gmail/gmail-chat-panel.tsx`** *(new)* — inline chat panel
+  (messages, suggestion chips, composer). Rendered on the Gmail page when
+  connected + vault unlocked.
 
 ## Data flow
 
@@ -79,11 +103,12 @@ Gmail page (connected)
    (binds `127.0.0.1:8000`, proxy on `127.0.0.1:6543`).
 2. Frontend: `cd hushh-webapp && npm run dev` (`http://localhost:3000`).
 3. Sign in → One home → **Email/Gmail** card. Connect Gmail (receipts) if not
-   already — that grants the readonly scope. The **Needs a reply** section appears
-   above receipts and lists unanswered inbound threads.
+   already — that grants the readonly scope. Above receipts you get the **Needs a
+   reply** flashcards and the **Email assistant** chat ("what needs a reply?",
+   "find unread emails from this week", "any invoices?").
 
 Tests:
-- Backend: `.venv/bin/python -m pytest tests/test_gmail_nudges.py -q`
+- Backend: `.venv/bin/python -m pytest tests/test_gmail_nudges.py tests/test_email_chat_service.py -q`
 - Frontend typecheck: `cd hushh-webapp && npx tsc --noEmit`
 
 ## Next steps
@@ -93,8 +118,11 @@ Tests:
   last, no reply), **Follow-up / due**.
 - **Better "needs a reply"**: fold the reply detection into a `derive` refinement,
   add snooze/dismiss state.
-- **Draft-reply hand-off**: route the CTA into the existing KYC/email draft flow
-  instead of opening Gmail.
+- **Draft-reply hand-off**: route the CTA (and a chat "draft a reply" intent)
+  into the existing KYC/email draft flow instead of opening Gmail.
+- **More chat tools**: summarize a thread, list unread, group by sender — compose
+  behind `EmailChatService._build_tools`. All read-only for now.
 - **Phase 2 — A2A**: durable requests + approve/deny mirroring
-  `lib/one-marketplace/service.ts`.
+  `lib/one-marketplace/service.ts`; a mutating chat tool (e.g. send/schedule)
+  would then need a `HushhContext` consent gate like the marketplace tools.
 - **Calendar scope** (future, needs new consent) for real calendar meetings.

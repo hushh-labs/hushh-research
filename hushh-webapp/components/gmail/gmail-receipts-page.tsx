@@ -13,6 +13,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
 import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
@@ -1126,6 +1127,8 @@ export default function ProfileReceiptsPage() {
             isConnected={isConnected}
             idTokenProvider={user?.getIdToken ? () => user.getIdToken() : null}
           />
+
+          {isConnected ? <GmailChatPanel vaultOwnerToken={vaultOwnerToken} /> : null}
 
           <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
             <div className="space-y-1">
