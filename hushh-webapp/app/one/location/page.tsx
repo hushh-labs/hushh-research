@@ -139,6 +139,19 @@ import {
 } from "@/components/one-location/redesign/location-redesign-hub";
 import { LocationRedesignSkeleton } from "@/components/one-location/redesign/location-redesign-skeleton";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+import {
+  clearSosIncident,
+  loadSosIncident,
+  reconcileSosIncident,
+  saveSosIncident,
+  type SosIncident,
+} from "@/lib/one-location/sos-incident";
+import {
+  isSosShareReadyRecipient,
+  runSosPanic,
+  selectSosConnectedRecipients,
+  SosPanicError,
+} from "@/lib/one-location/sos-trigger";
 import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
@@ -195,6 +208,21 @@ const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
 const SHOW_REFERRAL_SECTION = false;
 
+// The mobile-first redesign hub (Now | People | Links | Inbox) is the active UI.
+// The legacy compose/activity sections only render as a fallback when the page
+// hits a hard load error. Deep-link focus (from notification "Open" buttons)
+// must therefore be handled by the hub's own searchParams-driven tab switching,
+// NOT the legacy scroll-to-section path — which switched to a non-existent
+// "activity" page tab and, worse, clobbered the deep-link query params via a
+// stale `searchParams` closure inside `setLocationTab`, so the hub never saw the
+// `section`/`grantId`/`requestId` and never switched to Inbox.
+// Typed as `boolean` (not the inferred literal `true`) so the redesign-mode
+// early-return inside `focusOneLocationSection` does not make the legacy
+// scroll-to-section path statically unreachable code.
+const USE_LOCATION_REDESIGN: boolean = true;
+
+
+
 type BusyState =
   | "load"
   | "share"
@@ -205,6 +233,7 @@ type BusyState =
   | "deny"
   | "refer"
   | "revoke"
+  | "sos"
   | "locationSettings"
   | "selfLocation"
   | "contactSync"
@@ -1680,6 +1709,12 @@ function OneLocationAgentPageContent() {
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
 
+  const [sosIncident, setSosIncident] = useState<SosIncident | null>(null);
+
+  // Hydrate the persisted SOS incident once on mount.
+  useEffect(() => {
+    setSosIncident(loadSosIncident());
+  }, []);
 
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
@@ -1867,6 +1902,43 @@ function OneLocationAgentPageContent() {
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+
+  // SOS alerts ONLY your actual One Network connections (e.g. the seeded trusted
+  // contacts), never the broad phone-verified directory that `recipients` also
+  // includes. Connection membership comes straight from networkConnections.
+  const sosTrustedRecipients = useMemo(
+    () =>
+      selectSosConnectedRecipients(
+        rankedRecipients,
+        state?.networkConnections,
+        auth.userId,
+      ),
+    [rankedRecipients, state?.networkConnections, auth.userId],
+  );
+
+  // Ref kept in sync with the latest sosIncident value so the reconcile effect
+  // can read it without adding it as a dependency (preventing infinite loops).
+  const sosIncidentRef = useRef(sosIncident);
+  useEffect(() => {
+    sosIncidentRef.current = sosIncident;
+  }, [sosIncident]);
+
+  // Reconcile the incident against live grants: drop grant ids that are no longer
+  // active (revoked/expired). Clears the banner automatically when the incident ends.
+  // Guard: skip until state has loaded so a reload doesn't wipe a just-hydrated
+  // incident by reconciling against an empty activeOwnerGrants array.
+  useEffect(() => {
+    if (!state) return;
+    const activeIds = activeOwnerGrants.map((grant) => grant.id);
+    const current = sosIncidentRef.current;
+    const reconciled = reconcileSosIncident(current, activeIds);
+    if (reconciled !== current) {
+      if (reconciled) saveSosIncident(reconciled);
+      else clearSosIncident();
+      setSosIncident(reconciled);
+    }
+  }, [state, activeOwnerGrants]);
+
   const activeVisibleReceivedGrants = visibleReceivedGrants;
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
@@ -1922,6 +1994,20 @@ function OneLocationAgentPageContent() {
   const focusOneLocationSection = useCallback(
     (target: OneLocationFocusTarget | null) => {
       if (!target || typeof window === "undefined") return;
+      // REDESIGN MODE (active): the legacy compose/activity sections below are
+      // NOT rendered — the LocationRedesignHub (Now | People | Links | Inbox)
+      // is. The hub consumes the deep-link query params (`section`, `grantId`,
+      // `requestId`, `submissionId`) itself and switches to the correct swipe
+      // tab (Inbox for shared/approvals/my_requests/grant/request, Links for
+      // public_responses, People for people). We MUST NOT run the legacy
+      // scroll-to-section path here, because it calls `setLocationTab("activity")`
+      // which does a `router.replace` built from a STALE `searchParams` closure —
+      // that strips the very `grantId`/`section`/`locationNotification` params
+      // the notification just pushed, so the hub's own effect never sees them and
+      // the user is stranded on the wrong tab. Returning early keeps the pushed
+      // deep-link URL intact so the hub can route to Inbox / Shared-with-me.
+      if (USE_LOCATION_REDESIGN) return;
+
       const sectionRefs: Record<
         OneLocationFocusTarget,
         MutableRefObject<HTMLElement | null>
@@ -2854,6 +2940,63 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
+  const handleTriggerSos = useCallback(async () => {
+    if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
+    if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
+    const readyRecipients = sosTrustedRecipients.filter(isSosShareReadyRecipient);
+    const totalTrusted = sosTrustedRecipients.length;
+    if (!readyRecipients.length) {
+      toast.error("No trusted contacts are ready to receive your location yet.");
+      return;
+    }
+    setBusy("sos");
+    try {
+      const readiness = await ensureForegroundLocationReady({
+        capturePoint: true,
+        autoOpenSettings: true,
+      });
+      if (!readiness.ready || !readiness.point) {
+        toast.error("Couldn't get your location — SOS not sent. Check location permissions.");
+        return;
+      }
+      const point = readiness.point;
+      const incident = await runSosPanic({
+        vaultOwnerToken,
+        recipients: readyRecipients,
+        point,
+        publish: (grant, recipient, pt) =>
+          publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+      });
+      setSosIncident(incident);
+      const skipped = totalTrusted - readyRecipients.length;
+      toast.success(
+        skipped > 0
+          ? `SOS sent. Alerted ${readyRecipients.length} of ${totalTrusted} contacts (${skipped} not ready).`
+          : `SOS sent. Alerting ${readyRecipients.length} trusted contact(s).`,
+      );
+      await refresh();
+    } catch (error) {
+      // Recover from memory — SosPanicError carries any partial incident
+      // in-process, so the SOS banner stays up even if localStorage failed.
+      if (error instanceof SosPanicError && error.partialIncident) {
+        setSosIncident(error.partialIncident);
+      }
+      toast.error(
+        error instanceof Error ? error.message : "Could not send SOS alert.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    ensureForegroundLocationReady,
+    permission,
+    publishEnvelopeWithRetry,
+    sosTrustedRecipients,
+    refresh,
+    sosIncident,
+    vaultOwnerToken,
+  ]);
+
   const handlePublish = useCallback(
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
@@ -3206,6 +3349,34 @@ function OneLocationAgentPageContent() {
     [refresh, vaultOwnerToken],
   );
 
+  const handleStopSos = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    const incident = sosIncident;
+    if (!incident?.grantIds.length) return;
+    setBusy("sos");
+    try {
+      for (const grantId of incident.grantIds) {
+        await OneLocationService.revokeGrant({ vaultOwnerToken, grantId }).catch(
+          (error) => {
+            // A grant may already be expired/revoked — keep tearing the rest down.
+            console.warn("[OneLocationAgent] SOS stop: grant revoke skipped:", error);
+          },
+        );
+      }
+    } finally {
+      setBusy(null);
+    }
+    // Clear the incident and show success AFTER revokes, outside any try-catch so a
+    // subsequent refresh() failure cannot trigger a misleading "Could not stop" toast.
+    clearSosIncident();
+    setSosIncident(null);
+    toast.success("SOS ended. Live location sharing stopped.");
+    try {
+      await refresh();
+    } catch {
+      /* refresh failure is non-fatal; sharing has already been stopped */
+    }
+  }, [refresh, sosIncident, vaultOwnerToken]);
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -4146,11 +4317,12 @@ function OneLocationAgentPageContent() {
   // EXACT existing state + handlers, so consent gating, crypto, analytics, and
   // routing are unchanged. The full original UI remains intact below and is
   // used for the loading/error states (and as a guaranteed fallback). The
-  // global app footer is never touched.
+  // global app footer is never touched. (USE_LOCATION_REDESIGN is defined at
+  // module scope so notification/deep-link handlers above can branch on it.)
   // ---------------------------------------------------------------------------
-  const USE_LOCATION_REDESIGN = true;
 
   const locationHubVm: LocationHubViewModel = {
+
     userId: auth.userId ?? null,
     canShare,
     busy,
@@ -4230,6 +4402,12 @@ function OneLocationAgentPageContent() {
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
     decryptedPoints,
+    sosRecipients: sosTrustedRecipients,
+    sosActive: Boolean(sosIncident?.grantIds.length),
+    sosBusy: busy === "sos",
+    sosStartedAtLabel: sosIncident ? formatDateTime(sosIncident.startedAt) : null,
+    onTriggerSos: handleTriggerSos,
+    onStopSos: handleStopSos,
   };
 
   if (USE_LOCATION_REDESIGN && !loadError) {

@@ -335,7 +335,7 @@ export interface ShareTarget {
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link";
+export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic";
 
 export interface ClientAction {
   id: string;
@@ -383,6 +383,7 @@ export interface SelectionResult {
   confirmed?: boolean;
   freeText?: string;
   status: "answered" | "cancelled";
+  display?: string;
 }
 
 export interface LocationChatResponse {

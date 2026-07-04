@@ -304,6 +304,21 @@
       "expected_row_growth": "medium_per_user_share"
     },
     {
+      "id": "information_marketplace_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "marketplace_access_requests"
+      ],
+      "primary_access_path": "One Information Marketplace access-request inbox: a buyer files a request for owner-approved access to a published data-slice safe projection; the owner lists, approves, or denies server-side from the marketplace surface or via Agent One over A2A.",
+      "retention_policy": "Pending requests are retained until resolved; approved, denied, or expired rows are retained only for bounded operational and consent-audit review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is the owner (or the buyer once buyer identity exists); resolve pending requests to a terminal status before deletion where possible.",
+      "trust_boundary": "Backend stores only request metadata (owner and buyer references, slice domain, scope handle, label, price, status, timestamps). It never stores raw PKM values; a request grants no access on its own and only the safe-summary projection is ever shared after explicit owner approval.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
+    },
+    {
       "id": "market_reference_and_cache",
       "owner": "backend-runtime-governance",
       "data_class": "reference",

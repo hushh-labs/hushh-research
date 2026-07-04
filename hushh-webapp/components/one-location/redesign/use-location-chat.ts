@@ -14,6 +14,12 @@ import type {
   PlainLocationPoint,
   SelectionResult,
 } from "@/lib/one-location/types";
+import { describeSelection } from "@/lib/agent/describe-selection";
+import {
+  isSosShareReadyRecipient,
+  runSosPanic,
+  selectSosConnectedRecipients,
+} from "@/lib/one-location/sos-trigger";
 
 export interface ChatMessage {
   id: string;
@@ -21,6 +27,7 @@ export interface ChatMessage {
   text: string;
   stateChanged?: boolean;
   errored?: boolean;
+  kind?: "selection";
 }
 
 export interface UseLocationChat {
@@ -183,25 +190,40 @@ export function useLocationChat(params: {
     async (refs: Record<string, unknown>[]) => {
       const prompt = pendingPrompt;
       if (!prompt || busy) return;
-      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered" });
+      const display = describeSelection(prompt, { selected: refs });
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", text: display, kind: "selection" },
+      ]);
+      await reportSelection({ id: prompt.id, kind: prompt.kind, selected: refs, status: "answered", display });
     },
-    [pendingPrompt, busy, reportSelection],
+    [pendingPrompt, busy, reportSelection, nextId],
   );
 
   const confirmPrompt = useCallback(
     async (yes: boolean) => {
       const prompt = pendingPrompt;
       if (!prompt || busy) return;
-      await reportSelection({ id: prompt.id, kind: prompt.kind, confirmed: yes, status: "answered" });
+      const display = describeSelection(prompt, { confirmed: yes });
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", text: display, kind: "selection" },
+      ]);
+      await reportSelection({ id: prompt.id, kind: prompt.kind, confirmed: yes, status: "answered", display });
     },
-    [pendingPrompt, busy, reportSelection],
+    [pendingPrompt, busy, reportSelection, nextId],
   );
 
   const cancelPrompt = useCallback(async () => {
     const prompt = pendingPrompt;
     if (!prompt || busy) return;
-    await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled" });
-  }, [pendingPrompt, busy, reportSelection]);
+    const display = describeSelection(prompt, { status: "cancelled" });
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role: "user", text: display, kind: "selection" },
+    ]);
+    await reportSelection({ id: prompt.id, kind: prompt.kind, status: "cancelled", display });
+  }, [pendingPrompt, busy, reportSelection, nextId]);
 
   const confirmAction = useCallback(async () => {
     const action = pendingAction;
@@ -252,6 +274,37 @@ export function useLocationChat(params: {
           locationSnapshot,
         });
         await report({ id: action.id, type: action.type, status: "completed", publicUrl });
+      } else if (action.type === "sos_panic") {
+        const state = await OneLocationService.getState(vaultOwnerToken);
+        const connected = selectSosConnectedRecipients(
+          state.recipients ?? [],
+          state.networkConnections,
+          userId || null,
+        );
+        const ready = connected.filter(isSosShareReadyRecipient);
+        if (!ready.length) {
+          await report({ id: action.id, type: action.type, status: "cancelled" });
+          return;
+        }
+        const point = await OneLocationService.captureCurrentPosition();
+        await runSosPanic({
+          vaultOwnerToken,
+          recipients: ready,
+          point,
+          publish: async (grant, recipient, pt) => {
+            const envelope = await encryptLocationForRecipient({
+              point: pt,
+              recipientPublicKeyJwk: recipient.publicKeyJwk,
+              recipientKeyId: recipient.keyId,
+            });
+            await OneLocationService.storeEnvelope({
+              vaultOwnerToken,
+              grantId: grant.id,
+              envelope,
+            });
+          },
+        });
+        await report({ id: action.id, type: action.type, status: "completed" });
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : undefined;

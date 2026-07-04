@@ -16,9 +16,12 @@ from hushh_mcp.constants import ConsentScope
 def test_specialist_a2a_scope_map_uses_least_privilege_scopes() -> None:
     assert SPECIALIST_A2A_SCOPE_MAP == {
         "agent_one": ConsentScope.AGENT_ONE_ORCHESTRATE,
+        "agent_connected_systems": ConsentScope.AGENT_ONE_ORCHESTRATE,
         "agent_kai": ConsentScope.AGENT_KAI_ANALYZE,
         "agent_nav": ConsentScope.AGENT_NAV_REVIEW,
         "agent_kyc": ConsentScope.AGENT_KYC_PROCESS,
+        "agent_location": ConsentScope.AGENT_ONE_ORCHESTRATE,
+        "agent_personal_information": ConsentScope.AGENT_ONE_ORCHESTRATE,
     }
     assert ConsentScope.VAULT_OWNER not in SPECIALIST_A2A_SCOPE_MAP.values()
 

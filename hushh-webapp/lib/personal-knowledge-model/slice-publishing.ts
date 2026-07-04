@@ -103,6 +103,9 @@ export async function applySlicePosture(params: {
   vaultKey?: string;
   vaultOwnerToken: string;
   source?: string;
+  // Explicit owner consent to publish their own restricted-tier data as
+  // Available. Only the marketplace owner flow passes this; Profile never does.
+  ownerConsentOverride?: boolean;
 }): Promise<{ manifest: DomainManifest }> {
   const { userId, domain, domainTitle, permission, nextPosture, previousManifest } = params;
 
@@ -150,6 +153,9 @@ export async function applySlicePosture(params: {
         topLevelScopePath: permission.topLevelScopePath,
         exposureEnabled: nextPosture !== "private",
         visibilityPosture: nextPosture,
+        // Only forward the override when actually publishing as Available.
+        ownerConsentOverride:
+          nextPosture === "default_available" ? params.ownerConsentOverride === true : undefined,
       },
     ],
   });

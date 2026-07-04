@@ -39,6 +39,7 @@ class SelectionResultModel(BaseModel):
     confirmed: bool | None = None
     free_text: str | None = Field(default=None, alias="freeText", max_length=4000)
     status: str = Field(max_length=24)
+    display: str | None = Field(default=None, max_length=200)
 
 
 class LocationChatRequest(BaseModel):

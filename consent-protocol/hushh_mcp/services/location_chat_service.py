@@ -41,6 +41,21 @@ from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 logger = logging.getLogger(__name__)
 
 _MAX_HISTORY = 12
+
+# Keys that must never appear in the human-readable selection display string.
+# Includes opaque id keys and every coordinate-variant key name.
+_NON_DISPLAY_REF_KEYS = {
+    "recipientUserId",
+    "recipientKeyId",
+    "grantId",
+    "latitude",
+    "longitude",
+    "coordinates",
+    "lat",
+    "lng",
+    "lon",
+    "accuracyM",
+}
 _MAX_TOOL_STEPS = 5
 _LLM_TIMEOUT_S = 30.0
 _HISTORY_CHARS = 2000
@@ -54,6 +69,7 @@ _QUERY_TOOL_NAMES = {
     "list_public_links",
     "propose_public_link",
     "propose_location_view",
+    "propose_sos_panic",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -81,6 +97,8 @@ _ACTION_RESULT_TEMPLATES = {
     ("view_envelope", "completed"): "Here's the latest location I could open.",
     ("create_public_link", "completed"): "Your public location link is ready.",
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
+    ("sos_panic", "completed"): "SOS sent — your emergency contacts are being notified.",
+    ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
 }
 
 _UNAVAILABLE_MESSAGE = (
@@ -312,6 +330,16 @@ def _function_declarations_v2(types: Any) -> list:
                     required=["summary"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="propose_sos_panic",
+                description=(
+                    "Propose an emergency SOS broadcast to all of the user's ready trusted "
+                    "contacts. The browser creates 8h grants per recipient, encrypts, "
+                    "publishes, and records the incident. Coordinate-free. Call "
+                    "request_confirmation first before proposing this."
+                ),
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
         ]
     )
     return decls
@@ -348,6 +376,36 @@ def _selection_seed_text(selection_result: dict) -> str:
     ]
     refs = " | ".join(parts)
     return f"I selected: {refs}. Use exactly these ids — do not guess — and proceed."
+
+
+def _selection_display_text(selection_result: dict) -> str:
+    """Human-readable, coordinate-free summary of the user's choice for the UI chip.
+
+    Prefers a frontend-supplied ``display`` label (which knows the friendly names).
+    Falls back to option values (never the raw id seed) so a missing label never
+    leaks ``recipientUserId=…`` into the transcript.
+    """
+    if str(selection_result.get("status")) == "cancelled":
+        return "Cancelled"
+    display = selection_result.get("display")
+    if isinstance(display, str) and display.strip():
+        return display.strip()
+    free = selection_result.get("free_text") or selection_result.get("freeText")
+    if free:
+        return str(free)
+    if str(selection_result.get("kind")) == "confirm":
+        return "Confirmed" if selection_result.get("confirmed") else "Declined"
+    selected = selection_result.get("selected") or []
+    labels: list[str] = []
+    for ref in selected:
+        if not isinstance(ref, dict):
+            continue
+        # Show human-facing values only; skip opaque id keys and coordinate keys.
+        for key, value in ref.items():
+            if key in _NON_DISPLAY_REF_KEYS:
+                continue
+            labels.append(str(value))
+    return ", ".join(labels) if labels else "Your selection"
 
 
 class LocationChatService:
@@ -566,6 +624,8 @@ class LocationChatService:
             return {"type": "create_public_link", "durationHours": result.get("durationHours")}
         if name == "propose_location_view" and result.get("proposed") == "view_envelope":
             return {"type": "view_envelope", "grantId": result.get("grantId")}
+        if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
+            return {"type": "sos_panic"}
         return None
 
     @staticmethod
@@ -585,7 +645,7 @@ class LocationChatService:
     def _build_client_action(self, directives: list[dict]) -> dict | None:
         """Fold collected per-tool directives into one client-action payload.
 
-        Priority: publish_share > view_envelope > create_public_link.
+        Priority: publish_share > view_envelope > create_public_link > sos_panic.
         Multiple publish_share grants are combined into a single shares[] list.
         """
         if not directives:
@@ -618,6 +678,13 @@ class LocationChatService:
                 "type": "create_public_link",
                 "durationHours": hours,
                 "summary": f"Create a public link (viewable for {hours}h)",
+            }
+        sos = next((d for d in directives if d.get("type") == "sos_panic"), None)
+        if sos:
+            return {
+                "id": action_id,
+                "type": "sos_panic",
+                "summary": "Send an emergency SOS to all your trusted contacts",
             }
         return None
 
@@ -652,6 +719,7 @@ class LocationChatService:
         state_changed = status == "completed" and action_type in (
             "publish_share",
             "create_public_link",
+            "sos_panic",
         )
         conv_id = conversation_id or ""
         if conv_id:
@@ -706,16 +774,21 @@ class LocationChatService:
             conv_id, user_id=user_id, limit=_MAX_HISTORY
         )
         seed = _selection_seed_text(selection_result)
+        display = _selection_display_text(selection_result)
         # Persist the user's choice so a later turn in a multi-step clarification
         # chain (e.g. pick recipient -> then pick duration) still sees the earlier
         # answer. History was fetched above, so the current turn's contents are not
         # duplicated; future turns' get_recent_messages will include this choice.
+        # `content` keeps the raw seed (the LLM needs exact ids — "do not guess");
+        # the UI-facing display string rides in encrypted metadata so the transcript
+        # shows "Abdul Zalil", not the id dump.
         await self._chat_store.add_message(
             conversation_id=conv_id,
             user_id=user_id,
             role="user",
             content=seed,
             status="complete",
+            metadata={"kind": "selection", "display": display},
         )
         contents = _history_contents(history, types)
         contents.append(types.Content(role="user", parts=[types.Part(text=seed)]))

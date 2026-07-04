@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Building2 } from "lucide-react";
 
 import {
@@ -14,11 +15,30 @@ import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-pa
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import type { ConnectedSystemAgentInstruction } from "@/components/profile/connected-systems-panel";
 
 export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) {
   const { user, phoneNumber } = useAuth();
   const { vaultOwnerToken } = useVault();
+  const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
+  const [agentInstruction] = useState<ConnectedSystemAgentInstruction | null>(() => {
+    if (typeof window === "undefined") return null;
+    const instructionId = searchParams.get("agentActionId");
+    if (!instructionId) return null;
+    const key = `hushh:connected-system-agent-action:${instructionId}`;
+    const raw = window.sessionStorage.getItem(key);
+    window.sessionStorage.removeItem(key);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object") return null;
+      const record = parsed as ConnectedSystemAgentInstruction;
+      return typeof record.actionId === "string" ? record : null;
+    } catch {
+      return null;
+    }
+  });
 
   return (
     <AppPageShell
@@ -40,7 +60,7 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
       />
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="CRM systems / Salesforce FSC"
+          eyebrow="CRM systems / Connected CRM"
           title="Macy's"
           icon={Building2}
           accent="neutral"
@@ -52,6 +72,7 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"
           systemId={systemId}
+          agentInstruction={agentInstruction}
           profile={{
             displayName: user?.displayName,
             email: user?.email,
@@ -66,7 +87,7 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Unlock vault"
-          description="Unlock your vault to inspect Salesforce CRM and approve Connected Systems actions."
+          description="Unlock your vault to inspect CRM records and approve Connected Systems actions."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

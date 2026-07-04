@@ -35,6 +35,21 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import {
+  SpecialistConsentActionsCard,
+  SpecialistConsentRequiredCard,
+  SpecialistDirectiveCard,
+  SpecialistFreeTextPromptCard,
+  SpecialistPendingConsentRequestCard,
+  SpecialistPromptCard,
+  type SpecialistConsentActionItem,
+  type SpecialistPendingConsentRequestItem,
+} from "@/components/agent/specialist-directive-card";
+import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
+import { SelectionChip } from "@/components/agent/selection-chip";
+import { describeSelection } from "@/lib/agent/describe-selection";
+import type { PublishableSlice } from "@/lib/one-marketplace/service";
+import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
@@ -92,11 +107,21 @@ import {
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
+  type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
+import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
+import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
+import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
+import {
+  ConsentCenterService,
+  type PendingConsentLookupItem,
+} from "@/lib/services/consent-center-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
@@ -111,6 +136,8 @@ type AgentMessage = {
   timestamp: string;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  kind?: "selection";
+  specialistDirective?: SpecialistDirectiveEvent | null;
 };
 
 type AgentDebugEvent = {
@@ -147,6 +174,23 @@ type AgentRunTurnOptions = {
   replaceAssistantMessageId?: string | null;
 };
 
+type ConsentRequiredDirectivePayload = {
+  kind: "consent_required";
+  agentId?: string;
+  requiredScope?: string;
+  reason?: string;
+};
+
+type ConsentActionsDirectivePayload = {
+  kind: "consent_actions";
+  items: SpecialistConsentActionItem[];
+};
+
+type PendingConsentRequestDirectivePayload = {
+  kind: "pending_consent_request";
+  item: SpecialistPendingConsentRequestItem;
+};
+
 export type AgentChatWorkspaceVariant = "page" | "popover";
 
 type AgentChatWorkspaceProps = {
@@ -174,6 +218,263 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 const VOICE_PKM_CONTEXT_DEADLINE_MS = 650;
+
+function getConsentRequiredPayload(
+  event: SpecialistDirectiveEvent | null,
+): ConsentRequiredDirectivePayload | null {
+  if (!event || event.directive.kind !== "prompt") return null;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "consent_required") return null;
+  return {
+    kind: "consent_required",
+    agentId: typeof payload.agentId === "string" ? payload.agentId : event.delegateAgentId,
+    requiredScope: typeof payload.requiredScope === "string" ? payload.requiredScope : "",
+    reason: typeof payload.reason === "string" ? payload.reason : undefined,
+  };
+}
+
+function getConsentActionsPayload(
+  event: SpecialistDirectiveEvent | null,
+): ConsentActionsDirectivePayload | null {
+  if (!event || event.directive.kind !== "prompt") return null;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "consent_actions") return null;
+  const rawItems = Array.isArray(payload.items) ? payload.items : [];
+  const items = rawItems
+    .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>) : null))
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .map((item) => ({
+      id: typeof item.id === "string" ? item.id : "",
+      label: typeof item.label === "string" ? item.label : "Approved access",
+      summary: typeof item.summary === "string" ? item.summary : null,
+      scope: typeof item.scope === "string" ? item.scope : null,
+      expiresAt: typeof item.expiresAt === "string" ? item.expiresAt : null,
+      status: typeof item.status === "string" ? item.status : null,
+      metadata:
+        item.metadata && typeof item.metadata === "object"
+          ? (item.metadata as Record<string, unknown>)
+          : null,
+      actions: normalizeConsentActions(item),
+    }))
+    .filter((item) => item.id && item.actions.length > 0);
+  return { kind: "consent_actions", items };
+}
+
+function getPendingConsentRequestPayload(
+  event: SpecialistDirectiveEvent | null,
+): PendingConsentRequestDirectivePayload | null {
+  if (!event || event.directive.kind !== "prompt") return null;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "pending_consent_request") return null;
+  const rawItem =
+    payload.item && typeof payload.item === "object"
+      ? (payload.item as Record<string, unknown>)
+      : null;
+  if (!rawItem) return null;
+  const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
+  if (!id) return null;
+  const status =
+    rawItem.status === "approved" || rawItem.status === "denied"
+      ? rawItem.status
+      : "pending";
+  return {
+    kind: "pending_consent_request",
+    item: {
+      id,
+      requesterLabel:
+        typeof rawItem.requesterLabel === "string" && rawItem.requesterLabel.trim()
+          ? rawItem.requesterLabel
+          : "An agent",
+      requesterImageUrl:
+        typeof rawItem.requesterImageUrl === "string" ? rawItem.requesterImageUrl : null,
+      requesterWebsiteUrl:
+        typeof rawItem.requesterWebsiteUrl === "string" ? rawItem.requesterWebsiteUrl : null,
+      scope: typeof rawItem.scope === "string" ? rawItem.scope : "",
+      scopeDescription:
+        typeof rawItem.scopeDescription === "string" ? rawItem.scopeDescription : null,
+      requestedAt:
+        typeof rawItem.requestedAt === "number" || typeof rawItem.requestedAt === "string"
+          ? rawItem.requestedAt
+          : null,
+      approvalTimeoutAt:
+        typeof rawItem.approvalTimeoutAt === "number" ||
+        typeof rawItem.approvalTimeoutAt === "string"
+          ? rawItem.approvalTimeoutAt
+          : null,
+      expiryHours:
+        typeof rawItem.expiryHours === "number" || typeof rawItem.expiryHours === "string"
+          ? rawItem.expiryHours
+          : null,
+      reason: typeof rawItem.reason === "string" ? rawItem.reason : null,
+      additionalAccessSummary:
+        typeof rawItem.additionalAccessSummary === "string"
+          ? rawItem.additionalAccessSummary
+          : null,
+      status,
+    },
+  };
+}
+
+function pendingConsentLookupItemToCardItem(
+  item: PendingConsentLookupItem,
+): SpecialistPendingConsentRequestItem | null {
+  const id = String(item.request_id || "").trim();
+  if (!id) return null;
+  const requesterLabel =
+    item.requester_label ||
+    item.agent_id ||
+    item.developer ||
+    "An agent";
+  return {
+    id,
+    requesterLabel,
+    requesterImageUrl: item.requester_image_url ?? null,
+    requesterWebsiteUrl: item.requester_website_url ?? null,
+    scope: item.scope || "",
+    scopeDescription: item.scope_description ?? null,
+    requestedAt: item.issued_at ?? null,
+    approvalTimeoutAt: item.poll_timeout_at ?? null,
+    reason: item.reason ?? null,
+    additionalAccessSummary: item.additional_access_summary ?? null,
+    status: "pending",
+  };
+}
+
+function pendingConsentCardItemToPendingConsent(
+  item: SpecialistPendingConsentRequestItem,
+): PendingConsent {
+  const requestedAt =
+    typeof item.requestedAt === "number"
+      ? item.requestedAt
+      : Number(item.requestedAt || Date.now());
+  const approvalTimeoutAt =
+    item.approvalTimeoutAt == null || item.approvalTimeoutAt === ""
+      ? undefined
+      : Number(item.approvalTimeoutAt);
+  const expiryHours =
+    item.expiryHours == null || item.expiryHours === ""
+      ? undefined
+      : Number(item.expiryHours);
+  return {
+    id: item.id,
+    developer: item.requesterLabel,
+    developerImageUrl: item.requesterImageUrl || undefined,
+    developerWebsiteUrl: item.requesterWebsiteUrl || undefined,
+    scope: item.scope,
+    scopeDescription: item.scopeDescription || undefined,
+    requestedAt: Number.isFinite(requestedAt) ? requestedAt : Date.now(),
+    approvalTimeoutAt:
+      typeof approvalTimeoutAt === "number" && Number.isFinite(approvalTimeoutAt)
+        ? approvalTimeoutAt
+        : undefined,
+    expiryHours:
+      typeof expiryHours === "number" && Number.isFinite(expiryHours)
+        ? expiryHours
+        : undefined,
+    reason: item.reason || undefined,
+    additionalAccessSummary: item.additionalAccessSummary || undefined,
+  };
+}
+
+function agentMessagePendingConsentRequestId(message: AgentMessage): string | null {
+  const payload = getPendingConsentRequestPayload(message.specialistDirective ?? null);
+  return payload?.item.id ?? null;
+}
+
+function markPendingConsentRequestDirectiveStatus(
+  event: SpecialistDirectiveEvent | null | undefined,
+  itemId: string,
+  status: "approved" | "denied",
+): SpecialistDirectiveEvent | null | undefined {
+  if (!event || event.directive.kind !== "prompt") return event;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "pending_consent_request") return event;
+  const item = payload.item && typeof payload.item === "object"
+    ? (payload.item as Record<string, unknown>)
+    : null;
+  if (!item || item.id !== itemId) return event;
+
+  return {
+    ...event,
+    directive: {
+      ...event.directive,
+      payload: {
+        ...payload,
+        item: {
+          ...item,
+          status,
+        },
+      },
+    },
+  };
+}
+
+function normalizeConsentActions(item: Record<string, unknown>): string[] {
+  const rawActions = Array.isArray(item.actions)
+    ? item.actions.filter((action): action is string => typeof action === "string")
+    : [];
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  const id = typeof item.id === "string" ? item.id : "";
+  const scope = typeof item.scope === "string" ? item.scope : "";
+  const requestSource =
+    typeof metadata.request_source === "string" ? metadata.request_source.trim() : "";
+  const isLocationGrant =
+    id.startsWith("one_location_grant:") ||
+    requestSource === "one_location_share_grant" ||
+    scope.startsWith("cap.location.");
+
+  if (!isLocationGrant) {
+    return rawActions;
+  }
+
+  const normalized = new Set(["revoke", ...rawActions, "details"]);
+  return Array.from(normalized);
+}
+
+function markConsentDirectiveItemRevoked(
+  event: SpecialistDirectiveEvent | null | undefined,
+  itemId: string,
+): SpecialistDirectiveEvent | null | undefined {
+  if (!event || event.directive.kind !== "prompt") return event;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "consent_actions" || !Array.isArray(payload.items)) return event;
+
+  let changed = false;
+  const nextItems = payload.items.map((rawItem) => {
+    if (!rawItem || typeof rawItem !== "object") return rawItem;
+    const item = rawItem as Record<string, unknown>;
+    if (item.id !== itemId) return rawItem;
+
+    changed = true;
+    const rawActions = Array.isArray(item.actions) ? item.actions : [];
+    const actions = rawActions.filter((action) => action !== "revoke");
+    if (!actions.includes("details")) actions.push("details");
+    const label = typeof item.label === "string" ? item.label : "This person";
+    const summary = `${label} can no longer view your live location`;
+
+    return {
+      ...item,
+      status: "revoked",
+      summary,
+      actions,
+    };
+  });
+
+  if (!changed) return event;
+  return {
+    ...event,
+    directive: {
+      ...event.directive,
+      payload: {
+        ...payload,
+        items: nextItems,
+      },
+    },
+  };
+}
 const VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS = 25_000;
 const VOICE_AGENT_IDLE_TIMEOUT_MS = 45_000;
 const FOCUSABLE_SELECTOR =
@@ -505,10 +806,22 @@ function AgentBubble({
   message,
   onRetry,
   retryDisabled = false,
+  busyConsentItemId = null,
+  onConsentRevoke,
+  onConsentDetails,
+  onPendingConsentApprove,
+  onPendingConsentDeny,
+  onPendingConsentDetails,
 }: {
   message: AgentMessage;
   onRetry?: () => void;
   retryDisabled?: boolean;
+  busyConsentItemId?: string | null;
+  onConsentRevoke?: (item: SpecialistConsentActionItem) => Promise<void> | void;
+  onConsentDetails?: (item: SpecialistConsentActionItem) => void;
+  onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
+  onPendingConsentDeny?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
+  onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -519,6 +832,21 @@ function AgentBubble({
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const showStreamingAffordance = !isUser && animated.isAnimating;
+  const consentActionsPayload = !isUser
+    ? getConsentActionsPayload(message.specialistDirective ?? null)
+    : null;
+  const canRenderConsentActions = Boolean(
+    consentActionsPayload && onConsentRevoke && onConsentDetails,
+  );
+  const pendingConsentRequestPayload = !isUser
+    ? getPendingConsentRequestPayload(message.specialistDirective ?? null)
+    : null;
+  const canRenderPendingConsentRequest = Boolean(
+    pendingConsentRequestPayload &&
+      onPendingConsentApprove &&
+      onPendingConsentDeny &&
+      onPendingConsentDetails,
+  );
   const showResponseActions =
     !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
 
@@ -565,6 +893,8 @@ function AgentBubble({
             <span className="whitespace-pre-wrap break-words">{message.text}</span>
           ) : assistantText ? (
             <AgentMarkdown text={assistantText} />
+          ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
+            null
           ) : (
             <AgentThinkingDots />
           )}
@@ -649,6 +979,37 @@ function AgentBubble({
             </div>
           ) : null}
         </div>
+        {canRenderConsentActions && consentActionsPayload ? (
+          <div className="mt-4">
+            <SpecialistConsentActionsCard
+              items={consentActionsPayload.items}
+              busyItemId={busyConsentItemId}
+              onRevoke={(item) => {
+                void onConsentRevoke?.(item);
+              }}
+              onDetails={(item) => {
+                onConsentDetails?.(item);
+              }}
+            />
+          </div>
+        ) : null}
+        {canRenderPendingConsentRequest && pendingConsentRequestPayload ? (
+          <div className="mt-4">
+            <SpecialistPendingConsentRequestCard
+              item={pendingConsentRequestPayload.item}
+              busy={busyConsentItemId === pendingConsentRequestPayload.item.id}
+              onApprove={(item) => {
+                void onPendingConsentApprove?.(item);
+              }}
+              onDeny={(item) => {
+                void onPendingConsentDeny?.(item);
+              }}
+              onDetails={(item) => {
+                onPendingConsentDetails?.(item);
+              }}
+            />
+          </div>
+        ) : null}
       </div>
       {isUser ? (
         <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.56)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
@@ -678,13 +1039,41 @@ function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
   );
 }
 
-function storedMessageToAgentMessage(message: StoredAgentChatMessage): AgentMessage | null {
+// Safety-net for legacy DB rows written before Task 8 metadata was added.
+// Those rows carry no metadata and their content is the raw recipient/duration
+// seed "I selected: recipientUserId=…; … do not guess — and proceed."
+// Matching them prevents the ugly id-dump from ever rendering as a user bubble.
+// The shorter acknowledgement seeds ("Yes, go ahead.", "No, do not proceed.",
+// "I changed my mind — cancel that, take no action.") are already human-readable
+// and must NOT be reclassified — the pattern is intentionally narrow.
+const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
+
+export function storedMessageToAgentMessage(
+  message: StoredAgentChatMessage,
+): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
   const createdAt = message.created_at ? new Date(message.created_at) : null;
+  // A selection message must never re-render its raw `I selected:` seed on
+  // reload: prefer the persisted display label and render it as a chip. The
+  // backend (Task 3) guarantees metadata.display for new selection messages;
+  // legacy rows without metadata are detected via LEGACY_SELECTION_SEED below.
+  const isSelection = message.metadata?.kind === "selection";
+  // Detect legacy rows: user message with raw seed content and no usable metadata.
+  const isLegacySelectionSeed =
+    !isSelection &&
+    message.role === "user" &&
+    LEGACY_SELECTION_SEED.test(message.content);
+
+  const displayText =
+    isSelection && message.metadata?.display
+      ? message.metadata.display
+      : isLegacySelectionSeed
+      ? "Your selection"
+      : message.content;
   return {
     id: message.id,
     role: message.role,
-    text: message.content,
+    text: displayText,
     timestamp:
       createdAt && !Number.isNaN(createdAt.getTime())
         ? new Intl.DateTimeFormat(undefined, {
@@ -693,6 +1082,7 @@ function storedMessageToAgentMessage(message: StoredAgentChatMessage): AgentMess
           }).format(createdAt)
         : formatNow(),
     status: message.status === "error" ? "error" : "done",
+    ...(isSelection || isLegacySelectionSeed ? { kind: "selection" as const } : {}),
   };
 }
 
@@ -716,7 +1106,7 @@ export function AgentChatWorkspace({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isPopover = variant === "popover";
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, phoneNumber } = useAuth();
   const {
     isVaultUnlocked,
     vaultKey,
@@ -758,6 +1148,13 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
+  // A specialist (e.g. agent_location) can return a directive that must be
+  // explicitly confirmed by the user before it runs. Stored here and rendered
+  // as an inline card; never auto-fired for kind:"action".
+  const [pendingSpecialistDirective, setPendingSpecialistDirective] =
+    useState<SpecialistDirectiveEvent | null>(null);
+  const [specialistBusy, setSpecialistBusy] = useState(false);
+  const [specialistBusyItemId, setSpecialistBusyItemId] = useState<string | null>(null);
   const [voiceState, setVoiceState] = useState<AgentVoiceStatus>("idle");
   const [voiceTranscriptReview, setVoiceTranscriptReview] =
     useState<AgentVoiceTranscriptReview | null>(null);
@@ -787,6 +1184,31 @@ export function AgentChatWorkspace({
   const voiceTtsSpeakingRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
+  const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
+  const oneLocationConsentActions = useOneLocationConsentActions({
+    userId: user?.uid,
+    onActionComplete: () => {
+      setPendingSpecialistDirective(null);
+    },
+  });
+  const consentActions = useConsentActions({
+    userId: user?.uid,
+    onActionComplete: (detail) => {
+      const requestId = detail.requestId;
+      if (!requestId || detail.action === "revoke") return;
+      const status = detail.action === "approve" ? "approved" : "denied";
+      setMessages((current) =>
+        current.map((message) => ({
+          ...message,
+          specialistDirective: markPendingConsentRequestDirectiveStatus(
+            message.specialistDirective,
+            requestId,
+            status,
+          ),
+        })),
+      );
+    },
+  });
 
   const voiceActive = voiceState !== "idle";
   const voiceMuted = voiceState === "muted";
@@ -1014,7 +1436,7 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pkmReviews]);
+  }, [messages, pkmReviews, pendingSpecialistDirective]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -1153,8 +1575,12 @@ export function AgentChatWorkspace({
     setConversations([]);
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
+    setPendingSpecialistDirective(null);
+    setSpecialistBusy(false);
+    setSpecialistBusyItemId(null);
     historyLoadKeyRef.current = null;
     latestVisibleTurnIdRef.current = null;
+    inlineConsentRequestIdsRef.current.clear();
   }, [abortAgentTurnWork, resetGlobalVoiceState, user?.uid, isVaultUnlocked]);
 
   const updateMessage = (
@@ -1169,6 +1595,120 @@ export function AgentChatWorkspace({
   const appendMessage = (message: AgentMessage) => {
     setMessages((current) => [...current, message]);
   };
+
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked) return;
+
+    let cancelled = false;
+
+    const appendPendingConsentRequest = async (requestId: string) => {
+      const normalizedRequestId = requestId.trim();
+      if (!normalizedRequestId || inlineConsentRequestIdsRef.current.has(normalizedRequestId)) {
+        return;
+      }
+      inlineConsentRequestIdsRef.current.add(normalizedRequestId);
+
+      const token = getVaultOwnerToken();
+      if (!token) {
+        inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
+        return;
+      }
+
+      try {
+        const result = await ConsentCenterService.lookupPendingRequests({
+          userId: user.uid,
+          vaultOwnerToken: token,
+          requestIds: [normalizedRequestId],
+        });
+        if (cancelled) return;
+        const item = result.items
+          .map(pendingConsentLookupItemToCardItem)
+          .find((candidate): candidate is SpecialistPendingConsentRequestItem =>
+            Boolean(candidate),
+          );
+        if (!item) {
+          inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
+          return;
+        }
+
+        const event: SpecialistDirectiveEvent = {
+          delegateAgentId: "agent_nav",
+          directive: {
+            kind: "prompt",
+            payload: {
+              kind: "pending_consent_request",
+              item,
+            },
+          },
+          message: `${item.requesterLabel} is asking for access. Review the request here in Agent One.`,
+          stateChanged: true,
+        };
+
+        setMessages((current) => {
+          if (
+            current.some(
+              (message) => agentMessagePendingConsentRequestId(message) === item.id,
+            )
+          ) {
+            return current;
+          }
+          return [
+            ...current,
+            {
+              id: `msg-${Date.now()}-pending-consent-${item.id}`,
+              role: "assistant",
+              text: event.message,
+              timestamp: formatNow(),
+              status: "done",
+              specialistDirective: event,
+            },
+          ];
+        });
+      } catch (error) {
+        inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
+        console.warn("[AgentChatWorkspace] Failed to hydrate pending consent request:", error);
+      }
+    };
+
+    const handleConsentMessage = (event: Event) => {
+      const customEvent = event as CustomEvent<{ data?: Record<string, unknown> }>;
+      const data = customEvent.detail?.data;
+      if (!data) return;
+      const type = String(data.type || "").trim();
+      const requestId = String(data.request_id || "").trim();
+      if (!requestId) return;
+      if (type === "consent_request") {
+        void appendPendingConsentRequest(requestId);
+        return;
+      }
+      if (type === "consent_resolved") {
+        const action = String(data.action || "").trim().toUpperCase();
+        const status =
+          action === "CONSENT_GRANTED"
+            ? "approved"
+            : action === "CONSENT_DENIED"
+              ? "denied"
+              : null;
+        if (!status) return;
+        setMessages((current) =>
+          current.map((message) => ({
+            ...message,
+            specialistDirective: markPendingConsentRequestDirectiveStatus(
+              message.specialistDirective,
+              requestId,
+              status,
+            ),
+          })),
+        );
+      }
+    };
+
+    window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    };
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
 
   const appendDebugEvent = useCallback(
     (_turnId: string, _event: AgentDebugEvent["event"], _payload: AgentDebugEvent["payload"]) => {
@@ -1253,6 +1793,8 @@ export function AgentChatWorkspace({
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       setPkmActivity([]);
       setPkmReviews([]);
+      setPendingSpecialistDirective(null);
+      setSpecialistBusy(false);
     },
     []
   );
@@ -1278,6 +1820,8 @@ export function AgentChatWorkspace({
     setInput("");
     setPkmReviews([]);
     setPkmActivity([]);
+    setPendingSpecialistDirective(null);
+    setSpecialistBusy(false);
   }, [abortAgentTurnWork]);
 
   const handleSelectConversation = useCallback(
@@ -2033,6 +2577,7 @@ export function AgentChatWorkspace({
     streamAbortControllerRef.current = streamAbortController;
     let voiceStreamTimeoutMessage: string | null = null;
     let voiceStreamWatchdog: ReturnType<typeof setTimeout> | null = null;
+    let specialistDirectiveReceived = false;
 
     const clearVoiceStreamWatchdog = () => {
       if (voiceStreamWatchdog !== null) {
@@ -2215,6 +2760,34 @@ export function AgentChatWorkspace({
             queueAssistantDelta(delta);
             queueVoiceAssistantDelta(delta);
           },
+          onSpecialistDirective: (event) => {
+            if (streamAbortController.signal.aborted) return;
+            specialistDirectiveReceived = true;
+            // Store the directive as a pending card in the current message
+            // stream. Security-sensitive: never auto-run an "action"; require
+            // an explicit click on the rendered card.
+            appendDebugEvent(debugTurnId, "specialist_directive", event);
+            flushAssistantDelta();
+            setIsChatLoading(false);
+            setIsStreaming(false);
+            if (getConsentActionsPayload(event)) {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: message.text.trim() ? message.text : event.message || "",
+                status: "done",
+                specialistDirective: event,
+              }));
+              return;
+            }
+            setMessages((current) =>
+              current.flatMap((message) => {
+                if (message.id !== assistantMessageId) return [message];
+                if (!message.text.trim()) return [];
+                return [{ ...message, status: "done" }];
+              })
+            );
+            setPendingSpecialistDirective(event);
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             clearVoiceStreamWatchdog();
@@ -2273,7 +2846,11 @@ export function AgentChatWorkspace({
           status: "done",
         };
       });
-      if (!pkmAddToolHandled && !EXPLICIT_PKM_SAVE_PATTERN.test(text)) {
+      if (
+        !specialistDirectiveReceived &&
+        !pkmAddToolHandled &&
+        !EXPLICIT_PKM_SAVE_PATTERN.test(text)
+      ) {
         const pkmAbortController = new AbortController();
         pkmAbortControllersRef.current.add(pkmAbortController);
         void runPkmMemoryCapture(turnPkmContext, pkmAbortController.signal).finally(() => {
@@ -2317,6 +2894,196 @@ export function AgentChatWorkspace({
       }
       if (isVoiceTurn) {
         scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
+      }
+    }
+  };
+
+  /**
+   * Follow-up turn that reports a specialist DelegateResult back to One.
+   *
+   * Modeled on runAgentTurn's stream-start path: it opens a normal assistant
+   * turn (streaming bubble) with `delegateResult` set and no user `message`,
+   * reusing the same SSE handlers so One's confirmation renders as a regular
+   * assistant response. Used by the specialist directive card's confirm/cancel.
+   */
+  const sendDelegateResult = async (result: DelegateResult) => {
+    if (!hasChatAccess || !user?.uid) return;
+    const userId = user.uid;
+    const token = getVaultOwnerToken();
+    if (!token) {
+      addErrorMessage("Vault access expired. Unlock again to continue.");
+      return;
+    }
+
+    const turnId = Date.now();
+    const debugTurnId = `agent_delegate_${turnId}`;
+    const assistantMessageId = `msg-${turnId}-assistant`;
+    const timestamp = formatNow();
+
+    let pendingAssistantDelta = "";
+    let assistantFlushFrame: number | null = null;
+    const flushAssistantDelta = () => {
+      assistantFlushFrame = null;
+      const delta = pendingAssistantDelta;
+      pendingAssistantDelta = "";
+      if (!delta) return;
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text: `${message.text}${delta}`,
+        status: "streaming",
+      }));
+    };
+    const queueAssistantDelta = (delta: string) => {
+      pendingAssistantDelta += delta;
+      if (assistantFlushFrame !== null) return;
+      assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
+    };
+    const cancelAssistantFlush = () => {
+      if (assistantFlushFrame !== null) {
+        window.cancelAnimationFrame(assistantFlushFrame);
+        assistantFlushFrame = null;
+      }
+      pendingAssistantDelta = "";
+    };
+
+    appendMessage({
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      timestamp,
+      status: "streaming",
+    });
+    latestVisibleTurnIdRef.current = debugTurnId;
+    setIsChatLoading(true);
+    setIsStreaming(true);
+
+    const streamAbortController = new AbortController();
+    streamAbortControllerRef.current?.abort();
+    streamAbortControllerRef.current = streamAbortController;
+
+    try {
+      await streamAgentChat({
+        userId,
+        message: "",
+        conversationId,
+        vaultOwnerToken: token,
+        delegateResult: result,
+        screenContext: buildStructuredScreenContext({
+          appRuntimeState: appRuntimeStateRef.current,
+        }) as unknown as Record<string, unknown>,
+        signal: streamAbortController.signal,
+        // Handler set is intentionally reduced. A delegate_result turn is
+        // serviced by the backend delegation branch (Task 6), which never
+        // emits `tool_waiting`/PKM frames — those only come from the central
+        // planner path, which delegated turns bypass. So onToolWaiting and
+        // onPkmResults are intentionally omitted; only the events a delegated
+        // confirmation turn can actually emit are wired here.
+        handlers: {
+          onStart: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            if (nextConversationId) setConversationId(nextConversationId);
+          },
+          onToken: (delta) => {
+            if (streamAbortController.signal.aborted) return;
+            queueAssistantDelta(delta);
+          },
+          onSpecialistDirective: (event) => {
+            if (streamAbortController.signal.aborted) return;
+            appendDebugEvent(debugTurnId, "specialist_directive", event);
+            flushAssistantDelta();
+            setIsChatLoading(false);
+            setIsStreaming(false);
+            if (getConsentActionsPayload(event)) {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: message.text.trim() ? message.text : event.message || "",
+                status: "done",
+                specialistDirective: event,
+              }));
+              return;
+            }
+            setMessages((current) =>
+              current.flatMap((message) => {
+                if (message.id !== assistantMessageId) return [message];
+                if (!message.text.trim()) return [];
+                return [{ ...message, status: "done" }];
+              })
+            );
+            setPendingSpecialistDirective(event);
+          },
+          onComplete: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
+            if (nextConversationId) setConversationId(nextConversationId);
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              status: "done",
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+          onError: (message) => {
+            if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
+            updateMessage(assistantMessageId, (current) => ({
+              ...current,
+              text: current.text || message,
+              status: "error",
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+        },
+      });
+      if (streamAbortController.signal.aborted) {
+        flushAssistantDelta();
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: message.text || "Agent turn canceled.",
+          status: "done",
+        }));
+        setIsChatLoading(false);
+        setIsStreaming(false);
+        return;
+      }
+      flushAssistantDelta();
+      updateMessage(assistantMessageId, (message) => {
+        if (message.status === "error") return message;
+        return {
+          ...message,
+          text: message.text || "Done.",
+          status: "done",
+        };
+      });
+      void loadConversationList().catch(() => undefined);
+      setIsChatLoading(false);
+      setIsStreaming(false);
+    } catch (error) {
+      flushAssistantDelta();
+      if (streamAbortController.signal.aborted) {
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: message.text || "Agent turn canceled.",
+          status: "done",
+        }));
+      } else {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent chat request failed.";
+        updateMessage(assistantMessageId, (current) => ({
+          ...current,
+          text: current.text || message,
+          status: "error",
+        }));
+      }
+      void loadConversationList().catch(() => undefined);
+      setIsChatLoading(false);
+      setIsStreaming(false);
+    } finally {
+      cancelAssistantFlush();
+      if (streamAbortControllerRef.current === streamAbortController) {
+        streamAbortControllerRef.current = null;
       }
     }
   };
@@ -2998,7 +3765,25 @@ export function AgentChatWorkspace({
     [user?.displayName, user?.email]
   );
   const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
-  const visibleMessages = messages.filter((message) => message.id !== "agent-greeting");
+  const visibleMessages = messages.filter((message) => {
+    if (message.id === "agent-greeting") return false;
+    if (
+      pendingSpecialistDirective &&
+      message.role === "assistant" &&
+      !message.text.trim()
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const trailingSpecialistLoadingMessages = pendingSpecialistDirective
+    ? messages.filter(
+        (message) =>
+          message.id !== "agent-greeting" &&
+          message.role === "assistant" &&
+          !message.text.trim(),
+      )
+    : [];
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -3281,18 +4066,86 @@ export function AgentChatWorkspace({
                 />
               ) : null}
 
-              {visibleMessages.map((message) => (
-                <AgentBubble
-                  key={message.id}
-                  message={message}
-                  retryDisabled={isChatLoading || isStreaming}
-                  onRetry={
-                    message.id === latestRetryableAssistantId
-                      ? () => handleRetryAssistantResponse(message.id)
-                      : undefined
-                  }
-                />
-              ))}
+              {visibleMessages.map((message) =>
+                message.kind === "selection" ? (
+                  <SelectionChip key={message.id} label={message.text} />
+                ) : (
+                  <AgentBubble
+                    key={message.id}
+                    message={message}
+                    retryDisabled={isChatLoading || isStreaming}
+                    onRetry={
+                      message.id === latestRetryableAssistantId
+                        ? () => handleRetryAssistantResponse(message.id)
+                        : undefined
+                    }
+                    busyConsentItemId={specialistBusyItemId}
+                    onConsentRevoke={async (item) => {
+                      setSpecialistBusyItemId(item.id);
+                      try {
+                        await oneLocationConsentActions.handleRevoke({
+                          id: item.id,
+                          scope: item.scope ?? null,
+                          metadata: item.metadata ?? null,
+                        });
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markConsentDirectiveItemRevoked(
+                            current.specialistDirective,
+                            item.id,
+                          ),
+                        }));
+                      } finally {
+                        setSpecialistBusyItemId(null);
+                      }
+                    }}
+                    onConsentDetails={(item) => {
+                      router.push(
+                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}`,
+                      );
+                    }}
+                    onPendingConsentApprove={async (item) => {
+                      setSpecialistBusyItemId(item.id);
+                      try {
+                        await consentActions.handleApprove(
+                          pendingConsentCardItemToPendingConsent(item),
+                        );
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markPendingConsentRequestDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "approved",
+                          ),
+                        }));
+                      } finally {
+                        setSpecialistBusyItemId(null);
+                      }
+                    }}
+                    onPendingConsentDeny={async (item) => {
+                      setSpecialistBusyItemId(item.id);
+                      try {
+                        await consentActions.handleDeny(item.id);
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markPendingConsentRequestDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "denied",
+                          ),
+                        }));
+                      } finally {
+                        setSpecialistBusyItemId(null);
+                      }
+                    }}
+                    onPendingConsentDetails={(item) => {
+                      router.push(
+                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}`,
+                      );
+                    }}
+                  />
+                ),
+              )}
 
               {pkmActivity.map((item) => (
                 <AgentPkmActivityLine key={item.id} item={item} />
@@ -3305,6 +4158,376 @@ export function AgentChatWorkspace({
                   saving={review.saving}
                   onSave={() => void handleSavePkmReview(review.id)}
                   onDismiss={() => handleDismissPkmReview(review.id)}
+                />
+              ))}
+
+              {pendingSpecialistDirective ? (
+                getConsentRequiredPayload(pendingSpecialistDirective) ? (
+                  <SpecialistConsentRequiredCard
+                    agentId={
+                      getConsentRequiredPayload(pendingSpecialistDirective)?.agentId ??
+                      pendingSpecialistDirective.delegateAgentId
+                    }
+                    requiredScope={
+                      getConsentRequiredPayload(pendingSpecialistDirective)?.requiredScope ?? ""
+                    }
+                    reason={getConsentRequiredPayload(pendingSpecialistDirective)?.reason}
+                    busy={specialistBusy}
+                    onOpenConsent={() => {
+                      setPendingSpecialistDirective(null);
+                      router.push(`${ROUTES.CONSENTS}?tab=pending`);
+                    }}
+                    onCancel={() => {
+                      setPendingSpecialistDirective(null);
+                    }}
+                  />
+                ) : pendingSpecialistDirective.directive.kind === "prompt" &&
+                  pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" &&
+                  pendingSpecialistDirective.directive.payload.kind === "free_text" ? (
+                  <SpecialistFreeTextPromptCard
+                    question={String(
+                      pendingSpecialistDirective.directive.payload.question ??
+                        "What value should I use?",
+                    )}
+                    placeholder={String(
+                      pendingSpecialistDirective.directive.payload.placeholder ?? "",
+                    )}
+                    confirmLabel={
+                      typeof pendingSpecialistDirective.directive.payload.confirmLabel === "string"
+                        ? pendingSpecialistDirective.directive.payload.confirmLabel
+                        : null
+                    }
+                    cancelLabel={
+                      typeof pendingSpecialistDirective.directive.payload.cancelLabel === "string"
+                        ? pendingSpecialistDirective.directive.payload.cancelLabel
+                        : null
+                    }
+                    busy={specialistBusy}
+                    onSubmit={async (value) => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as Record<string, unknown>;
+                      setSpecialistBusy(true);
+                      try {
+                        setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-crm-answer`,
+                          role: "user",
+                          text: value,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        await sendDelegateResult({
+                          delegate_agent_id: "agent_connected_systems",
+                          kind: "selection",
+                          id: String(prompt.id ?? ""),
+                          type: String(prompt.type ?? ""),
+                          selected: [
+                            {
+                              slots: prompt.slots,
+                              fieldName: prompt.fieldName,
+                            },
+                          ],
+                          freeText: value,
+                          status: "answered",
+                          display: value,
+                        });
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as Record<string, unknown>;
+                      setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-crm-cancel`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      await sendDelegateResult({
+                        delegate_agent_id: "agent_connected_systems",
+                        kind: "selection",
+                        id: String(prompt.id ?? ""),
+                        type: String(prompt.type ?? ""),
+                        status: "cancelled",
+                        display: "Cancelled",
+                      });
+                    }}
+                  />
+                ) : pendingSpecialistDirective.directive.kind === "prompt" ? (
+                  // ── Prompt / disambiguation mode ──────────────────────────
+                  // The location specialist emits a clientPrompt (which/who?,
+                  // confirm duration, etc.) as a directive.kind:"prompt".
+                  // Prompts never auto-fire; the user answers via the card and
+                  // the selection result is sent back as a follow-up turn.
+                  // Crypto is not involved — no coordinates pass through here.
+                  <SpecialistPromptCard
+                    prompt={pendingSpecialistDirective.directive.payload as unknown as ClientPrompt}
+                    busy={specialistBusy}
+                    onAnswer={async (refs) => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { selected: refs });
+                      setSpecialistBusy(true);
+                      try {
+                        setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-sel`,
+                          role: "user",
+                          text: display,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        await sendDelegateResult({
+                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          kind: "selection",
+                          id: prompt.id,
+                          promptKind: prompt.kind,
+                          selected: refs,
+                          status: "answered",
+                          display,
+                        });
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onConfirm={async (yes) => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { confirmed: yes });
+                      setSpecialistBusy(true);
+                      try {
+                        setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-sel`,
+                          role: "user",
+                          text: display,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        await sendDelegateResult({
+                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          kind: "selection",
+                          id: prompt.id,
+                          promptKind: prompt.kind,
+                          confirmed: yes,
+                          status: "answered",
+                          display,
+                        });
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const evt = pendingSpecialistDirective;
+                      const prompt = evt.directive.payload as unknown as ClientPrompt;
+                      const display = describeSelection(prompt, { status: "cancelled" });
+                      setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-sel`,
+                        role: "user",
+                        text: display,
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      await sendDelegateResult({
+                        delegate_agent_id: evt.delegateAgentId as "agent_location",
+                        kind: "selection",
+                        id: prompt.id,
+                        promptKind: prompt.kind,
+                        status: "cancelled",
+                        display,
+                      });
+                    }}
+                  />
+                ) : String(
+                    (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                      .type ?? "",
+                  ) === "publish_slices" ? (
+                  // ── Information Marketplace publish card ──────────────────
+                  // propose_publish delivered over A2A. Publishing needs the vault
+                  // on the marketplace surface, so hand off there.
+                  <MarketplacePublishDirectiveCard
+                    topic={
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .topic as string | null | undefined
+                    }
+                    slices={
+                      ((pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .slices as PublishableSlice[]) ?? []
+                    }
+                    onOpenMarketplace={() => {
+                      setPendingSpecialistDirective(null);
+                      router.push(ROUTES.ONE_MARKETPLACE);
+                    }}
+                    onDismiss={() => setPendingSpecialistDirective(null)}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .confirmLabel ?? "Update",
+                    )}
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setSpecialistBusy(true);
+                      try {
+                        const token = getVaultOwnerToken();
+                        if (!token) {
+                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          return;
+                        }
+                        const confirmLabel = String(
+                          (directive.directive.payload as Record<string, unknown>)
+                            .confirmLabel ?? "Update",
+                        );
+                        appendMessage({
+                          id: `msg-${Date.now()}-crm-act`,
+                          role: "user",
+                          text: confirmLabel,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        const result = await runConnectedSystemDirective(
+                          directive.directive,
+                          token,
+                          {
+                            email: user?.email,
+                            phone: phoneNumber,
+                          },
+                        );
+                        setPendingSpecialistDirective(null);
+                        await sendDelegateResult(result);
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-crm-cancel`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      await sendDelegateResult({
+                        delegate_agent_id: "agent_connected_systems",
+                        kind: "action",
+                        id: String(
+                          (directive.directive.payload as Record<string, unknown>).id ?? "",
+                        ),
+                        type: String(
+                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                        ),
+                        status: "cancelled",
+                      });
+                    }}
+                  />
+                ) : (
+                  // ── Action / crypto mode (existing path, unchanged) ───────
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .type === "sos_panic"
+                        ? "Send SOS"
+                        : "Share"
+                    }
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setSpecialistBusy(true);
+                      const directivePayloadType = String(
+                        (directive.directive.payload as Record<string, unknown>).type ?? "",
+                      );
+                      const confirmText =
+                        directivePayloadType === "sos_panic" ? "Send SOS" : "Share";
+                      try {
+                        // Source the vault owner token from the same place every
+                        // other authed call uses (never hardcoded/invented).
+                        const token = getVaultOwnerToken();
+                        if (!token) {
+                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          return;
+                        }
+                        appendMessage({
+                          id: `msg-${Date.now()}-act`,
+                          role: "user",
+                          text: confirmText,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        const result = await runLocationDirective(
+                          directive.directive,
+                          token,
+                          user?.uid ?? null,
+                        );
+                        setPendingSpecialistDirective(null);
+                        // view_envelope fetches a coordinate-free result here; the
+                        // decrypted point is rendered on the dedicated location
+                        // surface, so hand the user off there to see it.
+                        if (directivePayloadType === "view_envelope" && result.status === "completed") {
+                          router.push(ROUTES.ONE_LOCATION);
+                        }
+                        // Follow-up turn: report the result back so One confirms in words.
+                        await sendDelegateResult(result);
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={async () => {
+                      const directive = pendingSpecialistDirective;
+                      setPendingSpecialistDirective(null);
+                      appendMessage({
+                        id: `msg-${Date.now()}-act`,
+                        role: "user",
+                        text: "Cancelled",
+                        timestamp: formatNow(),
+                        status: "done",
+                        kind: "selection",
+                      });
+                      await sendDelegateResult({
+                        delegate_agent_id: directive.delegateAgentId as "agent_location",
+                        kind: "action",
+                        id: String(
+                          (directive.directive.payload as Record<string, unknown>).id ?? "",
+                        ),
+                        // Include type so the backend renders the tailored cancel message.
+                        type: String(
+                          (directive.directive.payload as Record<string, unknown>).type ?? "",
+                        ),
+                        status: "cancelled",
+                      });
+                    }}
+                  />
+                )
+              ) : null}
+
+              {trailingSpecialistLoadingMessages.map((message) => (
+                <AgentBubble
+                  key={message.id}
+                  message={message}
+                  retryDisabled={isChatLoading || isStreaming}
                 />
               ))}
               <div ref={messagesEndRef} />

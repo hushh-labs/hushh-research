@@ -3380,6 +3380,83 @@ class OneLocationAgentService:
         )
         return {"invite": invite, "connection": connection}
 
+    def seed_trusted_connections(
+        self,
+        *,
+        owner_user_id: str,
+        dev_user_ids: list[str],
+    ) -> dict[str, Any]:
+        """Seed a fresh user's trusted network with configured developer accounts.
+
+        Only runs when the user has zero active network connections. Inserts one
+        active `one_location_network_connections` row per dev id (skipping self and
+        blanks). Idempotent via ON CONFLICT — re-running reactivates rather than
+        erroring. A seeded active connection satisfies eligibility rule #1 in
+        `list_verified_recipients`, so the dev id immediately becomes a recipient.
+        """
+        owner_user_id = (owner_user_id or "").strip()
+        if not owner_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_SEED_INVALID", "Missing owner user id.", status_code=422
+            )
+
+        existing = self._execute_one(
+            """
+            SELECT COUNT(*) AS n
+            FROM one_location_network_connections
+            WHERE status = 'active'
+              AND (user_a_id = :uid OR user_b_id = :uid)
+            """,
+            {"uid": owner_user_id},
+        )
+        existing_count = int((existing or {}).get("n") or 0)
+        if existing_count > 0:
+            return {"seeded": 0, "existingCount": existing_count, "skippedSelf": 0}
+
+        seeded = 0
+        skipped_self = 0
+        for raw_dev_id in dev_user_ids:
+            dev_id = (raw_dev_id or "").strip()
+            if not dev_id or dev_id == owner_user_id:
+                skipped_self += 1
+                continue
+            user_a_id, user_b_id = sorted((owner_user_id, dev_id))
+            self._execute_one(
+                """
+                INSERT INTO one_location_network_connections (
+                  user_a_id, user_b_id, inviter_user_id, invitee_user_id,
+                  invite_id, status, connected_at, created_at, updated_at, metadata
+                )
+                VALUES (
+                  LEAST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
+                  GREATEST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
+                  :inviter_user_id, :invitee_user_id,
+                  NULL, 'active', NOW(), NOW(), NOW(),
+                  CAST(:metadata_json AS JSONB)
+                )
+                ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+                  status = 'active',
+                  updated_at = NOW(),
+                  revoked_at = NULL,
+                  metadata = EXCLUDED.metadata
+                RETURNING id
+                """,
+                {
+                    "user_a_id": user_a_id,
+                    "user_b_id": user_b_id,
+                    "inviter_user_id": owner_user_id,
+                    "invitee_user_id": dev_id,
+                    "metadata_json": _json_param({"source": "sos_seed"}),
+                },
+            )
+            seeded += 1
+
+        return {
+            "seeded": seeded,
+            "existingCount": existing_count,
+            "skippedSelf": skipped_self,
+        }
+
     def revoke_circle_invite(self, *, owner_user_id: str, invite_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
@@ -3591,40 +3668,67 @@ class OneLocationAgentService:
             UPDATE one_location_share_grants
             SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
-              AND owner_user_id = :owner_user_id
+              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
               AND status = 'active'
             RETURNING *
             """,
             {"owner_user_id": owner_user_id, "grant_id": grant_id},
         )
         if not row:
-            raise OneLocationAgentError(
-                "LOCATION_GRANT_NOT_FOUND", "Active location share was not found.", status_code=404
+            existing_row = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                  AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+                LIMIT 1
+                """,
+                {"owner_user_id": owner_user_id, "grant_id": grant_id},
             )
+            if existing_row:
+                return self._grant_payload(existing_row) or {}
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
+            )
+        actor_is_owner = str(row.get("owner_user_id") or "") == owner_user_id
+        recipient_user_id = str(row.get("recipient_user_id") or "") or None
         self._insert_event(
-            owner_user_id=owner_user_id,
+            owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
-            recipient_user_id=str(row.get("recipient_user_id") or "") or None,
+            recipient_user_id=recipient_user_id,
             grant_id=grant_id,
             event_type="location_share_revoked",
-            metadata={"reason": "owner_revoke"},
+            metadata={"reason": "owner_revoke" if actor_is_owner else "recipient_revoke"},
         )
-        owner_identity = self._identity_row(owner_user_id)
+        owner_identity = self._identity_row(str(row.get("owner_user_id") or owner_user_id))
         owner_label = _identity_display_label(owner_identity)
+        recipient_identity = self._identity_row(recipient_user_id or "")
+        recipient_label = _identity_display_label(recipient_identity)
+        notification_user_id = (
+            recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
+        )
         self._send_metadata_notification(
-            user_id=str(row.get("recipient_user_id") or ""),
+            user_id=notification_user_id,
             notification_type="location_share_revoked",
             title="Location access revoked",
-            body=f"{owner_label} removed your location access.",
+            body=(
+                f"{owner_label} removed your location access."
+                if actor_is_owner
+                else f"{recipient_label} stopped receiving your location share."
+            ),
             notification_tag=f"one-location-revoked:{grant_id}",
-            request_url=_one_location_url(grantId=grant_id, section="shared"),
+            request_url=_one_location_url(
+                grantId=grant_id, section="shared" if actor_is_owner else "people"
+            ),
             data={
                 "grant_id": grant_id,
-                "owner_user_id": owner_user_id,
+                "owner_user_id": str(row.get("owner_user_id") or owner_user_id),
                 "owner_display_label": owner_label,
                 "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
                 if owner_identity
                 else None,
+                "recipient_user_id": recipient_user_id,
+                "recipient_display_label": recipient_label,
             },
         )
         return self._grant_payload(row) or {}

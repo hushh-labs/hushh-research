@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.kai import agent_chat
+from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
 from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     AgentChatConversation,
@@ -18,6 +19,7 @@ from hushh_mcp.services.agent_chat_service import (
 class _FakeAgentChatService:
     def __init__(self):
         self.saved_messages: list[dict] = []
+        self.prepared_messages: list[str] = []
         self.next_action_plan: AgentChatActionPlan | None = None
         self.prepared_turns = 0
         self.runtime_contract_calls: list[dict] = []
@@ -118,8 +120,8 @@ class _FakeAgentChatService:
 
     async def prepare_turn(self, *, user_id: str, message: str, conversation_id: str | None = None):
         assert user_id == "user-1"
-        assert message == "Hello Agent"
         assert conversation_id is None
+        self.prepared_messages.append(message)
         self.prepared_turns += 1
         return PreparedAgentChatTurn(
             conversation_id="conversation-1",
@@ -257,6 +259,61 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
             "content": "Hello from Gemini",
             "status": "complete",
             "model": "gemini-2.5-pro",
+            "error_code": None,
+        }
+    ]
+
+
+def test_agent_chat_delegated_stream_saves_specialist_response(monkeypatch):
+    service = _FakeAgentChatService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    monkeypatch.setattr(agent_chat, "resolve_delegate_target", lambda _message: "agent_nav")
+    monkeypatch.setattr(agent_chat, "is_wired_specialist", lambda agent_id: agent_id == "agent_nav")
+
+    import hushh_mcp.adk_bridge.dispatch as dispatch_module
+
+    async def _dispatch(agent_id, task):  # noqa: ANN001
+        assert agent_id == "agent_nav"
+        assert task.user_id == "user-1"
+        assert task.conversation_id == "conversation-1"
+        assert task.message == "show all my consent requests approved"
+        assert task.timezone == "America/Los_Angeles"
+        return SpecialistTurnResult(
+            conversation_id="conversation-1",
+            text="You have 1 approved consent request active right now.",
+            directive=None,
+            is_complete=True,
+            state_changed=False,
+            model="one+nav",
+        )
+
+    monkeypatch.setattr(dispatch_module, "dispatch", _dispatch)
+    client = _client(service)
+
+    response = client.post(
+        "/agent/chat/stream",
+        json={
+            "user_id": "user-1",
+            "message": "show all my consent requests approved",
+            "timezone": "America/Los_Angeles",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-agent-conversation-id"] == "conversation-1"
+    assert (
+        'event: token\ndata: {"token": "You have 1 approved consent request active right now."}'
+        in response.text
+    )
+    assert service.prepared_messages == ["show all my consent requests approved"]
+    assert service.saved_messages == [
+        {
+            "conversation_id": "conversation-1",
+            "user_id": "user-1",
+            "role": "assistant",
+            "content": "You have 1 approved consent request active right now.",
+            "status": "complete",
+            "model": "one+nav",
             "error_code": None,
         }
     ]
