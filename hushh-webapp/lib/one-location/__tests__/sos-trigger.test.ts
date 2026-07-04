@@ -31,6 +31,7 @@ import {
   isSosShareReadyRecipient,
   runSosPanic,
   selectSosConnectedRecipients,
+  SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,24 @@ describe("isSosShareReadyRecipient", () => {
   it("returns false when publicKeyJwk is null", () => {
     const r = makeRecipient("u1", { publicKeyJwk: null });
     expect(isSosShareReadyRecipient(r)).toBe(false);
+  });
+
+  it("returns false when keyId is missing (undefined)", () => {
+    const r = makeRecipient("u1");
+    const { keyId: _dropped, ...rest } = r;
+    expect(isSosShareReadyRecipient(rest as OneLocationRecipient)).toBe(false);
+  });
+
+  it("returns false when publicKeyJwk is missing (undefined)", () => {
+    const r = makeRecipient("u1");
+    const { publicKeyJwk: _dropped, ...rest } = r;
+    expect(isSosShareReadyRecipient(rest as OneLocationRecipient)).toBe(false);
+  });
+
+  it("returns false when canReceiveLocation is undefined", () => {
+    const r = makeRecipient("u1");
+    const { canReceiveLocation: _dropped, ...rest } = r;
+    expect(isSosShareReadyRecipient(rest as OneLocationRecipient)).toBe(false);
   });
 });
 
@@ -197,6 +216,23 @@ describe("runSosPanic", () => {
     vi.clearAllMocks();
   });
 
+  it("throws SosPanicError with partialIncident === null when recipients is empty — does NOT call saveSosIncident", async () => {
+    const publish = vi.fn();
+
+    const err = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [],
+      point: makePoint(),
+      publish,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SosPanicError);
+    expect((err as SosPanicError).partialIncident).toBeNull();
+    expect(saveSosIncidentMock).not.toHaveBeenCalled();
+    expect(createGrantMock).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it("creates a grant per recipient with reason 'sos_panic' and durationHours 8", async () => {
     const rA = makeRecipient("userA");
     const rB = makeRecipient("userB");
@@ -252,7 +288,7 @@ describe("runSosPanic", () => {
     expect(publish).toHaveBeenNthCalledWith(2, grantB, rB, point);
   });
 
-  it("records grantId BEFORE publish — partial incident contains both ids if publish throws on 2nd recipient", async () => {
+  it("records grantId BEFORE publish — thrown error is SosPanicError whose partialIncident.grantIds contains BOTH ids if publish throws on 2nd recipient", async () => {
     const rA = makeRecipient("userA");
     const rB = makeRecipient("userB");
     createGrantMock
@@ -267,18 +303,26 @@ describe("runSosPanic", () => {
       }
     });
 
-    await expect(
-      runSosPanic({
-        vaultOwnerToken: "tok",
-        recipients: [rA, rB],
-        point: makePoint(),
-        publish,
-      }),
-    ).rejects.toThrow("network error on 2nd publish");
+    const err = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [rA, rB],
+      point: makePoint(),
+      publish,
+    }).catch((e: unknown) => e);
 
-    // saveSosIncident must have been called with BOTH grant ids (g1 was created
-    // and published successfully; g2 was created but publish failed — its id
-    // must still be in the partial incident so handleStopSos can revoke it).
+    // Must be a SosPanicError, not a generic Error
+    expect(err).toBeInstanceOf(SosPanicError);
+    expect((err as SosPanicError).message).toBe("network error on 2nd publish");
+
+    // The partial incident must contain BOTH grant ids: g1 (published ok) and
+    // g2 (created but publish threw) — both need to be revokable via stop-SOS.
+    const partial = (err as SosPanicError).partialIncident;
+    expect(partial).not.toBeNull();
+    expect(partial!.grantIds).toContain("g1");
+    expect(partial!.grantIds).toContain("g2");
+
+    // saveSosIncident must have been called with BOTH grant ids (best-effort
+    // persistence for the partial incident).
     expect(saveSosIncidentMock).toHaveBeenCalledTimes(1);
     const savedIncident = saveSosIncidentMock.mock.calls[0][0];
     expect(savedIncident.grantIds).toContain("g1");
@@ -323,21 +367,50 @@ describe("runSosPanic", () => {
     expect(saved.grantIds).toEqual(["g1", "g2"]);
   });
 
-  it("does not call saveSosIncident when createGrant throws on the first recipient", async () => {
+  it("does not call saveSosIncident when createGrant throws on the first recipient — throws SosPanicError with null partialIncident", async () => {
     const rA = makeRecipient("userA");
     createGrantMock.mockRejectedValueOnce(new Error("server error"));
     const publish = vi.fn();
 
-    await expect(
-      runSosPanic({
-        vaultOwnerToken: "tok",
-        recipients: [rA],
-        point: makePoint(),
-        publish,
-      }),
-    ).rejects.toThrow("server error");
+    const err = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [rA],
+      point: makePoint(),
+      publish,
+    }).catch((e: unknown) => e);
 
+    expect(err).toBeInstanceOf(SosPanicError);
+    expect((err as SosPanicError).message).toBe("server error");
+    expect((err as SosPanicError).partialIncident).toBeNull();
     expect(saveSosIncidentMock).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("success and partial incidents share the same startedAt timestamp", async () => {
+    // startedAt is captured once before the try — both paths must use it.
+    const rA = makeRecipient("userA");
+    const rB = makeRecipient("userB");
+    createGrantMock
+      .mockResolvedValueOnce(makeGrant("g1", "userA"))
+      .mockResolvedValueOnce(makeGrant("g2", "userB"));
+
+    let publishCallCount = 0;
+    const publish = vi.fn().mockImplementation(async () => {
+      publishCallCount += 1;
+      if (publishCallCount === 2) throw new Error("fail");
+    });
+
+    const err = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [rA, rB],
+      point: makePoint(),
+      publish,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SosPanicError);
+    const partial = (err as SosPanicError).partialIncident;
+    // startedAt must be a valid ISO string (not two different clock readings)
+    expect(typeof partial!.startedAt).toBe("string");
+    expect(new Date(partial!.startedAt).toString()).not.toBe("Invalid Date");
   });
 });

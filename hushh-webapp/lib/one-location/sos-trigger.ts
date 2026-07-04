@@ -19,22 +19,50 @@ import type {
 } from "@/lib/one-location/types";
 
 // ---------------------------------------------------------------------------
-// 1. Share-readiness guard
+// 1. Typed error carrying any partial incident created before a failure
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true when a recipient has all three fields required to receive an
- * encrypted location envelope: canReceiveLocation flag, a keyId, and a JWK.
- *
- * Mirrors the `isShareReadyRecipient` type-guard in page.tsx — kept here as a
- * plain boolean helper so it can be used without the React component context.
+ * Thrown by `runSosPanic` when the operation fails after at least one (or
+ * zero) grants have been created. Callers should check `partialIncident`:
+ * if non-null, at least one grant was created and should be surfaced in the
+ * UI so the stop flow can revoke it.
  */
-export function isSosShareReadyRecipient(r: OneLocationRecipient): boolean {
+export class SosPanicError extends Error {
+  partialIncident: SosIncident | null;
+  constructor(message: string, partialIncident: SosIncident | null) {
+    super(message);
+    this.name = "SosPanicError";
+    this.partialIncident = partialIncident;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2. Share-readiness guard (type predicate)
+// ---------------------------------------------------------------------------
+
+/**
+ * Narrowed recipient type — has all three fields required to receive an
+ * encrypted location envelope: canReceiveLocation flag, a keyId, and a JWK.
+ */
+export type SosShareReadyRecipient = OneLocationRecipient & {
+  keyId: string;
+  publicKeyJwk: JsonWebKey;
+};
+
+/**
+ * Type predicate that narrows `OneLocationRecipient` to `SosShareReadyRecipient`.
+ * Mirrors the `isShareReadyRecipient` guard in page.tsx — kept here so it can
+ * be imported and used without the React component context.
+ */
+export function isSosShareReadyRecipient(
+  r: OneLocationRecipient,
+): r is SosShareReadyRecipient {
   return Boolean(r.canReceiveLocation && r.keyId && r.publicKeyJwk);
 }
 
 // ---------------------------------------------------------------------------
-// 2. Connection-based recipient filter
+// 3. Connection-based recipient filter
 // ---------------------------------------------------------------------------
 
 /**
@@ -67,13 +95,13 @@ export function selectSosConnectedRecipients(
 }
 
 // ---------------------------------------------------------------------------
-// 3. Panic execution
+// 4. Panic execution
 // ---------------------------------------------------------------------------
 
 export interface RunSosPanicParams {
   vaultOwnerToken: string;
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
-  recipients: OneLocationRecipient[];
+  recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
   /**
    * Caller-supplied publish function so the core stays decoupled from the
@@ -81,7 +109,7 @@ export interface RunSosPanicParams {
    */
   publish: (
     grant: OneLocationGrant,
-    recipient: OneLocationRecipient,
+    recipient: SosShareReadyRecipient,
     point: PlainLocationPoint,
   ) => Promise<void>;
 }
@@ -95,13 +123,24 @@ export interface RunSosPanicParams {
  * every grant id that was created and can be revoked by handleStopSos.
  *
  * On full or partial success the incident is written via `saveSosIncident`.
- * On total failure (first grant creation throws) nothing is persisted and the
- * error re-throws.
+ * On total failure (first grant creation throws) nothing is persisted and a
+ * SosPanicError with partialIncident === null is thrown.
+ *
+ * @throws {SosPanicError} Always on failure — carries the partial incident
+ *   (if any grants were created) or null (if none were).
  */
 export async function runSosPanic(
   params: RunSosPanicParams,
 ): Promise<SosIncident> {
   const { vaultOwnerToken, recipients, point, publish } = params;
+
+  if (!recipients.length) {
+    throw new SosPanicError("No SOS recipients provided.", null);
+  }
+
+  // Capture a single timestamp used for both the success incident and any
+  // partial incident — prevents clock skew between the two code paths.
+  const startedAt = new Date().toISOString();
   const grantIds: string[] = [];
 
   try {
@@ -109,7 +148,7 @@ export async function runSosPanic(
       const grant = await OneLocationService.createGrant({
         vaultOwnerToken,
         recipientUserId: recipient.userId,
-        recipientKeyId: recipient.keyId as string,
+        recipientKeyId: recipient.keyId,
         durationHours: 8,
         reason: "sos_panic",
       });
@@ -119,22 +158,24 @@ export async function runSosPanic(
       await publish(grant, recipient, point);
     }
 
-    const incident: SosIncident = {
-      grantIds,
-      startedAt: new Date().toISOString(),
-    };
+    const incident: SosIncident = { grantIds, startedAt };
     saveSosIncident(incident);
     return incident;
   } catch (error) {
-    if (grantIds.length) {
-      // At least one grant was created before the failure — persist a partial
-      // incident so the stop flow can revoke everything that was opened.
-      const partial: SosIncident = {
-        grantIds,
-        startedAt: new Date().toISOString(),
-      };
+    // Build partial incident from whatever grants were successfully created.
+    const partial: SosIncident | null = grantIds.length
+      ? { grantIds, startedAt }
+      : null;
+
+    // Best-effort persistence — if localStorage is full/unavailable the caller
+    // still recovers via the SosPanicError.partialIncident field (in-memory).
+    if (partial) {
       saveSosIncident(partial);
     }
-    throw error;
+
+    throw new SosPanicError(
+      error instanceof Error ? error.message : String(error),
+      partial,
+    );
   }
 }

@@ -147,8 +147,10 @@ import {
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
 import {
+  isSosShareReadyRecipient,
   runSosPanic,
   selectSosConnectedRecipients,
+  SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 import type {
   OneLocationAccessRequest,
@@ -2941,7 +2943,7 @@ function OneLocationAgentPageContent() {
   const handleTriggerSos = useCallback(async () => {
     if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
     if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
-    const readyRecipients = sosTrustedRecipients.filter(isShareReadyRecipient);
+    const readyRecipients = sosTrustedRecipients.filter(isSosShareReadyRecipient);
     const totalTrusted = sosTrustedRecipients.length;
     if (!readyRecipients.length) {
       toast.error("No trusted contacts are ready to receive your location yet.");
@@ -2974,8 +2976,11 @@ function OneLocationAgentPageContent() {
       );
       await refresh();
     } catch (error) {
-      // Sync React state to whatever the core persisted (may be a partial incident).
-      setSosIncident(loadSosIncident());
+      // Recover from memory — SosPanicError carries any partial incident
+      // in-process, so the SOS banner stays up even if localStorage failed.
+      if (error instanceof SosPanicError && error.partialIncident) {
+        setSosIncident(error.partialIncident);
+      }
       toast.error(
         error instanceof Error ? error.message : "Could not send SOS alert.",
       );
