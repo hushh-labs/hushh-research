@@ -30,48 +30,15 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/**
- * Countdown to a future meeting plus the absolute time, e.g.
- * "in 2d 3h · Mon, Jul 6, 4:00 PM". Granularity: days+hours when ≥1 day,
- * hours+minutes when ≥1 hour, minutes when <1 hour.
- */
-function meetingWhen(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const when = new Date(iso);
-  if (Number.isNaN(when.getTime())) return "";
-  const totalMin = Math.round((when.getTime() - Date.now()) / 60000);
-  let relative: string;
-  if (totalMin <= 0) {
-    relative = "now";
-  } else if (totalMin < 60) {
-    relative = `in ${totalMin}m`;
-  } else if (totalMin < 60 * 24) {
-    const h = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    relative = m ? `in ${h}h ${m}m` : `in ${h}h`;
-  } else {
-    const d = Math.floor(totalMin / (60 * 24));
-    const h = Math.floor((totalMin % (60 * 24)) / 60);
-    relative = h ? `in ${d}d ${h}h` : `in ${d}d`;
-  }
-  const absolute = when.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${relative} · ${absolute}`;
-}
-
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
 
 function NudgeCard({ nudge }: { nudge: GmailNudge }) {
   const isMeeting = nudge.type === "upcoming_meeting";
+  // Meetings show just the title line (no timing subtitle); needs-reply shows sender.
   const subtitle = isMeeting
-    ? `${nudge.sender ? `${nudge.sender} · ` : ""}${meetingWhen(nudge.starts_at)}`
+    ? null
     : `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
   return (
     <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
@@ -83,7 +50,9 @@ function NudgeCard({ nudge }: { nudge: GmailNudge }) {
           />
           <p className="truncate text-sm font-semibold text-foreground">{nudge.title}</p>
         </div>
-        <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+        {subtitle ? (
+          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+        ) : null}
       </div>
       {isMeeting ? (
         <Button
