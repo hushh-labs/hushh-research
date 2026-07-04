@@ -4079,11 +4079,21 @@ export function AgentChatWorkspace({
                       (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                         .summary ?? pendingSpecialistDirective.message,
                     )}
-                    confirmLabel="Share"
+                    confirmLabel={
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .type === "sos_panic"
+                        ? "Send SOS"
+                        : "Share"
+                    }
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
                       setSpecialistBusy(true);
+                      const directivePayloadType = String(
+                        (directive.directive.payload as Record<string, unknown>).type ?? "",
+                      );
+                      const confirmText =
+                        directivePayloadType === "sos_panic" ? "Send SOS" : "Share";
                       try {
                         // Source the vault owner token from the same place every
                         // other authed call uses (never hardcoded/invented).
@@ -4095,20 +4105,21 @@ export function AgentChatWorkspace({
                         appendMessage({
                           id: `msg-${Date.now()}-act`,
                           role: "user",
-                          text: "Share",
+                          text: confirmText,
                           timestamp: formatNow(),
                           status: "done",
                           kind: "selection",
                         });
-                        const result = await runLocationDirective(directive.directive, token);
+                        const result = await runLocationDirective(
+                          directive.directive,
+                          token,
+                          user?.uid ?? null,
+                        );
                         setPendingSpecialistDirective(null);
                         // view_envelope fetches a coordinate-free result here; the
                         // decrypted point is rendered on the dedicated location
                         // surface, so hand the user off there to see it.
-                        const directiveType = String(
-                          (directive.directive.payload as Record<string, unknown>).type ?? "",
-                        );
-                        if (directiveType === "view_envelope" && result.status === "completed") {
+                        if (directivePayloadType === "view_envelope" && result.status === "completed") {
                           router.push(ROUTES.ONE_LOCATION);
                         }
                         // Follow-up turn: report the result back so One confirms in words.

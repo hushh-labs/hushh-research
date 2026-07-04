@@ -1,5 +1,10 @@
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
+import {
+  isSosShareReadyRecipient,
+  runSosPanic,
+  selectSosConnectedRecipients,
+} from "@/lib/one-location/sos-trigger";
 
 export type SpecialistDirective = {
   kind: "action" | "prompt";
@@ -59,6 +64,7 @@ type Share = {
 export async function runLocationDirective(
   directive: SpecialistDirective,
   vaultOwnerToken = "",
+  currentUserId: string | null = null,
 ): Promise<DelegateResult> {
   const payload = directive.payload as Record<string, any>;
   const id = String(payload.id ?? "");
@@ -125,6 +131,50 @@ export async function runLocationDirective(
         grantId: String(payload.grantId ?? ""),
       });
       // Result is coordinate-free; decryption happens in the UI layer if needed
+      return {
+        delegate_agent_id: "agent_location",
+        kind: "action",
+        id,
+        type,
+        status: "completed",
+      };
+    }
+
+    if (type === "sos_panic") {
+      const state = await OneLocationService.getState(vaultOwnerToken);
+      const connected = selectSosConnectedRecipients(
+        state.recipients ?? [],
+        state.networkConnections,
+        currentUserId,
+      );
+      const ready = connected.filter(isSosShareReadyRecipient);
+      if (!ready.length) {
+        return {
+          delegate_agent_id: "agent_location",
+          kind: "action",
+          id,
+          type,
+          status: "cancelled",
+        };
+      }
+      const point = await OneLocationService.captureCurrentPosition();
+      await runSosPanic({
+        vaultOwnerToken,
+        recipients: ready,
+        point,
+        publish: async (grant, recipient, pt) => {
+          const envelope = await encryptLocationForRecipient({
+            point: pt,
+            recipientPublicKeyJwk: recipient.publicKeyJwk,
+            recipientKeyId: recipient.keyId,
+          });
+          await OneLocationService.storeEnvelope({
+            vaultOwnerToken,
+            grantId: grant.id,
+            envelope,
+          });
+        },
+      });
       return {
         delegate_agent_id: "agent_location",
         kind: "action",
