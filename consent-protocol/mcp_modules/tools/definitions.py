@@ -367,6 +367,63 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "required": ["from_agent", "to_agent", "scope", "user_id"],
             },
         ),
+        # Internal tool: Agent chat turn over the shared A2A path.
+        Tool(
+            name="agent_chat_turn",
+            description=(
+                "Internal first-party Agent chat turn. Runs the same central chat and "
+                "A2A specialist path used by HTTP SSE, returning a non-streaming text "
+                "response with emitted tool and specialist directive events."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "Firebase UID for the vault owner.",
+                    },
+                    "vault_owner_token": {
+                        "type": "string",
+                        "description": "Valid VAULT_OWNER consent token for user_id.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "User chat message for this turn.",
+                    },
+                    "conversation_id": {
+                        "type": "string",
+                        "description": "Existing Agent chat conversation id, when continuing a thread.",
+                    },
+                    "pkm_context": {
+                        "type": "string",
+                        "description": "Optional PKM context already authorized for this user.",
+                    },
+                    "screen_context": {
+                        "type": "object",
+                        "description": "Optional first-party UI state for planning/navigation.",
+                        "additionalProperties": True,
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "description": "IANA timezone or client timezone hint.",
+                    },
+                    "runtime_credential": {
+                        "type": "string",
+                        "description": "Optional first-party model runtime credential override.",
+                    },
+                    "runtime_credential_mode": {
+                        "type": "string",
+                        "description": "Optional runtime credential mode.",
+                    },
+                    "delegate_result": {
+                        "type": "object",
+                        "description": "Optional result payload from a previous specialist directive.",
+                        "additionalProperties": True,
+                    },
+                },
+                "required": ["user_id", "vault_owner_token"],
+            },
+        ),
         # Tool 5: List Available Scopes
         Tool(
             name="list_scopes",

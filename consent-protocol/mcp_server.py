@@ -43,6 +43,7 @@ from mcp_modules.developer_context import (
 from mcp_modules.log_redaction import install_sensitive_log_filter, redact_mcp_arguments
 from mcp_modules.tools import (
     get_tool_definitions,
+    handle_agent_chat_turn,
     handle_check_consent_status,
     handle_delegate,
     handle_discover_user_domains,
@@ -96,6 +97,7 @@ HANDLERS = {
     "validate_token": handle_validate_token,
     "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,
     "delegate_to_agent": handle_delegate,
+    "agent_chat_turn": handle_agent_chat_turn,
     "list_scopes": handle_list_scopes,
     "discover_user_domains": handle_discover_user_domains,
     "check_consent_status": handle_check_consent_status,
@@ -156,7 +158,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             TextContent(
                 type="text",
                 text=json.dumps(
-                    {"error": f"Unknown tool: {name}", "available_tools": list(HANDLERS.keys())}
+                    {
+                        "error": f"Unknown tool: {name}",
+                        "available_tools": list(get_current_visible_tool_names()),
+                    }
                 ),
             )
         ]

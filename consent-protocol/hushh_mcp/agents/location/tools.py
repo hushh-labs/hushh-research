@@ -421,39 +421,11 @@ async def request_confirmation(summary: str, destructive: bool = True) -> dict[s
     }
 
 
+# Default manifest-backed Location agent tool set. This is the chat-safe v2 set:
+# control-plane + coordinate-free grant prep + client-action directives. It
+# intentionally excludes publish_location_envelope / view_location_envelope
+# because those require browser-side ciphertext/decryption.
 LOCATION_AGENT_TOOLS = [
-    list_location_recipients,
-    list_active_location_shares,
-    create_location_share,
-    publish_location_envelope,
-    view_location_envelope,
-    revoke_location_share,
-    request_location_access,
-    approve_location_request,
-    deny_location_request,
-    refer_location_recipient,
-]
-
-
-# v1 control-plane subset: tools the agent can fully complete server-side with no
-# client-side encryption handoff. Excludes create/publish/view/approve, which
-# require the client to capture, encrypt, and upload a coordinate envelope.
-CONTROL_PLANE_LOCATION_TOOLS = [
-    list_location_recipients,
-    list_active_location_shares,
-    revoke_location_share,
-    request_location_access,
-    deny_location_request,
-    refer_location_recipient,
-]
-
-
-# v2 subset: control-plane + prep-and-handoff (create/approve create grants
-# server-side, coordinate-free) + read/intent/control tools for view & public
-# links. NEVER includes publish_location_envelope / view_location_envelope —
-# those are impossible server-side (need ciphertext / decryption) and are handled
-# by a client-action directive instead.
-V2_LOCATION_TOOLS = [
     list_location_recipients,
     list_active_location_shares,
     list_incoming_location_shares,
@@ -475,3 +447,20 @@ V2_LOCATION_TOOLS = [
     request_confirmation,
     propose_sos_panic,
 ]
+
+
+# v1 control-plane subset: tools the agent can fully complete server-side with no
+# client-side encryption handoff. Excludes create/publish/view/approve, which
+# require the client to capture, encrypt, and upload a coordinate envelope.
+CONTROL_PLANE_LOCATION_TOOLS = [
+    list_location_recipients,
+    list_active_location_shares,
+    revoke_location_share,
+    request_location_access,
+    deny_location_request,
+    refer_location_recipient,
+]
+
+
+# v2 subset: same as the default manifest-backed set.
+V2_LOCATION_TOOLS = LOCATION_AGENT_TOOLS

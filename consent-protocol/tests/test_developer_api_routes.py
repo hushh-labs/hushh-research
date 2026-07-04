@@ -30,6 +30,16 @@ def _fake_principal():
     )
 
 
+def _fake_internal_principal():
+    return developer.DeveloperPrincipal(
+        app_id="app_internal_123",
+        agent_id="developer:app_internal_123",
+        display_name="Internal App",
+        allowed_tool_groups=("internal_only",),
+        contact_email="internal@example.com",
+    )
+
+
 def _override_firebase_auth():
     return "firebase_uid_123"
 
@@ -559,6 +569,7 @@ def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
     assert payload["approval_required"] is False
     assert "discover_user_domains" in tool_names
     assert "list_ria_profiles" not in tool_names
+    assert "agent_chat_turn" not in tool_names
 
 
 def test_tool_catalog_accepts_authorization_bearer_header(monkeypatch):
@@ -578,6 +589,27 @@ def test_tool_catalog_accepts_authorization_bearer_header(monkeypatch):
     )
 
     assert response.status_code == 200
+
+
+def test_tool_catalog_exposes_agent_chat_turn_only_to_internal_principal(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: _fake_internal_principal(),
+    )
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/tool-catalog?token=hdk_internal")
+
+    assert response.status_code == 200
+    payload = response.json()
+    tool_names = [tool["name"] for tool in payload["tools"]]
+    assert payload["allowed_tool_groups"] == ["internal_only"]
+    assert "agent_chat_turn" in tool_names
+    assert "request_consent" not in tool_names
 
 
 def test_request_consent_creates_pending_request(monkeypatch):

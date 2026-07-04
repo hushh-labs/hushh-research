@@ -1,7 +1,10 @@
 """Pure helpers for the central chat's location delegation branch."""
 
-from api.routes.kai.agent_chat import resolve_delegate_target, specialist_result_to_frames
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
+from hushh_mcp.services.agent_chat_turn_service import (
+    resolve_delegate_target,
+    specialist_result_to_frames,
+)
 
 
 def test_resolve_target_location_is_wired():
@@ -22,6 +25,11 @@ def test_resolve_target_all_my_brands_needs_llm_planner():
 def test_resolve_target_unwired_specialist_falls_through():
     # finance classifies but is NOT wired in slice 1 → no delegation.
     assert resolve_delegate_target("rebalance my portfolio") is None
+
+
+def test_resolve_target_unimplemented_kyc_falls_through():
+    # KYC classification must not silently route to an agent until that agent is wired.
+    assert resolve_delegate_target("can you verify my KYC documents") is None
 
 
 def test_resolve_target_general_chat_none():

@@ -4385,6 +4385,7 @@ export function AgentChatWorkspace({
                   />
                 ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (
                   <SpecialistDirectiveCard
+                    agentId={pendingSpecialistDirective.delegateAgentId}
                     summary={String(
                       (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                         .summary ?? pendingSpecialistDirective.message,
@@ -4456,6 +4457,7 @@ export function AgentChatWorkspace({
                 ) : (
                   // ── Action / crypto mode (existing path, unchanged) ───────
                   <SpecialistDirectiveCard
+                    agentId={pendingSpecialistDirective.delegateAgentId}
                     summary={String(
                       (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                         .summary ?? pendingSpecialistDirective.message,

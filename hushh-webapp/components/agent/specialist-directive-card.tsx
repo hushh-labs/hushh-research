@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useState } from "react";
-import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
+import { Check, Database, ExternalLink, ShieldCheck, ShieldOff, Store, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
@@ -15,6 +15,7 @@ export type SpecialistCardProps = {
   confirmLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  agentId?: string;
   busy?: boolean;
 };
 
@@ -23,10 +24,17 @@ export function SpecialistDirectiveCard({
   confirmLabel,
   onConfirm,
   onCancel,
+  agentId,
   busy,
 }: SpecialistCardProps) {
+  const agentName = agentId ? agentDisplayName(agentId) : null;
   return (
     <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3">
+      {agentName ? (
+        <p className="mb-1 text-[11px] font-semibold uppercase text-foreground/50">
+          {agentName}
+        </p>
+      ) : null}
       <p className="text-sm font-medium text-foreground/90">{summary}</p>
       <div className="mt-3 flex gap-2">
         <button
@@ -152,16 +160,35 @@ export type SpecialistConsentRequiredCardProps = {
 function agentDisplayName(agentId: string): string {
   if (agentId === "agent_nav") return "Nav";
   if (agentId === "agent_location") return "Location";
+  if (agentId === "agent_connected_systems") return "Connected Systems";
+  if (agentId === "agent_personal_information") return "Information Marketplace";
   if (agentId === "agent_kai") return "Kai";
   if (agentId === "agent_kyc") return "KYC";
+  if (agentId === "agent_finance") return "Finance";
   return agentId.replace(/^agent_/, "").replace(/_/g, " ") || "This agent";
 }
 
-function scopeDisplayName(scope: string): string {
+function scopeDisplayName(scope: string, agentId?: string): string {
   if (scope === "agent.nav.review") return "review your consent and privacy access";
   if (scope === "agent.location.manage") return "manage One Location requests";
+  if (scope === "agent.one.orchestrate" && agentId === "agent_connected_systems") {
+    return "read or update connected CRM records with your approval";
+  }
+  if (scope === "agent.one.orchestrate" && agentId === "agent_personal_information") {
+    return "review marketplace sections and access requests";
+  }
   if (scope === "agent.one.orchestrate") return "coordinate specialist agents";
   return scope || "the required permission";
+}
+
+function SpecialistConsentIcon({ agentId }: { agentId: string }) {
+  const Icon =
+    agentId === "agent_connected_systems"
+      ? Database
+      : agentId === "agent_personal_information"
+        ? Store
+        : ShieldCheck;
+  return <Icon className="h-4 w-4" aria-hidden="true" />;
 }
 
 export function SpecialistConsentRequiredCard({
@@ -173,7 +200,7 @@ export function SpecialistConsentRequiredCard({
   onCancel,
 }: SpecialistConsentRequiredCardProps) {
   const agentName = agentDisplayName(agentId);
-  const scopeName = scopeDisplayName(requiredScope);
+  const scopeName = scopeDisplayName(requiredScope, agentId);
 
   return (
     <div
@@ -182,7 +209,7 @@ export function SpecialistConsentRequiredCard({
     >
       <div className="flex items-start gap-3">
         <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
-          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+          <SpecialistConsentIcon agentId={agentId} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">{agentName} needs permission</p>

@@ -3,6 +3,7 @@
 MCP tool definitions and handlers.
 """
 
+from .agent_chat_tools import handle_agent_chat_turn
 from .campaign_context_tools import handle_prepare_campaign_context
 from .consent_tools import handle_check_consent_status, handle_request_consent
 from .data_tools import (
@@ -41,6 +42,7 @@ from .utility_tools import (
 
 __all__ = [
     "get_tool_definitions",
+    "handle_agent_chat_turn",
     # Consent
     "handle_prepare_campaign_context",
     "handle_request_consent",

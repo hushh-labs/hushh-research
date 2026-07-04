@@ -57,7 +57,7 @@ TOOL_GROUP_TOOL_NAMES = {
         "kai_resume_active_analysis",
         "kai_cancel_active_analysis",
     ),
-    TOOL_GROUP_INTERNAL_ONLY: ("delegate_to_agent",),
+    TOOL_GROUP_INTERNAL_ONLY: ("delegate_to_agent", "agent_chat_turn"),
 }
 
 TOOL_CATALOG = (
@@ -206,6 +206,12 @@ TOOL_CATALOG = (
         "group": TOOL_GROUP_INTERNAL_ONLY,
         "compatibility_status": "internal_only",
         "description": "Internal TrustLink delegation flow.",
+    },
+    {
+        "name": "agent_chat_turn",
+        "group": TOOL_GROUP_INTERNAL_ONLY,
+        "compatibility_status": "internal_only",
+        "description": "Internal first-party Agent chat turn over the shared A2A path.",
     },
 )
 
