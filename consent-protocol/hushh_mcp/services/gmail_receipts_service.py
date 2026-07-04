@@ -40,10 +40,13 @@ from hushh_mcp.runtime_settings import (
     get_optional_gmail_oauth_token_key,
 )
 from hushh_mcp.services.gmail_nudges import (
+    MeetingEvent,
     NudgeMessage,
     NudgeThread,
     derive_nudges,
     derive_upcoming_meeting_nudges,
+    extract_meeting_datetime,
+    looks_like_meeting,
     parse_ics_event,
 )
 
@@ -65,6 +68,12 @@ _NUDGE_MAX_THREADS = 25
 _NUDGE_DEFAULT_LIMIT = 10
 # Calendar invites carry an .ics attachment; scan recent ones for upcoming meetings.
 _NUDGE_MEETING_QUERY = "filename:ics newer_than:45d"
+# Plus body-text meeting mentions (emails proposing a meeting without a .ics).
+_NUDGE_BODY_MEETING_QUERY = (
+    "in:inbox newer_than:14d -category:promotions -category:social "
+    '(meeting OR "let\'s meet" OR "meet up" OR "catch up" OR "sync up" OR '
+    'zoom OR "google meet" OR "schedule a call" OR "schedule a meeting")'
+)
 _NUDGE_MAX_MEETINGS = 20
 
 _RECEIPT_SUBJECT_RE = re.compile(
@@ -1827,13 +1836,19 @@ class GmailReceiptsService:
         bounded_limit = max(1, min(int(limit or _NUDGE_DEFAULT_LIMIT), 50))
         needs_reply = derive_nudges(threads, user_email=user_email, limit=bounded_limit)
 
-        # Upcoming meetings from calendar invites (best-effort — never fail the
-        # whole nudge response if invite parsing has trouble).
+        # Upcoming meetings from calendar invites AND body-text meeting mentions
+        # (best-effort — never fail the whole nudge response over meeting parsing).
+        # Invite events are listed first so they win the per-thread de-dupe.
         try:
-            events = await self._fetch_meeting_events(
+            invite_events = await self._fetch_meeting_events(
                 access_token=access_token, limit=bounded_limit
             )
-            meetings = derive_upcoming_meeting_nudges(events, limit=bounded_limit)
+            body_events = await self._fetch_body_meeting_events(
+                access_token=access_token, limit=bounded_limit
+            )
+            meetings = derive_upcoming_meeting_nudges(
+                invite_events + body_events, limit=bounded_limit
+            )
         except Exception:
             logger.warning("gmail.nudges.meetings_failed", exc_info=True)
             meetings = []
@@ -1939,6 +1954,58 @@ class GmailReceiptsService:
             )
             if event is not None:
                 events.append(event)
+        return events
+
+    async def _fetch_body_meeting_events(self, *, access_token: str, limit: int) -> list:
+        """Scan recent meeting-language emails (no .ics) and build meeting events.
+
+        A time is extracted from the subject/snippet when present; otherwise the
+        event is an undated "mention" carrying the email's received time, which
+        the deriver still surfaces so plain "let's meet" emails aren't lost."""
+        scan = min(max(int(limit), 1) * 3, _NUDGE_MAX_MEETINGS)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_NUDGE_BODY_MEETING_QUERY,
+            page_token=None,
+            max_results=scan,
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        message_ids: list[str] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+            if len(message_ids) >= scan:
+                break
+
+        metas = await self._get_message_metadata_batch(
+            access_token=access_token, gmail_message_ids=message_ids
+        )
+        events: list = []
+        for meta in metas:
+            headers = self._extract_headers(meta)
+            subject = _clean_text(headers.get("subject")) or "(no subject)"
+            snippet = _clean_text(meta.get("snippet"))
+            text = f"{subject}\n{snippet}"
+            # The Gmail query is coarse; confirm meeting intent locally.
+            if not looks_like_meeting(text):
+                continue
+            from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            events.append(
+                MeetingEvent(
+                    message_id=_clean_text(meta.get("id")),
+                    thread_id=_clean_text(meta.get("threadId")),
+                    summary=subject,
+                    organizer_name=from_name or "",
+                    organizer_email=from_email or "",
+                    starts_at=extract_meeting_datetime(text),
+                    received_at=self._message_received_at(meta, headers),
+                    source="email",
+                )
+            )
         return events
 
     async def search_inbox(

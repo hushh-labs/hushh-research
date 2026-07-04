@@ -11,6 +11,7 @@ lives in ``GmailReceiptsService`` and feeds this module the plain data shapes be
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
@@ -58,7 +59,10 @@ class NudgeThread:
 
 @dataclass(frozen=True)
 class MeetingEvent:
-    """A calendar invite parsed from an email's .ics attachment."""
+    """A meeting derived from an email — either a calendar invite (.ics) or a
+    body-text meeting mention. ``starts_at`` may be None for a mention with no
+    parseable time; ``received_at`` is the email's date; ``source`` is
+    "invite" or "email"."""
 
     message_id: str
     thread_id: str
@@ -66,6 +70,8 @@ class MeetingEvent:
     organizer_name: str
     organizer_email: str
     starts_at: datetime | None
+    received_at: datetime | None = None
+    source: str = "invite"
 
 
 @dataclass(frozen=True)
@@ -271,26 +277,101 @@ def parse_ics_event(ics_text: str, *, message_id: str, thread_id: str) -> Meetin
     )
 
 
+# Words that signal a meeting in an email subject/body (secondary filter over the
+# coarse Gmail search). Deliberately excludes bare "call" (too noisy).
+_MEETING_LANGUAGE_RE = re.compile(
+    r"\b(meeting|let'?s meet|meet up|catch ?up|sync up|1:1|one[ -]on[ -]one|"
+    r"schedule (?:a )?(?:call|meeting|time)|calendar invite|zoom|google meet|"
+    r"ms teams|teams meeting|hop on a call|book a time)\b",
+    re.IGNORECASE,
+)
+
+_TIME_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", re.IGNORECASE)
+_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def looks_like_meeting(text: str | None) -> bool:
+    """True when subject/snippet text reads like a meeting request."""
+    return bool(_MEETING_LANGUAGE_RE.search(text or ""))
+
+
+def extract_meeting_datetime(text: str | None, *, now: datetime | None = None) -> datetime | None:
+    """Best-effort future meeting time from free text. Conservative: requires an
+    explicit time-of-day (e.g. "3pm"); picks the day from "tomorrow" / a named
+    weekday, else the next occurrence of that time. Returns None when no time is
+    present (the caller then treats it as an undated mention). UTC, stdlib only."""
+    reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    lower = (text or "").lower()
+    match = _TIME_RE.search(lower)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    meridiem = match.group(3).lower()
+    if meridiem == "pm" and hour != 12:
+        hour += 12
+    elif meridiem == "am" and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        return None
+
+    day = reference.date()
+    if "tomorrow" in lower:
+        day = (reference + timedelta(days=1)).date()
+    else:
+        for name, index in _WEEKDAYS.items():
+            if name in lower:
+                ahead = (index - reference.weekday()) % 7 or 7
+                day = (reference + timedelta(days=ahead)).date()
+                break
+
+    candidate = datetime(day.year, day.month, day.day, hour, minute, tzinfo=timezone.utc)
+    if candidate < reference:
+        candidate += timedelta(days=1)
+    return candidate
+
+
 def derive_upcoming_meeting_nudges(
     events: list[MeetingEvent],
     *,
     now: datetime | None = None,
     limit: int = 10,
     horizon_days: int = 30,
+    mention_max_age_days: int = 14,
 ) -> list[Nudge]:
-    """Derive "Upcoming meeting" nudges from parsed calendar invites: future events
-    within the horizon, de-duplicated, soonest first, capped at ``limit``."""
+    """Derive "Upcoming meeting" nudges.
+
+    Two kinds, both surfaced: **scheduled** (a parseable future start within the
+    horizon — from a .ics invite or a body time) and **mentioned** (a recent
+    meeting-intent email with no reliable time). One nudge per thread; scheduled
+    (soonest first) before mentions (most recent first); capped at ``limit``."""
     reference = now or datetime.now(timezone.utc)
     horizon = reference + timedelta(days=horizon_days)
+    mention_cutoff = reference - timedelta(days=mention_max_age_days)
+
     nudges: list[Nudge] = []
-    seen: set = set()
+    seen_threads: set = set()
     for event in events:
-        if event.starts_at is None or event.starts_at < reference or event.starts_at > horizon:
+        scheduled = event.starts_at is not None and reference <= event.starts_at <= horizon
+        mentioned = (
+            event.starts_at is None
+            and event.received_at is not None
+            and event.received_at >= mention_cutoff
+        )
+        if not scheduled and not mentioned:
             continue
-        key = (event.summary, event.starts_at)
-        if key in seen:
-            continue
-        seen.add(key)
+        if event.thread_id:
+            if event.thread_id in seen_threads:
+                continue
+            seen_threads.add(event.thread_id)
         nudges.append(
             Nudge(
                 type=NUDGE_UPCOMING_MEETING,
@@ -299,9 +380,16 @@ def derive_upcoming_meeting_nudges(
                 title=event.summary,
                 sender=event.organizer_name or event.organizer_email or "Organizer",
                 sender_email=event.organizer_email,
-                received_at=None,
+                received_at=event.received_at,
                 starts_at=event.starts_at,
             )
         )
-    nudges.sort(key=lambda n: n.starts_at or datetime.max.replace(tzinfo=timezone.utc))
+
+    def _sort_key(nudge: Nudge) -> tuple:
+        if nudge.starts_at is not None:
+            return (0, nudge.starts_at.timestamp())
+        received = nudge.received_at.timestamp() if nudge.received_at else 0.0
+        return (1, -received)
+
+    nudges.sort(key=_sort_key)
     return nudges[: max(0, limit)]

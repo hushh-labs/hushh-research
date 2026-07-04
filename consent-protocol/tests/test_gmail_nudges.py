@@ -14,7 +14,9 @@ from hushh_mcp.services.gmail_nudges import (
     NudgeThread,
     derive_needs_reply_nudges,
     derive_upcoming_meeting_nudges,
+    extract_meeting_datetime,
     is_automated_sender,
+    looks_like_meeting,
     parse_from_header,
     parse_ics_datetime,
     parse_ics_event,
@@ -163,14 +165,26 @@ def test_parse_ics_event_without_dtstart_is_none():
     assert parse_ics_event("SUMMARY:No time here", message_id="m", thread_id="t") is None
 
 
-def _event(summary: str, hours_from_now: int, *, message_id: str = "m") -> MeetingEvent:
+def _event(
+    summary: str,
+    hours_from_now: int | None,
+    *,
+    message_id: str = "m",
+    thread_id: str | None = None,
+    received_hours_ago: int | None = None,
+    source: str = "invite",
+) -> MeetingEvent:
     return MeetingEvent(
         message_id=message_id,
-        thread_id="t",
+        thread_id=thread_id or message_id,
         summary=summary,
         organizer_name="Org",
         organizer_email="org@x.com",
-        starts_at=_NOW + timedelta(hours=hours_from_now),
+        starts_at=None if hours_from_now is None else _NOW + timedelta(hours=hours_from_now),
+        received_at=None
+        if received_hours_ago is None
+        else _NOW - timedelta(hours=received_hours_ago),
+        source=source,
     )
 
 
@@ -187,13 +201,51 @@ def test_upcoming_meetings_future_only_sorted_and_limited():
     assert nudges[0].starts_at == _NOW + timedelta(hours=2)
 
 
-def test_upcoming_meetings_dedupe_same_summary_and_time():
-    events = [_event("standup", 3, message_id="a"), _event("standup", 3, message_id="b")]
+def test_upcoming_meetings_dedupe_by_thread():
+    events = [
+        _event("standup", 3, message_id="a", thread_id="shared"),
+        _event("standup", 3, message_id="b", thread_id="shared"),
+    ]
     nudges = derive_upcoming_meeting_nudges(events, now=_NOW)
     assert len(nudges) == 1
+
+
+def test_body_mention_without_time_is_surfaced_after_scheduled():
+    events = [
+        _event("Coffee?", None, message_id="mention", received_hours_ago=3, source="email"),
+        _event("Sprint review", 5, message_id="sched"),
+    ]
+    nudges = derive_upcoming_meeting_nudges(events, now=_NOW)
+    # Scheduled first, then the undated mention.
+    assert [n.title for n in nudges] == ["Sprint review", "Coffee?"]
+    assert nudges[1].starts_at is None
+    assert nudges[1].received_at is not None
+
+
+def test_old_body_mention_is_dropped():
+    events = [_event("stale", None, received_hours_ago=24 * 40, source="email")]
+    assert derive_upcoming_meeting_nudges(events, now=_NOW) == []
 
 
 def test_meeting_nudge_serializes_starts_at():
     payload = derive_upcoming_meeting_nudges([_event("sync", 6)], now=_NOW)[0].to_dict()
     assert payload["type"] == NUDGE_UPCOMING_MEETING
     assert isinstance(payload["starts_at"], str)
+
+
+def test_looks_like_meeting():
+    assert looks_like_meeting("Can we schedule a meeting next week?") is True
+    assert looks_like_meeting("let's meet Tuesday") is True
+    assert looks_like_meeting("Your invoice is ready") is False
+
+
+def test_extract_meeting_datetime():
+    now = datetime(2026, 7, 4, 9, 0, 0, tzinfo=timezone.utc)  # Saturday
+    # Explicit time today, still ahead -> today.
+    got = extract_meeting_datetime("let's sync at 3pm", now=now)
+    assert got == datetime(2026, 7, 4, 15, 0, 0, tzinfo=timezone.utc)
+    # Tomorrow.
+    got = extract_meeting_datetime("call tomorrow at 10am", now=now)
+    assert got == datetime(2026, 7, 5, 10, 0, 0, tzinfo=timezone.utc)
+    # No time -> None (treated as an undated mention).
+    assert extract_meeting_datetime("we are meeting soon", now=now) is None

@@ -56,9 +56,15 @@ function gmailThreadUrl(threadId: string): string {
 
 function NudgeCard({ nudge }: { nudge: GmailNudge }) {
   const isMeeting = nudge.type === "upcoming_meeting";
-  const subtitle = isMeeting
-    ? `${nudge.sender ? `${nudge.sender} · ` : ""}${meetingWhen(nudge.starts_at)}`
-    : `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
+  let subtitle: string;
+  if (isMeeting && nudge.starts_at) {
+    subtitle = `${nudge.sender ? `${nudge.sender} · ` : ""}${meetingWhen(nudge.starts_at)}`;
+  } else if (isMeeting) {
+    // Body mention with no parseable time.
+    subtitle = `Mentioned by ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
+  } else {
+    subtitle = `From ${nudge.sender}${nudge.received_at ? ` · ${timeAgo(nudge.received_at)}` : ""}`;
+  }
   return (
     <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
       <div className="min-w-0 space-y-1">
