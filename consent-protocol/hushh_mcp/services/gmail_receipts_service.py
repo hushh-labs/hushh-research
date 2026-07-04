@@ -46,6 +46,7 @@ from hushh_mcp.services.gmail_nudges import (
     derive_nudges,
     derive_upcoming_meeting_nudges,
     extract_meeting_datetime,
+    extract_meeting_url,
     looks_like_meeting,
     parse_ics_event,
 )
@@ -1994,6 +1995,7 @@ class GmailReceiptsService:
             if not looks_like_meeting(text):
                 continue
             from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            received_at = self._message_received_at(meta, headers)
             events.append(
                 MeetingEvent(
                     message_id=_clean_text(meta.get("id")),
@@ -2001,9 +2003,13 @@ class GmailReceiptsService:
                     summary=subject,
                     organizer_name=from_name or "",
                     organizer_email=from_email or "",
-                    starts_at=extract_meeting_datetime(text),
-                    received_at=self._message_received_at(meta, headers),
+                    # Resolve relative times ("Monday 3pm") against the email's own
+                    # date, not today — otherwise an old email is projected into a
+                    # phantom future meeting.
+                    starts_at=extract_meeting_datetime(text, now=received_at),
+                    received_at=received_at,
                     source="email",
+                    meeting_url=extract_meeting_url(text),
                 )
             )
         return events

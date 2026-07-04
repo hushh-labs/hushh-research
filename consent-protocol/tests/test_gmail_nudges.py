@@ -15,6 +15,7 @@ from hushh_mcp.services.gmail_nudges import (
     derive_needs_reply_nudges,
     derive_upcoming_meeting_nudges,
     extract_meeting_datetime,
+    extract_meeting_url,
     is_automated_sender,
     looks_like_meeting,
     parse_from_header,
@@ -173,6 +174,7 @@ def _event(
     thread_id: str | None = None,
     received_hours_ago: int | None = None,
     source: str = "invite",
+    meeting_url: str | None = None,
 ) -> MeetingEvent:
     return MeetingEvent(
         message_id=message_id,
@@ -185,6 +187,7 @@ def _event(
         if received_hours_ago is None
         else _NOW - timedelta(hours=received_hours_ago),
         source=source,
+        meeting_url=meeting_url,
     )
 
 
@@ -210,16 +213,15 @@ def test_upcoming_meetings_dedupe_by_thread():
     assert len(nudges) == 1
 
 
-def test_body_mention_without_time_is_surfaced_after_scheduled():
+def test_undated_events_are_dropped_even_when_recent():
+    # Undated meeting-language emails cannot be shown as upcoming (no time to
+    # verify or count down to), so they are NOT surfaced — only the scheduled one.
     events = [
         _event("Coffee?", None, message_id="mention", received_hours_ago=3, source="email"),
         _event("Sprint review", 5, message_id="sched"),
     ]
     nudges = derive_upcoming_meeting_nudges(events, now=_NOW)
-    # Scheduled first, then the undated mention.
-    assert [n.title for n in nudges] == ["Sprint review", "Coffee?"]
-    assert nudges[1].starts_at is None
-    assert nudges[1].received_at is not None
+    assert [n.title for n in nudges] == ["Sprint review"]
 
 
 def test_old_body_mention_is_dropped():
@@ -227,10 +229,52 @@ def test_old_body_mention_is_dropped():
     assert derive_upcoming_meeting_nudges(events, now=_NOW) == []
 
 
-def test_meeting_nudge_serializes_starts_at():
-    payload = derive_upcoming_meeting_nudges([_event("sync", 6)], now=_NOW)[0].to_dict()
+def test_meeting_nudge_serializes_starts_at_and_meeting_url():
+    payload = derive_upcoming_meeting_nudges(
+        [_event("sync", 6, meeting_url="https://meet.google.com/abc-defg-hij")], now=_NOW
+    )[0].to_dict()
     assert payload["type"] == NUDGE_UPCOMING_MEETING
     assert isinstance(payload["starts_at"], str)
+    assert payload["meeting_url"] == "https://meet.google.com/abc-defg-hij"
+
+
+_ICS_WITH_MEET = "\r\n".join(
+    [
+        "BEGIN:VCALENDAR",
+        "BEGIN:VEVENT",
+        "SUMMARY:Design review",
+        "DTSTART:20260706T160000Z",
+        "LOCATION:https://meet.google.com/xyz-abcd-efg",
+        "ORGANIZER;CN=Ravi Kumar:mailto:ravi@acme.com",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+)
+
+
+def test_parse_ics_event_extracts_meeting_url():
+    event = parse_ics_event(_ICS_WITH_MEET, message_id="m1", thread_id="t1")
+    assert event is not None
+    assert event.meeting_url == "https://meet.google.com/xyz-abcd-efg"
+
+
+def test_parse_ics_event_without_conference_link_has_none_url():
+    event = parse_ics_event(_ICS, message_id="m1", thread_id="t1")
+    assert event is not None
+    assert event.meeting_url is None
+
+
+def test_extract_meeting_url():
+    assert (
+        extract_meeting_url("Join here: https://us02web.zoom.us/j/8412345678?pwd=abc trailing")
+        == "https://us02web.zoom.us/j/8412345678?pwd=abc"
+    )
+    assert (
+        extract_meeting_url("meet at https://meet.google.com/abc-defg-hij.")
+        == "https://meet.google.com/abc-defg-hij"
+    )
+    assert extract_meeting_url("no link here, just text") is None
+    assert extract_meeting_url(None) is None
 
 
 def test_looks_like_meeting():

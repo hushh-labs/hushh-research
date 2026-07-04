@@ -72,6 +72,8 @@ class MeetingEvent:
     starts_at: datetime | None
     received_at: datetime | None = None
     source: str = "invite"
+    # Conferencing "join" link (Zoom / Google Meet / Teams / Webex), if found.
+    meeting_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,8 @@ class Nudge:
     received_at: datetime | None
     # Meeting start time for NUDGE_UPCOMING_MEETING; None for other nudge types.
     starts_at: datetime | None = None
+    # Conferencing "join" link for NUDGE_UPCOMING_MEETING; None when unavailable.
+    meeting_url: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -98,6 +102,7 @@ class Nudge:
             "sender_email": self.sender_email,
             "received_at": self.received_at.isoformat() if self.received_at else None,
             "starts_at": self.starts_at.isoformat() if self.starts_at else None,
+            "meeting_url": self.meeting_url,
         }
 
 
@@ -235,13 +240,38 @@ def parse_ics_datetime(value: str) -> datetime | None:
     return parsed.replace(tzinfo=timezone.utc)
 
 
+# Conferencing "join" links we recognize (Zoom / Google Meet / Teams / Webex).
+_MEETING_URL_RE = re.compile(
+    r"https?://(?:[a-z0-9-]+\.)*"
+    r"(?:zoom\.us/(?:j|my|w|s)/\S+"
+    r"|meet\.google\.com/[a-z0-9-]+\S*"
+    r"|teams\.microsoft\.com/l/\S+"
+    r"|teams\.live\.com/meet/\S+"
+    r"|[a-z0-9-]+\.webex\.com/\S+)",
+    re.IGNORECASE,
+)
+
+
+def extract_meeting_url(text: str | None) -> str | None:
+    """Best-effort conferencing "join" link from free text (Zoom / Google Meet /
+    Teams / Webex). Trailing sentence punctuation is stripped. None when absent."""
+    if not text:
+        return None
+    match = _MEETING_URL_RE.search(text)
+    if not match:
+        return None
+    return match.group(0).rstrip(".,;:)]}>\"'")
+
+
 def parse_ics_event(ics_text: str, *, message_id: str, thread_id: str) -> MeetingEvent | None:
-    """Parse SUMMARY / DTSTART / ORGANIZER out of an .ics body. Returns None when
-    there is no parseable start time (nothing to schedule a nudge around)."""
+    """Parse SUMMARY / DTSTART / ORGANIZER / conferencing link out of an .ics body.
+    Returns None when there is no parseable start time (nothing to schedule a
+    nudge around)."""
     summary = ""
     starts_at: datetime | None = None
     organizer_name = ""
     organizer_email = ""
+    conference_text = ""  # accumulate LOCATION / DESCRIPTION / URL / X-*-CONFERENCE
     for raw_line in _ics_unfold(ics_text or "").splitlines():
         line = raw_line.strip()
         upper = line.upper()
@@ -256,8 +286,16 @@ def parse_ics_event(ics_text: str, *, message_id: str, thread_id: str) -> Meetin
             if "cn=" in lower:
                 cn = line[lower.index("cn=") + 3 :]
                 organizer_name = cn.split(":", 1)[0].split(";", 1)[0].strip().strip('"')
+        elif (
+            upper.startswith("LOCATION")
+            or upper.startswith("DESCRIPTION")
+            or upper.startswith("URL")
+            or "CONFERENCE" in upper
+        ):
+            conference_text += " " + _ics_line_value(line)
     if starts_at is None:
         return None
+    meeting_url = extract_meeting_url(conference_text)
     summary = (
         summary.replace("\\,", ",")
         .replace("\\;", ";")
@@ -274,6 +312,7 @@ def parse_ics_event(ics_text: str, *, message_id: str, thread_id: str) -> Meetin
         organizer_name=organizer_name,
         organizer_email=organizer_email,
         starts_at=starts_at,
+        meeting_url=meeting_url,
     )
 
 
@@ -345,28 +384,23 @@ def derive_upcoming_meeting_nudges(
     now: datetime | None = None,
     limit: int = 10,
     horizon_days: int = 30,
-    mention_max_age_days: int = 14,
 ) -> list[Nudge]:
     """Derive "Upcoming meeting" nudges.
 
-    Two kinds, both surfaced: **scheduled** (a parseable future start within the
-    horizon — from a .ics invite or a body time) and **mentioned** (a recent
-    meeting-intent email with no reliable time). One nudge per thread; scheduled
-    (soonest first) before mentions (most recent first); capped at ``limit``."""
+    Only **scheduled** meetings are surfaced: those with a real start time in the
+    future and within the horizon (from a .ics invite or a parseable body time).
+    One nudge per thread, soonest first, capped at ``limit``.
+
+    Undated meeting-language emails (``starts_at is None``) are intentionally NOT
+    surfaced — without a time they cannot be shown as upcoming, counted down to,
+    or given a join link, and a past meeting would otherwise linger for days."""
     reference = now or datetime.now(timezone.utc)
     horizon = reference + timedelta(days=horizon_days)
-    mention_cutoff = reference - timedelta(days=mention_max_age_days)
 
     nudges: list[Nudge] = []
     seen_threads: set = set()
     for event in events:
-        scheduled = event.starts_at is not None and reference <= event.starts_at <= horizon
-        mentioned = (
-            event.starts_at is None
-            and event.received_at is not None
-            and event.received_at >= mention_cutoff
-        )
-        if not scheduled and not mentioned:
+        if event.starts_at is None or not (reference <= event.starts_at <= horizon):
             continue
         if event.thread_id:
             if event.thread_id in seen_threads:
@@ -382,14 +416,9 @@ def derive_upcoming_meeting_nudges(
                 sender_email=event.organizer_email,
                 received_at=event.received_at,
                 starts_at=event.starts_at,
+                meeting_url=event.meeting_url,
             )
         )
 
-    def _sort_key(nudge: Nudge) -> tuple:
-        if nudge.starts_at is not None:
-            return (0, nudge.starts_at.timestamp())
-        received = nudge.received_at.timestamp() if nudge.received_at else 0.0
-        return (1, -received)
-
-    nudges.sort(key=_sort_key)
+    nudges.sort(key=lambda n: n.starts_at.timestamp())  # all non-None here
     return nudges[: max(0, limit)]
