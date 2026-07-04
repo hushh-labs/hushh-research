@@ -672,7 +672,7 @@ export function AuthStep({
             aria-label="Sign in to One"
             className="mt-6 font-[family-name:var(--font-app-display)] text-[36px] font-extrabold leading-[1.05] tracking-[-1.1px] text-white"
           >
-            Sign in to One<span style={{ color: "#8583FF" }}>.</span>
+            Sign in to One<span style={{ color: "#E6B366" }}>.</span>
           </h1>
           <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.4] text-white/55">
             Sign in to open your private vault, only you can.

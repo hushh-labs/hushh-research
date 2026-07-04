@@ -271,9 +271,9 @@ function VaultUnlockHero() {
           />
         </div>
         <div className="whitespace-nowrap font-[family-name:var(--font-app-display)] text-[24px] font-extrabold leading-none tracking-[-0.8px] text-white">
-          hu<span style={{ color: "#8583FF" }}>sh</span>h{" "}
+          hu<span style={{ color: "#E6B366" }}>sh</span>h{" "}
           <span className="font-bold">One</span>
-          <span style={{ color: "#8583FF" }}>.</span>
+          <span style={{ color: "#E6B366" }}>.</span>
         </div>
       </div>
     </div>

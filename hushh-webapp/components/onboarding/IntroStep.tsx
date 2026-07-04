@@ -119,9 +119,9 @@ export function IntroStep({
             aria-label="hushh One, a memory that's only yours"
             className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-[-1.4px] text-white"
           >
-            hu<span style={{ color: "#8583FF" }}>sh</span>h{" "}
+            hu<span style={{ color: "#E6B366" }}>sh</span>h{" "}
             <span className="font-bold">One</span>
-            <span style={{ color: "#8583FF" }}>.</span>
+            <span style={{ color: "#E6B366" }}>.</span>
           </div>
           <p className="mt-3 text-[16px] tracking-[-0.2px] text-white/55">
             A memory that&apos;s only yours.
