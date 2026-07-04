@@ -147,6 +147,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "sync_remote_enabled": args.sync_remote_enabled,
         "developer_api_enabled": args.developer_api_enabled,
         "remote_mcp_enabled": args.remote_mcp_enabled,
+        "crm_registry_db_enabled": args.crm_registry_db_enabled,
         "cors_allowed_origins": args.cors_allowed_origins,
         "obs_data_stale_ratio_threshold": args.obs_data_stale_ratio_threshold,
         "passkey_allowed_rp_ids": args.passkey_allowed_rp_ids,
@@ -190,6 +191,7 @@ def main() -> int:
     parser.add_argument("--sync-remote-enabled", required=True)
     parser.add_argument("--developer-api-enabled", required=True)
     parser.add_argument("--remote-mcp-enabled", required=True)
+    parser.add_argument("--crm-registry-db-enabled", default="")
     parser.add_argument("--cors-allowed-origins", required=True)
     parser.add_argument("--obs-data-stale-ratio-threshold", required=True)
     parser.add_argument("--passkey-allowed-rp-ids", default="")
