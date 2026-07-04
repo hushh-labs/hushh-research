@@ -14,8 +14,6 @@ import {
   Shield,
   ArrowRight,
   Fingerprint,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VaultService } from "@/lib/services/vault-service";
@@ -91,7 +89,6 @@ export function VaultFlow({
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
-  const [showPassphrase, setShowPassphrase] = useState(false);
   const [vaultMode, setVaultMode] = useState<VaultMode>("passphrase");
   const [unlockHint, setUnlockHint] = useState<string | null>(null);
   const [availableGeneratedMethod, setAvailableGeneratedMethod] =
@@ -902,26 +899,26 @@ export function VaultFlow({
               <div className="text-center">
                 <div
                   className={cn(
-                    "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full transition-colors",
-                    passphrase && !isGeneratedVaultMode
-                      ? "bg-[rgba(48,209,88,0.14)]"
-                      : "bg-foreground/[0.06] dark:bg-foreground/[0.10]",
+                    "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full",
+                    isGeneratedVaultMode
+                      ? "bg-foreground/[0.06] dark:bg-foreground/[0.10]"
+                      : "bg-[rgba(94,92,230,0.1)] dark:bg-[rgba(133,131,255,0.16)]",
                   )}
                 >
                   <Icon
                     icon={isGeneratedVaultMode ? Fingerprint : Lock}
                     size={24}
                     className={
-                      passphrase && !isGeneratedVaultMode
-                        ? "text-[#248A3D]"
-                        : "text-foreground/70"
+                      isGeneratedVaultMode
+                        ? "text-foreground/70"
+                        : "text-[#5E5CE6] dark:text-[#8583FF]"
                     }
                   />
                 </div>
                 <div
                   role="heading"
                   aria-level={2}
-                  className="type-title2 text-foreground"
+                  className="text-[26px] font-extrabold leading-tight tracking-[-0.6px] text-foreground"
                 >
                   Unlock Your Vault
                 </div>
@@ -931,43 +928,49 @@ export function VaultFlow({
                     : "Enter your passphrase to open Vault"}
                 </p>
                 {unlockHint ? (
-                  <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-muted/50 px-3.5 py-2.5 type-footnote text-muted-foreground">
+                  <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[rgba(94,92,230,0.06)] px-3.5 py-2.5 type-footnote text-muted-foreground">
                     {unlockHint}
                   </p>
                 ) : null}
               </div>
               {shouldShowPassphraseUnlock && (
-                <div
-                  className={cn(
-                    "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-colors dark:bg-white/[0.04]",
-                    passphrase
-                      ? "border-[#111] dark:border-white/70"
-                      : "border-black/10 dark:border-white/15",
-                  )}
-                >
-                  <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
-                  <input
-                    id="unlock-passphrase"
-                    type={showPassphrase ? "text" : "password"}
-                    placeholder="Enter vault key"
-                    aria-label="Vault key"
-                    value={passphrase}
-                    onChange={(e) => setPassphrase(e.target.value)}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" && handleUnlockPassphrase()
-                    }
-                    autoFocus
-                    autoComplete="current-password"
-                    className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-foreground/35"
-                  />
-                  <button
-                    type="button"
-                    aria-label={showPassphrase ? "Hide vault key" : "Show vault key"}
-                    onClick={() => setShowPassphrase((v) => !v)}
-                    className="shrink-0 text-foreground/45 transition-colors hover:text-foreground/70"
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="unlock-passphrase"
+                    className="type-footnote font-medium text-muted-foreground"
                   >
-                    <Icon icon={showPassphrase ? EyeOff : Eye} size={18} />
-                  </button>
+                    Vault Key
+                  </Label>
+                  <div
+                    className={cn(
+                      "flex h-14 items-center gap-3 rounded-2xl border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04]",
+                      "focus-within:border-[#5E5CE6] focus-within:ring-4 focus-within:ring-[rgba(94,92,230,0.12)]",
+                      passphrase
+                        ? "border-[#5E5CE6]"
+                        : "border-black/10 dark:border-white/15",
+                    )}
+                  >
+                    <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                    <input
+                      id="unlock-passphrase"
+                      type="password"
+                      placeholder="Enter vault key"
+                      aria-label="Vault key"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleUnlockPassphrase()
+                      }
+                      autoFocus
+                      autoComplete="current-password"
+                      className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[#5E5CE6] outline-none placeholder:text-foreground/35"
+                    />
+                    {passphrase ? (
+                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#30B550] text-white">
+                        <Icon icon={Check} size={13} />
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               )}
               <div className="flex flex-col gap-2 pt-1">
@@ -1040,7 +1043,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(94,92,230,0.09)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.14)]"
                           data-testid="vault-use-passphrase-instead"
                           onClick={() => {
                             setError(null);
@@ -1059,7 +1062,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(94,92,230,0.09)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.14)]"
                           onClick={() => {
                             setError(null);
                             setPassphrase("");
@@ -1079,7 +1082,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[rgba(94,92,230,0.09)] !text-[#5E5CE6] hover:!bg-[rgba(94,92,230,0.14)]"
                           onClick={() => {
                             setError(null);
                             setStep("recovery");

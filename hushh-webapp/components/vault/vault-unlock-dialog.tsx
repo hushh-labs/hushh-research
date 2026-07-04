@@ -41,6 +41,11 @@ export function VaultUnlockDialog({
       open={open}
       modal
       dismissible={dismissible}
+      // Let the native iOS/Capacitor webview own keyboard avoidance. vaul's own
+      // input-repositioning shifts the whole sheet UP when the autofocused vault
+      // key field gains focus — on a device/simulator where no software keyboard
+      // is shown that leaves the sheet detached from the bottom with a gap below.
+      repositionInputs={false}
       onOpenChange={(nextOpen) => {
         if (!dismissible && !nextOpen) return;
         onOpenChange?.(nextOpen);
@@ -48,21 +53,13 @@ export function VaultUnlockDialog({
     >
       <DrawerContent
         className={[
-          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[26px] sm:max-w-md",
-          // Liquid Glass material: a highly translucent surface + heavy
-          // background blur + saturation/brightness boost so the app behind
-          // reads through as frosted glass, with a bright specular top rim, a
-          // hairline light edge, and a deep lifted shadow.
-          "border-t border-white/60 bg-background/40 dark:border-white/15 dark:bg-background/30",
-          "backdrop-blur-[34px] backdrop-saturate-[2] backdrop-brightness-[1.06] [-webkit-backdrop-filter:blur(34px)_saturate(2)_brightness(1.06)]",
-          "shadow-[0_-16px_64px_rgba(15,23,42,0.30),inset_0_1px_0_rgba(255,255,255,0.75),inset_0_0_0_0.5px_rgba(255,255,255,0.30)] dark:shadow-[0_-16px_64px_rgba(0,0,0,0.62),inset_0_1px_0_rgba(255,255,255,0.20)]",
+          // 16b / design.md §5.8: a solid action sheet (white in light, dark
+          // surface in dark) that rises over the immersive hero — top radius
+          // 34px + a deep lifted shadow. No translucency: the sheet is the calm
+          // white form surface, the dark hero sits behind the scrim.
+          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] sm:max-w-md dark:bg-[#141416]",
         ].join(" ")}
       >
-        {/* Specular sheen — the top-edge highlight that gives Liquid Glass its lift. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-white/40 via-white/10 to-transparent dark:from-white/[0.12] dark:via-white/[0.03]"
-        />
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
         <DrawerDescription className="sr-only">{description}</DrawerDescription>
         <VaultFlow
