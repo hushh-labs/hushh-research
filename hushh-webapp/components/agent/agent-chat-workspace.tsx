@@ -4110,6 +4110,14 @@ export function AgentChatWorkspace({
                         await consentActions.handleApprove(
                           pendingConsentCardItemToPendingConsent(item),
                         );
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markPendingConsentRequestDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "approved",
+                          ),
+                        }));
                       } finally {
                         setSpecialistBusyItemId(null);
                       }
@@ -4118,6 +4126,14 @@ export function AgentChatWorkspace({
                       setSpecialistBusyItemId(item.id);
                       try {
                         await consentActions.handleDeny(item.id);
+                        updateMessage(message.id, (current) => ({
+                          ...current,
+                          specialistDirective: markPendingConsentRequestDirectiveStatus(
+                            current.specialistDirective,
+                            item.id,
+                            "denied",
+                          ),
+                        }));
                       } finally {
                         setSpecialistBusyItemId(null);
                       }
