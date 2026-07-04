@@ -55,46 +55,63 @@ type OneDashboardMode = {
 
 const MONO_INDEX_FONT = 'ui-monospace, "SF Mono", Menlo, monospace';
 
-// DASHBOARD-LOCAL per-tone color set for the cinematic cards. Bright cards use
-// the gradient + tinted lift; dark (locked) tiles use only the glow blob.
+// DASHBOARD-LOCAL per-tone color set for the workflow cards — 2a "pastel
+// blocks, type-led" palette (One Dashboard Final). Every card is a FLAT pastel
+// surface with dark ink; bright vs locked differ only by badge/arrow vs
+// number/lock, never by darkness. bg = block fill, ink = title, muted = body
+// copy, faint = mono index + lock glyph, cta = locked "Unlock to see" emphasis.
 const CARD_COLORS: Record<
   OneCapabilityTone,
-  { gradient: string; shadow: string; glow: string }
+  { bg: string; ink: string; muted: string; faint: string; cta: string }
 > = {
   finance: {
-    gradient: "linear-gradient(135deg,#0B3D2E 0%,#12A150 100%)",
-    shadow: "0 14px 30px rgba(18,161,80,0.28)",
-    glow: "rgba(18,161,80,0.35)",
+    bg: "#DCF2E1",
+    ink: "#0A2914",
+    muted: "rgba(10,41,20,0.55)",
+    faint: "rgba(20,80,45,0.5)",
+    cta: "rgba(10,41,20,0.7)",
   },
   connected: {
-    gradient: "linear-gradient(135deg,#2E1065 0%,#5E5CE6 100%)",
-    shadow: "0 14px 30px rgba(94,92,230,0.26)",
-    glow: "rgba(94,92,230,0.35)",
+    bg: "#EAE3FA",
+    ink: "#221046",
+    muted: "rgba(34,16,70,0.55)",
+    faint: "rgba(60,35,110,0.45)",
+    cta: "rgba(34,16,70,0.7)",
   },
   email: {
-    gradient: "linear-gradient(135deg,#0A2540 0%,#3C82F6 100%)",
-    shadow: "0 14px 30px rgba(60,130,246,0.28)",
-    glow: "rgba(60,130,246,0.35)",
+    bg: "#D9E9F8",
+    ink: "#0B2540",
+    muted: "rgba(11,37,64,0.55)",
+    faint: "rgba(15,55,95,0.45)",
+    cta: "rgba(11,37,64,0.7)",
   },
   location: {
-    gradient: "linear-gradient(135deg,#4A2A00 0%,#FF9500 100%)",
-    shadow: "0 14px 30px rgba(255,149,0,0.28)",
-    glow: "rgba(255,149,0,0.32)",
+    bg: "#FFE9D2",
+    ink: "#3D1F05",
+    muted: "rgba(61,31,5,0.55)",
+    faint: "rgba(120,60,10,0.45)",
+    cta: "rgba(61,31,5,0.7)",
   },
   gmail: {
-    gradient: "linear-gradient(135deg,#0A2540 0%,#3C82F6 100%)",
-    shadow: "0 14px 30px rgba(60,130,246,0.28)",
-    glow: "rgba(60,130,246,0.35)",
+    bg: "#D9E9F8",
+    ink: "#0B2540",
+    muted: "rgba(11,37,64,0.55)",
+    faint: "rgba(15,55,95,0.45)",
+    cta: "rgba(11,37,64,0.7)",
   },
   pkm: {
-    gradient: "linear-gradient(135deg,#3A2A00 0%,#F5A623 100%)",
-    shadow: "0 14px 30px rgba(245,166,35,0.26)",
-    glow: "rgba(245,166,35,0.32)",
+    bg: "#FFE9D2",
+    ink: "#3D1F05",
+    muted: "rgba(61,31,5,0.55)",
+    faint: "rgba(120,60,10,0.45)",
+    cta: "rgba(61,31,5,0.7)",
   },
   consent: {
-    gradient: "linear-gradient(135deg,#2E1065 0%,#8B5CF6 100%)",
-    shadow: "0 14px 30px rgba(139,92,246,0.26)",
-    glow: "rgba(139,92,246,0.32)",
+    bg: "#EAE3FA",
+    ink: "#221046",
+    muted: "rgba(34,16,70,0.55)",
+    faint: "rgba(60,35,110,0.45)",
+    cta: "rgba(34,16,70,0.7)",
   },
 };
 
@@ -141,7 +158,8 @@ function listActionClass(mode: OneDashboardMode): string {
   // setup CTA.
   if (mode.isExploreOnly && mode.statusTone === "action")
     return "text-[#0A0A0A] dark:text-white";
-  return "text-[#5E5CE6] dark:text-[#8b8aff]";
+  // 2a keeps action CTAs in dark ink (no blue); emphasis is carried by weight.
+  return "text-[#0A0A0A] dark:text-white";
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -165,67 +183,66 @@ function WorkflowCard({
       className={cn(
         "group relative flex flex-col justify-between overflow-hidden rounded-[26px] p-5 sm:p-6",
         "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         size === "hero" ? "min-h-[190px]" : "min-h-[150px]",
-        bright
-          ? "focus-visible:ring-white/70"
-          : "bg-[#16181D] focus-visible:ring-white/40",
       )}
-      style={bright ? { background: colors.gradient, boxShadow: colors.shadow } : undefined}
+      style={{ background: colors.bg }}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute rounded-full blur-3xl",
-          isTile ? "-right-8 -top-8 h-28 w-28" : "-right-10 -top-10 h-44 w-44",
-        )}
-        style={{ background: colors.glow }}
-      />
-
       <div className="relative flex items-start justify-between gap-2">
         {bright ? (
-          <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+          <span
+            className="inline-flex items-center rounded-full bg-white/65 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+            style={{ color: colors.ink }}
+          >
             {mode.status}
           </span>
         ) : (
           <span
-            className="text-[12px] font-bold text-white/40"
-            style={{ fontFamily: MONO_INDEX_FONT }}
+            className="text-[12px] font-bold"
+            style={{ fontFamily: MONO_INDEX_FONT, color: colors.faint }}
           >
             {index}
           </span>
         )}
         {bright ? (
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#111]">
-            <ArrowUpRight className="h-5 w-5" aria-hidden />
+          <span
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{ background: colors.ink }}
+          >
+            <ArrowUpRight className="h-5 w-5" aria-hidden style={{ color: colors.bg }} />
           </span>
         ) : (
-          <Lock className="h-4 w-4 shrink-0 text-white/40" aria-hidden />
+          <Lock className="h-4 w-4 shrink-0" aria-hidden style={{ color: colors.faint }} />
         )}
       </div>
 
       <div className="relative mt-8">
         <h3
           className={cn(
-            "font-[family-name:var(--font-app-display)] font-extrabold leading-[1.05] text-white",
+            "font-[family-name:var(--font-app-display)] font-extrabold leading-[1.05]",
             size === "hero"
               ? "text-[28px] tracking-[-0.5px]"
               : "text-[22px] tracking-[-0.3px]",
           )}
+          style={{ color: colors.ink }}
         >
           {mode.title}
         </h3>
         {bright ? (
           <p
             className={cn(
-              "mt-1.5 max-w-[24rem] leading-snug text-white/75",
+              "mt-1.5 max-w-[24rem] leading-snug",
               isTile ? "text-[13px]" : "text-[14px]",
             )}
+            style={{ color: colors.muted }}
           >
             {mode.description}
           </p>
         ) : (
-          <p className="mt-1 text-[13px] text-white/55">
+          <p
+            className="mt-1 text-[13px] font-semibold"
+            style={{ color: colors.cta }}
+          >
             {mode.status} <span aria-hidden>→</span>
           </p>
         )}
