@@ -9,6 +9,8 @@ Covers:
      type == "sos_panic", a non-empty summary, and an id.
   6. propose_sos_panic is in _QUERY_TOOL_NAMES (so stateChanged stays False).
   7. End-to-end: handle_turn emits a sos_panic clientAction when the tool fires.
+  8. action_result {type:"sos_panic", status:"completed"} → correct reply + stateChanged True.
+  9. action_result {type:"sos_panic", status:"cancelled"} → correct reply + stateChanged False.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from google.genai import types
 
 from hushh_mcp.agents.location.tools import V2_LOCATION_TOOLS, propose_sos_panic
 from hushh_mcp.services.location_chat_service import (
+    _ACTION_RESULT_TEMPLATES,
     _QUERY_TOOL_NAMES,
     LocationChatService,
     _function_declarations_v2,
@@ -214,3 +217,65 @@ async def test_handle_turn_emits_sos_panic_client_action():
     assert action["summary"]
     # propose_* tools are in _QUERY_TOOL_NAMES — no server-side mutation
     assert out["stateChanged"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test 8: _ACTION_RESULT_TEMPLATES contains sos_panic entries (structural)
+# ---------------------------------------------------------------------------
+
+
+def test_action_result_templates_contain_sos_panic_entries():
+    assert ("sos_panic", "completed") in _ACTION_RESULT_TEMPLATES, (
+        "(_ACTION_RESULT_TEMPLATES must have a ('sos_panic', 'completed') entry"
+    )
+    assert ("sos_panic", "cancelled") in _ACTION_RESULT_TEMPLATES, (
+        "_ACTION_RESULT_TEMPLATES must have a ('sos_panic', 'cancelled') entry"
+    )
+    assert "SOS" in _ACTION_RESULT_TEMPLATES[("sos_panic", "completed")]
+    assert "SOS" in _ACTION_RESULT_TEMPLATES[("sos_panic", "cancelled")]
+
+
+# ---------------------------------------------------------------------------
+# Test 9: _handle_action_result — completed sos_panic → right reply + stateChanged True
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_action_result_sos_panic_completed():
+    store = _FakeStore()
+    svc = LocationChatService.__new__(LocationChatService)
+    svc._chat_store = store
+
+    result = await svc._handle_action_result(
+        user_id="u",
+        conversation_id="conv-sos",
+        action_result={"type": "sos_panic", "status": "completed"},
+    )
+
+    assert result["stateChanged"] is True
+    assert result["isComplete"] is True
+    assert result["response"] == _ACTION_RESULT_TEMPLATES[("sos_panic", "completed")]
+    # message persisted to store
+    assert any(m["role"] == "assistant" for m in store.added)
+
+
+# ---------------------------------------------------------------------------
+# Test 10: _handle_action_result — cancelled sos_panic → right reply + stateChanged False
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_action_result_sos_panic_cancelled():
+    store = _FakeStore()
+    svc = LocationChatService.__new__(LocationChatService)
+    svc._chat_store = store
+
+    result = await svc._handle_action_result(
+        user_id="u",
+        conversation_id="conv-sos",
+        action_result={"type": "sos_panic", "status": "cancelled"},
+    )
+
+    assert result["stateChanged"] is False
+    assert result["isComplete"] is True
+    assert result["response"] == _ACTION_RESULT_TEMPLATES[("sos_panic", "cancelled")]

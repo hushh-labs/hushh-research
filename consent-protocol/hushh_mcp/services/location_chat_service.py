@@ -97,6 +97,8 @@ _ACTION_RESULT_TEMPLATES = {
     ("view_envelope", "completed"): "Here's the latest location I could open.",
     ("create_public_link", "completed"): "Your public location link is ready.",
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
+    ("sos_panic", "completed"): "SOS sent — your emergency contacts are being notified.",
+    ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
 }
 
 _UNAVAILABLE_MESSAGE = (
@@ -643,7 +645,7 @@ class LocationChatService:
     def _build_client_action(self, directives: list[dict]) -> dict | None:
         """Fold collected per-tool directives into one client-action payload.
 
-        Priority: publish_share > view_envelope > create_public_link.
+        Priority: publish_share > view_envelope > create_public_link > sos_panic.
         Multiple publish_share grants are combined into a single shares[] list.
         """
         if not directives:
@@ -717,6 +719,7 @@ class LocationChatService:
         state_changed = status == "completed" and action_type in (
             "publish_share",
             "create_public_link",
+            "sos_panic",
         )
         conv_id = conversation_id or ""
         if conv_id:
