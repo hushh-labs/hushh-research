@@ -39,6 +39,11 @@ from hushh_mcp.runtime_settings import (
     get_core_security_settings,
     get_optional_gmail_oauth_token_key,
 )
+from hushh_mcp.services.gmail_nudges import (
+    NudgeMessage,
+    NudgeThread,
+    derive_nudges,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +52,15 @@ _GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 _GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+_GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
+
+# Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
+# how many recent threads to inspect, and how many cards to return.
+_NUDGE_INBOX_QUERY = "in:inbox category:primary newer_than:30d"
+_NUDGE_MAX_THREADS = 25
+_NUDGE_DEFAULT_LIMIT = 10
 
 _RECEIPT_SUBJECT_RE = re.compile(
     r"\b(receipt|invoice|order(?:\s+confirmation)?|payment|transaction|purchase|paid)\b",
@@ -1699,6 +1711,121 @@ class GmailReceiptsService:
                 continue
             payloads.append(result)
         return payloads
+
+    async def _get_thread_metadata(self, *, access_token: str, thread_id: str) -> dict[str, Any]:
+        return await self._http_get_json(
+            f"{_GMAIL_THREADS_URL}/{thread_id}",
+            token=access_token,
+            params={
+                "format": "metadata",
+                "metadataHeaders": ["From", "Subject", "Date"],
+            },
+        )
+
+    def _message_received_at(self, raw: dict[str, Any], headers: dict[str, str]) -> datetime | None:
+        internal = _clean_text(raw.get("internalDate"))
+        if internal.isdigit():
+            try:
+                return datetime.fromtimestamp(int(internal) / 1000, tz=timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                pass
+        date_header = headers.get("date")
+        if date_header:
+            try:
+                parsed = parsedate_to_datetime(date_header)
+            except (TypeError, ValueError):
+                parsed = None
+            if parsed is not None:
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
+        return None
+
+    def _nudge_thread_from_payload(self, payload: dict[str, Any]) -> NudgeThread | None:
+        thread_id = _clean_text(payload.get("id"))
+        raw_messages = payload.get("messages")
+        if not thread_id or not isinstance(raw_messages, list):
+            return None
+        messages: list[NudgeMessage] = []
+        for raw in raw_messages:
+            if not isinstance(raw, dict):
+                continue
+            headers = self._extract_headers(raw)
+            from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            messages.append(
+                NudgeMessage(
+                    message_id=_clean_text(raw.get("id")),
+                    from_email=from_email or "",
+                    from_name=from_name or "",
+                    subject=_clean_text(headers.get("subject")),
+                    received_at=self._message_received_at(raw, headers),
+                )
+            )
+        if not messages:
+            return None
+        messages.sort(key=lambda m: m.received_at or datetime.min.replace(tzinfo=timezone.utc))
+        return NudgeThread(thread_id=thread_id, messages=tuple(messages))
+
+    async def list_nudges(
+        self, *, user_id: str, limit: int = _NUDGE_DEFAULT_LIMIT
+    ) -> dict[str, Any]:
+        """Derive inbox flashcard nudges ("Needs a reply") for the connected account.
+
+        Reuses the receipts Gmail connection (``gmail.readonly`` — no new scope):
+        scans recent primary-inbox threads and returns structured nudges. The
+        intent logic is the pure ``derive_nudges`` so it stays unit-testable.
+        """
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
+        user_email = _clean_text(profile.get("emailAddress"))
+
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_NUDGE_INBOX_QUERY,
+            page_token=None,
+            max_results=100,
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        thread_ids: list[str] = []
+        seen: set[str] = set()
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            thread_id = _clean_text(entry.get("threadId"))
+            if thread_id and thread_id not in seen:
+                seen.add(thread_id)
+                thread_ids.append(thread_id)
+            if len(thread_ids) >= _NUDGE_MAX_THREADS:
+                break
+
+        payloads = await asyncio.gather(
+            *[
+                self._get_thread_metadata(access_token=access_token, thread_id=thread_id)
+                for thread_id in thread_ids
+            ],
+            return_exceptions=True,
+        )
+        threads: list[NudgeThread] = []
+        for thread_id, payload in zip(thread_ids, payloads, strict=False):
+            if isinstance(payload, Exception):
+                logger.warning(
+                    "gmail.nudges.thread_failed thread_id=%s reason=%s",
+                    thread_id,
+                    str(payload)[:200],
+                )
+                continue
+            thread = self._nudge_thread_from_payload(payload)
+            if thread is not None:
+                threads.append(thread)
+
+        bounded_limit = max(1, min(int(limit or _NUDGE_DEFAULT_LIMIT), 50))
+        nudges = derive_nudges(threads, user_email=user_email, limit=bounded_limit)
+        return {
+            "user_id": user_id,
+            "account_email": user_email or None,
+            "nudges": [nudge.to_dict() for nudge in nudges],
+        }
 
     async def _list_history(
         self,
