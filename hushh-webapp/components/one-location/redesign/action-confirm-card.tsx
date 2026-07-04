@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Link as LinkIcon, MapPin, Share2 } from "lucide-react";
+import { AlertTriangle, Eye, Link as LinkIcon, MapPin, Share2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { ClientAction } from "@/lib/one-location/types";
@@ -9,12 +9,14 @@ const CONFIRM_LABEL: Record<ClientAction["type"], string> = {
   publish_share: "Share",
   view_envelope: "View",
   create_public_link: "Create link",
+  sos_panic: "Send SOS",
 };
 
 const ACTION_ICON: Record<ClientAction["type"], typeof MapPin> = {
   publish_share: Share2,
   view_envelope: Eye,
   create_public_link: LinkIcon,
+  sos_panic: AlertTriangle,
 };
 
 export function ActionConfirmCard({

@@ -139,6 +139,19 @@ import {
 } from "@/components/one-location/redesign/location-redesign-hub";
 import { LocationRedesignSkeleton } from "@/components/one-location/redesign/location-redesign-skeleton";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+import {
+  clearSosIncident,
+  loadSosIncident,
+  reconcileSosIncident,
+  saveSosIncident,
+  type SosIncident,
+} from "@/lib/one-location/sos-incident";
+import {
+  isSosShareReadyRecipient,
+  runSosPanic,
+  selectSosConnectedRecipients,
+  SosPanicError,
+} from "@/lib/one-location/sos-trigger";
 import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
@@ -220,6 +233,7 @@ type BusyState =
   | "deny"
   | "refer"
   | "revoke"
+  | "sos"
   | "locationSettings"
   | "selfLocation"
   | "contactSync"
@@ -1695,6 +1709,12 @@ function OneLocationAgentPageContent() {
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
 
+  const [sosIncident, setSosIncident] = useState<SosIncident | null>(null);
+
+  // Hydrate the persisted SOS incident once on mount.
+  useEffect(() => {
+    setSosIncident(loadSosIncident());
+  }, []);
 
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
@@ -1882,6 +1902,43 @@ function OneLocationAgentPageContent() {
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+
+  // SOS alerts ONLY your actual One Network connections (e.g. the seeded trusted
+  // contacts), never the broad phone-verified directory that `recipients` also
+  // includes. Connection membership comes straight from networkConnections.
+  const sosTrustedRecipients = useMemo(
+    () =>
+      selectSosConnectedRecipients(
+        rankedRecipients,
+        state?.networkConnections,
+        auth.userId,
+      ),
+    [rankedRecipients, state?.networkConnections, auth.userId],
+  );
+
+  // Ref kept in sync with the latest sosIncident value so the reconcile effect
+  // can read it without adding it as a dependency (preventing infinite loops).
+  const sosIncidentRef = useRef(sosIncident);
+  useEffect(() => {
+    sosIncidentRef.current = sosIncident;
+  }, [sosIncident]);
+
+  // Reconcile the incident against live grants: drop grant ids that are no longer
+  // active (revoked/expired). Clears the banner automatically when the incident ends.
+  // Guard: skip until state has loaded so a reload doesn't wipe a just-hydrated
+  // incident by reconciling against an empty activeOwnerGrants array.
+  useEffect(() => {
+    if (!state) return;
+    const activeIds = activeOwnerGrants.map((grant) => grant.id);
+    const current = sosIncidentRef.current;
+    const reconciled = reconcileSosIncident(current, activeIds);
+    if (reconciled !== current) {
+      if (reconciled) saveSosIncident(reconciled);
+      else clearSosIncident();
+      setSosIncident(reconciled);
+    }
+  }, [state, activeOwnerGrants]);
+
   const activeVisibleReceivedGrants = visibleReceivedGrants;
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
@@ -2883,6 +2940,63 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
+  const handleTriggerSos = useCallback(async () => {
+    if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
+    if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
+    const readyRecipients = sosTrustedRecipients.filter(isSosShareReadyRecipient);
+    const totalTrusted = sosTrustedRecipients.length;
+    if (!readyRecipients.length) {
+      toast.error("No trusted contacts are ready to receive your location yet.");
+      return;
+    }
+    setBusy("sos");
+    try {
+      const readiness = await ensureForegroundLocationReady({
+        capturePoint: true,
+        autoOpenSettings: true,
+      });
+      if (!readiness.ready || !readiness.point) {
+        toast.error("Couldn't get your location — SOS not sent. Check location permissions.");
+        return;
+      }
+      const point = readiness.point;
+      const incident = await runSosPanic({
+        vaultOwnerToken,
+        recipients: readyRecipients,
+        point,
+        publish: (grant, recipient, pt) =>
+          publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+      });
+      setSosIncident(incident);
+      const skipped = totalTrusted - readyRecipients.length;
+      toast.success(
+        skipped > 0
+          ? `SOS sent. Alerted ${readyRecipients.length} of ${totalTrusted} contacts (${skipped} not ready).`
+          : `SOS sent. Alerting ${readyRecipients.length} trusted contact(s).`,
+      );
+      await refresh();
+    } catch (error) {
+      // Recover from memory — SosPanicError carries any partial incident
+      // in-process, so the SOS banner stays up even if localStorage failed.
+      if (error instanceof SosPanicError && error.partialIncident) {
+        setSosIncident(error.partialIncident);
+      }
+      toast.error(
+        error instanceof Error ? error.message : "Could not send SOS alert.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    ensureForegroundLocationReady,
+    permission,
+    publishEnvelopeWithRetry,
+    sosTrustedRecipients,
+    refresh,
+    sosIncident,
+    vaultOwnerToken,
+  ]);
+
   const handlePublish = useCallback(
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
@@ -3235,6 +3349,34 @@ function OneLocationAgentPageContent() {
     [refresh, vaultOwnerToken],
   );
 
+  const handleStopSos = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    const incident = sosIncident;
+    if (!incident?.grantIds.length) return;
+    setBusy("sos");
+    try {
+      for (const grantId of incident.grantIds) {
+        await OneLocationService.revokeGrant({ vaultOwnerToken, grantId }).catch(
+          (error) => {
+            // A grant may already be expired/revoked — keep tearing the rest down.
+            console.warn("[OneLocationAgent] SOS stop: grant revoke skipped:", error);
+          },
+        );
+      }
+    } finally {
+      setBusy(null);
+    }
+    // Clear the incident and show success AFTER revokes, outside any try-catch so a
+    // subsequent refresh() failure cannot trigger a misleading "Could not stop" toast.
+    clearSosIncident();
+    setSosIncident(null);
+    toast.success("SOS ended. Live location sharing stopped.");
+    try {
+      await refresh();
+    } catch {
+      /* refresh failure is non-fatal; sharing has already been stopped */
+    }
+  }, [refresh, sosIncident, vaultOwnerToken]);
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -4260,6 +4402,12 @@ function OneLocationAgentPageContent() {
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
     decryptedPoints,
+    sosRecipients: sosTrustedRecipients,
+    sosActive: Boolean(sosIncident?.grantIds.length),
+    sosBusy: busy === "sos",
+    sosStartedAtLabel: sosIncident ? formatDateTime(sosIncident.startedAt) : null,
+    onTriggerSos: handleTriggerSos,
+    onStopSos: handleStopSos,
   };
 
   if (USE_LOCATION_REDESIGN && !loadError) {

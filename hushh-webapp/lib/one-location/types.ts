@@ -335,7 +335,7 @@ export interface ShareTarget {
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link";
+export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic";
 
 export interface ClientAction {
   id: string;

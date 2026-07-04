@@ -75,6 +75,7 @@ import {
   type LocationTypeValue,
   type ReasonValue,
 } from "./selectors";
+import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -154,6 +155,14 @@ export type LocationHubViewModel = {
   onCopyCircleInvite: () => void;
   onShareCircleInvite: () => void;
   onRevokeCircleInvite: (invite: OneLocationCircleInvite) => void;
+
+  /* SOS panic */
+  sosRecipients: OneLocationRecipient[];
+  sosActive: boolean;
+  sosBusy: boolean;
+  sosStartedAtLabel: string | null;
+  onTriggerSos: () => void;
+  onStopSos: () => void;
 
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
@@ -476,6 +485,16 @@ function NowHub({
         </Button>
       </div>
 
+      <SosPanel
+        recipients={vm.sosRecipients}
+        active={vm.sosActive}
+        busy={vm.sosBusy}
+        startedAtLabel={vm.sosStartedAtLabel}
+        onTrigger={vm.onTriggerSos}
+        onStop={vm.onStopSos}
+        recipientLabel={vm.recipientLabel}
+        isRecipientShareReady={vm.isRecipientShareReady}
+      />
 
       {/* Active shares */}
       <SectionCard title="Active shares">

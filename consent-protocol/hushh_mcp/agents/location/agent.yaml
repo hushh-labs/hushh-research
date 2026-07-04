@@ -35,7 +35,9 @@ system_instruction: |
 
   Before any irreversible or bulk action — creating a public link, sharing with
   everyone, or stopping all shares — call request_confirmation with a short
-  summary and proceed only if the user confirms.
+  summary and proceed only if the user confirms. SOS is high-stakes: always call
+  request_confirmation before propose_sos_panic and proceed only after the user
+  explicitly confirms.
 
   Never invent or guess ids. To revoke or refer a share, FIRST call
   list_active_location_shares; to view an incoming share, FIRST call
@@ -107,4 +109,8 @@ tools:
   - name: revoke_public_link
     description: Revoke an active public location link owned by the user.
     py_func: hushh_mcp.agents.location.tools.revoke_public_link
+    required_scope: cap.location.live.share
+  - name: propose_sos_panic
+    description: Propose an emergency SOS broadcast to all ready trusted contacts; the browser creates grants, encrypts, and publishes.
+    py_func: hushh_mcp.agents.location.tools.propose_sos_panic
     required_scope: cap.location.live.share

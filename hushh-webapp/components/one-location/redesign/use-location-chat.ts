@@ -15,6 +15,11 @@ import type {
   SelectionResult,
 } from "@/lib/one-location/types";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import {
+  isSosShareReadyRecipient,
+  runSosPanic,
+  selectSosConnectedRecipients,
+} from "@/lib/one-location/sos-trigger";
 
 export interface ChatMessage {
   id: string;
@@ -269,6 +274,37 @@ export function useLocationChat(params: {
           locationSnapshot,
         });
         await report({ id: action.id, type: action.type, status: "completed", publicUrl });
+      } else if (action.type === "sos_panic") {
+        const state = await OneLocationService.getState(vaultOwnerToken);
+        const connected = selectSosConnectedRecipients(
+          state.recipients ?? [],
+          state.networkConnections,
+          userId || null,
+        );
+        const ready = connected.filter(isSosShareReadyRecipient);
+        if (!ready.length) {
+          await report({ id: action.id, type: action.type, status: "cancelled" });
+          return;
+        }
+        const point = await OneLocationService.captureCurrentPosition();
+        await runSosPanic({
+          vaultOwnerToken,
+          recipients: ready,
+          point,
+          publish: async (grant, recipient, pt) => {
+            const envelope = await encryptLocationForRecipient({
+              point: pt,
+              recipientPublicKeyJwk: recipient.publicKeyJwk,
+              recipientKeyId: recipient.keyId,
+            });
+            await OneLocationService.storeEnvelope({
+              vaultOwnerToken,
+              grantId: grant.id,
+              envelope,
+            });
+          },
+        });
+        await report({ id: action.id, type: action.type, status: "completed" });
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : undefined;
