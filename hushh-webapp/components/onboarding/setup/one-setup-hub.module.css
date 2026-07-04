@@ -1,0 +1,40 @@
+/*
+ * 17a — editorial "Set up One" checklist.
+ * Segmented progress (N of M) + a flat hairline list (the SettingsGroup card is
+ * dropped; inset hairlines stay). Icon circles go indigo in the tile itself.
+ */
+
+.segmentedProgress {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.segmentedProgress > span {
+  flex: 1 1 0%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  transition: background-color 200ms ease;
+}
+.segmentedProgress > span[data-filled="true"] {
+  background: #0a0a0a;
+}
+:global(.dark) .segmentedProgress > span {
+  background: rgba(255, 255, 255, 0.15);
+}
+:global(.dark) .segmentedProgress > span[data-filled="true"] {
+  background: #ffffff;
+}
+
+/* Flat editorial checklist — drop the grouped-card chrome, keep inset hairlines. */
+.flatChecklist [data-slot="settings-group-shell"] {
+  --settings-group-radius: 0px;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+/* Rows read on the page background (no per-row mobile surface fill). */
+.flatChecklist [data-testid="settings-row"] {
+  background: transparent;
+}

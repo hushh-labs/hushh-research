@@ -7,10 +7,7 @@ import {
   getCapabilityStatusDisplay,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
-import {
-  ONE_CAPABILITY_ICON_CLASS_BY_TONE,
-  type OneCapabilityTone,
-} from "@/lib/onboarding/one-capabilities";
+import { type OneCapabilityTone } from "@/lib/onboarding/one-capabilities";
 import {
   isCapabilitySetupComplete,
   type CapabilityStatus,
@@ -55,7 +52,6 @@ export function CapabilitySetupTile({
   description,
   href,
   icon: Icon,
-  tone,
   status,
   isExploreOnly = false,
   isCurrent = false,
@@ -68,12 +64,7 @@ export function CapabilitySetupTile({
     <SettingsRow
       asChild
       leading={
-        <span
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] sm:h-10 sm:w-10",
-            ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone],
-          )}
-        >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgba(94,92,230,0.1)] text-[#5E5CE6] dark:bg-[rgba(133,131,255,0.16)] dark:text-[#8583ff]">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
       }

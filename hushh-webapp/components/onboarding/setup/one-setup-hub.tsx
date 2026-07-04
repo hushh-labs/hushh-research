@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { Button } from "@/components/ui/button";
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -182,21 +183,37 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <SettingsGroup testId="one-setup-capabilities" separatorInset>
-          {items.map((item) => (
-            <CapabilitySetupTile
-              key={item.id}
-              title={item.copy.setupTitle}
-              description={item.copy.setupBlurb}
-              href={item.copy.href}
-              icon={item.icon}
-              tone={item.tone}
-              status={item.status}
-              isExploreOnly={item.isExploreOnly}
-              isCurrent={item.isCurrent}
-            />
-          ))}
-        </SettingsGroup>
+        {total > 0 ? (
+          <div
+            className={styles.segmentedProgress}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={done}
+            aria-label={`${done} of ${total} set up`}
+          >
+            {Array.from({ length: total }).map((_, index) => (
+              <span key={index} data-filled={index < done ? "true" : undefined} />
+            ))}
+          </div>
+        ) : null}
+        <div className={styles.flatChecklist}>
+          <SettingsGroup testId="one-setup-capabilities" separatorInset>
+            {items.map((item) => (
+              <CapabilitySetupTile
+                key={item.id}
+                title={item.copy.setupTitle}
+                description={item.copy.setupBlurb}
+                href={item.copy.href}
+                icon={item.icon}
+                tone={item.tone}
+                status={item.status}
+                isExploreOnly={item.isExploreOnly}
+                isCurrent={item.isCurrent}
+              />
+            ))}
+          </SettingsGroup>
+        </div>
       </AppPageContentRegion>
     </AppPageShell>
   );
