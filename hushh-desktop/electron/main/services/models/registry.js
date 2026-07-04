@@ -23,6 +23,10 @@ class ModelRegistry {
   constructor() {
     this.modelsDir = this._getModelsDir();
     this._ensureDirectory();
+    // Cache for the "downloaded" state so getStatus() (polled by the UI) does
+    // not shell out via a synchronous `geniex list` on every call and block the
+    // Electron main-process event loop. null = unknown/needs recompute.
+    this._downloadedCache = null;
   }
 
   _getModelsDir() {
@@ -135,6 +139,7 @@ class ModelRegistry {
 
     if (this.verifyLocalInferenceEngine(modelId)) {
         console.log(`[ModelRegistry] ✅ ${GENIEX_MODEL_ID} already cached, skipping pull.`);
+        this._downloadedCache = true;
         return { success: true, status: "downloaded" };
     }
 
@@ -166,6 +171,7 @@ class ModelRegistry {
             }
             if (code === 0) {
                 console.log(`[ModelRegistry] ✅ Pull complete for ${GENIEX_MODEL_ID}.`);
+                this._downloadedCache = true;
                 resolve({ success: true, status: "downloaded" });
             } else {
                 console.error(`[ModelRegistry] ❌ geniex pull exited with code ${code}.`);
@@ -190,6 +196,7 @@ class ModelRegistry {
   verifyLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
     const geniexExe = this._getGenieXExePath();
     if (!geniexExe || !fs.existsSync(geniexExe)) {
+        this._downloadedCache = false;
         return false;
     }
 
@@ -197,11 +204,26 @@ class ModelRegistry {
         const { execFileSync } = require("child_process");
         const output = execFileSync(geniexExe, ["list", "--format", "json"], { encoding: "utf-8" });
         const cached = JSON.parse(output);
-        return cached.some((m) => m.name === GENIEX_MODEL_ID);
+        const downloaded = cached.some((m) => m.name === GENIEX_MODEL_ID);
+        this._downloadedCache = downloaded;
+        return downloaded;
     } catch (err) {
         console.error(`[ModelRegistry] Failed to check GenieX model cache:`, err.message);
+        this._downloadedCache = false;
         return false;
     }
+  }
+
+  /**
+   * Cheap, cached "is the model downloaded?" check for the hot UI-polling path
+   * (getStatus). Falls back to the authoritative `geniex list` check exactly
+   * once, then serves the cached value until install/remove invalidates it.
+   */
+  _isDownloadedCached(modelId = "Llama-3.2-3B-Instruct") {
+    if (this._downloadedCache === null) {
+        return this.verifyLocalInferenceEngine(modelId);
+    }
+    return this._downloadedCache;
   }
 
   /**
@@ -227,6 +249,9 @@ class ModelRegistry {
 
     console.log(`[ModelRegistry] 🚀 Spawning GenieX server from ${geniexExe} on port ${port}...`);
 
+    // NOTE: `geniex serve` binds its own configured default port (GENIEX_PORT,
+    // 18181); it does not take a port argument here. `port` therefore must match
+    // that default -- it drives the readiness wait below, not the bind.
     this.aiProcess = spawn(geniexExe, ["serve"], {
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe']
@@ -372,6 +397,7 @@ class ModelRegistry {
           const { execFileSync } = require("child_process");
           execFileSync(geniexExe, ["remove", GENIEX_MODEL_ID, "--yes"], { encoding: "utf-8" });
           console.log(`[ModelRegistry] 🗑️ Removed ${GENIEX_MODEL_ID} from GenieX cache.`);
+          this._downloadedCache = false;
       } catch (err) {
           console.error(`[ModelRegistry] Failed to remove GenieX model:`, err.message);
       }
@@ -383,7 +409,7 @@ class ModelRegistry {
    */
   getStatus(modelId = "Llama-3.2-3B-Instruct") {
       return {
-          downloaded: this.verifyLocalInferenceEngine(modelId),
+          downloaded: this._isDownloadedCached(modelId),
           running: !!this.aiProcess,
           restarting: !!this._restarting
       };

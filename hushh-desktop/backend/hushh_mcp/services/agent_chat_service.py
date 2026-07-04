@@ -1305,7 +1305,10 @@ class AgentChatService:
         action_plan: AgentChatActionPlan | None = None,
         pkm_context: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        if runtime_model == "Llama-3.2-3B-Instruct" or runtime_client is None:
+        # Route to on-device GenieX only when this is genuinely the local model.
+        # A missing runtime_client in cloud mode is a real config/credential
+        # error and must surface as such, not silently fall through to local.
+        if runtime_model == "Llama-3.2-3B-Instruct":
             import aiohttp
             url = "http://localhost:18181/v1/chat/completions"
             messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
@@ -1432,7 +1435,9 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
     ) -> AgentChatActionPlan | None:
-        if runtime_model == "Llama-3.2-3B-Instruct" or runtime_client is None:
+        # Key off the local model only (see stream_response): a missing cloud
+        # runtime_client should not silently route into the local fallback.
+        if runtime_model == "Llama-3.2-3B-Instruct":
             # Local models don't get Gemini's structured function-calling (that layer
             # is Gemini-SDK-specific and only covers routing/navigation intents, not
             # financial analysis itself). They do get the same deterministic

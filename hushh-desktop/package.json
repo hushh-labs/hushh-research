@@ -27,8 +27,7 @@
       "backend/dist/hushh-backend.exe",
       "frontend/.env*",
       "frontend/.next/standalone/**/*",
-      "backend/.env",
-      "backend/dist/hushh-backend.exe"
+      "backend/.env"
     ],
     "extraResources": [
       {

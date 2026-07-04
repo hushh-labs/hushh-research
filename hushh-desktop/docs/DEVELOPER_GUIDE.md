@@ -106,6 +106,16 @@ Qualcomm's **GenieX** CLI (an OpenAI-compatible inference server on
   - **Packaged:** uses the GenieX runtime bundled at `resources/geniex/geniex.exe`
     (shipped via `extraResources`), so end users don't need a separate install.
   - **Dev:** uses the system install at `%LOCALAPPDATA%\GenieX CLI\geniex.exe`.
+- **Populating `ai-library/geniex` for release builds:** this folder is the source
+  of the bundled runtime but is **gitignored** (too large to commit, ~255 MB).
+  Before running `npm run dist`, populate it by copying the runtime from the
+  GenieX CLI install:
+  ```bash
+  cp -r "$LOCALAPPDATA/GenieX CLI/{geniex.exe,geniex.dll,llama_cpp,qairt}" \
+    hushh-desktop/ai-library/geniex/
+  ```
+  (Install the GenieX CLI first if it's not present. Only these four entries are
+  needed — the model weights are not bundled.)
 - **Model storage:** GenieX manages its own model cache; the model itself
   (~3.2 GB) is **downloaded on first use** via `geniex pull`, not bundled.
 - **Lifecycle:** `provisionGenieXModel` (pull) → `spawnLocalInferenceEngine`

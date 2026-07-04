@@ -125,7 +125,18 @@ function startBackend() {
  */
 function startFrontend() {
   const context = getRuntimeContext();
-  
+
+  // In production the compiled Next.js standalone server is required. If it's
+  // missing, fail fast with a clear message rather than silently falling back
+  // to `next dev` (which needs the full dev toolchain/node_modules a packaged
+  // build doesn't ship).
+  if (!context.isDev && !fs.existsSync(NEXT_STANDALONE)) {
+    throw new Error(
+      `[launcher] Production frontend build missing at ${NEXT_STANDALONE}. ` +
+      "Run `cd frontend && npm run build` before packaging."
+    );
+  }
+
   const useStandalone = !context.isDev && fs.existsSync(NEXT_STANDALONE);
   const frontendArgs = useStandalone
     ? [NEXT_STANDALONE]

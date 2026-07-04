@@ -81,11 +81,11 @@ app.whenReady().then(async () => {
     // 2. Initialize RuntimeContext
     const context = initRuntimeContext(frontendPort, backendPort);
 
-    // 3. Ensure backend virtual environment in production
-    if (!isDev) {
-      await ensureBackendVenv();
-    }
-    
+    // 3. Ensure backend virtual environment. This is a dev-only concern
+    //    (installs backend/.venv via `uv sync` on first run); ensureBackendVenv
+    //    self-guards and no-ops in production, where the compiled binary is used.
+    await ensureBackendVenv();
+
     // 4. Spawn frontend and backend processes
     spawnProcesses();
 
