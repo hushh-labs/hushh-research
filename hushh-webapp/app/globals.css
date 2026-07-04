@@ -596,6 +596,18 @@ a, button, input, select, textarea {
   --app-top-safe-offset: 2px;
 }
 
+.agent-chat-workspace {
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
+  --agent-chat-composer-bottom: calc(0.75rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-focused-bottom: calc(1.25rem + var(--app-safe-area-bottom-effective));
+}
+
+html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
+  --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
+  --agent-chat-composer-bottom: calc(1rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-focused-bottom: calc(1.75rem + var(--app-safe-area-bottom-effective));
+}
+
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);

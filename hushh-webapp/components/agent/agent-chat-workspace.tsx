@@ -1146,6 +1146,7 @@ export function AgentChatWorkspace({
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   // Just-in-time vault unlock: the agent prompts to unlock in place (the same
   // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
   // instead of bouncing the user to /profile. Opened only when a vault-gated
@@ -3917,6 +3918,7 @@ export function AgentChatWorkspace({
         className
       )}
       data-agent-chat-workspace={variant}
+      data-composer-focused={composerFocused ? "true" : "false"}
     >
       <div
         className={cn(
@@ -3968,10 +3970,10 @@ export function AgentChatWorkspace({
         >
           <div
             className={cn(
-              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur sm:px-5",
               isPopover
-                ? "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-16"
-                : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
+                ? "min-h-[calc(3.5rem+var(--agent-chat-header-safe-top))] sm:h-16 sm:min-h-16 sm:pt-0"
+                : "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)]",
               !isPopover && "lg:px-6"
             )}
             onPointerDown={handleHeaderPointerDown}
@@ -3997,7 +3999,7 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-black/[0.035] dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 dark:max-sm:bg-white/[0.04] lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -4005,11 +4007,11 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary dark:border-white/10 dark:bg-white/[0.04]">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary max-sm:h-11 max-sm:w-11 max-sm:rounded-full dark:border-white/10 dark:bg-white/[0.04]">
                 <Bot className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
+                <div className="truncate text-base font-medium leading-5 text-foreground">
                   One
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
@@ -4587,10 +4589,12 @@ export function AgentChatWorkspace({
           <form
             onSubmit={handleSubmit}
             className={cn(
-              "shrink-0 border-t border-border/70 bg-background/92 px-3 py-3 backdrop-blur sm:px-5",
+              "shrink-0 border-t border-border/70 bg-background/92 px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-200 sm:px-5",
               isPopover
-                ? "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))] sm:pb-3"
-                : "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
+                ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
+                : composerFocused
+                  ? "pb-[var(--agent-chat-composer-focused-bottom)]"
+                  : "pb-[var(--agent-chat-composer-bottom)]"
             )}
           >
             <div className="mx-auto w-full max-w-3xl">
@@ -4624,6 +4628,8 @@ export function AgentChatWorkspace({
                     aria-label="Message One"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
                         return;
@@ -4636,7 +4642,7 @@ export function AgentChatWorkspace({
                     disabled={isLoadingHistory || isVoiceConnecting}
                     placeholder="Message One..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:text-zinc-100 dark:placeholder:text-zinc-500"
                   />
                   {agentRealtimeVoiceEnabled || agentVoiceEnabled ? (
                     <Button
