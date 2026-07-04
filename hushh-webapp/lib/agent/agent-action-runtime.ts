@@ -1,6 +1,6 @@
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
-import { ROUTES, buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import {
   evaluateKaiActionAvailability,
