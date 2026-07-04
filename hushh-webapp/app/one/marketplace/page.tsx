@@ -40,25 +40,14 @@ import {
   type SlicePriceBreakdown,
   type SlicePricingInput,
 } from "@/lib/services/slice-pricing-service";
+import { MarketplaceChatPanel } from "@/components/one-marketplace/marketplace-chat-panel";
+import {
+  OneMarketplaceService,
+  type MarketplaceRequest,
+  type PublishableSlice,
+} from "@/lib/one-marketplace/service";
 
 type MarketplaceView = "owner" | "buyer" | "flow";
-
-/**
- * In-session demo request. NOT a real consent grant and NOT persisted — clears on
- * refresh. Real access requests live in the Consent Guardian; wiring the
- * marketplace to file them there is a later phase.
- */
-interface MarketRequest {
-  id: string;
-  sliceName: string;
-  domainKey: string;
-  domainTitle: string;
-  topLevelScopePath: string;
-  description: string;
-  input: SlicePricingInput;
-  createdAt: number;
-  status: "pending" | "approved" | "denied";
-}
 
 interface DomainRecord {
   summary: DomainSummary;
@@ -402,13 +391,29 @@ export default function OneMarketplacePage() {
   // Owner is about to publish this section to the marketplace and must explicitly
   // consent first (consent-first). Null when no confirmation is pending.
   const [confirmPublish, setConfirmPublish] = useState<Section | null>(null);
-  const [requests, setRequests] = useState<MarketRequest[]>([]);
+  // Durable access-request inbox (server-side records, migration 075).
+  const [requests, setRequests] = useState<MarketplaceRequest[]>([]);
 
   const [records, setRecords] = useState<DomainRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [refreshToken, setRefreshToken] = useState(0);
+
+  // Load the durable request inbox on mount and whenever the page refreshes.
+  const loadRequests = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    try {
+      const rows = await OneMarketplaceService.listRequests({ vaultOwnerToken });
+      setRequests(rows);
+    } catch {
+      // Non-fatal: the inbox stays as-is until the next refresh.
+    }
+  }, [vaultOwnerToken]);
+
+  useEffect(() => {
+    void loadRequests();
+  }, [loadRequests, refreshToken]);
 
   // Load the owner's real PKM domains + manifests. The scope registry on each
   // manifest is the source of shareable sections and their consent posture.
@@ -664,32 +669,101 @@ export default function OneMarketplacePage() {
 
   const pendingRequestCount = requests.filter((r) => r.status === "pending").length;
 
-  const confirmPurchase = useCallback(() => {
-    setPurchaseSection((current) => {
-      if (!current) return null;
-      setRequests((cur) => [
-        {
-          id: `${current.key}:${Date.now()}`,
-          sliceName: current.permission.label,
-          domainKey: current.domainKey,
-          domainTitle: current.domainTitle,
-          topLevelScopePath: current.permission.topLevelScopePath,
-          description: current.permission.description,
-          input: priceInput(current),
-          createdAt: Date.now(),
-          status: "pending",
-        },
-        ...cur,
-      ]);
-      return null;
-    });
-    setView("flow");
-    toast.success("Request sent — see Consent flow & requests.");
-  }, [priceInput]);
+  // Identity keys of slices already published — the chat publish card filters
+  // these out so a just-published slice drops off the recommendation.
+  const publishedSliceKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const s of sections) {
+      if (s.permission.visibilityPosture !== "default_available") continue;
+      if (s.permission.scopeHandle) keys.add(`h:${s.permission.scopeHandle}`);
+      keys.add(`l:${s.domainKey}:${s.permission.label}`);
+    }
+    return keys;
+  }, [sections]);
 
-  const setRequestStatus = useCallback((id: string, status: MarketRequest["status"]) => {
-    setRequests((cur) => cur.map((r) => (r.id === id ? { ...r, status } : r)));
-  }, []);
+  // Publish a slice the agent suggested in a chat publish-card. Match by scope
+  // handle first, then fall back to domain + label.
+  const onPublishSlice = useCallback(
+    (slice: PublishableSlice) => {
+      const section = sections.find(
+        (s) =>
+          (slice.scopeHandle && s.permission.scopeHandle === slice.scopeHandle) ||
+          (s.domainKey === slice.domain && s.permission.label === slice.label)
+      );
+      if (section) onTogglePosture(section, "default_available");
+      else toast.error("Couldn't find that section to publish.");
+    },
+    [sections, onTogglePosture]
+  );
+
+  // File a real, durable access request (server-side). The buyer is simulated by
+  // the owner in this tab; the record persists and survives refresh.
+  const confirmPurchase = useCallback(() => {
+    const current = purchaseSection;
+    if (!current || !vaultOwnerToken) {
+      setPurchaseSection(null);
+      return;
+    }
+    setPurchaseSection(null);
+    void (async () => {
+      let priceCents = 0;
+      let currency = "USD";
+      try {
+        const price = await SlicePricingService.getSuggestedPrice(
+          priceInput(current),
+          vaultOwnerToken
+        );
+        priceCents = price.suggestedPriceCents;
+        currency = price.currency;
+      } catch {
+        // Price is best-effort; the request still files at the floor.
+      }
+      try {
+        await OneMarketplaceService.createRequest({
+          vaultOwnerToken,
+          sliceName: current.permission.label,
+          domain: current.domainKey,
+          scopeHandle: current.permission.scopeHandle,
+          buyerLabel: "Buyer",
+          priceCents,
+          currency,
+        });
+        await loadRequests();
+        setView("flow");
+        toast.success("Request filed — see Flow & requests.");
+      } catch {
+        toast.error("Couldn't file the request. Try again.");
+      }
+    })();
+  }, [purchaseSection, vaultOwnerToken, priceInput, loadRequests]);
+
+  const approveRequest = useCallback(
+    async (id: string) => {
+      if (!vaultOwnerToken) return;
+      try {
+        await OneMarketplaceService.approveRequest({ vaultOwnerToken, requestId: id });
+        await loadRequests();
+        toast.success("Approved — the safe summary would be delivered to that buyer only.");
+      } catch {
+        toast.error("Couldn't approve. Refresh and try again.");
+      }
+    },
+    [vaultOwnerToken, loadRequests]
+  );
+
+  const denyRequest = useCallback(
+    async (id: string) => {
+      if (!vaultOwnerToken) return;
+      try {
+        await OneMarketplaceService.denyRequest({ vaultOwnerToken, requestId: id });
+        await loadRequests();
+        toast("Denied. Nothing shared.");
+      } catch {
+        toast.error("Couldn't deny. Refresh and try again.");
+      }
+    },
+    [vaultOwnerToken, loadRequests]
+  );
 
   const bandControls = (
     <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -722,7 +796,7 @@ export default function OneMarketplacePage() {
   return (
     <PkmSettingsShell
       eyebrow="One / Marketplace"
-      title="Data Slice Marketplace"
+      title="Information Marketplace"
       description="Your data, your business. Choose what each section shares — Private, Ask first, or Available — and see what it's worth. Nothing is ever shared without your approval."
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -765,6 +839,17 @@ export default function OneMarketplacePage() {
         Consent-first · a section is shared only after you set it to Available and approve a specific
         buyer. Prices are a research-anchored suggestion computed live — you set the final price. No
         money moves here.
+      </div>
+
+      {/* Personal Information Agent — the marketplace chatbot. Ask what you've
+          published and what it's worth; read-only and consent-scoped. */}
+      <div className="mb-5">
+        <MarketplaceChatPanel
+          vaultOwnerToken={token ?? null}
+          onStateChanged={loadRequests}
+          onPublishSlice={onPublishSlice}
+          publishedSliceKeys={publishedSliceKeys}
+        />
       </div>
 
       {!isVaultUnlocked ? (
@@ -939,7 +1024,7 @@ export default function OneMarketplacePage() {
             </div>
           ) : null}
 
-          {/* FLOW & REQUESTS — marketplace's own consent inbox (in-session demo) */}
+          {/* FLOW & REQUESTS — marketplace's own durable consent inbox */}
           {view === "flow" ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
@@ -982,11 +1067,13 @@ export default function OneMarketplacePage() {
                             </span>
                           </div>
                           <div className="mt-0.5 text-sm text-muted-foreground">
-                            {req.domainTitle} · 30-day scoped access · safe summary only
+                            {req.buyerLabel ? `${req.buyerLabel} · ` : ""}
+                            {req.durationDays ?? 30}-day scoped access · safe summary only
                           </div>
                         </div>
-                        <div className="text-right">
-                          <PriceLine input={req.input} token={token} />
+                        <div className="text-right text-lg font-semibold tracking-tight">
+                          {formatCents(req.priceCents ?? 0, req.currency ?? "USD")}{" "}
+                          <span className="text-sm font-medium text-muted-foreground">/ 30 days</span>
                         </div>
                       </div>
                       {req.status === "pending" ? (
@@ -996,10 +1083,7 @@ export default function OneMarketplacePage() {
                             size="sm"
                             variant="none"
                             effect="fade"
-                            onClick={() => {
-                              setRequestStatus(req.id, "approved");
-                              toast.success("Approved — the encrypted slice would be delivered to that buyer only.");
-                            }}
+                            onClick={() => void approveRequest(req.id)}
                           >
                             Approve
                           </Button>
@@ -1008,37 +1092,23 @@ export default function OneMarketplacePage() {
                             size="sm"
                             variant="none"
                             effect="fade"
-                            onClick={() => {
-                              setRequestStatus(req.id, "denied");
-                              toast("Denied. Nothing shared.");
-                            }}
+                            onClick={() => void denyRequest(req.id)}
                           >
                             Deny
                           </Button>
                         </div>
                       ) : req.status === "approved" ? (
-                        <div className="mt-3 space-y-2 border-t pt-3">
-                          <div className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                            The safe summary the buyer would receive (real data · never raw PKM):
-                          </div>
-                          <SharedDataPreview
-                            userId={user?.uid}
-                            vaultKey={vaultKey}
-                            token={token}
-                            domainKey={req.domainKey}
-                            domainTitle={req.domainTitle}
-                            topLevelScopePath={req.topLevelScopePath}
-                            label={req.sliceName}
-                            description={req.description}
-                          />
-                          <div className="text-[11px] text-muted-foreground">
-                            Approved (demo). This is the actual projection that would be delivered;
-                            encrypted per-buyer delivery and payment are the next phase.
-                          </div>
+                        <div className="mt-3 border-t pt-3 text-xs text-emerald-700 dark:text-emerald-300">
+                          Approved — the safe summary would be delivered to this buyer only (never raw
+                          PKM). Encrypted per-buyer delivery and payment settlement are the next phase.
+                        </div>
+                      ) : req.status === "denied" ? (
+                        <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                          Denied — nothing was shared.
                         </div>
                       ) : (
                         <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-                          Denied — nothing was shared.
+                          Expired — access is no longer available.
                         </div>
                       )}
                     </div>
@@ -1047,9 +1117,9 @@ export default function OneMarketplacePage() {
               )}
 
               <div className="rounded-xl bg-muted/30 px-4 py-3 text-[12.5px] text-muted-foreground">
-                In-session demo · these requests are not real consent grants and clear on refresh. Real
-                access requests live in your Consent Guardian; filing marketplace requests there (and
-                payment settlement) is the next phase.
+                These are real, saved requests — they persist across refresh. You can approve or deny
+                here or by asking the Information Marketplace agent. Encrypted per-buyer delivery and
+                payment settlement are the next phase.
               </div>
 
               <div className="rounded-2xl border p-5">
@@ -1104,8 +1174,8 @@ export default function OneMarketplacePage() {
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
               Consent-first by design. The request appears under{" "}
-              <span className="font-medium text-foreground">Flow &amp; requests</span> (in-session demo). No
-              money moves — payment settlement is a later phase.
+              <span className="font-medium text-foreground">Flow &amp; requests</span>. No money moves —
+              payment settlement is a later phase.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <Button

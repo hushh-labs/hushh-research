@@ -31,6 +31,37 @@ def _create_delegation_response(
 # deterministically (and testably) without a live model. Each entry maps a
 # specialist to its delegation domain/target plus the cues that route to it.
 _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # Information Marketplace must precede finance (kai claims the generic
+    # "market"/"earnings" cues). Cues are QUALIFIED — bare "marketplace" is left
+    # unrouted on purpose so One can ask which marketplace the user means
+    # (Information Marketplace vs Kai Market Home).
+    (
+        "information_marketplace",
+        "agent_personal_information",
+        (
+            "information marketplace",
+            "data marketplace",
+            "slice",
+            "slices",
+            "made available",
+            "available to buyers",
+            "available for buyers",
+            "publish my data",
+            "sell my data",
+            "sell my information",
+            "what have i published",
+            "what data have i published",
+            "my data worth",
+            "from my data",
+            "for my data",
+            "access request",
+            "my request for",
+            "approve my request",
+            "deny my request",
+            "approve the request",
+            "pending request",
+        ),
+    ),
     (
         "connected_systems_crm",
         "agent_connected_systems",

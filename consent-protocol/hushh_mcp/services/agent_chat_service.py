@@ -53,6 +53,7 @@ Current capability boundary:
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
 - For Connected Systems CRM, read/create/update requests require explicit user approval. Delete is blocked in v1.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
+- "Marketplace" is ambiguous: there are TWO. The Information Marketplace is where the user publishes and prices their own personal-data slices (what they've published, potential earnings). Kai's Market Home is the markets/investing surface. If the user says just "marketplace" without qualifying which, ask a short clarifying question — "Do you mean your Information Marketplace (your personal data slices) or Kai's Market Home (markets)?" — before answering or navigating. Once qualified (e.g. "information marketplace", "data marketplace", or "market home"), proceed to the right one.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
 
@@ -86,6 +87,11 @@ _APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
     "analysis_history": ("route.analysis_history", "Open Analysis History"),
     "optimize": ("route.kai_optimize", "Open Optimize Surface"),
     "market_home": ("route.kai_home", "Open Market Home"),
+    # NOTE: the Information Marketplace surface is intentionally NOT exposed to the
+    # LLM action planner. The planner opens surfaces too eagerly (it would navigate
+    # on questions and on a bare "marketplace"). Marketplace navigation is handled
+    # deterministically by _plan_marketplace_navigation (qualified open-intent only),
+    # and marketplace questions are answered by the delegated specialist.
     "connected_systems": ("route.profile_connected_systems", "Open Connected Systems"),
 }
 
@@ -185,8 +191,21 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Optimize Surface",
     ),
     (
+        # Must precede the "market"/kai-home pattern: "marketplace" contains
+        # "market". Cues are QUALIFIED (information/data marketplace, data slices)
+        # so a bare "open marketplace" is left for One to disambiguate rather than
+        # silently opening the wrong surface.
         re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:market|kai home|home)\b",
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*"
+            r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
+            re.IGNORECASE,
+        ),
+        "route.one_marketplace",
+        "Open Information Marketplace",
+    ),
+    (
+        re.compile(
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:market home|kai market|kai home|home)\b",
             re.IGNORECASE,
         ),
         "route.kai_home",
@@ -201,6 +220,15 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Connected Systems",
     ),
 ]
+
+# Deterministic Information Marketplace navigation: only a QUALIFIED open-intent
+# ("open/take me to the information/data marketplace", "open my slices"). A bare
+# "marketplace" deliberately does NOT match so One can disambiguate.
+_INFO_MARKETPLACE_NAV_RE = re.compile(
+    r"\b(?:open|go to|show|take me to|navigate to|bring up|launch)\b.*"
+    r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
+    re.IGNORECASE,
+)
 
 _CRM_READ_PATTERNS = [
     re.compile(
@@ -1479,6 +1507,13 @@ class AgentChatService:
         if deterministic_block is not None:
             return deterministic_block
 
+        # Deterministic Information Marketplace navigation (qualified open-intent
+        # only), decided BEFORE the LLM planner so questions and a bare
+        # "marketplace" are never auto-navigated by the model.
+        marketplace_nav = self._plan_marketplace_navigation(user_message)
+        if marketplace_nav is not None:
+            return _enrich_plan_with_manifest(marketplace_nav, current_screen=current_screen)
+
         try:
             # Action planning is a non-streaming, idempotent call, so a short
             # jittered retry on transient 429/503 is safe (unlike the token
@@ -1589,6 +1624,22 @@ class AgentChatService:
                     message=f"{label} in the app.",
                 )
         return None
+
+    def _plan_marketplace_navigation(self, user_message: str) -> AgentChatActionPlan | None:
+        """Deterministic navigation to the Information Marketplace on a QUALIFIED
+        open-intent. Bare "marketplace" and questions return None (One handles them:
+        disambiguation for bare, delegated answer for questions)."""
+        message = " ".join(str(user_message or "").split())
+        if not message or not _INFO_MARKETPLACE_NAV_RE.search(message):
+            return None
+        return AgentChatActionPlan(
+            call_id=_tool_call_id(),
+            action_id="route.one_marketplace",
+            label="Open Information Marketplace",
+            execution="frontend",
+            slots={},
+            message="Open Information Marketplace in the app.",
+        )
 
     def _plan_crm_action(self, user_message: str) -> AgentChatActionPlan | None:
         message = " ".join(str(user_message or "").split())
