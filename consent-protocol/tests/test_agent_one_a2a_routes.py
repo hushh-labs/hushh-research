@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -36,11 +38,139 @@ def test_agent_card_is_manifest_backed():
     assert payload["capabilities"]["specialist_delegation"] is True
 
 
-def test_message_requires_consent_token():
+def test_message_requires_consent_token_or_developer_auth():
     response = _client().post("/api/one/a2a/message", json={"message": "Who are you?"})
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Missing X-Consent-Token"
+    assert response.json()["detail"]["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+
+
+def test_message_without_consent_token_creates_pending_consent_request(monkeypatch):
+    inserted: dict[str, object] = {}
+    orchestrator_called = False
+
+    async def _resolve_user(body):
+        return "user-one"
+
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(
+            self,
+            user_id: str,
+            *,
+            agent_id: str | None = None,
+            requested_scope: str,
+        ):
+            assert user_id == "user-one"
+            assert agent_id == "developer:brand-agent"
+            assert requested_scope == "agent.one.orchestrate"
+            return []
+
+        async def get_pending_request_for_scope(
+            self,
+            user_id: str,
+            *,
+            agent_id: str,
+            scope: str,
+        ):
+            assert user_id == "user-one"
+            assert agent_id == "developer:brand-agent"
+            assert scope == "agent.one.orchestrate"
+            return None
+
+        async def insert_event(self, **kwargs):
+            inserted.update(kwargs)
+            return 1
+
+    class _FailingOrchestrator:
+        def handle_message(self, **kwargs):
+            nonlocal orchestrator_called
+            orchestrator_called = True
+            raise AssertionError("orchestrator must not execute before consent")
+
+    monkeypatch.setattr(
+        a2a,
+        "authenticate_developer_principal",
+        lambda **_: SimpleNamespace(
+            app_id="app_brand",
+            agent_id="developer:brand-agent",
+            display_name="Brand Agent",
+            allowed_tool_groups=("core_consent",),
+            brand_image_url=None,
+            website_url=None,
+        ),
+    )
+    monkeypatch.setattr(a2a, "_resolve_consent_user_id", _resolve_user)
+    monkeypatch.setattr(a2a, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(a2a, "get_orchestrator", lambda: _FailingOrchestrator())
+
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={
+            "message": "Please coordinate my task",
+            "email": "user@example.com",
+            "conversationId": "conv-1",
+        },
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["isComplete"] is False
+    assert payload["userId"] == "user-one"
+    assert payload["consent"]["status"] == "pending"
+    assert payload["consent"]["requiredScope"] == "agent.one.orchestrate"
+    assert payload["consent"]["tokenRequired"] is True
+    assert inserted["action"] == "REQUESTED"
+    assert inserted["scope"] == "agent.one.orchestrate"
+    assert inserted["agent_id"] == "developer:brand-agent"
+    assert inserted["metadata"]["request_source"] == "agent_one_a2a_consent_v1"
+    assert inserted["metadata"]["requester_actor_type"] == "a2a_agent"
+    assert "connector_public_key" not in inserted["metadata"]
+    assert orchestrator_called is False
+
+
+def test_message_without_consent_token_reports_existing_pending_request(monkeypatch):
+    async def _resolve_user(body):
+        return "user-one"
+
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(self, *args, **kwargs):
+            return []
+
+        async def get_pending_request_for_scope(self, *args, **kwargs):
+            return {
+                "id": "req_pending",
+                "requestUrl": "http://localhost:3000/consents?tab=pending&requestId=req_pending",
+                "pollTimeoutAt": 123456,
+                "approvalTimeoutAt": 123456,
+            }
+
+    monkeypatch.setattr(
+        a2a,
+        "authenticate_developer_principal",
+        lambda **_: SimpleNamespace(
+            app_id="app_brand",
+            agent_id="developer:brand-agent",
+            display_name="Brand Agent",
+            allowed_tool_groups=("core_consent",),
+            brand_image_url=None,
+            website_url=None,
+        ),
+    )
+    monkeypatch.setattr(a2a, "_resolve_consent_user_id", _resolve_user)
+    monkeypatch.setattr(a2a, "ConsentDBService", _FakeConsentDBService)
+
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={"message": "Please coordinate my task", "userId": "user-one"},
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["isComplete"] is False
+    assert payload["consent"]["status"] == "pending"
+    assert payload["consent"]["requestId"] == "req_pending"
 
 
 def test_message_rejects_wrong_scope():

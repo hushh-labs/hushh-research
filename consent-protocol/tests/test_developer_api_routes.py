@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -1477,6 +1478,183 @@ def test_get_consent_status_uses_covering_active_token(monkeypatch):
     assert payload["coverage_kind"] == "superset"
     assert payload["export_revision"] == 5
     assert payload["export_refresh_status"] == "current"
+
+
+def test_get_consent_status_pending_request_does_not_return_event_token(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            return []
+
+        async def get_request_status(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_pending"
+            return {
+                "action": "REQUESTED",
+                "agent_id": "developer:app_demo_123",
+                "scope": "agent.one.orchestrate",
+                "request_id": "req_pending",
+                "token_id": "evt_internal_row_id",
+                "poll_timeout_at": 123456789,
+                "metadata": {
+                    "approval_timeout_minutes": 60,
+                    "expiry_hours": 24,
+                    "requester_label": "Demo App",
+                },
+            }
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-status?token=hdk_demo&user_id=user_123&request_id=req_pending"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["consent_token"] is None
+
+
+def test_developer_consent_status_payload_only_returns_token_after_grant():
+    principal = _fake_principal()
+
+    pending = developer._developer_consent_status_payload(
+        latest={
+            "action": "REQUESTED",
+            "scope": "agent.one.orchestrate",
+            "token_id": "evt_internal",
+            "metadata": {"requester_label": "Demo App"},
+        },
+        user_id="user_123",
+        request_id="req_pending",
+        principal=principal,
+    )
+    granted = developer._developer_consent_status_payload(
+        latest={
+            "action": "CONSENT_GRANTED",
+            "scope": "agent.one.orchestrate",
+            "token_id": "HCT:granted",
+            "expires_at": 123456789,
+            "metadata": {"requester_label": "Demo App"},
+        },
+        user_id="user_123",
+        request_id="req_pending",
+        principal=principal,
+    )
+
+    assert pending["status"] == "pending"
+    assert pending["consent_token"] is None
+    assert pending["terminal"] is False
+    assert granted["status"] == "granted"
+    assert granted["consent_token"] == "HCT:granted"
+    assert granted["terminal"] is True
+
+
+def test_developer_consent_event_stream_rejects_other_developer(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status(self, user_id: str, request_id: str):
+            return {
+                "action": "REQUESTED",
+                "agent_id": "developer:other_app",
+                "scope": "agent.one.orchestrate",
+                "request_id": request_id,
+            }
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-events?token=hdk_demo&user_id=user_123&request_id=req_pending"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error_code"] == "CONSENT_REQUEST_NOT_FOUND"
+
+
+def test_developer_consent_event_stream_returns_terminal_snapshot(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status(self, user_id: str, request_id: str):
+            return {
+                "action": "CONSENT_GRANTED",
+                "agent_id": "developer:app_demo_123",
+                "scope": "agent.one.orchestrate",
+                "request_id": request_id,
+                "token_id": "HCT:granted",
+                "expires_at": 123456789,
+                "metadata": {"requester_label": "Demo App"},
+            }
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-events?token=hdk_demo&user_id=user_123&request_id=req_granted"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert "event: snapshot" in body
+    assert '"status": "granted"' in body
+    assert '"consent_token": "HCT:granted"' in body
+
+
+def test_developer_consent_subscribers_are_fanout_not_shared_queue():
+    from api import consent_listener
+
+    async def _run():
+        q1 = await consent_listener.subscribe_developer_consent_queue(
+            request_id="req_fanout",
+            agent_id="developer:app_demo_123",
+        )
+        q2 = await consent_listener.subscribe_developer_consent_queue(
+            request_id="req_fanout",
+            agent_id="developer:app_demo_123",
+        )
+        try:
+            await consent_listener._push_to_developer_consent_queues(
+                {
+                    "request_id": "req_fanout",
+                    "agent_id": "developer:app_demo_123",
+                    "action": "CONSENT_GRANTED",
+                }
+            )
+            assert (await asyncio.wait_for(q1.get(), timeout=1))["action"] == "CONSENT_GRANTED"
+            assert (await asyncio.wait_for(q2.get(), timeout=1))["action"] == "CONSENT_GRANTED"
+        finally:
+            await consent_listener.unsubscribe_developer_consent_queue(
+                request_id="req_fanout",
+                agent_id="developer:app_demo_123",
+                queue=q1,
+            )
+            await consent_listener.unsubscribe_developer_consent_queue(
+                request_id="req_fanout",
+                agent_id="developer:app_demo_123",
+                queue=q2,
+            )
+
+    asyncio.run(_run())
 
 
 def test_default_available_export_returns_safe_projection_and_audits(monkeypatch):
