@@ -29,7 +29,7 @@ _REMOVE_RE = re.compile(
     re.IGNORECASE,
 )
 _LIST_RE = re.compile(
-    r"\b(?:who\s+do\s+i\s+trust|list\s+(?:my\s+)?trusted\s+connections?|my\s+trusted\s+connections?|show\s+(?:my\s+)?trusted\s+connections?)\b",
+    r"\b(?:who\s+do\s+i\s+trust|people\s+i\s+trust|list\s+(?:my\s+)?trusted\s+connections?|my\s+trusted\s+connections?|show\s+(?:my\s+)?trusted\s+connections?)\b",
     re.IGNORECASE,
 )
 

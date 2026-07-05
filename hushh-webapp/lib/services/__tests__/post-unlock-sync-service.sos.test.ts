@@ -28,6 +28,7 @@ vi.mock("@/lib/one-connections/service", () => ({
 
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { OneConnectionsService } from "@/lib/one-connections/service";
 
 const params = { userId: "u1", vaultKey: "vk", vaultOwnerToken: "tok" };
 
@@ -39,8 +40,12 @@ describe("PostUnlockSyncService SOS seed", () => {
     expect(OneLocationService.seedTrustedContacts).toHaveBeenCalledWith({
       vaultOwnerToken: "tok",
     });
+    expect(OneConnectionsService.seedTrustedConnections).toHaveBeenCalledWith({
+      vaultOwnerToken: "tok",
+    });
     expect(result.sosSeeded).toBe(true);
     expect(result.onboardingSynced).toBe(true);
+    expect(result.trustedSeeded).toBe(false);
   });
 
   it("does not throw when seeding fails", async () => {

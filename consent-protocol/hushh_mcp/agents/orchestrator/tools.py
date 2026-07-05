@@ -134,7 +134,6 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "trusted connections",
             "who do i trust",
             "people i trust",
-            "add to my trusted",
         ),
     ),
     (

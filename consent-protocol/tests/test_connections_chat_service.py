@@ -97,6 +97,14 @@ async def test_list_intent_empty():
     assert "no" in out["response"].lower() or "don't" in out["response"].lower()
 
 
+async def test_list_intent_people_i_trust():
+    svc = _FakeService()
+    svc.list_rows = [{"trustedUserId": "u2", "displayName": "Bob", "label": None}]
+    out = await _turn(svc, "people I trust")
+    assert "Bob" in out["response"]
+    assert out["stateChanged"] is False
+
+
 async def test_unrecognized_message_is_gentle_help():
     svc = _FakeService()
     out = await _turn(svc, "hello there")
