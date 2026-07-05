@@ -137,6 +137,20 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "live location",
         ),
     ),
+    (
+        "email",
+        "agent_email",
+        (
+            "needs a reply",
+            "my inbox",
+            "check my inbox",
+            "my email",
+            "my emails",
+            "unread email",
+            "emails from",
+            "gmail",
+        ),
+    ),
 )
 
 

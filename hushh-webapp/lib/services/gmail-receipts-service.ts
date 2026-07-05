@@ -1,6 +1,7 @@
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import {
+  buildGmailNudgesPath,
   buildGmailReceiptsPath,
   buildGmailStatusPath,
   buildGmailSyncRunPath,
@@ -124,6 +125,28 @@ export interface ReceiptListResponse {
   per_page: number;
   total: number;
   has_more: boolean;
+}
+
+export type GmailNudgeType = "needs_reply" | "upcoming_meeting";
+
+export interface GmailNudge {
+  type: GmailNudgeType;
+  thread_id: string;
+  message_id: string;
+  title: string;
+  sender: string;
+  sender_email: string;
+  received_at: string | null;
+  /** Meeting start time for upcoming_meeting nudges; null otherwise. */
+  starts_at?: string | null;
+  /** Conferencing "join" link for upcoming_meeting nudges; null when unavailable. */
+  meeting_url?: string | null;
+}
+
+export interface GmailNudgesResponse {
+  user_id: string;
+  account_email: string | null;
+  nudges: GmailNudge[];
 }
 
 interface ErrorEnvelope {
@@ -391,5 +414,29 @@ export class GmailReceiptsService {
       result: "success",
     });
     return (await response.json()) as ReceiptListResponse;
+  }
+
+  static async listNudges(params: {
+    idToken: string;
+    vaultOwnerToken: string;
+    userId: string;
+    limit?: number;
+  }): Promise<GmailNudgesResponse> {
+    const query = new URLSearchParams({
+      limit: String(params.limit ?? 10),
+    }).toString();
+    const response = await ApiService.apiFetch(
+      `${buildGmailNudgesPath(params.userId)}?${query}`,
+      {
+        method: "GET",
+        headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(await extractError(response, "Failed to load Gmail nudges."));
+    }
+
+    return (await response.json()) as GmailNudgesResponse;
   }
 }
