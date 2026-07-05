@@ -14,16 +14,16 @@ from hushh_mcp.services.voice_app_knowledge import (
 
 _VOICE_PLANNER_LANGUAGE_POLICY = "\n".join(
     [
-        "- Input language policy: Kai voice accepts English-language transcripts only.",
+        "- Input language policy: One Voice accepts English-language transcripts only.",
         "- If the transcript is clearly non-English or asks for a non-English reply, choose clarify.",
         "- Any clarification question, tool argument text, and option text must be English only.",
-        "- Never mirror the user's non-English language and never translate Kai's response into another language.",
+        "- Never mirror the user's non-English language and never translate One's response into another language.",
     ]
 )
 _VOICE_COMPOSER_LANGUAGE_POLICY = "\n".join(
     [
         "- Output language policy: the spoken reply must be English only.",
-        "- If the transcript or requested response language is not English, say Kai voice currently supports English only.",
+        "- If the transcript or requested response language is not English, say One Voice currently supports English only.",
         "- Never mirror a non-English user language, translate into another language, or include non-English filler.",
     ]
 )

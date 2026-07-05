@@ -1,21 +1,21 @@
-# Kai Voice Runtime Architecture
+# One Voice Kai Compatibility Runtime
 
 ## Visual Map
 
 ```mermaid
 sequenceDiagram
   participant User
-  participant FE as Frontend voice runtime
+  participant FE as One Voice shell
   participant RT as Realtime/STT
-  participant Plan as /voice/plan
+  participant Plan as /api/one/voice/plan -> /voice/plan
   participant Exec as Frontend executor
-  participant Compose as /voice/compose
+  participant Compose as /api/one/voice/compose -> /voice/compose
   participant TTS as TTS path
 
-  User->>FE: Speak English
+  User->>FE: Speak to One
   FE->>RT: WebRTC realtime session
   RT-->>FE: English transcript
-  FE->>FE: Build structured screen context
+  FE->>FE: Build redacted One snapshot + structured screen context
   FE->>Plan: transcript + runtime state + context
   Plan-->>FE: response envelope + canonical plan
   FE->>Exec: execute canonical action_id
@@ -25,19 +25,20 @@ sequenceDiagram
   FE->>TTS: speak final text
 ```
 
-Status: canonical current-state reference for the Kai app's in-app voice assistant.
+Status: current-state compatibility runtime reference for the Kai-era voice implementation that One Voice wraps today.
 
 ## Purpose
 
-This document describes how the Kai voice runtime works in the checked-in codebase today.
+This document describes the checked-in Kai-era implementation namespace that still provides realtime transcription, planning, composition, action execution, and settlement behind the One Voice product surface.
 
 Product truth:
 
-- The checked-in voice runtime is still Kai-first.
-- The voice assistant lives inside the Kai app surfaces today.
-- One/Nav is approved direction: One becomes the default relationship speaker, Kai remains the finance specialist, and Nav owns privacy/consent/vault/deletion/scope-review language after the migration lands.
+- One Voice is the only direct product-facing voice persona.
+- Kai is the finance specialist One may delegate to, not a separate end-user voice surface.
+- Kai-named code paths such as `consent-protocol/api/routes/kai/voice.py`, `contracts/kai/*`, and `hushh-webapp/lib/voice/kai-action-gateway.ts` are compatibility identifiers until the runtime migration is complete.
+- Nav owns privacy, consent, vault, deletion, and scope-review language. KYC owns bounded identity and verification workflows.
 
-Use this file as the maintained architecture reference. The older [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md) remains useful as the original migration/audit document, but it is no longer the best source for current runtime behavior.
+Use this file only for compatibility-runtime details. Start with [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for the product contract and use [Kai Action Gateway vNext](../kai/kai-action-gateway-vnext.md) for capability authoring.
 
 ## Founder Language Mapping
 
@@ -48,7 +49,7 @@ Use this file as the maintained architecture reference. The older [kai-voice-ass
 
 ## One/Nav Migration Boundary
 
-This file documents current state. Do not read the One/Nav ontology as already shipped in the runtime.
+This file documents compatibility runtime state. Do not treat Kai-named implementation paths as product ownership.
 
 The approved migration direction is:
 
@@ -58,11 +59,31 @@ The approved migration direction is:
 
 Action contracts carry `speaker_persona` so the runtime can move toward that model without changing authority. Speaker persona never bypasses `VAULT_OWNER`, consent, vault, persona, workspace, route, rollout, or kill-switch checks.
 
+Current One Voice foundation:
+
+- `/api/one/voice/session`, `/api/one/voice/plan`, and `/api/one/voice/compose` are product-facing wrappers over the existing Kai-era compatibility runtime.
+- The wrappers preserve the same `VAULT_OWNER`, request `user_id`, rollout, canary, kill-switch, planner, composer, and settlement rules.
+- Frontend One Voice state is represented through the shared One Voice FSM and redacted `OneVoiceContextSnapshot`; the snapshot augments existing structured screen context instead of replacing it.
+- Gemini Live is an active realtime provider adapter for tool-less in-bar conversation. It does not execute app actions unless a later change routes proposals through the generated action gateway.
+
+See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for the current One Voice contract layer.
+
+## Merged Historical Migration Facts
+
+The removed legacy voice migration artifact was retained only long enough to preserve durable runtime facts. The current contract is:
+
+- plan, execute, observe, compose, and speak remain separate runtime stages
+- canonical `action_id` values are the only execution authority for app actions
+- route and screen settlement must happen before final speech claims success
+- deterministic fast paths remain valid for low-latency status, explanation, and navigation turns
+- compatibility fields can be dual-written for older callers, but new behavior must prefer canonical plan fields and the generated gateway
+- rollout, canary, kill-switch, vault, persona, and workspace gates remain active on voice turns
+
 ## Source Of Truth
 
 Capability authoring is now contract-first.
 
-Use [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md) as the canonical contributor guide for how actions are authored, generated, and reviewed.
+Use [kai-action-gateway-vnext.md](../kai/kai-action-gateway-vnext.md) as the canonical contributor guide for how actions are authored, generated, and reviewed.
 
 The maintained runtime now depends on these canonical surfaces:
 
@@ -126,13 +147,13 @@ The canonical plan modes are:
 
 ## Language Policy
 
-Kai voice is English-only in the current runtime.
+The compatibility runtime is English-only today.
 
 - Realtime transcription pins OpenAI transcription to language `en` and uses an English-only transcription prompt.
 - Non-English or unusable transcripts fail closed into a clarification response; the response remains English and keeps the compatibility reason `stt_unusable`.
 - Planner and composer prompts include an explicit language policy: accept English-language transcripts only, and produce English-only tool arguments, clarification text, and spoken replies.
 - TTS receives only composed English text plus an OpenAI speech instruction to speak English only; the legacy browser speech fallback is also pinned to `en-US`.
-- The voice runtime does not call OpenAI translation endpoints and does not translate user speech into another language.
+- The compatibility runtime does not call OpenAI translation endpoints and does not translate user speech into another language.
 
 ## Backend Architecture
 
@@ -470,18 +491,18 @@ The main documentation/code drift found during this refresh:
 - the older migration/audit doc still described several pre-implementation problems as if they were current state
 - screen identifiers still drift across route derivation, command execution, surface publishers, and manifest expectations, which can cause settlement to fall back to timeout on otherwise successful navigations
 - not every Kai surface is yet covered by a colocated local action contract, so discoverability coverage is still incomplete outside the current seeded surfaces
-- the current screen/button/action coverage audit lives in [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md)
+- the current screen/button/action coverage audit lives in the One-owned [One Voice Action Coverage Audit](./one-voice-action-coverage-audit.md)
 
 ## Maintainer Checklist
 
-When changing Kai voice behavior:
+When changing One Voice/Kai compatibility behavior:
 
 1. update the local `.voice-action-contract.json` first
 2. regenerate the action gateway and compatibility manifest
 3. keep backend route contracts, frontend types, and validators aligned with the generated gateway
-4. update [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md) when the authoring contract or governance rules change
+4. update [kai-action-gateway-vnext.md](../kai/kai-action-gateway-vnext.md) when the authoring contract or governance rules change
 5. update this document when the runtime flow, settlement model, or backend/frontend ownership changes
-6. update the historical audit doc only when its migration notes need correction, not as the main runtime source
+6. update the One-owned voice docs when product-surface behavior moves from Kai compatibility wrappers into One contracts
 
 ## Verification
 
@@ -504,9 +525,8 @@ If backend voice routes or planner/composer contracts change, also run the focus
 
 ## Related References
 
-- [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md)
-- [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md)
-- [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md)
-- [kai-route-audit-matrix.md](./kai-route-audit-matrix.md)
-- [kai-runtime-smoke-checklist.md](./kai-runtime-smoke-checklist.md)
+- [kai-action-gateway-vnext.md](../kai/kai-action-gateway-vnext.md)
+- [one-voice-action-coverage-audit.md](./one-voice-action-coverage-audit.md)
+- [kai-route-audit-matrix.md](../kai/kai-route-audit-matrix.md)
+- [kai-runtime-smoke-checklist.md](../kai/kai-runtime-smoke-checklist.md)
 - [env-and-secrets.md](../operations/env-and-secrets.md)

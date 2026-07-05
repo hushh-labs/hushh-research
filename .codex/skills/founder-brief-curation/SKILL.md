@@ -63,7 +63,7 @@ Non-owned surfaces:
 1. Docs-home uncertainty routes to `docs-governance`.
 2. Broad repo scanning starts with `repo-context`.
 3. HTML/CSS/layout implementation routes to `frontend`.
-4. Subsystem truth tightening routes to the relevant backend, IAM, MCP, or Kai voice owner.
+4. Subsystem truth tightening routes to the relevant backend, IAM, MCP, or One Voice owner.
 
 ## Required Checks
 

@@ -39,6 +39,20 @@ _VOICE_KILL_SWITCH_MESSAGE = (
     "Voice actions are temporarily unavailable. I can still respond and guide you."
 )
 _VOICE_STAGE_TIMING: dict[str, dict[str, float]] = {}
+_VOICE_PAYLOAD_FIELD_BYTE_LIMITS = {
+    "context": 24_000,
+    "context_structured": 48_000,
+    "memory_short": 32_000,
+    "memory_retrieved": 32_000,
+    "response": 16_000,
+    "action_result": 24_000,
+}
+_VOICE_PAYLOAD_TOTAL_BYTES_LIMIT = 96_000
+_VOICE_PAYLOAD_MAX_DEPTH = 8
+_VOICE_PAYLOAD_MAX_LIST_ITEMS = 64
+_VOICE_PAYLOAD_MAX_OBJECT_KEYS = 128
+_VOICE_PAYLOAD_MAX_STRING_CHARS = 8_192
+_VOICE_PAYLOAD_MAX_KEY_CHARS = 128
 
 
 def _voice_runtime_settings() -> VoiceRuntimeSettings:
@@ -293,6 +307,137 @@ def _trace_voice_stage(
 
     if finalize:
         _VOICE_STAGE_TIMING.pop(turn_id, None)
+
+
+def _json_size_bytes(value: Any) -> int:
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    except Exception:
+        encoded = str(value)
+    return len(encoded.encode("utf-8"))
+
+
+def _collect_payload_budget_violations(
+    value: Any,
+    *,
+    path: str,
+    depth: int = 0,
+    violations: list[str] | None = None,
+) -> list[str]:
+    out = violations if violations is not None else []
+    if len(out) >= 8:
+        return out
+    if depth > _VOICE_PAYLOAD_MAX_DEPTH:
+        out.append(f"{path}:depth>{_VOICE_PAYLOAD_MAX_DEPTH}")
+        return out
+    if isinstance(value, str):
+        if len(value) > _VOICE_PAYLOAD_MAX_STRING_CHARS:
+            out.append(f"{path}:string_chars>{_VOICE_PAYLOAD_MAX_STRING_CHARS}")
+        return out
+    if isinstance(value, list):
+        if len(value) > _VOICE_PAYLOAD_MAX_LIST_ITEMS:
+            out.append(f"{path}:list_items>{_VOICE_PAYLOAD_MAX_LIST_ITEMS}")
+        for index, item in enumerate(value[:_VOICE_PAYLOAD_MAX_LIST_ITEMS]):
+            _collect_payload_budget_violations(
+                item,
+                path=f"{path}[{index}]",
+                depth=depth + 1,
+                violations=out,
+            )
+            if len(out) >= 8:
+                break
+        return out
+    if isinstance(value, dict):
+        if len(value) > _VOICE_PAYLOAD_MAX_OBJECT_KEYS:
+            out.append(f"{path}:object_keys>{_VOICE_PAYLOAD_MAX_OBJECT_KEYS}")
+        for index, (key, item) in enumerate(value.items()):
+            if index >= _VOICE_PAYLOAD_MAX_OBJECT_KEYS or len(out) >= 8:
+                break
+            key_text = str(key)
+            if len(key_text) > _VOICE_PAYLOAD_MAX_KEY_CHARS:
+                out.append(f"{path}.{key_text[:24]}:key_chars>{_VOICE_PAYLOAD_MAX_KEY_CHARS}")
+            _collect_payload_budget_violations(
+                item,
+                path=f"{path}.{key_text[:48]}",
+                depth=depth + 1,
+                violations=out,
+            )
+        return out
+    return out
+
+
+def _measure_voice_payload_sections(sections: dict[str, Any]) -> dict[str, Any]:
+    field_bytes = {name: _json_size_bytes(value) for name, value in sections.items()}
+    violations: list[str] = []
+    for name, value in sections.items():
+        limit = _VOICE_PAYLOAD_FIELD_BYTE_LIMITS.get(name)
+        if limit is not None and field_bytes.get(name, 0) > limit:
+            violations.append(f"{name}:bytes>{limit}")
+        _collect_payload_budget_violations(value, path=name, violations=violations)
+    total_bytes = sum(field_bytes.values())
+    if total_bytes > _VOICE_PAYLOAD_TOTAL_BYTES_LIMIT:
+        violations.append(f"total:bytes>{_VOICE_PAYLOAD_TOTAL_BYTES_LIMIT}")
+    return {
+        "field_bytes": field_bytes,
+        "total_bytes": total_bytes,
+        "violations": violations[:8],
+    }
+
+
+def _enforce_voice_payload_budget(
+    *,
+    route: str,
+    turn_id: str,
+    user_id: str,
+    sections: dict[str, Any],
+) -> dict[str, Any]:
+    measurements = _measure_voice_payload_sections(sections)
+    _log_voice_metric(
+        "payload_total_bytes",
+        int(measurements["total_bytes"]),
+        turn_id=turn_id,
+        user_id=user_id,
+        tags={"route": route},
+    )
+    _trace_voice_stage(
+        turn_id,
+        "payload_budget_checked",
+        {
+            "route": route,
+            "payload_total_bytes": measurements["total_bytes"],
+            "payload_field_bytes": measurements["field_bytes"],
+            "payload_violation_count": len(measurements["violations"]),
+        },
+    )
+    if measurements["violations"]:
+        _trace_voice_stage(
+            turn_id,
+            "response_sent",
+            {
+                "route": route,
+                "status": "error",
+                "http_status": 413,
+                "error": "voice_payload_budget_exceeded",
+                "payload_total_bytes": measurements["total_bytes"],
+                "payload_violations": measurements["violations"],
+            },
+            finalize=True,
+        )
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "VOICE_PAYLOAD_BUDGET_EXCEEDED",
+                "message": "Voice context payload is too large.",
+                "violations": measurements["violations"],
+            },
+        )
+    return measurements
 
 
 async def _ensure_client_connected(
@@ -763,6 +908,18 @@ async def kai_voice_plan(
         )
         raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
 
+    payload_measurements = _enforce_voice_payload_budget(
+        route="/voice/plan",
+        turn_id=turn_id,
+        user_id=body.user_id,
+        sections={
+            "context": body.context,
+            "context_structured": body.context_structured,
+            "memory_short": body.memory_short,
+            "memory_retrieved": body.memory_retrieved,
+        },
+    )
+
     try:
         logger.info(
             "[KAI_VOICE_DIAG] planner_normalization_version=%s",
@@ -886,6 +1043,7 @@ async def kai_voice_plan(
             {
                 "route": "/voice/plan",
                 "transcript_chars": len(planner_transcript),
+                "payload_total_bytes": payload_measurements["total_bytes"],
             },
         )
         response, openai_http_ms, model_used = await voice_service.plan_voice_response(
@@ -1158,6 +1316,20 @@ async def kai_voice_compose(
         )
         raise HTTPException(status_code=403, detail="Token user_id does not match request user_id")
 
+    payload_measurements = _enforce_voice_payload_budget(
+        route="/voice/compose",
+        turn_id=turn_id,
+        user_id=body.user_id,
+        sections={
+            "context": body.context,
+            "context_structured": body.context_structured,
+            "memory_short": body.memory_short,
+            "memory_retrieved": body.memory_retrieved,
+            "response": body.response.model_dump(),
+            "action_result": body.action_result or {},
+        },
+    )
+
     try:
         app_state_payload = body.app_state.model_dump() if body.app_state is not None else {}
         compose_context: dict[str, Any] = dict(body.context or {})
@@ -1176,6 +1348,7 @@ async def kai_voice_compose(
                 "route": "/voice/compose",
                 "response_id": _optional_text(body.response_id),
                 "mode": _optional_text(body.mode),
+                "payload_total_bytes": payload_measurements["total_bytes"],
             },
         )
         composed, openai_http_ms, model_used = await voice_service.compose_voice_reply(

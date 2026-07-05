@@ -11,7 +11,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SKILLS_ROOT = REPO_ROOT / ".codex/skills"
 WORKFLOWS_ROOT = REPO_ROOT / ".codex/workflows"
-MASTER_SKILL_MAX_LINES = 110
+OWNER_SKILL_MAX_LINES = 110
 SPOKE_SKILL_MAX_LINES = 85
 REFERENCE_MAX_LINES = 220
 READ_FIRST_MAX_ITEMS = 8
@@ -276,11 +276,11 @@ def line_count(path: Path) -> int:
 
 
 def compact_kernel_label(role: str) -> str:
-    return "master" if role == "owner" else "spoke"
+    return "owner" if role == "owner" else "spoke"
 
 
 def compact_kernel_line_budget(role: str) -> int:
-    return MASTER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
+    return OWNER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
 
 
 def compact_kernel_budget_errors(

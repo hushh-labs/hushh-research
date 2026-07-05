@@ -41,6 +41,7 @@ export type PendingVoiceConfirmation =
       transcript: string;
       turnId: string | null;
       responseId: string | null;
+      actionId?: string | null;
     }
   | null;
 

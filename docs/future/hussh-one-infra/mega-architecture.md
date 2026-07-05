@@ -45,7 +45,7 @@ The practical design goal is to let One coordinate user-approved outcomes while 
 | --- | --- | --- |
 | Hussh has active consent, API, MCP, PKM, KYC, and frontend surfaces. | `already_exists` | Existing backend, frontend, docs, and generated contracts. |
 | One is the long-term personal-agent product frame. | `partially_exists` / `future_state_only` | Approved docs direction, but runtime is not fully migrated. |
-| Kai is the current shipped finance-oriented agent surface. | `already_exists` | Runtime and docs are Kai-first in several flows. |
+| Kai is the current shipped finance-oriented specialist surface. | `already_exists` | Runtime and docs still use Kai-era compatibility identifiers in several finance and action flows. |
 | Nav is a privacy and consent guardian. | `partially_exists` | Must not be confused with route/page navigation. |
 | Salesforce, MuleSoft, Agentforce, and Flex Gateway are implemented integrations. | `missing` | Planning and partner-brief only until scoped code lands. |
 | Mac Mini, local MCP, OpenClaw, MLX, and App Intents are production-ready. | `future_state_only` unless a checked path proves otherwise | Treat as future private-compute lane. |
@@ -55,7 +55,7 @@ The practical design goal is to let One coordinate user-approved outcomes while 
 
 | Layer | Responsibility | Current/Future Boundary |
 | --- | --- | --- |
-| Experience | One relationship, Kai finance workflows, Nav consent guidance, KYC identity tasks | Current runtime remains partially Kai-first. |
+| Experience | One relationship, Kai finance workflows, Nav consent guidance, KYC identity tasks | Current runtime is transitional: One Voice is direct, while several action/planner contracts remain Kai-era compatibility surfaces. |
 | Trust and policy | PCHP, auth, consent scopes, audit logs, data access policy | Current authority; do not bypass. |
 | Memory | PKM, vault, scoped personal data, derived user context | Current canonical memory boundary. |
 | Access | Hussh API, MCP, generated contracts, encrypted scoped export | Current developer access pattern. |

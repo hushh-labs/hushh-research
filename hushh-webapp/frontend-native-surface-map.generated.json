@@ -2067,7 +2067,18 @@
       "route": "/one/marketplace",
       "page_file": "app/one/marketplace/page.tsx",
       "physical_page_exists": true,
-      "route_contract": null,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/one/marketplace",
         "classification": "native-required-functional",
@@ -2089,8 +2100,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/marketplace/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.one_marketplace"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null

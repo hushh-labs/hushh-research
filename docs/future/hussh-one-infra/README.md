@@ -40,7 +40,7 @@ This package promotes the temporary One personal-agent infrastructure notes into
 | Surface | Current Classification | Boundary |
 | --- | --- | --- |
 | Hussh platform | `already_exists` as the trust, consent, API, MCP, PKM, and governance platform | Durable current-state docs and code define shipped behavior. |
-| One personal agent | `partially_exists` / `future_state_only` | One is the approved top-level direction, while many shipped runtime surfaces remain Kai-first today. |
+| One personal agent | `partially_exists` / `future_state_only` | One Voice is the direct voice surface and One is the approved top-level direction, while several shipped action/planner surfaces still use Kai-era compatibility identifiers today. |
 | Kai | `already_exists` as the current finance and investor specialist surface | Kai must not be described as the whole One agent. |
 | Nav | `partially_exists` as privacy, consent, and access guidance | Nav is not ordinary page navigation. UI routes remain route/page concerns. |
 | KYC and PCHP | `partially_exists` / active execution surfaces | Identity and consent boundaries must stay explicit and auditable. |

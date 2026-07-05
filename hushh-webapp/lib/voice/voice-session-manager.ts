@@ -471,7 +471,7 @@ class VoiceSessionManager {
         this.emitDebug("realtime_session_request_started", {
           turn_id: sessionTurnId,
         });
-        const sessionResponsePromise = ApiService.createKaiRealtimeSession({
+        const sessionResponsePromise = ApiService.createOneVoiceSession({
           userId: this.userId!,
           vaultOwnerToken,
           voice: this.configuredVoice,

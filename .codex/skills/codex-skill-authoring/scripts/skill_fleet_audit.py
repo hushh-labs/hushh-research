@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 SKILLS_ROOT = REPO_ROOT / ".codex/skills"
 WORKFLOWS_ROOT = REPO_ROOT / ".codex/workflows"
 AGENTS_ROOT = REPO_ROOT / ".codex/agents"
-MASTER_SKILL_MAX_LINES = 110
+OWNER_SKILL_MAX_LINES = 110
 SPOKE_SKILL_MAX_LINES = 85
 REFERENCE_MAX_LINES = 220
 READ_FIRST_MAX_ITEMS = 8
@@ -111,7 +111,7 @@ def _scripts(skill_dir: Path) -> list[str]:
 
 
 def _budget_status(role: str, lines: int, read_count: int, command_count: int) -> str:
-    max_lines = MASTER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
+    max_lines = OWNER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
     if lines > max_lines:
         return "fail:skill-lines"
     if read_count > READ_FIRST_MAX_ITEMS:
@@ -129,7 +129,7 @@ def _duplication_signals(
     read_count: int,
     command_count: int,
 ) -> list[str]:
-    max_lines = MASTER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
+    max_lines = OWNER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
     signals: list[str] = []
     if lines >= int(max_lines * 0.9):
         signals.append("near-skill-budget")
@@ -150,9 +150,9 @@ def _refinement_action(row: dict[str, Any]) -> str:
     if row["budget_status"] != "pass":
         return "split before merge"
     if row["lane_label"] == "spoke" and "near-skill-budget" in signals:
-        return "spoke refinement candidate: extract narrow rules or route broad language back to master"
+        return "spoke refinement candidate: extract narrow rules or route broad language back to owner"
     if "near-skill-budget" in signals:
-        return "master refinement candidate: extract durable detail into focused references"
+        return "owner refinement candidate: extract durable detail into focused references"
     if "near-check-budget" in signals:
         return "check refinement candidate: collapse scenarios into smoke scripts"
     if "near-read-budget" in signals:
@@ -196,8 +196,8 @@ def audit() -> OrderedDict[str, Any]:
         manifest = _read_json(manifest_path)
         skill_id = str(manifest["id"])
         role = str(manifest.get("role") or "")
-        lane_label = "master" if role == "owner" else "spoke"
-        max_lines = MASTER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
+        lane_label = "owner" if role == "owner" else "spoke"
+        max_lines = OWNER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
         required_reads = list(manifest.get("required_reads") or [])
         required_commands = list(manifest.get("required_commands") or [])
         references = _reference_rows(skill_dir)
@@ -282,10 +282,10 @@ def audit() -> OrderedDict[str, Any]:
         family_map[str(row["owner_family"])].append(row)
     family_breakdown: OrderedDict[str, Any] = OrderedDict()
     for family, family_rows in sorted(family_map.items()):
-        master_rows = [row for row in family_rows if row["lane_label"] == "master"]
+        owner_rows = [row for row in family_rows if row["lane_label"] == "owner"]
         spoke_rows = [row for row in family_rows if row["lane_label"] == "spoke"]
         family_breakdown[family] = OrderedDict(
-            master=[row["skill_id"] for row in sorted(master_rows, key=lambda item: item["skill_id"])],
+            owner=[row["skill_id"] for row in sorted(owner_rows, key=lambda item: item["skill_id"])],
             spokes=[row["skill_id"] for row in sorted(spoke_rows, key=lambda item: item["skill_id"])],
             agent_coverage=sorted(
                 {
@@ -318,7 +318,7 @@ def audit() -> OrderedDict[str, Any]:
     return OrderedDict(
         schema_version="skill-fleet-audit.v1",
         skill_count=len(rows),
-        compact_kernel_label="owner role is reported as master; manifest role remains owner",
+        compact_kernel_label="owner role is reported as owner; manifest role remains owner",
         update_required=bool(failures),
         budget_failures=[row["skill_id"] for row in failures],
         repeated_required_reads=repeated_reads,
@@ -347,12 +347,12 @@ def _text(payload: dict[str, Any]) -> str:
         )
     else:
         lines.append("- none")
-    lines.append("Master/spoke family breakdown:")
+    lines.append("Owner/spoke family breakdown:")
     for family, summary in payload["family_breakdown"].items():
-        master = ", ".join(summary["master"]) or "none"
+        owner = ", ".join(summary["owner"]) or "none"
         spokes = ", ".join(summary["spokes"]) or "none"
         agents = ", ".join(summary["agent_coverage"]) or "none"
-        lines.append(f"- {family}: master={master}; spokes={spokes}; agents={agents}")
+        lines.append(f"- {family}: owner={owner}; spokes={spokes}; agents={agents}")
         for item in summary["refinement_focus"]:
             if item["action"] != "stable":
                 lines.append(f"  - refine {item['lane']} {item['skill_id']}: {item['action']}")

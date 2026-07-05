@@ -1,4 +1,4 @@
-# Kai Voice Action Coverage Audit
+# One Voice Action Coverage Audit
 
 Status: current coverage audit.
 Snapshot date: 2026-04-27.
@@ -7,7 +7,7 @@ Snapshot date: 2026-04-27.
 
 ```mermaid
 flowchart TD
-  voice["Kai voice turn"]
+  voice["One Voice turn"]
   backend["Backend tool schema"]
   gateway["Generated action gateway"]
   surface["Runtime surface metadata"]
@@ -29,9 +29,9 @@ flowchart TD
 
 ## Verdict
 
-The current voice mapper still does not map every UI screen and every button across the whole app.
+The current One Voice mapper still does not map every UI screen and every button across the whole app.
 
-It now maps the expanded voice/search action plane: 19 local action-contract surfaces, 73 generated actions, and a smaller set of backend/frontend executable tools. RIA coverage is now first-class for workspace entry, onboarding, clients, picks, client workspace tabs, account/request fallbacks, compatibility routes, and marketplace RIA profile. Some non-RIA controls still publish voice metadata or `data-voice-control-id` values that do not exist in the generated gateway, and several app routes still have no local action contract or explicit voice-ignore contract.
+It now maps the expanded voice/search action plane: 21 local action-contract surfaces, 82 generated actions, and a smaller set of backend/frontend executable tools. RIA coverage is now first-class for workspace entry, onboarding, clients, picks, client workspace tabs, account/request fallbacks, compatibility routes, and marketplace RIA profile. Some non-RIA controls still publish voice metadata or `data-voice-control-id` values that do not exist in the generated gateway, and several app routes still have no local action contract or explicit voice-ignore contract.
 
 Treat the current mapper as capability coverage, not full UI coverage.
 
@@ -106,12 +106,12 @@ The frontend dispatcher supports the backend tools above plus `switch_persona`.
 
 Generated gateway coverage:
 
-- 19 source contracts
-- 73 generated actions
-- 43 wired actions
-- 29 unwired actions
+- 21 source contracts
+- 82 generated actions
+- 48 wired actions
+- 33 unwired actions
 - 1 dead legacy action
-- execution policy split: 44 `allow_direct`, 25 `manual_only`, 4 `confirm_required`
+- execution policy split: 47 `allow_direct`, 29 `manual_only`, 6 `confirm_required`
 
 Action inventory:
 
@@ -267,7 +267,7 @@ They do not currently fail when:
 3. Normalize screen ids across contracts, route derivation, command execution, and surface publishers.
 4. Replace runtime-only action ids with canonical gateway ids, or add matching local action contracts.
 5. For unwired actions, either implement a global action adapter or mark them as manual-only explainable actions with no executable claim.
-6. Add explicit voice-ignore contracts for login/OAuth/marketplace/admin surfaces if they should remain outside Kai voice coverage.
+6. Add explicit voice-ignore contracts for login/OAuth/marketplace/admin surfaces if they should remain outside One Voice/Kai compatibility coverage.
 
 ## Bottom Line
 

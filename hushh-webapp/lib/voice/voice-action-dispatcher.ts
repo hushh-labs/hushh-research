@@ -297,7 +297,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
         actionId: canonicalActionId,
         routeBefore: currentRoute,
         screenBefore: currentScreen,
-        resultSummary: "Unlock the vault before using this Kai voice action.",
+        resultSummary: "Unlock the vault before using this One Voice action.",
         data: {
           toolName,
           reason: "missing_vault_token",

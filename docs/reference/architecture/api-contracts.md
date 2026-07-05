@@ -324,10 +324,25 @@ binding rows store no raw email, phone, or CRM field values.
 | DELETE | `/api/kai/agent/chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages |
 | GET | `/api/kai/agent/chat/history/{conversation_id}` | Read decrypted Agent chat history for the authenticated conversation owner |
 | POST | `/api/kai/agent/realtime/session` | Create an OpenAI Realtime WebRTC client secret for the vault-unlocked Agent chat and voice surface |
+| POST | `/api/kai/agent/realtime/gemini/relay-session` | Mint a short-lived opaque Gemini Live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs |
 | GET | `/api/kai/chat/history/{conversation_id}` | Conversation history |
 | GET | `/api/kai/chat/conversations/{user_id}` | List all conversations |
 | GET | `/api/kai/chat/initial-state/{user_id}` | Initial chat state |
 | POST | `/api/kai/chat/analyze-loser` | Analyze a specific loser |
+
+#### One Voice
+
+One Voice is the product-facing voice wrapper over the current Kai-era compatibility runtime.
+These routes preserve the same VAULT_OWNER, request user match, rollout,
+canary, kill-switch, planner, composer, and settlement behavior while the
+frontend migrates to the provider-neutral One Voice transport contract.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/one/voice/session` | Product-facing wrapper for realtime voice session creation |
+| POST | `/api/one/voice/plan` | Product-facing wrapper for voice planning; accepts the shared One Voice context snapshot alongside existing structured screen context |
+| POST | `/api/one/voice/compose` | Product-facing wrapper for post-action spoken response composition |
+| POST | `/api/one/voice/benchmark` | Disabled status route until live provider benchmark adapters and versioned artifacts exist |
 
 #### Kai Portfolio
 

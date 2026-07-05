@@ -12,23 +12,24 @@ Define or tighten repo-scoped Codex custom agents, bounded subagent limits, and 
 2. Open only the required reads listed in `workflow.json` plus the touched agent or skill manifests.
 3. Verify first that a repo-scoped custom agent is justified; prefer existing skills and workflows when a new role boundary is unnecessary.
 4. Keep repo custom agents thin, narrow, read-first, and inheritance-first for model family.
-5. Keep `default_reasoning_effort` pins only for curated high-risk evidence lanes; broad parent-model overrides still need a documented reason.
-6. Keep global limits bounded:
+5. Keep repo custom agents inheritance-first for craft: reference the Principal Craft Kernel in `AGENTS.md`, then add only role-specific priorities.
+6. Keep `default_reasoning_effort` pins only for curated high-risk evidence lanes; broad parent-model overrides still need a documented reason.
+7. Keep global limits bounded:
    - `max_threads = 6`
    - `max_depth = 1`
-7. Encode authority boundaries explicitly:
+8. Encode authority boundaries explicitly:
    - `governor` synthesizes and recommends final outcomes
    - child agents return evidence, not final authority
-8. Require every delegated child result to include:
+9. Require every delegated child result to include:
    - scope covered
    - files or surfaces inspected
    - findings or conclusion
    - assumptions
    - validations run
    - unresolved risks
-9. Treat self-maintenance as local validation plus the existing `Governance` CI lane; do not add autonomous rewrite behavior in wave 1.
-10. Run the dedicated agent-orchestration validation first, then the governance check, skill lint, workflow listing, repo audit, and docs verification.
-11. Hand off to `codex-skill-authoring`, `repo-context`, `repo-operations`, or `future-planner` when the task leaves orchestration governance.
+10. Treat self-maintenance as local validation plus the existing `Governance` CI lane; do not add autonomous rewrite behavior in wave 1.
+11. Run the dedicated agent-orchestration validation first, then the governance check, skill lint, workflow listing, repo audit, and docs verification.
+12. Hand off to `codex-skill-authoring`, `repo-context`, `repo-operations`, or `future-planner` when the task leaves orchestration governance.
 
 ## Common Drift Risks
 
