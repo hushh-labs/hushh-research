@@ -413,7 +413,7 @@ export function KaiCommandPalette({
           {!voiceHidden ? (
             <button
               type="button"
-              aria-label={voiceActive ? "End Kai voice" : "Start Kai voice"}
+              aria-label={voiceActive ? "End One Voice" : "Start One Voice"}
               aria-disabled={voiceDisabled}
               onClick={onVoiceClick}
               className={cn(

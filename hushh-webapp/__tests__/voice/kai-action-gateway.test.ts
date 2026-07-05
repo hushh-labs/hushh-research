@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
+  getKaiActionByVoiceToolCall,
   getKaiActionsForControlId,
   KAI_ACTION_GATEWAY,
   searchKaiActions,
@@ -103,6 +104,30 @@ describe("kai-action-gateway", () => {
         href: "/ria",
       }),
     ]);
+  });
+
+  it("resolves duplicate voice_tool targets by authored params", () => {
+    expect(
+      getKaiActionByVoiceToolCall({
+        tool_name: "capture_pkm_memory",
+        args: {
+          mode: "preview",
+          direct_save: false,
+          message: "preview this",
+        },
+      })?.action_id
+    ).toBe("profile.pkm.preview_capture");
+
+    expect(
+      getKaiActionByVoiceToolCall({
+        tool_name: "capture_pkm_memory",
+        args: {
+          mode: "direct_save",
+          direct_save: true,
+          message: "save this",
+        },
+      })?.action_id
+    ).toBe("profile.pkm.save_capture");
   });
 
   it("maps the RIA flow with direct navigation and guarded manual actions", () => {

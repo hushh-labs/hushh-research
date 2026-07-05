@@ -33,6 +33,7 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [founder-language-matrix.md](./founder-language-matrix.md): canonical founder-term to implementation-term mapping and audit checklist.
 - [api-contracts.md](./api-contracts.md): API surface and proxy/backend contracts.
 - [route-contracts.md](./route-contracts.md): app route inventory and parity governance.
+- [../one/README.md](../one/README.md): current One-owned product contracts, including One Voice.
 - [one-email-kyc.md](./one-email-kyc.md): current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.
 - [frontend-native-surface-map.md](./frontend-native-surface-map.md): generated route/API/native/plugin/voice mapper scaffold.
 - [loading-policy.md](./loading-policy.md): canonical loading and empty-state policy.

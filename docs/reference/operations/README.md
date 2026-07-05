@@ -20,6 +20,8 @@ flowchart TD
   root --> n6
   n11["Documentation Architecture Map"]
   root --> n11
+  n17["Documentation Recursive Knowledge Model"]
+  root --> n17
   n7["Env And Secrets"]
   root --> n7
   n8["Env Secrets Key Matrix"]
@@ -104,6 +106,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
 - [branch-governance.md](./branch-governance.md): branch rules, review gates, and bypass policy.
 - [documentation-architecture-map.md](./documentation-architecture-map.md): canonical docs-home map across root, cross-cutting docs, and package docs.
+- [documentation-recursive-knowledge-model.md](./documentation-recursive-knowledge-model.md): recursive folder contract, rewrite sequence, and long-doc split policy.
 - [docs-governance.md](./docs-governance.md): documentation placement and quality gates.
 - [env-and-secrets.md](./env-and-secrets.md): environment and secret contract.
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.

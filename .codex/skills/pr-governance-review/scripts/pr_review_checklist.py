@@ -753,8 +753,10 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/hushh_mcp/services/voice_intent_service.py",
         ),
         "docs": (
+            "docs/reference/one/one-voice-runtime-architecture.md",
+            "docs/reference/one/one-voice-action-coverage-audit.md",
             "docs/reference/kai/kai-action-gateway-vnext.md",
-            "docs/reference/kai/kai-voice-runtime-architecture.md",
+            "docs/reference/one/one-voice-kai-compatibility-runtime.md",
         ),
     },
 )
@@ -812,11 +814,13 @@ PATH_SUMMARIES: dict[str, str] = {
     "docs/reference/architecture/one-email-kyc.md": "Current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.",
     "hushh-webapp/lib/voice/voice-turn-orchestrator.ts": "Current frontend voice turn coordinator for realtime voice flow and action execution.",
     "hushh-webapp/lib/voice/voice-action-dispatcher.ts": "Current action dispatcher that maps generated voice actions to UI/runtime handlers.",
-    "hushh-webapp/lib/voice/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for Kai voice actions.",
-    "hushh-webapp/components/kai/voice/voice-console-sheet.tsx": "Current voice console UI surface for realtime Kai voice interaction.",
+    "hushh-webapp/lib/voice/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for One Voice/Kai compatibility actions.",
+    "hushh-webapp/components/kai/voice/voice-console-sheet.tsx": "Current voice console UI surface for realtime One Voice compatibility interaction.",
     "consent-protocol/hushh_mcp/services/voice_intent_service.py": "Backend voice intent mapping service that defines canonical voice action semantics.",
-    "docs/reference/kai/kai-action-gateway-vnext.md": "Canonical generated-action contract for Kai voice and typed action parity.",
-    "docs/reference/kai/kai-voice-runtime-architecture.md": "Runtime architecture for Kai voice, realtime flow, settlement, and action boundaries.",
+    "docs/reference/kai/kai-action-gateway-vnext.md": "Canonical generated-action contract for One Voice/Kai compatibility and typed action parity.",
+    "docs/reference/one/one-voice-runtime-architecture.md": "Product-facing One Voice runtime contract for shared state, context, and provider adapters.",
+    "docs/reference/one/one-voice-action-coverage-audit.md": "Current One Voice action and screen coverage audit.",
+    "docs/reference/one/one-voice-kai-compatibility-runtime.md": "One-owned Kai compatibility runtime architecture for voice flow, settlement, and action boundaries.",
 }
 
 
@@ -1288,7 +1292,7 @@ def _what_this_is_about(
     if contract_set == "db-release-contract":
         return "DB release contract: advance migrations, schema contracts, and UAT/prod migration readiness together."
     if contract_set == "voice":
-        return "Kai voice capability: expand or refine voice-driven action coverage."
+        return "One Voice capability: expand or refine voice-driven action coverage."
     if contract_set == "pkm-privacy":
         return "PKM privacy/runtime contract: adjust personal knowledge storage, access, or projection behavior."
     if contract_set == "backend":
@@ -2920,7 +2924,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                     "id": "parallel_voice_input_surface",
                     "severity": "medium",
                     "summary": (
-                        "PR adds browser SpeechRecognition/dictation beside the existing Kai voice "
+                        "PR adds browser SpeechRecognition/dictation beside the existing One Voice "
                         "runtime; verify it is an intentional fallback integrated with current voice "
                         "state, action parity, and permission UX rather than a parallel voice path."
                     ),
@@ -3006,9 +3010,9 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
                     "severity": "medium",
                     "summary": (
                         "PR changes One/Kai runtime identity language on a voice or agent surface. "
-                        "Verify current-state wording against the canonical ontology so One is not "
-                        "claimed as fully shipped where the runtime remains Kai-first, and Kai is not "
-                        "treated as the full platform identity."
+                        "Verify current-state wording against the canonical ontology so One Voice remains "
+                        "the direct voice surface, Kai remains the finance specialist, and Kai-era route "
+                        "names are treated as compatibility identifiers rather than product ownership."
                     ),
                     "files": sorted(changed_file_set & identity_runtime_files),
                 }

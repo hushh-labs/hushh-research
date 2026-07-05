@@ -1,11 +1,11 @@
-# Agent Chained Voice Architecture
+# One Agent Chained Voice Architecture
 
-This document describes the Agent popup voice path. It is separate from the
-existing Kai OpenAI realtime voice runtime.
+This document describes the One Agent popup voice path. It is separate from the
+existing Kai OpenAI realtime voice compatibility runtime.
 
 ## Visual Context
 
-Canonical visual owner: [Kai Index](README.md). Use that map for the top-down Kai system view; this page is the narrower Agent voice transport detail beneath it.
+Canonical visual owner: [One Index](README.md). Use that map for the top-down One voice system view; this page is the narrower Agent voice transport detail beneath it.
 
 ```mermaid
 flowchart LR
@@ -20,7 +20,7 @@ flowchart LR
 
 ## Current Chain
 
-Agent voice uses a chained transport architecture:
+One Agent voice uses a chained transport architecture:
 
 ```text
 browser microphone
@@ -63,7 +63,7 @@ Voice messages persist only as normal Agent chat messages:
 
 ## App-Wide Behavior
 
-The Agent popup owns the voice session state, while the global floating voice
+The One Agent popup owns the voice session state, while the global floating voice
 indicator reflects the current state across the app:
 
 - Listening
@@ -113,7 +113,8 @@ Timeouts and retries:
 
 ## OpenAI Realtime Runtime
 
-The existing OpenAI realtime voice path remains untouched. Its routes, session
-creation, telemetry, and rollout guards continue to live under the Kai voice
-runtime. Agent Gemini voice only adds `/agent/voice/stt` and `/agent/voice/tts`
-as transport adapters for the Agent popup.
+The existing OpenAI realtime voice compatibility path remains untouched. Its
+routes, session creation, telemetry, and rollout guards continue to live under
+the One Voice/Kai compatibility runtime path. One Agent Gemini voice only adds
+`/agent/voice/stt` and `/agent/voice/tts` as transport adapters for the Agent
+popup.

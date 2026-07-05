@@ -25,10 +25,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -45,6 +50,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.agent_persona import (
     build_persona_context,
     compose_voice_instructions,
@@ -105,6 +111,8 @@ class AgentGeminiLiveTokenRequest(BaseModel):
     # persona composer sanitizes them against prompt injection.
     screen: Optional[str] = Field(default=None, max_length=64)
     persona: Optional[str] = Field(default=None, max_length=32)
+    route_family: Optional[str] = Field(default=None, max_length=64)
+    voice_state: Optional[str] = Field(default=None, max_length=32)
 
 
 class AgentGeminiLiveTokenResponse(BaseModel):
@@ -115,6 +123,19 @@ class AgentGeminiLiveTokenResponse(BaseModel):
     tier: str = Field(..., max_length=16)
     # The browser connects with v1alpha for Live + ephemeral tokens.
     api_version: str = Field(default="v1alpha", max_length=16)
+
+
+class AgentGeminiLiveRelaySessionResponse(BaseModel):
+    relay_ticket: str = Field(..., max_length=128)
+    expires_at: int = Field(..., ge=0)
+    model: str = Field(..., max_length=128)
+    voice: str = Field(..., max_length=64)
+    tier: str = Field(..., max_length=16)
+
+
+_SIGNED_RELAY_TICKET_PREFIX = "v1"
+_RELAY_TICKETS: dict[str, tuple[Optional[str], float]] = {}
+_RELAY_TICKET_NONCES: dict[str, int] = {}
 
 
 async def _resolve_optional_uid(authorization: Optional[str]) -> Optional[str]:
@@ -139,6 +160,140 @@ def _resolve_voice(requested: Optional[str]) -> str:
         if voice.lower() == candidate.lower():
             return voice
     return _DEFAULT_GEMINI_LIVE_VOICE
+
+
+def _relay_ticket_secret() -> Optional[str]:
+    try:
+        return get_core_security_settings().app_signing_key
+    except ValueError:
+        return None
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}")
+
+
+def _sign_relay_ticket_payload(payload_segment: str, secret: str) -> str:
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        payload_segment.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return _b64url_encode(signature)
+
+
+def _prune_relay_tickets(now_monotonic: float) -> None:
+    expired = [
+        ticket
+        for ticket, (_uid, expires_monotonic) in _RELAY_TICKETS.items()
+        if expires_monotonic <= now_monotonic
+    ]
+    for ticket in expired:
+        _RELAY_TICKETS.pop(ticket, None)
+    now_epoch = int(datetime.now(tz=timezone.utc).timestamp())
+    expired_nonces = [
+        nonce for nonce, expires_at in _RELAY_TICKET_NONCES.items() if expires_at <= now_epoch
+    ]
+    for nonce in expired_nonces:
+        _RELAY_TICKET_NONCES.pop(nonce, None)
+
+
+def _issue_relay_ticket(uid: Optional[str]) -> tuple[str, int]:
+    now_monotonic = time.monotonic()
+    _prune_relay_tickets(now_monotonic)
+    expires_at = int(datetime.now(tz=timezone.utc).timestamp()) + _SESSION_START_WINDOW_SECONDS
+    secret = _relay_ticket_secret()
+    if secret:
+        payload = {
+            "uid": uid,
+            "exp": expires_at,
+            "nonce": secrets.token_urlsafe(18),
+        }
+        payload_segment = _b64url_encode(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        )
+        signature = _sign_relay_ticket_payload(payload_segment, secret)
+        return f"{_SIGNED_RELAY_TICKET_PREFIX}.{payload_segment}.{signature}", expires_at
+
+    ticket = secrets.token_urlsafe(32)
+    expires_monotonic = now_monotonic + _SESSION_START_WINDOW_SECONDS
+    _RELAY_TICKETS[ticket] = (uid, expires_monotonic)
+    return ticket, expires_at
+
+
+def _consume_relay_ticket(ticket: Optional[str]) -> tuple[bool, Optional[str]]:
+    clean = (ticket or "").strip()
+    if not clean:
+        return False, None
+    now_monotonic = time.monotonic()
+    _prune_relay_tickets(now_monotonic)
+    if clean.startswith(f"{_SIGNED_RELAY_TICKET_PREFIX}."):
+        secret = _relay_ticket_secret()
+        if not secret:
+            return False, None
+        parts = clean.split(".")
+        if len(parts) != 3:
+            return False, None
+        _version, payload_segment, signature = parts
+        expected_signature = _sign_relay_ticket_payload(payload_segment, secret)
+        if not hmac.compare_digest(signature, expected_signature):
+            return False, None
+        try:
+            payload = json.loads(_b64url_decode(payload_segment))
+        except (TypeError, ValueError, json.JSONDecodeError, binascii.Error):
+            return False, None
+        expires_at = int(payload.get("exp") or 0)
+        if expires_at <= int(datetime.now(tz=timezone.utc).timestamp()):
+            return False, None
+        nonce = str(payload.get("nonce") or "").strip()
+        if not nonce or nonce in _RELAY_TICKET_NONCES:
+            return False, None
+        _RELAY_TICKET_NONCES[nonce] = expires_at
+        uid_value = payload.get("uid")
+        return True, uid_value if isinstance(uid_value, str) and uid_value else None
+
+    stored = _RELAY_TICKETS.pop(clean, None)
+    if stored is None:
+        return False, None
+    uid, expires_monotonic = stored
+    if expires_monotonic <= now_monotonic:
+        return False, None
+    return True, uid
+
+
+@router.post(
+    "/agent/realtime/gemini/relay-session",
+    response_model=AgentGeminiLiveRelaySessionResponse,
+)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def create_agent_gemini_live_relay_session(
+    request: Request,
+    body: AgentGeminiLiveTokenRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> AgentGeminiLiveRelaySessionResponse:
+    """Mint an opaque, short-lived relay ticket for the backend Live WebSocket."""
+
+    if not _gemini_live_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Gemini Live voice is not enabled.",
+        )
+
+    uid = await _resolve_optional_uid(authorization)
+    tier = "full" if uid else "intro"
+    ticket, expires_at = _issue_relay_ticket(uid)
+    return AgentGeminiLiveRelaySessionResponse(
+        relay_ticket=ticket,
+        expires_at=expires_at,
+        model=_VERTEX_LIVE_MODEL,
+        voice=_resolve_voice(body.voice),
+        tier=tier,
+    )
 
 
 @router.post("/agent/realtime/gemini/token", response_model=AgentGeminiLiveTokenResponse)
@@ -174,6 +329,8 @@ async def create_agent_gemini_live_token(
         tier=persona_tier,
         screen=body.screen,
         persona=body.persona,
+        route_family=body.route_family,
+        voice_state=body.voice_state,
     )
     instructions = compose_voice_instructions(persona_ctx)
     voice = _resolve_voice(body.voice)
@@ -314,18 +471,29 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
         await websocket.close(code=1011, reason="Gemini Live voice is not enabled.")
         return
 
-    # Auth-optional, same tier model as the token route. The browser cannot set
-    # WebSocket headers, so the Firebase bearer (when present) rides in a query
-    # param. Anonymous callers get the navigation-only intro persona.
-    authorization = websocket.query_params.get("authorization")
-    if authorization and not authorization.startswith("Bearer "):
-        authorization = f"Bearer {authorization}"
-    uid = await _resolve_optional_uid(authorization)
+    # Auth-optional, same tier model as the token route. Modern clients mint a
+    # short-lived opaque relay ticket over HTTPS so Firebase bearers do not ride
+    # in WebSocket URLs. The authorization query parameter remains as a
+    # compatibility fallback for older clients only.
+    relay_ticket = websocket.query_params.get("relay_ticket")
+    uid: Optional[str] = None
+    if relay_ticket:
+        accepted, uid = _consume_relay_ticket(relay_ticket)
+        if not accepted:
+            await websocket.close(code=1008, reason="Voice relay ticket is expired.")
+            return
+    else:
+        authorization = websocket.query_params.get("authorization")
+        if authorization and not authorization.startswith("Bearer "):
+            authorization = f"Bearer {authorization}"
+        uid = await _resolve_optional_uid(authorization)
     persona_tier = "signed_locked" if uid else "anon_onboarding"
     persona_ctx = build_persona_context(
         tier=persona_tier,
         screen=websocket.query_params.get("screen"),
         persona=websocket.query_params.get("persona"),
+        route_family=websocket.query_params.get("route_family"),
+        voice_state=websocket.query_params.get("voice_state"),
     )
     instructions = compose_voice_instructions(persona_ctx)
     voice = _resolve_voice(websocket.query_params.get("voice"))

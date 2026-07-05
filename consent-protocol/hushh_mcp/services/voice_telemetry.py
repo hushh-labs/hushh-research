@@ -1,6 +1,6 @@
 """Per-turn voice latency/throughput telemetry contract.
 
-The Kai voice route already emits stage timing (``_trace_voice_stage``) and a
+The Kai compatibility voice route already emits stage timing (``_trace_voice_stage``) and a
 generic metric channel (``_log_voice_metric``). What it does not yet expose as
 first-class, comparable numbers is **time-to-first-token (TTFT)** and
 **tokens-per-second** for a voice turn -- the two metrics that actually describe

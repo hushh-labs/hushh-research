@@ -105,7 +105,7 @@ describe("dispatchVoiceToolCall", () => {
       reason: "missing_vault_token",
       actionResult: {
         status: "blocked",
-        resultSummary: "Unlock the vault before using this Kai voice action.",
+        resultSummary: "Unlock the vault before using this One Voice action.",
       },
     });
   });

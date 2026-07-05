@@ -152,6 +152,7 @@ Codex supports project-scoped custom agents under `.codex/agents/`. In this repo
    - `max_depth = 1`
 8. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
 9. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+10. Repo custom agents inherit the Principal Craft Kernel from `AGENTS.md`; TOML prompts should add role-specific taste and evidence focus without duplicating the full personalization block.
 
 ## How to verify the servers are working
 
@@ -227,6 +228,15 @@ Run the audit only after `HUSHH_FOUNDER_WIKI_MCP_TOKEN` is already present in th
 ## Developer instructions
 
 When working in this repo:
+
+Operator precedence:
+
+1. `AGENTS.md` defines repo-wide policy and hard gates.
+2. `./bin/hushh codex route-task <workflow-id>` is the executable route for recurring workflows.
+3. `workflow.json` defines required reads, checks, handoff chain, and deliverables.
+4. `SKILL.md` defines the lane procedure and ownership boundary.
+5. Architecture docs define domain truth when they match current code, generated contracts, and tests.
+6. Historical, migration, and planning docs are context only unless they explicitly say they are current canonical references.
 
 1. Use `shadcn` MCP before adding or modifying registry-backed UI components.
 2. Use `plaid` MCP before guessing on Plaid flows, sandbox behavior, webhooks, or OAuth.

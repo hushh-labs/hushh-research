@@ -56,6 +56,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/setup/kai`
 - `/one/setup/[capability]`
 - `/one/kyc`
+- `/one/marketplace`
 - `/marketplace`
 - `/marketplace/ria`
 - `/ria`

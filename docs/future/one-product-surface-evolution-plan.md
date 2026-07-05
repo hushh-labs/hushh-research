@@ -24,7 +24,7 @@ flowchart TB
 
 ## Purpose
 
-This plan defines how the current Kai-first app should evolve into a coherent One product surface without creating parallel product roots.
+This plan defines how the current One/Kai transitional app should evolve into a coherent One product surface without creating parallel product roots.
 
 The goal is not to rename everything to One. The goal is to make One the relationship layer while preserving specialist ownership, trust boundaries, and current runtime truth.
 
@@ -32,7 +32,7 @@ The goal is not to rename everything to One. The goal is to make One the relatio
 
 The repo already has the pieces needed for this transition:
 
-- Kai-first finance routes, voice, search, action gateway, market intelligence, portfolio, and RIA workflows
+- Kai-era finance routes, compatibility voice/search/action gateway, market intelligence, portfolio, and RIA workflows
 - generated action contracts with `speaker_persona` and delegated-specialist fields
 - route, persona, vault, auth, consent, onboarding, and workspace guards
 - encrypted PKM architecture, provenance docs, runtime DB boundaries, and cache-coherence rules
@@ -62,7 +62,7 @@ Kai, Nav, KYC, and future specialists remain below One:
 
 | Surface lane | Product owner | Current-state boundary | Promotion condition |
 | --- | --- | --- | --- |
-| One shell and relationship layer | One | Approved direction; current runtime remains Kai-first in many places | Shell, prompts, analytics, copy, and action contracts prove One owns generic framing |
+| One shell and relationship layer | One | Approved direction; current runtime still carries Kai-era compatibility identifiers in many action/planner paths | Shell, prompts, analytics, copy, and action contracts prove One owns generic framing |
 | Finance, market, brokerage, RIA | Kai | Current shipped finance specialist | Keep Kai as craft owner while One frames cross-domain handoff |
 | Consent, privacy, vault, deletion | Nav | Approved direction; not yet separate runtime | Add true Nav actions and copy surfaces without using `nav.*` for route navigation |
 | Identity and KYC workflows | KYC under One | One Email KYC has execution-owned references | Keep mailbox/KYC bounded, approval-gated, and scope-limited |
@@ -93,7 +93,8 @@ Cleanup target:
 
 - keep the opening One/Kai boundary
 - avoid adding more runtime detail there
-- move new implementation claims into `docs/reference/kai/`
+- move new One-owned implementation claims into `docs/reference/one/`
+- move finance-specialist runtime claims into `docs/reference/kai/`
 - move new future-state surface ideas into `docs/future/`
 - avoid entity/legal/fund-specific expansion unless legal review explicitly asks for it
 
@@ -151,5 +152,6 @@ A future One product-surface claim can move into current-state docs only when:
 - [../reference/architecture/architecture.md](../reference/architecture/architecture.md)
 - [../reference/architecture/founder-language-matrix.md](../reference/architecture/founder-language-matrix.md)
 - [../reference/architecture/one-email-kyc.md](../reference/architecture/one-email-kyc.md)
+- [../reference/one/README.md](../reference/one/README.md)
 - [../reference/kai/README.md](../reference/kai/README.md)
 - [../reference/kai/kai-action-gateway-vnext.md](../reference/kai/kai-action-gateway-vnext.md)

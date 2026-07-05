@@ -65,6 +65,8 @@ class AgentPersonaContext:
     tier: AgentTier
     screen: Optional[str]
     persona: AgentPersona
+    route_family: Optional[str] = None
+    voice_state: Optional[str] = None
 
 
 def _contains_injection(value: str) -> bool:
@@ -105,12 +107,31 @@ def build_persona_context(
     tier: Optional[str],
     screen: Optional[str] = None,
     persona: Optional[str] = None,
+    route_family: Optional[str] = None,
+    voice_state: Optional[str] = None,
 ) -> AgentPersonaContext:
     """Validate + sanitize raw inputs into a persona context."""
+    normalized_voice_state = (voice_state or "").strip().lower()
+    if normalized_voice_state not in {
+        "idle",
+        "opening",
+        "listening",
+        "understanding",
+        "intent_preview",
+        "needs_consent",
+        "acting",
+        "navigation_settling",
+        "result",
+        "follow_up",
+        "error_recovery",
+    }:
+        normalized_voice_state = ""
     return AgentPersonaContext(
         tier=normalize_tier(tier),
         screen=sanitize_screen(screen),
         persona=normalize_persona(persona),
+        route_family=sanitize_screen(route_family),
+        voice_state=normalized_voice_state or None,
     )
 
 
@@ -147,6 +168,10 @@ def _context_clause(ctx: AgentPersonaContext) -> str:
     parts: list[str] = [_PERSONA_LENS[ctx.persona]]
     if ctx.screen:
         parts.append(f"They are currently on the '{ctx.screen}' screen.")
+    if ctx.route_family and ctx.route_family != ctx.screen:
+        parts.append(f"The current route family is '{ctx.route_family}'.")
+    if ctx.voice_state:
+        parts.append(f"The current voice transition state is '{ctx.voice_state}'.")
     return " ".join(parts)
 
 

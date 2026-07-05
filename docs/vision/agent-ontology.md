@@ -53,7 +53,7 @@ One's durable product model is four motions:
 | Motion | One owns | Guardrail |
 | --- | --- | --- |
 | Listens | Reading files, messages, calendars, accounts, and connected surfaces only after the user grants scope | No silent reads and no implied platform access |
-| Remembers | The relationship memory: context, preferences, decisions, trusted people, and questions the user already answered | Current PKM is Kai-first; do not claim full One memory runtime until shipped |
+| Remembers | The relationship memory: context, preferences, decisions, trusted people, and questions the user already answered | Current PKM evidence is still mostly finance-specialist and compatibility-runtime backed; do not claim full One memory runtime until shipped |
 | Decides | Cross-domain reasoning and specialist selection | Specialist judgment stays with the specialist, especially Kai for finance and Nav for privacy |
 | Acts | Bounded execution, follow-through, and receipts | Actions must stay inside consent, vault, persona, workspace, and route guards |
 
@@ -61,11 +61,11 @@ One holds the relationship. The specialists hold the craft. Product copy should 
 
 ## Current-State Boundary
 
-The current checked-in runtime is still Kai-first. Kai voice, action grounding, and generated gateway contracts are the live implementation surface today.
+The current checked-in action runtime still carries Kai-era implementation identifiers. One Voice is the direct product-facing voice surface, while action grounding and generated gateway contracts remain the live compatibility implementation today.
 
 One and Nav are approved direction, not a claim that the current app already runs a full One/Nav runtime. Current-state docs must say this plainly when discussing implementation.
 
-Current memory wording must be equally precise: PKM is the checked-in encrypted memory architecture, and today it is described through Kai-first implementation docs. The durable direction is One-owned relationship memory with Kai finance memory as a specialist slice, Nav consent/privacy memory as a guardian slice, and KYC workflow artifacts as structured identity-workflow writebacks.
+Current memory wording must be equally precise: PKM is the checked-in encrypted memory architecture, and today it is described through finance-specialist and compatibility-runtime implementation docs. The durable direction is One-owned relationship memory with Kai finance memory as a specialist slice, Nav consent/privacy memory as a guardian slice, and KYC workflow artifacts as structured identity-workflow writebacks.
 
 ## Tone And Copy Ownership
 
