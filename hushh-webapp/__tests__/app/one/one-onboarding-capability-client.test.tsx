@@ -2,13 +2,21 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Regression for the UAT redirect loop: tapping a setup-hub tile, then pressing
- * Continue on `/one/setup/<capability>`, forwarded into a hard-gated `/one/*`
- * surface (e.g. `/one/location`) while the MASTER setup gate was still
- * unresolved — so `OneOnboardingGuard` bounced the user straight back to
- * `/one/setup`. The fix resolves the master gate before forwarding into a
- * hard-gated surface, while leaving setup-surface forwards (finance wizard) and
- * off-`/one` forwards (consent) untouched.
+ * Contract for `/one/setup/<capability>` Continue forwarding.
+ *
+ * Regression history:
+ * - The original UAT redirect loop: pressing Continue forwarded into a
+ *   hard-gated `/one/*` surface (e.g. `/one/location`) while the MASTER setup
+ *   gate was unresolved, so `OneOnboardingGuard` bounced back to `/one/setup`.
+ * - The first fix resolved the master gate here (`syncKaiSetupState`), which
+ *   introduced a SECOND bug: entering ONE capability marked ALL setup complete,
+ *   so the dashboard falsely reported finance complete and cleared its
+ *   "Finish setup" bar before the user set anything up (QA-reported).
+ *
+ * Current contract (the decoupled fix): entering a capability NEVER resolves the
+ * account-wide master gate. Instead, hard-gated forwards carry a `?from=setup`
+ * marker so `OneOnboardingGuard` allows the setup-originated entry through. The
+ * master gate is resolved only by a genuine finish (hub Skip/Continue).
  */
 
 const mocks = vi.hoisted(() => ({
@@ -88,26 +96,20 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
     mocks.syncSetupCapabilities.mockResolvedValue(undefined);
   });
 
-  it("resolves the master setup gate before forwarding into a hard-gated surface (location)", async () => {
+  it("forwards into a hard-gated surface with ?from=setup and does NOT resolve the master gate (location)", async () => {
     render(<OneOnboardingCapabilityClient capabilityId="location" />);
 
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
 
     await waitFor(() => {
-      expect(mocks.syncKaiSetupState).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: "user_1",
-          completed: true,
-          skipped: false,
-        }),
-      );
+      expect(mocks.replace).toHaveBeenCalledWith("/one/location?from=setup");
     });
-    await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/one/location");
-    });
+    // The account-wide master gate must NOT be touched by entering a capability.
+    expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
+    expect(mocks.setOnboardingCompleted).not.toHaveBeenCalled();
   });
 
-  it("also flips the vault profile when the vault is unlocked", async () => {
+  it("does NOT flip the vault profile even when the vault is unlocked (connected-systems)", async () => {
     mocks.vault = {
       vaultKey: "key",
       vaultOwnerToken: "tok",
@@ -119,21 +121,15 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
 
     await waitFor(() => {
-      expect(mocks.setOnboardingCompleted).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: "user_1",
-          vaultKey: "key",
-          vaultOwnerToken: "tok",
-          skippedPreferences: false,
-        }),
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/one/connected-systems?from=setup",
       );
     });
-    await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/one/connected-systems");
-    });
+    expect(mocks.setOnboardingCompleted).not.toHaveBeenCalled();
+    expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
   });
 
-  it("does NOT resolve the master gate when forwarding to the finance wizard (setup surface)", async () => {
+  it("forwards to the finance wizard (setup surface) without the master gate", async () => {
     render(<OneOnboardingCapabilityClient capabilityId="finance" />);
 
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
@@ -143,10 +139,15 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
         expect.stringContaining("/one/setup/kai"),
       );
     });
+    // Finance goes to the wizard with a `from=<setup capability route>` marker,
+    // NOT the `from=setup` gated-surface marker.
+    expect(mocks.replace).not.toHaveBeenCalledWith(
+      expect.stringContaining("from=setup"),
+    );
     expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
   });
 
-  it("does NOT resolve the master gate when forwarding off /one/* (consent)", async () => {
+  it("forwards off /one/* (consent) untouched", async () => {
     render(<OneOnboardingCapabilityClient capabilityId="consent" />);
 
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));

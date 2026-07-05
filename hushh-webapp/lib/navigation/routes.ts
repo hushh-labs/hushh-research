@@ -150,6 +150,38 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
 }
 
 /**
+ * Canonical, HARD-GATED capability handoff targets: the subset of
+ * {@link CAPABILITY_HANDOFF_TARGETS} that live under `/one/*` but OUTSIDE the
+ * `/one/setup/*` surface (gmail, email→/one/kyc, location, pkm,
+ * connected-systems). These are the routes `OneOnboardingGuard` bounces to
+ * `/one/setup` while the master gate is unresolved. Finance (→ `/one/setup/kai`,
+ * a setup surface) and consent (→ `/consents`, off `/one`) are excluded: the
+ * former is already allow-listed, the latter is not gated at all.
+ * (`isOneSetupSurfaceRoute` is a hoisted function declaration, so it is safe to
+ * call here at module init.)
+ */
+const GATED_CAPABILITY_HANDOFF_TARGETS: ReadonlySet<string> = new Set(
+  Object.values(CAPABILITY_HANDOFF_TARGETS)
+    .map((target) => target.split("?")[0] ?? target)
+    .filter(
+      (target) =>
+        target.startsWith(`${ROUTES.ONE_HOME}/`) &&
+        !isOneSetupSurfaceRoute(target),
+    ),
+);
+
+/**
+ * True when `pathname` is a hard-gated capability handoff target (see
+ * {@link GATED_CAPABILITY_HANDOFF_TARGETS}). `OneOnboardingGuard` uses this,
+ * together with a `?from=setup` marker, to allow a setup-originated entry into
+ * the real product surface WITHOUT first resolving the account-wide master
+ * setup gate — so entering one capability no longer marks ALL setup complete.
+ */
+export function isCapabilityHandoffTarget(pathname: string): boolean {
+  return GATED_CAPABILITY_HANDOFF_TARGETS.has(pathname);
+}
+
+/**
  * Build a `/one/setup` hub route. A specific capability can be deep-linked via
  * the `feature` query param (e.g. `/one/setup?feature=gmail`). Query-backed
  * (not a `[feature]` path segment) so the Capacitor static export does not need

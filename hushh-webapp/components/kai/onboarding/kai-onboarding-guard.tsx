@@ -24,7 +24,11 @@ import {
   writeOneSetupCompletionHint,
 } from "@/lib/services/one-setup-exit-service";
 import { isNativePlatform } from "@/lib/utils/session-storage";
-import { ROUTES, isOneSetupWizardRoute } from "@/lib/navigation/routes";
+import {
+  ROUTES,
+  isCapabilityHandoffTarget,
+  isOneSetupWizardRoute,
+} from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 
@@ -72,6 +76,23 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
     })();
     const suppressWizardBounce =
       preserveOnboardingAuditRoute || wizardReentryRequested;
+    // Setup-originated entry into a hard-gated capability surface: pressing
+    // "Continue" on a `/one/setup/<id>` tile forwards to the real product
+    // surface tagged `?from=setup` (e.g. `/one/gmail?from=setup`). The setup
+    // flow deliberately sends an INCOMPLETE user into that one capability to
+    // finish it; the master gate is resolved only on a genuine finish (hub
+    // Skip/Continue), NOT by entering a capability. Allow these through instead
+    // of bouncing to `/one/setup` — the redirect loop `d83ed1890` fixed, but
+    // now WITHOUT its account-wide side effect of marking ALL setup complete
+    // (which cleared the dashboard's "Finish setup" bar). Scoped to known gated
+    // handoff targets + `?from=setup`, so arbitrary `/one/*` stays gated.
+    const setupOriginatedCapabilityEntry = (() => {
+      if (typeof window === "undefined") return false;
+      const params = new URLSearchParams(window.location.search);
+      return (
+        params.get("from") === "setup" && isCapabilityHandoffTarget(pathname)
+      );
+    })();
 
     async function run() {
       if (authLoading) return;
@@ -160,7 +181,11 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
           setOnboardingRequiredCookie(onboardingIncomplete);
           writeOneSetupCompletionHint(user.uid, !onboardingIncomplete);
 
-          if (onboardingIncomplete && !onOnboardingRoute) {
+          if (
+            onboardingIncomplete &&
+            !onOnboardingRoute &&
+            !setupOriginatedCapabilityEntry
+          ) {
             router.replace(ROUTES.ONE_SETUP);
             return;
           }
@@ -197,7 +222,11 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
           setOnboardingRequiredCookie(onboardingExplicitlyIncomplete);
           writeOneSetupCompletionHint(user.uid, onboardingResolved);
 
-          if (!onOnboardingRoute && onboardingExplicitlyIncomplete) {
+          if (
+            !onOnboardingRoute &&
+            onboardingExplicitlyIncomplete &&
+            !setupOriginatedCapabilityEntry
+          ) {
             router.replace(ROUTES.ONE_SETUP);
             return;
           }
@@ -265,7 +294,11 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
         setOnboardingRequiredCookie(onboardingIncomplete);
         writeOneSetupCompletionHint(user.uid, !onboardingIncomplete);
 
-        if (onboardingIncomplete && !onOnboardingRoute) {
+        if (
+          onboardingIncomplete &&
+          !onOnboardingRoute &&
+          !setupOriginatedCapabilityEntry
+        ) {
           router.replace(ROUTES.ONE_SETUP);
           return;
         }
