@@ -33,7 +33,10 @@ def test_agent_connections_is_registered():
     assert is_wired_specialist("agent_connections") is True
 
 
-async def test_dispatch_reaches_connections():
+async def test_dispatch_reaches_connections(monkeypatch):
+    import hushh_mcp.adk_bridge.connections_agent as _ca
+
+    monkeypatch.setattr(_ca, "_singleton", _ca.ConnectionsAgentA2A(service=_FakeChat()))
     task = A2ATask(
         user_id="owner1",
         consent_token="tok",  # noqa: S106

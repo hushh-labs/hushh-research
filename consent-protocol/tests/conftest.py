@@ -302,37 +302,6 @@ def event_loop():
 
 
 # ============================================================================
-# Connections A2A Singleton Fixtures
-# ============================================================================
-
-
-@pytest.fixture(autouse=True)
-def _seed_connections_a2a_singleton(monkeypatch):
-    """Pre-seed the ConnectionsAgentA2A singleton with an in-memory fake so
-    that dispatch tests (e.g. test_dispatch_reaches_connections) work without
-    a live DB tunnel.  The fixture is autouse and harmless for every other test
-    because no other test reaches the connections agent."""
-
-    try:
-        import hushh_mcp.adk_bridge.connections_agent as _ca
-    except ImportError:
-        yield
-        return
-
-    class _FakeConnectionsChat:
-        async def handle_turn(self, *, user_id, message, consent_token=None, conversation_id=None):
-            return {
-                "response": f"connections:{message}",
-                "conversationId": conversation_id or "",
-                "isComplete": True,
-                "stateChanged": False,
-            }
-
-    monkeypatch.setattr(_ca, "_singleton", _ca.ConnectionsAgentA2A(service=_FakeConnectionsChat()))
-    yield
-
-
-# ============================================================================
 # Test Data Cleanup
 # ============================================================================
 
