@@ -10,6 +10,10 @@ import type {
 import { getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
 import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type {
+  OneVoiceTransition,
+  OneVoiceUiState,
+} from "@/lib/voice/voice-ui-state-machine";
 
 export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
 export const ARRAY_DIMENSION_CAP_ERROR =
@@ -134,7 +138,61 @@ export type StructuredScreenContext = {
     active_control_id?: string | null;
     last_interacted_control_id?: string | null;
   };
+  one_voice_context?: OneVoiceContextSnapshot;
   screen_metadata: Record<string, unknown>;
+};
+
+export type OneVoiceContextSnapshot = {
+  schema_version: "one_voice_context.v1";
+  snapshot_id: string;
+  revisions: {
+    route: string;
+    ui: string;
+    cache: string;
+    persona: string;
+    voice: number;
+  };
+  route: {
+    screen: string;
+    subview?: string | null;
+    route_family: string;
+    nav_stack: string[];
+  };
+  ui: {
+    visible_modules: string[];
+    active_section?: string | null;
+    active_tab?: string | null;
+    selected_entity_present: boolean;
+    modal_state?: string | null;
+    focused_widget?: string | null;
+  };
+  available_action_ids: string[];
+  cache: {
+    vault_ready: boolean;
+    portfolio_ready: boolean;
+    busy_operations: string[];
+    freshness: "fresh_or_stale_safe" | "locked" | "missing";
+  };
+  persona: {
+    active: string;
+    primary_nav: string;
+    available: string[];
+  };
+  voice: {
+    state: OneVoiceUiState;
+    transition_seq: number;
+    session_id?: string | null;
+    source_id?: string | null;
+    last_transition?: OneVoiceTransition | null;
+  };
+  world_model: {
+    summary_available: boolean;
+    mode: "redacted_summary_only";
+  };
+  privacy: {
+    redacted: true;
+    excludes: string[];
+  };
 };
 
 function domSafeQueryText(selector: string): string | null {
@@ -192,6 +250,44 @@ function readObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function sanitizeRouteFamily(pathname: string): string {
+  const path = pathname.split("?")[0] || "/";
+  const segments = path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      let decoded = segment;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        decoded = ":id";
+      }
+      if (
+        decoded.length > 40 ||
+        /^[0-9a-f]{8,}$/i.test(decoded) ||
+        /^[0-9]+$/.test(decoded) ||
+        decoded.includes("@")
+      ) {
+        return ":id";
+      }
+      return decoded.toLowerCase();
+    });
+  return segments.length ? `/${segments.join("/")}` : "/";
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? uniqueStrings(value) : [];
+}
+
+function stableRevision(values: unknown[]): string {
+  const encoded = JSON.stringify(values);
+  let hash = 0;
+  for (let index = 0; index < encoded.length; index += 1) {
+    hash = (hash * 31 + encoded.charCodeAt(index)) | 0;
+  }
+  return `r${(hash >>> 0).toString(36)}`;
 }
 
 function mapSections(sections: VoiceSurfaceSectionDefinition[] | undefined) {
@@ -433,5 +529,150 @@ export function buildStructuredScreenContext(args: {
       last_interacted_control_id: publishedSurface?.lastInteractedControlId || null,
     },
     screen_metadata: screenMetadata,
+  };
+}
+
+export function buildOneVoiceContextSnapshot(args: {
+  appRuntimeState?: AppRuntimeState;
+  voiceContext?: Record<string, unknown>;
+  structuredContext?: StructuredScreenContext;
+  state?: OneVoiceUiState;
+  lastTransition?: OneVoiceTransition | null;
+}): OneVoiceContextSnapshot {
+  const structured =
+    args.structuredContext ||
+    buildStructuredScreenContext({
+      appRuntimeState: args.appRuntimeState,
+      voiceContext: args.voiceContext,
+    });
+  const app = args.appRuntimeState;
+  const availableActionIds = readStringArray(
+    structured.screen_metadata.available_action_ids
+  );
+  const vaultReady = Boolean(structured.vault.unlocked && structured.vault.token_valid);
+  const portfolioReady = Boolean(app?.portfolio.has_portfolio_data);
+  const freshness = vaultReady
+    ? portfolioReady || structured.ui.visible_modules.length > 0
+      ? "fresh_or_stale_safe"
+      : "missing"
+    : "locked";
+  const routeFamily = sanitizeRouteFamily(structured.route.pathname);
+  const navStack = uniqueStrings(structured.route.nav_stack.map(sanitizeRouteFamily));
+  const transitionSeq = args.lastTransition?.transitionSeq ?? 0;
+  const routeRevision = stableRevision([
+    routeFamily,
+    structured.route.screen,
+    structured.route.subview ?? null,
+    navStack,
+  ]);
+  const uiRevision = stableRevision([
+    structured.ui.visible_modules,
+    structured.ui.active_section ?? null,
+    structured.ui.active_tab ?? null,
+    Boolean(structured.ui.selected_entity),
+    structured.ui.modal_state ?? null,
+    structured.ui.focused_widget ?? null,
+    availableActionIds,
+  ]);
+  const cacheRevision = stableRevision([
+    vaultReady,
+    portfolioReady,
+    freshness,
+    structured.runtime.busy_operations,
+  ]);
+  const personaRevision = stableRevision([
+    structured.persona.active,
+    structured.persona.primary_nav,
+    structured.persona.available,
+  ]);
+  const voiceRevision = transitionSeq;
+
+  return {
+    schema_version: "one_voice_context.v1",
+    snapshot_id: `ctx_${stableRevision([
+      routeRevision,
+      uiRevision,
+      cacheRevision,
+      personaRevision,
+      voiceRevision,
+    ])}`,
+    revisions: {
+      route: routeRevision,
+      ui: uiRevision,
+      cache: cacheRevision,
+      persona: personaRevision,
+      voice: voiceRevision,
+    },
+    route: {
+      screen: structured.route.screen,
+      subview: structured.route.subview ?? null,
+      route_family: routeFamily,
+      nav_stack: navStack,
+    },
+    ui: {
+      visible_modules: structured.ui.visible_modules,
+      active_section: structured.ui.active_section ?? null,
+      active_tab: structured.ui.active_tab ?? null,
+      selected_entity_present: Boolean(structured.ui.selected_entity),
+      modal_state: structured.ui.modal_state ?? null,
+      focused_widget: structured.ui.focused_widget ?? null,
+    },
+    available_action_ids: availableActionIds,
+    cache: {
+      vault_ready: vaultReady,
+      portfolio_ready: portfolioReady,
+      busy_operations: structured.runtime.busy_operations,
+      freshness,
+    },
+    persona: {
+      active: structured.persona.active,
+      primary_nav: structured.persona.primary_nav,
+      available: structured.persona.available,
+    },
+    voice: {
+      state: args.state ?? "idle",
+      transition_seq: transitionSeq,
+      session_id: args.lastTransition?.sessionId ?? null,
+      source_id: args.lastTransition?.sourceId ?? null,
+      last_transition: args.lastTransition ?? null,
+    },
+    world_model: {
+      summary_available: vaultReady,
+      mode: "redacted_summary_only",
+    },
+    privacy: {
+      redacted: true,
+      excludes: [
+        "user_id",
+        "vault_owner_token",
+        "vault_key",
+        "raw_pkm",
+        "transcript_history",
+        "private_documents",
+        "raw_cache_keys",
+      ],
+    },
+  };
+}
+
+export function buildOneVoiceStructuredScreenContext(args: {
+  appRuntimeState?: AppRuntimeState;
+  voiceContext?: Record<string, unknown>;
+  state?: OneVoiceUiState;
+  lastTransition?: OneVoiceTransition | null;
+}): StructuredScreenContext {
+  const structuredContext = buildStructuredScreenContext({
+    appRuntimeState: args.appRuntimeState,
+    voiceContext: args.voiceContext,
+  });
+  return {
+    ...structuredContext,
+    one_voice_context: buildOneVoiceContextSnapshot({
+      appRuntimeState: args.appRuntimeState,
+      voiceContext: args.voiceContext,
+      structuredContext,
+      state: args.state,
+      lastTransition: args.lastTransition,
+    }),
   };
 }

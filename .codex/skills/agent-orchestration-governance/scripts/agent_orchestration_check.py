@@ -23,6 +23,9 @@ WORKFLOWS_RELATIVE_PATH = Path(".codex/workflows")
 DELEGATION_ROUTER_RELATIVE_PATH = Path(
     ".codex/skills/agent-orchestration-governance/scripts/delegation_router.py"
 )
+DELEGATION_CONTRACT_RELATIVE_PATH = Path(
+    ".codex/skills/agent-orchestration-governance/references/delegation-contract.md"
+)
 
 EXPECTED_AGENTS = {
     "analytics_observability_architect",
@@ -41,10 +44,26 @@ EXPECTED_AGENTS = {
 REQUIRED_KEYS = {"name", "description", "developer_instructions", "sandbox_mode"}
 READ_ONLY_BASELINE = EXPECTED_AGENTS
 ALLOWED_REASONING_EFFORTS = {"high", "xhigh"}
+DEVELOPER_INSTRUCTIONS_MAX_LINES = 48
+DEVELOPER_INSTRUCTIONS_MAX_CHARS = 3000
 NICKNAME_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 GOVERNOR_AUTHORITY_RULE = "only you may produce final merge, deploy, or plan recommendations"
 NON_GOVERNOR_AUTHORITY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
+PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel from AGENTS.md"
+DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
+    "Project-Wide Principal Craft Kernel",
+    "Operate as a principal-level software engineer",
+    "Optimize in this order:",
+    "Engineering style:",
+    "Calibration standards:",
+    "Margaret Hamilton",
+    "Grace Hopper",
+    "Barbara Liskov",
+    "Leslie Lamport",
+    "John Carmack",
+    "Steve Jobs",
+]
 TRUTH_FIRST_HEADER = "Truth-first protocol:"
 TRUTH_FIRST_TOKENS = [
     "already_exists",
@@ -65,6 +84,10 @@ TRUTH_FIRST_TOKENS = [
     "assumptions",
     "validations_run",
     "unresolved_risks",
+]
+STALE_DELEGATION_AUTHORIZATION_TOKENS = [
+    "The user has explicitly allowed delegation or the active workflow has an approved delegation step.",
+    "The user asked for information only and did not authorize delegation.",
 ]
 
 
@@ -123,6 +146,27 @@ def validate_delegation_router(root: Path, errors: list[str]) -> None:
             errors.append(f"{router_path}: delegation router missing marker '{marker}'")
 
 
+def validate_delegation_contract(root: Path, errors: list[str]) -> None:
+    contract_path = root / DELEGATION_CONTRACT_RELATIVE_PATH
+    if not contract_path.exists():
+        errors.append(f"missing delegation contract: {contract_path}")
+        return
+    contract_text = contract_path.read_text(encoding="utf-8")
+    for token in STALE_DELEGATION_AUTHORIZATION_TOKENS:
+        if token in contract_text:
+            errors.append(
+                f"{contract_path}: stale delegation authorization wording conflicts with repo-global read-only evidence policy"
+            )
+    required_markers = [
+        "repo-global read-only evidence policy",
+        "Pre-Authorized Evidence Lanes",
+        "Final authority stays with the parent session or `governor`",
+    ]
+    for marker in required_markers:
+        if marker not in contract_text:
+            errors.append(f"{contract_path}: delegation contract missing marker '{marker}'")
+
+
 def parse_skill_block(path: Path, instructions: str, errors: list[str]) -> list[str]:
     match = re.search(
         rf"{re.escape(SKILL_BLOCK_HEADER)}\n(?P<block>(?:- [^\n]+\n)+)",
@@ -160,6 +204,21 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
     if not isinstance(instructions, str) or not instructions.strip():
         errors.append(f"{path}: developer_instructions must be a non-empty string")
         return
+    instruction_lines = len(instructions.splitlines())
+    if instruction_lines > DEVELOPER_INSTRUCTIONS_MAX_LINES:
+        errors.append(
+            f"{path}: developer_instructions too long: {instruction_lines} lines > {DEVELOPER_INSTRUCTIONS_MAX_LINES}; keep agent TOML thin and move shared craft to AGENTS.md"
+        )
+    instruction_chars = len(instructions)
+    if instruction_chars > DEVELOPER_INSTRUCTIONS_MAX_CHARS:
+        errors.append(
+            f"{path}: developer_instructions too long: {instruction_chars} chars > {DEVELOPER_INSTRUCTIONS_MAX_CHARS}; keep agent TOML thin and move shared craft to AGENTS.md"
+        )
+    for token in DISALLOWED_CRAFT_DUPLICATION_TOKENS:
+        if token in instructions:
+            errors.append(
+                f"{path}: developer_instructions duplicates Principal Craft Kernel text `{token}`; use the AGENTS.md inheritance hook instead"
+            )
     sandbox_mode = agent["sandbox_mode"]
     if not isinstance(sandbox_mode, str) or not sandbox_mode.strip():
         errors.append(f"{path}: sandbox_mode must be a non-empty string")
@@ -191,6 +250,8 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
     for token in TRUTH_FIRST_TOKENS:
         if token not in instructions:
             errors.append(f"{path}: truth-first protocol missing token '{token}'")
+    if name in EXPECTED_AGENTS and PRINCIPAL_CRAFT_RULE not in instructions:
+        errors.append(f"{path}: missing Principal Craft Kernel inheritance hook")
 
     instructions_lower = instructions.lower()
     if name == "governor":
@@ -330,6 +391,7 @@ def main() -> int:
     errors: list[str] = []
     validate_config(root, errors)
     validate_delegation_router(root, errors)
+    validate_delegation_contract(root, errors)
     validate_agents(root, errors)
     validate_delegation_policies(root, errors)
 

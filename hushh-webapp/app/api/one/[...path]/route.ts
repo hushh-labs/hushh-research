@@ -36,6 +36,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const url = `${getPythonApiUrl()}/api/one/${path}${request.nextUrl.search}`;
   const authHeader = request.headers.get("authorization");
   const hushhConsentHeader = request.headers.get("x-hushh-consent");
+  const voiceTurnIdHeader =
+    request.headers.get("x-voice-turn-id") || request.headers.get("X-Voice-Turn-Id");
   const acceptHeader = request.headers.get("accept");
   const contentType = request.headers.get("content-type") || "";
 
@@ -44,6 +46,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (authHeader) headers.set("Authorization", authHeader);
     if (hushhConsentHeader) headers.set("X-Hushh-Consent", hushhConsentHeader);
     if (acceptHeader) headers.set("Accept", acceptHeader);
+    if (voiceTurnIdHeader) headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
 
     let body: BodyInit | undefined;
     if (request.method !== "GET" && request.method !== "DELETE") {

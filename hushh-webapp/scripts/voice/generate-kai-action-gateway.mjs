@@ -452,7 +452,7 @@ function createGatewayPayload(contracts) {
 function createLegacyManifestPayload(contracts) {
   return {
     schema_version: "kai.voice_action_manifest.v1",
-    source_registry: "generated from colocated Kai voice/action contracts",
+    source_registry: "generated from colocated One Voice/Kai compatibility action contracts",
     source_gateway: "contracts/kai/kai-action-gateway.vnext.json",
     actions: contracts.actions.map((action) => toLegacyManifestAction(action)),
   };

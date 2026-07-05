@@ -43,6 +43,9 @@ MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
 _consent_notify_queues: Dict[str, asyncio.Queue] = {}
 _consent_notify_queues_lock = asyncio.Lock()
+_DEVELOPER_CONSENT_QUEUE_MAXSIZE = 20
+_developer_consent_subscribers: Dict[tuple[str, str], set[asyncio.Queue]] = {}
+_developer_consent_subscribers_lock = asyncio.Lock()
 
 # Diagnostic: set when listener is running and when NOTIFY is received
 _listener_active = False
@@ -135,6 +138,30 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
             logger.warning("consent notify queue full; dropped oldest event to bound memory")
 
 
+async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
+    request_id = str(data.get("request_id") or "").strip()
+    agent_id = str(data.get("agent_id") or "").strip()
+    if not request_id or not agent_id:
+        return
+
+    async with _developer_consent_subscribers_lock:
+        queues = list(_developer_consent_subscribers.get((request_id, agent_id), set()))
+
+    for q in queues:
+        try:
+            q.put_nowait(data)
+        except asyncio.QueueFull:
+            try:
+                q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                q.put_nowait(data)
+            except asyncio.QueueFull:
+                pass
+            logger.warning("developer consent SSE queue full; dropped oldest event")
+
+
 def get_consent_queue(user_id: str) -> asyncio.Queue:
     """Get or create the asyncio queue for this user (used by SSE generator)."""
     if user_id not in _consent_notify_queues:
@@ -142,11 +169,43 @@ def get_consent_queue(user_id: str) -> asyncio.Queue:
     return _consent_notify_queues[user_id]
 
 
+async def subscribe_developer_consent_queue(
+    *,
+    request_id: str,
+    agent_id: str,
+) -> asyncio.Queue:
+    """Subscribe a developer SSE consumer to one request without touching owner queues."""
+    key = (str(request_id or "").strip(), str(agent_id or "").strip())
+    q: asyncio.Queue = asyncio.Queue(maxsize=_DEVELOPER_CONSENT_QUEUE_MAXSIZE)
+    async with _developer_consent_subscribers_lock:
+        _developer_consent_subscribers.setdefault(key, set()).add(q)
+    return q
+
+
+async def unsubscribe_developer_consent_queue(
+    *,
+    request_id: str,
+    agent_id: str,
+    queue: asyncio.Queue,
+) -> None:
+    key = (str(request_id or "").strip(), str(agent_id or "").strip())
+    async with _developer_consent_subscribers_lock:
+        queues = _developer_consent_subscribers.get(key)
+        if queues is None:
+            return
+        queues.discard(queue)
+        if not queues:
+            _developer_consent_subscribers.pop(key, None)
+
+
 def get_consent_listener_status() -> dict:
     """Return status for GET /debug/consent-listener (listener_active, queue_count, notify_received_count)."""
     return {
         "listener_active": _listener_active,
         "queue_count": len(_consent_notify_queues),
+        "developer_queue_count": sum(
+            len(queues) for queues in _developer_consent_subscribers.values()
+        ),
         "notify_received_count": _notify_received_count,
         "last_notify_user_id": _last_notify_user_id,
         "last_notify_action": _last_notify_action,
@@ -183,6 +242,7 @@ async def _handle_notify(payload_str: str):
         _last_notify_action = action
         data = await _enrich_notify_payload(data)
         logger.info("Consent NOTIFY received user_id=%s action=%s", user_id, action)
+        await _push_to_developer_consent_queues(data)
         if str(action).strip().upper() == "REQUESTED":
             notification_payload = {
                 **data,

@@ -8,18 +8,26 @@
 flowchart TB
   hub["docs/<br/>canonical Hussh knowledge"]
   guides["guides/<br/>bootstrap + runtime"]
-  architecture["architecture/<br/>7-layer stack + contracts"]
+  reference["reference/<br/>current execution contracts"]
+  architecture["reference/architecture<br/>7-layer stack + contracts"]
   operations["operations/<br/>governance + release"]
   vision["vision/<br/>product thesis"]
   future["future/<br/>roadmap + R&D planning"]
+  one["reference/one<br/>One product contracts"]
+  kai["reference/kai<br/>Kai specialist runtime"]
+  superpowers["superpowers/<br/>agentic plan/spec archive"]
   frontend["hushh-webapp/docs/<br/>frontend implementation"]
   backend["consent-protocol/docs/<br/>backend implementation"]
 
   hub --> guides
-  hub --> architecture
-  hub --> operations
+  hub --> reference
+  reference --> architecture
+  reference --> operations
+  reference --> one
+  reference --> kai
   hub --> vision
   hub --> future
+  hub --> superpowers
   hub --> frontend
   hub --> backend
 ```
@@ -50,7 +58,9 @@ Start here:
 - [../README.md](../README.md): product and repo orientation
 - [guides/getting-started.md](./guides/getting-started.md): first-run path
 - [guides/environment-model.md](./guides/environment-model.md): runtime profiles
+- [reference/README.md](./reference/README.md): execution-owned current reference hub and docs classification model
 - [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md): canonical docs-home map
+- [reference/operations/documentation-recursive-knowledge-model.md](./reference/operations/documentation-recursive-knowledge-model.md): recursive folder contract and rewrite sequence
 - [reference/architecture/architecture.md](./reference/architecture/architecture.md): canonical seven-layer Hussh platform architecture, integration model, deployment model, and runtime sequences
 - [reference/architecture/architecture-view-catalog.md](./reference/architecture/architecture-view-catalog.md): C4 + ISO 42010 catalog of Hussh system, container, component, dynamic, deployment, network, physical, and data-boundary views
 - [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md): founder-language terminology contract
@@ -64,9 +74,11 @@ Start here:
 | Domain | Index |
 | ---- | ---- |
 | Guides | [guides/README.md](./guides/README.md) |
+| Reference hub | [reference/README.md](./reference/README.md) |
 | Architecture | [reference/architecture/README.md](./reference/architecture/README.md) |
 | AI | [reference/ai/README.md](./reference/ai/README.md) |
 | IAM | [reference/iam/README.md](./reference/iam/README.md) |
+| One | [reference/one/README.md](./reference/one/README.md) |
 | Kai | [reference/kai/README.md](./reference/kai/README.md) |
 | Mobile | [reference/mobile/README.md](./reference/mobile/README.md) |
 | Operations | [reference/operations/README.md](./reference/operations/README.md) |
@@ -74,6 +86,7 @@ Start here:
 | Streaming | [reference/streaming/README.md](./reference/streaming/README.md) |
 | Vision | [vision/README.md](./vision/README.md) |
 | Future | [future/README.md](./future/README.md) |
+| Superpowers planning archive | [superpowers/README.md](./superpowers/README.md) |
 
 ## Implementation Indexes
 

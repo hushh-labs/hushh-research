@@ -31,11 +31,13 @@ import {
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
-import {
-  GeminiLiveClient,
-  type GeminiLiveVoiceState,
-} from "@/lib/services/gemini-live-client";
 import { cn } from "@/lib/utils";
+import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
+import type {
+  OneVoiceSessionEvent,
+  RealtimeVoiceTransport,
+} from "@/lib/voice/one-voice-transport";
+import type { AgentVoiceEventOptions, AgentVoiceStatus } from "@/lib/agent/agent-voice-state";
 
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
@@ -85,10 +87,63 @@ export function AgentBar() {
   const setVoiceStatus = useAgentVoiceState((s) => s.setStatus);
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
-  const liveClientRef = useRef<GeminiLiveClient | null>(null);
+  const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
+
+  const handleTransportEvent = useCallback((event: OneVoiceSessionEvent) => {
+    const eventOptions: AgentVoiceEventOptions = {
+      sessionId: "sessionId" in event ? event.sessionId ?? null : null,
+      sourceId: "sourceId" in event ? event.sourceId ?? null : event.provider,
+      sourceSeq: "sourceSeq" in event ? event.sourceSeq ?? null : null,
+    };
+    if (event.type === "state") {
+      const status: AgentVoiceStatus =
+        event.state === "opening"
+          ? "connecting"
+          : event.state === "listening"
+            ? "listening"
+            : event.state === "understanding" ||
+                event.state === "intent_preview" ||
+                event.state === "needs_consent" ||
+                event.state === "acting" ||
+                event.state === "navigation_settling"
+              ? "thinking"
+              : event.state === "result" || event.state === "follow_up"
+                ? "speaking"
+                : event.state === "error_recovery"
+                  ? "error"
+                  : "idle";
+      if (status !== "idle") {
+        setVoiceStatus(status, event.message ?? null, eventOptions);
+      }
+      return;
+    }
+    if (event.type === "input_level") {
+      const current = useAgentVoiceState.getState().status;
+      if (current === "listening" || current === "connecting") {
+        setVoiceLevel(event.level);
+      }
+      return;
+    }
+    if (event.type === "output_level") {
+      if (useAgentVoiceState.getState().status === "speaking") {
+        setVoiceLevel(event.level);
+      }
+      return;
+    }
+    if (event.type === "error") {
+      erroredRef.current = true;
+      setVoiceStatus("error", event.message, eventOptions);
+      return;
+    }
+    if (event.type === "closed") {
+      liveClientRef.current = null;
+      if (erroredRef.current) return;
+      setConversationActive(false);
+    }
+  }, [setVoiceLevel, setVoiceStatus]);
 
   const stopConversation = useCallback(() => {
     erroredRef.current = false;
@@ -106,66 +161,17 @@ export function AgentBar() {
     }
     erroredRef.current = false;
     setConversationActive(true);
-    setVoiceStatus("connecting");
-    const client = new GeminiLiveClient({
-      onVoiceState: (state: GeminiLiveVoiceState) => {
-        switch (state) {
-          case "connecting":
-            setVoiceStatus("connecting");
-            break;
-          case "listening":
-            setVoiceStatus("listening");
-            break;
-          case "thinking":
-            setVoiceStatus("thinking");
-            break;
-          case "speaking":
-            setVoiceStatus("speaking");
-            break;
-          case "idle":
-          default:
-            break;
-        }
-      },
-      onInputLevel: (level) => {
-        const current = useAgentVoiceState.getState().status;
-        if (current === "listening" || current === "connecting") {
-          setVoiceLevel(level);
-        }
-      },
-      onOutputLevel: (level) => {
-        if (useAgentVoiceState.getState().status === "speaking") {
-          setVoiceLevel(level);
-        }
-      },
-      onError: (message) => {
-        // Surface why the session ended and keep the bar in conversation mode
-        // long enough to read it, instead of silently snapping back. The error
-        // status is sticky; tapping the X (or re-tapping conversation) resets.
-        erroredRef.current = true;
-        setVoiceStatus("error", message);
-      },
-      onClose: () => {
-        liveClientRef.current = null;
-        // If we closed because of an error, leave the bar showing the error
-        // status (the X dismisses it). A clean close returns the bar to rest.
-        if (erroredRef.current) return;
-        setConversationActive(false);
-      },
+    const client = createRealtimeVoiceTransport({
+      onEvent: handleTransportEvent,
     });
     liveClientRef.current = client;
-    // Pass the active screen + persona so the backend composes a state-aware
-    // (still tool-less) persona instruction. These only shape tone/guidance.
     void client.start({
-      screen: runtime?.screen ?? null,
-      persona: runtime?.activePersona ?? null,
+      context: runtime?.oneVoiceContextSnapshot ?? null,
     });
   }, [
     conversationActive,
-    runtime?.screen,
-    runtime?.activePersona,
-    setVoiceLevel,
-    setVoiceStatus,
+    runtime?.oneVoiceContextSnapshot,
+    handleTransportEvent,
     stopConversation,
   ]);
 

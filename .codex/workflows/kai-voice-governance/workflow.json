@@ -1,13 +1,15 @@
 {
   "id": "kai-voice-governance",
-  "title": "Kai Voice Governance",
-  "goal": "Author, generate, verify, and review Kai action contracts so voice, typed search, UI actionables, persona gating, and durable memory boundaries stay aligned under one shared gateway.",
+  "title": "One Voice Governance",
+  "goal": "Author, generate, verify, and review One Voice action contracts and Kai compatibility runtime contracts so voice, typed search, UI actionables, persona gating, and durable memory boundaries stay aligned under one shared gateway.",
   "owner_skill": "kai-voice-governance",
   "default_spoke": null,
   "task_type": "kai-voice-governance",
   "affected_surfaces": [
     "contracts/kai",
     "consent-protocol/hushh_mcp/services/voice_action_manifest.py",
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-kai-compatibility-runtime.md",
     "docs/reference/kai",
     "hushh-webapp/lib/voice",
     "hushh-webapp/scripts/voice",
@@ -20,7 +22,8 @@
   ],
   "required_reads": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/kai/kai-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-kai-compatibility-runtime.md",
     ".codex/skills/kai-voice-governance/references/voice-review-checklist.md"
   ],
   "required_commands": [
@@ -49,9 +52,9 @@
     ]
   },
   "deliverables": [
-    "local Kai action contracts",
+    "local voice action contracts",
     "generated shared gateway and compatibility manifest",
-    "updated runtime and contributor docs",
+    "updated One Voice runtime and contributor docs",
     "verification report"
   ],
   "impact_fields": [

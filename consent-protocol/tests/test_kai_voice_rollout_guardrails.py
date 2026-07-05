@@ -69,8 +69,11 @@ if "google.genai" not in sys.modules:
     sys.modules["google.genai"] = types.ModuleType("google.genai")
 if "google.genai.types" not in sys.modules:
     sys.modules["google.genai.types"] = types.ModuleType("google.genai.types")
+if "google.genai.errors" not in sys.modules:
+    sys.modules["google.genai.errors"] = types.ModuleType("google.genai.errors")
 sys.modules["google"].genai = sys.modules["google.genai"]
 sys.modules["google.genai"].types = sys.modules["google.genai.types"]
+sys.modules["google.genai"].errors = sys.modules["google.genai.errors"]
 
 if "sse_starlette" not in sys.modules:
     sys.modules["sse_starlette"] = types.ModuleType("sse_starlette")
@@ -119,9 +122,12 @@ if "api.routes.kai.portfolio" not in sys.modules:
     portfolio_stub._IMPORT_RUN_MANAGER = _StubImportRunManager()
     sys.modules["api.routes.kai.portfolio"] = portfolio_stub
 
+from api.middleware import require_vault_owner_token  # noqa: E402
 from api.routes.kai.voice import router as voice_router  # noqa: E402
+from api.routes.one.voice import router as one_voice_router  # noqa: E402
 
 VOICE_ROUTES = sys.modules["api.routes.kai.voice"]
+ONE_VOICE_ROUTES = sys.modules["api.routes.one.voice"]
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -142,10 +148,28 @@ def _set_voice_runtime_config(monkeypatch: pytest.MonkeyPatch, **overrides) -> N
     monkeypatch.setenv("VOICE_RUNTIME_CONFIG_JSON", json.dumps(payload))
 
 
+async def _test_vault_owner_token_data() -> dict[str, str]:
+    return {
+        "user_id": "user_a",
+        "agent_id": "test_agent",
+        "scope": "vault.owner",
+        "token": "test",
+    }
+
+
 @pytest.fixture
 def client() -> TestClient:
     app = FastAPI()
+    app.dependency_overrides[require_vault_owner_token] = _test_vault_owner_token_data
     app.include_router(voice_router, prefix="/api/kai")
+    return TestClient(app)
+
+
+@pytest.fixture
+def one_voice_client() -> TestClient:
+    app = FastAPI()
+    app.dependency_overrides[require_vault_owner_token] = _test_vault_owner_token_data
+    app.include_router(one_voice_router)
     return TestClient(app)
 
 
@@ -351,6 +375,82 @@ def test_voice_plan_surfaces_canonical_fields_alongside_legacy_contract(
     assert payload["action"]["payload"]["action_id"] == "route.profile_gmail_panel"
     assert payload["action"]["payload"]["mode"] == "execute_and_wait"
     assert payload["action"]["payload"].get("legacy_tool_call") is None
+
+
+def test_one_voice_plan_alias_preserves_kai_voice_authority(
+    one_voice_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    vault_owner_token_for_user,
+):
+    token = vault_owner_token_for_user("user_a")
+    _set_voice_runtime_config(
+        monkeypatch,
+        hosted_voice_enabled=True,
+        allowed_users=["user_a"],
+        canary_percent=100,
+        tool_execution_disabled=False,
+    )
+    observed: dict[str, object] = {}
+
+    async def _fake_plan(*args, **kwargs):
+        observed["transcript"] = kwargs.get("transcript")
+        observed["context"] = kwargs.get("context")
+        return (
+            {
+                "kind": "speak_only",
+                "message": "Opening consent center.",
+                "speak": True,
+                "execution_allowed": True,
+                "memory": {"allow_durable_write": True},
+                "schema_version": "kai_voice_plan.v1",
+                "mode": "execute_and_wait",
+                "action_id": "route.consents",
+                "slots": {},
+                "guards": ["auth_signed_in"],
+                "reply_strategy": "llm",
+            },
+            0,
+            "fake",
+        )
+
+    monkeypatch.setattr(VOICE_ROUTES.voice_service, "plan_voice_response", _fake_plan)
+    body = {
+        **_plan_body(),
+        "context_structured": {
+            "route": {"screen": "consents"},
+            "one_voice_context": {"schema_version": "one_voice_context.v1"},
+        },
+    }
+
+    response = one_voice_client.post(
+        "/api/one/voice/plan",
+        json=body,
+        headers=_auth(token),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["action_id"] == "route.consents"
+    assert observed["transcript"] == "open dashboard"
+    assert observed["context"] == {
+        "structured_screen_context": {
+            "route": {"screen": "consents"},
+            "one_voice_context": {"schema_version": "one_voice_context.v1"},
+        },
+        "planner_turn_id": payload["turn_id"],
+    }
+
+
+def test_one_voice_benchmark_route_stays_disabled_until_live_artifacts_exist(
+    one_voice_client: TestClient,
+):
+    response = one_voice_client.post("/api/one/voice/benchmark")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["enabled"] is False
+    assert payload["status"] == "requires_live_adapter"
+    assert "versioned artifacts" in payload["message"]
 
 
 def test_voice_plan_kill_switch_downgrades_canonical_only_execute_and_wait(

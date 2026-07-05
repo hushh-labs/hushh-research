@@ -527,7 +527,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             },
         ),
         # ── Kai Voice Action Tools ─────────────────────────────────────────────
-        # These tools are triggered by the Kai voice agent to perform discrete
+        # These tools are triggered by the One Voice/Kai compatibility agent to perform discrete
         # UI actions inside the Kai mobile application.
         # Each tool returns a KaiAction payload with:
         #   action_id   – canonical action identifier (matches kai-action-gateway)

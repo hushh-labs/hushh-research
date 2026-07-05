@@ -128,7 +128,7 @@ import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
   id: string;
@@ -2707,8 +2707,10 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
-        screenContext: buildStructuredScreenContext({
+        screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
+          state: useAgentVoiceState.getState().oneVoiceState,
+          lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
@@ -2976,8 +2978,10 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         delegateResult: result,
-        screenContext: buildStructuredScreenContext({
+        screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
+          state: useAgentVoiceState.getState().oneVoiceState,
+          lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         // Handler set is intentionally reduced. A delegate_result turn is
@@ -3194,8 +3198,10 @@ export function AgentChatWorkspace({
     try {
       await streamAgentIntro({
         message: text,
-        screenContext: buildStructuredScreenContext({
+        screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
+          state: useAgentVoiceState.getState().oneVoiceState,
+          lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {

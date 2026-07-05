@@ -6,7 +6,7 @@ Status: planning-only roadmap. This is not a current-state implementation contra
 
 ```mermaid
 flowchart TB
-  current["Current runtime<br/>Kai-first voice/action plane"]
+  current["Current runtime<br/>One Voice + Kai compatibility action plane"]
   one["One layer<br/>default speaker + memory relationship"]
   kai["Kai specialist<br/>finance actions"]
   nav["Nav specialist<br/>privacy + consent actions"]

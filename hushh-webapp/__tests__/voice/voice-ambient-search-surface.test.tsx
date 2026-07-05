@@ -101,7 +101,7 @@ describe("voice-ambient-search-surface", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Kai voice listening" }),
+      screen.getByRole("button", { name: "One Voice listening" }),
     ).toBeTruthy();
     expect(screen.getByText("Listening...")).toBeTruthy();
     expect(screen.getByLabelText("Mute microphone")).toBeTruthy();

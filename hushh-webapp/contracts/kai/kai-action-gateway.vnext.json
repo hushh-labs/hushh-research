@@ -1278,7 +1278,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1345,7 +1345,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1413,7 +1413,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1481,7 +1481,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -2103,7 +2103,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -2166,7 +2166,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -4835,7 +4835,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -4964,7 +4964,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -5026,7 +5026,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -5218,7 +5218,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "workflow": null,
       "expected_effects": {

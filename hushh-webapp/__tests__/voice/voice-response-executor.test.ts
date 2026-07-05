@@ -209,6 +209,18 @@ describe("executeVoiceResponse", () => {
       ...baseInput(),
       needsConfirmation: true,
       setPendingConfirmation,
+      groundedPlan: {
+        status: "resolved",
+        actionId: "analysis.cancel_active",
+        actionLabel: "Cancel active analysis",
+        destructive: true,
+        message: "Do you want me to cancel the active analysis?",
+        resolutionSource: "canonical",
+        execution: {
+          mode: "direct_tool",
+          steps: [],
+        },
+      },
       response: {
         kind: "execute",
         message: "Do you want me to cancel the active analysis?",
@@ -227,6 +239,7 @@ describe("executeVoiceResponse", () => {
       expect.objectContaining({
         kind: "cancel_active_analysis",
         prompt: "Do you want me to cancel the active analysis?",
+        actionId: "analysis.cancel_active",
       })
     );
     expect(result).toEqual({
@@ -559,7 +572,7 @@ describe("executeVoiceResponse", () => {
         routeAfter: null,
         screenBefore: "dashboard",
         screenAfter: null,
-        resultSummary: "I couldn't complete that action from the current Kai voice plan.",
+        resultSummary: "I couldn't complete that action from the current One Voice plan.",
         data: {
           executionMode: "navigate_only",
           resolutionSource: "transcript",

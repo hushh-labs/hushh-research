@@ -46,6 +46,7 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 ## Related References
 
 - Cross-cutting docs entry: [`docs/README.md`](../../docs/README.md)
-- Kai voice runtime architecture: [`docs/reference/kai/kai-voice-runtime-architecture.md`](../../docs/reference/kai/kai-voice-runtime-architecture.md)
+- One Voice product contract: [`docs/reference/one/one-voice-runtime-architecture.md`](../../docs/reference/one/one-voice-runtime-architecture.md)
+- One Voice Kai compatibility runtime: [`docs/reference/one/one-voice-kai-compatibility-runtime.md`](../../docs/reference/one/one-voice-kai-compatibility-runtime.md)
 - Documentation homes map: [`docs/reference/operations/documentation-architecture-map.md`](../../docs/reference/operations/documentation-architecture-map.md)
 - Backend docs entry: [`consent-protocol/docs/README.md`](../../consent-protocol/docs/README.md)

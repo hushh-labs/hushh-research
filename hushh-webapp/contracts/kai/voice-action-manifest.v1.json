@@ -1,6 +1,6 @@
 {
   "schema_version": "kai.voice_action_manifest.v1",
-  "source_registry": "generated from colocated Kai voice/action contracts",
+  "source_registry": "generated from colocated One Voice/Kai compatibility action contracts",
   "source_gateway": "contracts/kai/kai-action-gateway.vnext.json",
   "actions": [
     {
@@ -485,7 +485,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -524,7 +524,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -563,7 +563,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -602,7 +602,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -940,7 +940,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -975,7 +975,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -2425,7 +2425,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -2499,7 +2499,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -2532,7 +2532,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {
@@ -2639,7 +2639,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/kai/kai-voice-runtime-architecture.md"
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ]
     },
     {

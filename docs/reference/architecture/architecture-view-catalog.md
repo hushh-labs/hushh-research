@@ -51,7 +51,7 @@ TOGAF and ArchiMate terms are supporting enterprise vocabulary only. In this rep
 
 ## Current-State Contract
 
-- Current: Kai-first product runtime, Consent Protocol, Developer API, hosted MCP, `@hushh/mcp`, PKM/vault, consent/export, Cloud Run deploy lanes, Firebase identity, Supabase/Postgres data plane, RIA Intelligence provider lane, and governed UAT/production deploy workflows.
+- Current: One Voice product surface, Kai finance-specialist runtime, Consent Protocol, Developer API, hosted MCP, `@hushh/mcp`, PKM/vault, consent/export, Cloud Run deploy lanes, Firebase identity, Supabase/Postgres data plane, RIA Intelligence provider lane, and governed UAT/production deploy workflows.
 - Approved direction with checked-in manifests but not default app runtime everywhere: One, Nav, KYC, delegated specialist handoffs, and memory-agent structure.
 - Future-state only: Salesforce, MuleSoft, Agentforce, Flex Gateway, OpenClaw/local MCP, full One/Nav default runtime, and broad BYOA/on-device private-compute lanes.
 - Partner systems must not be drawn as canonical PKM, vault, key, or durable-memory stores. They may appear only as workflow endpoints that receive consent/audit metadata and narrow approved fields.
@@ -82,7 +82,7 @@ View metadata:
 ```mermaid
 flowchart TB
   user["User<br/>owns account, vault, and consent"]
-  web["Hussh web app<br/>Kai-first current product surface"]
+  web["Hussh web app<br/>One shell + Kai finance runtime"]
   mobile["Capacitor mobile shell<br/>iOS / Android parity lane"]
   mcpHost["External MCP hosts<br/>Claude / Codex / Cursor / partner tools"]
   devCaller["Developer API callers<br/>approved apps and connectors"]

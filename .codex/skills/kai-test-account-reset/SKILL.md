@@ -67,7 +67,7 @@ Non-owned surfaces:
 
 1. Route schema or account-deletion-service gaps to `iam-consent-governance` or `vault-pkm-governance`.
 2. Route backend runtime/proxy failures to `repo-operations`.
-3. Route user-facing Kai voice/search action changes to `kai-voice-governance`.
+3. Route user-facing One Voice/search action changes to `kai-voice-governance`.
 
 ## Required Checks
 

@@ -99,6 +99,14 @@
     }
   },
   {
+    "route": "/one/marketplace",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
     "route": "/connected-systems",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems surface."

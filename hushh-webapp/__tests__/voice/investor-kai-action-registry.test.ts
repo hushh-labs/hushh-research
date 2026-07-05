@@ -72,7 +72,7 @@ describe("investor-kai-action-registry", () => {
         direct_save: true,
       },
     });
-    expect(pkmCaptureAction?.id).toBe("profile.pkm.preview_capture");
+    expect(pkmCaptureAction?.id).toBe("profile.pkm.save_capture");
     expect(pkmCaptureAction?.wiring.status).toBe("wired");
   });
 

@@ -1,6 +1,12 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import type {
+  OneVoiceTransportHandlers,
+  OneVoiceTransportStartOptions,
+  RealtimeVoiceTransport,
+} from "@/lib/voice/one-voice-transport";
+import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-machine";
 
 /**
  * Browser client for Gemini Live full-duplex voice.
@@ -29,13 +35,23 @@ export type GeminiLiveVoiceState =
   | "thinking"
   | "speaking";
 
+export type GeminiLiveVoiceEventOptions = {
+  sessionId: string | null;
+  sourceId: "gemini_live";
+  sourceSeq: number;
+};
+
 export type GeminiLiveHandlers = {
-  onVoiceState?: (state: GeminiLiveVoiceState) => void;
+  onVoiceState?: (
+    state: GeminiLiveVoiceState,
+    options: GeminiLiveVoiceEventOptions
+  ) => void;
+  onEvent?: OneVoiceTransportHandlers["onEvent"];
   /** Input (mic) amplitude in [0, 1], sampled continuously while listening. */
   onInputLevel?: (level: number) => void;
   /** Output (agent) amplitude in [0, 1], sampled while audio is playing. */
   onOutputLevel?: (level: number) => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, options: GeminiLiveVoiceEventOptions) => void;
   onClose?: () => void;
 };
 
@@ -107,6 +123,14 @@ function bytesFromBase64(value: string): Uint8Array {
   return bytes;
 }
 
+function createGeminiLiveSessionId(): string {
+  const randomUuid =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `gemini_live_${randomUuid}`;
+}
+
 /** Float32 [-1,1] -> little-endian PCM16 bytes. */
 function floatToPcm16(input: Float32Array): Uint8Array {
   const out = new DataView(new ArrayBuffer(input.length * 2));
@@ -138,7 +162,8 @@ function rms(buffer: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, buffer.length));
 }
 
-export class GeminiLiveClient {
+export class GeminiLiveClient implements RealtimeVoiceTransport {
+  readonly provider = "gemini_live" as const;
   private handlers: GeminiLiveHandlers;
   private ws: WebSocket | null = null;
   private inputContext: AudioContext | null = null;
@@ -152,6 +177,8 @@ export class GeminiLiveClient {
   private activeSources = new Set<AudioBufferSourceNode>();
   private outputLevelTimer: ReturnType<typeof setInterval> | null = null;
   private state: GeminiLiveVoiceState = "idle";
+  private sessionId: string | null = null;
+  private sourceSeq = 0;
 
   constructor(handlers: GeminiLiveHandlers = {}) {
     this.handlers = handlers;
@@ -160,24 +187,47 @@ export class GeminiLiveClient {
   private setState(next: GeminiLiveVoiceState) {
     if (this.state === next) return;
     this.state = next;
-    this.handlers.onVoiceState?.(next);
+    this.sourceSeq += 1;
+    const eventOptions: GeminiLiveVoiceEventOptions = {
+      sessionId: this.sessionId,
+      sourceId: this.provider,
+      sourceSeq: this.sourceSeq,
+    };
+    this.handlers.onVoiceState?.(next, eventOptions);
+    this.handlers.onEvent?.({
+      type: "state",
+      provider: this.provider,
+      state: mapAgentVoiceStatusToOneVoiceState(next),
+      sessionId: eventOptions.sessionId,
+      sourceId: eventOptions.sourceId,
+      sourceSeq: eventOptions.sourceSeq,
+    });
   }
 
-  async start(options?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    signal?: AbortSignal;
-  }): Promise<void> {
+  private nextEventOptions(): GeminiLiveVoiceEventOptions {
+    this.sourceSeq += 1;
+    return {
+      sessionId: this.sessionId,
+      sourceId: this.provider,
+      sourceSeq: this.sourceSeq,
+    };
+  }
+
+  async start(options?: OneVoiceTransportStartOptions): Promise<void> {
     if (this.ws) return;
+    this.sessionId = createGeminiLiveSessionId();
+    this.sourceSeq = 0;
     this.setState("connecting");
 
+    const context = options?.context ?? null;
     let relayUrl: string;
     try {
       relayUrl = await ApiService.getGeminiLiveRelayUrl({
         voice: options?.voice ?? null,
-        screen: options?.screen ?? null,
-        persona: options?.persona ?? null,
+        screen: context?.route.screen ?? null,
+        persona: context?.persona.active ?? null,
+        routeFamily: context?.route.route_family ?? null,
+        voiceState: context?.voice.state ?? null,
       });
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Could not start Gemini Live.");
@@ -244,6 +294,11 @@ export class GeminiLiveClient {
       }
       const level = Math.min(1, rms(frame) * 4);
       this.handlers.onInputLevel?.(level);
+      this.handlers.onEvent?.({
+        type: "input_level",
+        provider: this.provider,
+        level,
+      });
       if (this.state !== "speaking") this.setState("listening");
       const sourceRate = this.inputContext?.sampleRate ?? INPUT_SAMPLE_RATE;
       const pcm = floatToPcm16(downsample(frame, sourceRate));
@@ -388,6 +443,11 @@ export class GeminiLiveClient {
       const t = Date.now() / 1000;
       const level = 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(t * 7));
       this.handlers.onOutputLevel?.(Math.min(1, level));
+      this.handlers.onEvent?.({
+        type: "output_level",
+        provider: this.provider,
+        level: Math.min(1, level),
+      });
     }, 50);
   }
 
@@ -405,7 +465,16 @@ export class GeminiLiveClient {
   }
 
   private fail(message: string): void {
-    this.handlers.onError?.(message);
+    const eventOptions = this.nextEventOptions();
+    this.handlers.onError?.(message, eventOptions);
+    this.handlers.onEvent?.({
+      type: "error",
+      provider: this.provider,
+      message,
+      sessionId: eventOptions.sessionId,
+      sourceId: eventOptions.sourceId,
+      sourceSeq: eventOptions.sourceSeq,
+    });
     this.stop();
   }
 
@@ -459,6 +528,12 @@ export class GeminiLiveClient {
     }
 
     this.setState("idle");
+    this.handlers.onEvent?.({
+      type: "closed",
+      provider: this.provider,
+    });
     this.handlers.onClose?.();
   }
 }
+
+export { GeminiLiveClient as GeminiLiveTransport };

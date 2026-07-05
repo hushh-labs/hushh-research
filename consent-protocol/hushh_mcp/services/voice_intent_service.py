@@ -58,7 +58,7 @@ _REALTIME_NOISE_REDUCTION_TYPE = "near_field"
 _REALTIME_SERVER_VAD_THRESHOLD = 0.72
 _REALTIME_SERVER_VAD_PREFIX_PADDING_MS = 450
 _VOICE_ENGLISH_ONLY_INPUT_MESSAGE = (
-    "Kai voice currently supports English only. Please repeat your request in English."
+    "One Voice currently supports English only. Please repeat your request in English."
 )
 _VOICE_TTS_INSTRUCTIONS = (
     "Speak in natural English only. Read the provided English text as written. "

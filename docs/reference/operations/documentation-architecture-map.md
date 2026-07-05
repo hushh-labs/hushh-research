@@ -6,13 +6,17 @@
 flowchart TB
   root["Root markdown<br/>thin contributor entrypoints"]
   cross["docs/<br/>cross-cutting Hussh contracts"]
+  reference["docs/reference<br/>current execution contracts"]
   future["docs/future/<br/>future roadmap + R&D planning"]
+  superpowers["docs/superpowers/<br/>agentic plan/spec archive"]
   protocol["consent-protocol/docs/<br/>backend + protocol package docs"]
   webapp["hushh-webapp/docs/<br/>frontend + native package docs"]
   skills[".codex/skills + workflows<br/>reusable drafting and routing contracts"]
 
   root --> cross
+  cross --> reference
   cross --> future
+  cross --> superpowers
   root --> protocol
   root --> webapp
   cross --> skills
@@ -53,9 +57,12 @@ Anything cross-cutting belongs here.
 
 Within root `docs/`, keep these boundaries explicit:
 
+- `docs/reference/` = execution-owned current cross-cutting contracts; start at [../README.md](../README.md)
 - `docs/vision/` = durable north stars and product thesis
 - `docs/future/` = planning-only future-state concepts, R&D assessments, and promotion criteria
-- `docs/reference/` = execution-owned cross-cutting contracts
+- `docs/superpowers/` = scoped implementation plans and design snapshots for agentic execution; not canonical shipped-truth documentation
+- `docs/reference/one/` = current One-owned product contracts; do not bury One as a Kai subtopic
+- `docs/reference/kai/` = current finance-specialist runtime contracts and compatibility surfaces
 
 ### 3. `consent-protocol/docs/`
 
@@ -91,7 +98,10 @@ Classify every maintained doc as one of:
 
 - `canonical`
 - `pointer/index`
-- `merge into canonical doc`
+- `future-plan`
+- `planning-archive`
+- `historical-provenance`
+- `merge-then-delete`
 - `delete`
 
 Use these rules:
@@ -101,6 +111,7 @@ Use these rules:
 3. Keep root docs thin and link downward.
 4. Keep package-specific docs package-local.
 5. Update all inbound links in the same change.
+6. Do not classify date-stamped `docs/superpowers/plans/*` or `docs/superpowers/specs/*` artifacts as canonical.
 
 ## Tier A Diagram Rule
 

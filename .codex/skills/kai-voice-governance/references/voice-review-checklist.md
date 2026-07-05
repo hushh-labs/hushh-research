@@ -1,6 +1,6 @@
-# Kai Voice Review Checklist
+# One Voice Review Checklist
 
-Use this when reviewing Kai voice or typed-search changes.
+Use this when reviewing One Voice, Kai compatibility runtime, or typed-search changes.
 
 ## Capability Authoring
 

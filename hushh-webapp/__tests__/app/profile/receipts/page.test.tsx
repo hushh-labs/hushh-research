@@ -115,6 +115,9 @@ vi.mock("lucide-react", () => ({
   Mail: () => <span />,
   RefreshCw: () => <span />,
   Search: () => <span />,
+  RotateCcw: () => <span />,
+  Send: () => <span />,
+  Sparkles: () => <span />,
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
