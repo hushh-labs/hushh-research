@@ -127,6 +127,17 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "connections",
+        "agent_connections",
+        (
+            "trusted connection",
+            "trusted connections",
+            "who do i trust",
+            "people i trust",
+            "add to my trusted",
+        ),
+    ),
+    (
         "location",
         "agent_location",
         (
@@ -211,3 +222,10 @@ def delegate_to_kyc_agent() -> Dict[str, Any]:
     """Delegate current conversation to KYC, the identity workflow specialist."""
     ctx = HushhContext.current()
     return _create_delegation_response("kyc_identity_workflow", "agent_kyc", ctx)
+
+
+@hushh_tool(scope="agent.one.orchestrate", name="delegate_to_connections_agent")
+def delegate_to_connections_agent() -> Dict[str, Any]:
+    """Delegate current conversation to the trusted-connections specialist."""
+    ctx = HushhContext.current()
+    return _create_delegation_response("connections", "agent_connections", ctx)
