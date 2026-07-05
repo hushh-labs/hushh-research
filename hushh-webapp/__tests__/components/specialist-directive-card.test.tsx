@@ -5,6 +5,7 @@ import {
   SpecialistConsentActionsCard,
   SpecialistPendingConsentRequestCard,
   SpecialistConsentRequiredCard,
+  SpecialistDirectiveCard,
 } from "@/components/agent/specialist-directive-card";
 
 describe("SpecialistConsentRequiredCard", () => {
@@ -32,6 +33,53 @@ describe("SpecialistConsentRequiredCard", () => {
 
     fireEvent.click(screen.getByTestId("specialist-consent-cancel"));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders connected systems with a concrete permission label", () => {
+    render(
+      <SpecialistConsentRequiredCard
+        agentId="agent_connected_systems"
+        requiredScope="agent.one.orchestrate"
+        onOpenConsent={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Connected Systems needs permission")).toBeTruthy();
+    expect(
+      screen.getByText(/read or update connected CRM records with your approval/),
+    ).toBeTruthy();
+  });
+
+  it("renders information marketplace with a concrete permission label", () => {
+    render(
+      <SpecialistConsentRequiredCard
+        agentId="agent_personal_information"
+        requiredScope="agent.one.orchestrate"
+        onOpenConsent={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Information Marketplace needs permission")).toBeTruthy();
+    expect(screen.getByText(/review marketplace sections and access requests/)).toBeTruthy();
+  });
+});
+
+describe("SpecialistDirectiveCard", () => {
+  it("labels connected systems action cards", () => {
+    render(
+      <SpecialistDirectiveCard
+        agentId="agent_connected_systems"
+        summary="Review the CRM update before it is applied."
+        confirmLabel="Update"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Connected Systems")).toBeTruthy();
+    expect(screen.getByText("Review the CRM update before it is applied.")).toBeTruthy();
   });
 });
 

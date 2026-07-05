@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Loader2, Lock, Mail, RefreshCw } from "lucide-react";
+import { Loader2, Lock, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -18,6 +17,16 @@ import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -26,6 +35,7 @@ import {
   resolveGmailStatusSummary,
   resolveGmailSyncFeedback,
   sanitizeGmailUserMessage,
+  stashGmailOAuthReturnTarget,
 } from "@/lib/profile/mail-flow";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
@@ -51,6 +61,7 @@ import {
 } from "@/lib/services/gmail-receipts-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -157,7 +168,9 @@ const receiptColumns: ColumnDef<ReceiptListItem>[] = [
     cell: ({ row }) => (
       <div className="min-w-0 space-y-1">
         <p className="truncate font-medium text-foreground">
-          {row.original.merchant_name || row.original.from_name || "Unknown merchant"}
+          {row.original.merchant_name ||
+            row.original.from_name ||
+            "Unknown merchant"}
         </p>
         <p className="truncate text-xs text-muted-foreground">
           {row.original.subject || "No subject"}
@@ -188,7 +201,9 @@ const receiptColumns: ColumnDef<ReceiptListItem>[] = [
     header: "Receipt date",
     cell: ({ row }) => (
       <span className="text-sm text-muted-foreground">
-        {formatDate(row.original.receipt_date || row.original.gmail_internal_date)}
+        {formatDate(
+          row.original.receipt_date || row.original.gmail_internal_date,
+        )}
       </span>
     ),
   },
@@ -301,7 +316,6 @@ function isReceiptMemoryWatermarkCurrent(
 }
 
 export default function ProfileReceiptsPage() {
-  const router = useRouter();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
@@ -320,6 +334,10 @@ export default function ProfileReceiptsPage() {
   const [receiptMemoryMessage, setReceiptMemoryMessage] = useState<
     string | null
   >(null);
+  const [gmailActionBusy, setGmailActionBusy] = useState<
+    "connect" | "disconnect" | "sync" | null
+  >(null);
+  const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const receiptsRef = useRef<ReceiptListItem[]>([]);
   const pageRef = useRef(1);
   const pendingSyncFeedbackRef = useRef(false);
@@ -418,6 +436,16 @@ export default function ProfileReceiptsPage() {
             has_more: nextHasMore,
           },
         });
+      } catch (error) {
+        const message = sanitizeGmailUserMessage(error, {
+          fallback:
+            "We couldn't load your receipts right now. Please try again in a moment.",
+          authFallback: "Unlock your vault to view synced receipts.",
+        });
+        console.error("[ProfileReceiptsPage] Failed to load Gmail receipts:", error);
+        if (!options?.silent) {
+          toast.error(message);
+        }
       } finally {
         if (showBlockingLoader) {
           setLoadingReceipts(false);
@@ -479,7 +507,12 @@ export default function ProfileReceiptsPage() {
     void loadReceipts(1);
   }, [canLoad, hasSealedReceiptAccess, loadReceipts, loading, user?.uid]);
 
-  const syncing = gmail.refreshingStatus || gmail.syncingRun;
+  const syncing =
+    gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy === "sync";
+  const gmailActionsBusy =
+    gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy !== null;
+  const isConnectingGmail = gmailActionBusy === "connect";
+  const isDisconnectingGmail = gmailActionBusy === "disconnect";
   const isConnected = gmail.presentation.isConnected;
   const loadingStatus = gmail.loadingStatus;
   const connectorState = gmail.presentation.state;
@@ -488,12 +521,75 @@ export default function ProfileReceiptsPage() {
   const isPassiveBackfillState =
     connectorState === "connected_backfill_running";
 
+  const handleConnectGmail = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      setGmailActionBusy("connect");
+      const idToken = await user.getIdToken();
+      const redirectUri =
+        typeof window !== "undefined"
+          ? `${window.location.origin}${ROUTES.PROFILE_GMAIL_OAUTH_RETURN}`
+          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
+      const isGoogleProvider = user.providerData.some((provider) => {
+        const providerId = String(provider.providerId || "").trim();
+        return providerId === "google.com" || providerId === "google";
+      });
+
+      const payload = await GmailReceiptsService.startConnect({
+        idToken,
+        userId: user.uid,
+        redirectUri,
+        loginHint: isGoogleProvider ? user.email : null,
+        includeGrantedScopes: isGoogleProvider,
+      });
+
+      if (!payload.configured || !payload.authorize_url) {
+        throw new Error("Gmail OAuth is not configured for this environment.");
+      }
+      stashGmailOAuthReturnTarget(ROUTES.GMAIL);
+      assignWindowLocation(payload.authorize_url);
+    } catch (error) {
+      const message = sanitizeGmailUserMessage(error, {
+        fallback:
+          "We couldn't start Gmail connection right now. Please try again in a moment.",
+      });
+      console.error(
+        "[ProfileReceiptsPage] Failed to start Gmail OAuth:",
+        error,
+      );
+      toast.error(message);
+      setGmailActionBusy(null);
+    }
+  }, [user]);
+
+  const handleDisconnectGmail = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      setGmailActionBusy("disconnect");
+      const next = await gmail.disconnectGmail();
+      if (!next) return;
+      setDisconnectDialogOpen(false);
+      pendingSyncFeedbackRef.current = false;
+      toast.success("Gmail disconnected. Your saved receipts stay available.");
+    } catch (error) {
+      const message = sanitizeGmailUserMessage(error, {
+        fallback:
+          "We couldn't disconnect Gmail right now. Please try again in a moment.",
+      });
+      console.error("[ProfileReceiptsPage] Failed to disconnect Gmail:", error);
+      toast.error(message);
+    } finally {
+      setGmailActionBusy(null);
+    }
+  }, [gmail, user?.uid]);
+
   const handleSyncNow = useCallback(async () => {
     if (!user?.uid) return;
     try {
       if (!isConnected || syncing) {
         return;
       }
+      setGmailActionBusy("sync");
       const queued = await gmail.syncNow();
       if (!queued?.run?.run_id) {
         toast.message("We're already syncing your receipts.");
@@ -511,6 +607,8 @@ export default function ProfileReceiptsPage() {
           authFallback: "Reconnect Gmail to continue syncing your receipts.",
         }),
       );
+    } finally {
+      setGmailActionBusy(null);
     }
   }, [gmail, isConnected, syncing, user?.uid]);
 
@@ -523,20 +621,7 @@ export default function ProfileReceiptsPage() {
     () => computeSyncProgressPercent(gmail.syncRun),
     [gmail.syncRun],
   );
-  const latestRunMetrics = useMemo(() => {
-    if (!gmail.syncRun) return null;
-    const extractionSuccessPercent = Math.round(
-      (gmail.syncRun.extraction_success_rate || 0) * 100,
-    );
-    return {
-      listed: gmail.syncRun.listed_count || 0,
-      filtered: gmail.syncRun.filtered_count || 0,
-      synced: gmail.syncRun.synced_count || 0,
-      extracted: gmail.syncRun.extracted_count || 0,
-      duplicates: gmail.syncRun.duplicates_dropped || 0,
-      extractionSuccessPercent,
-    };
-  }, [gmail.syncRun]);
+  const hasLatestRunMetrics = Boolean(gmail.syncRun);
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -544,14 +629,14 @@ export default function ProfileReceiptsPage() {
   const pageTitle = useMemo(
     () =>
       gmail.status?.google_email
-        ? `Connected to ${gmail.status.google_email}`
+        ? `Connected to ${gmail.status.google_email}. Refresh mail and manage access here.`
         : connectorState === "connected_initial_scan_running"
-          ? "Connected to your Gmail"
+          ? "Connected to your Gmail. Recent receipts are syncing now."
           : connectorState === "connected_backfill_running"
-            ? "Connected to your Gmail"
+            ? "Connected to your Gmail. Older receipts are loading in the background."
             : hasStoredReceipts
-              ? "Saved receipts are still available here."
-              : "Sync receipt emails into One.",
+              ? "Saved receipts stay available here. Reconnect Gmail to resume syncing."
+              : "Connect Gmail once to sync receipt emails into One.",
     [connectorState, gmail.status?.google_email, hasStoredReceipts],
   );
   const isSyncingState =
@@ -564,6 +649,11 @@ export default function ProfileReceiptsPage() {
     hasSealedReceiptAccess &&
     (total > 0 || hasStoredReceipts);
   const receiptSummaryDraftTrimmed = receiptSummaryDraft.trim();
+  const showReceiptInsights =
+    canBuildReceiptMemoryPreview ||
+    receiptMemoryLoading ||
+    Boolean(receiptMemoryArtifact) ||
+    Boolean(receiptMemoryMessage);
   const autoReceiptSummaryKey = useMemo(() => {
     if (!user?.uid || !isConnected || !canBuildReceiptMemoryPreview) {
       return null;
@@ -604,8 +694,8 @@ export default function ProfileReceiptsPage() {
   );
   const primaryActionLabel = isConnected
     ? syncing
-      ? "Syncing receipts…"
-      : "Sync receipts"
+      ? "Refreshing mail..."
+      : "Refresh mail"
     : connectorState === "needs_reauthentication"
       ? "Reconnect Gmail"
       : "Connect Gmail";
@@ -625,32 +715,42 @@ export default function ProfileReceiptsPage() {
     if (receiptMemoryArtifact) {
       visibleModules.push("Shopping summary");
     }
-    if (canBuildReceiptMemoryPreview) {
+    if (showReceiptInsights) {
       visibleModules.push("Save insights");
     }
 
     const availableActions = [
-      ...(isConnected ? ["Sync receipts"] : ["Connect Gmail"]),
+      ...(isConnected
+        ? ["Refresh mail", "Disconnect Gmail"]
+        : [primaryActionLabel]),
       ...(receiptMemoryArtifact ? ["Save insights"] : []),
       ...(hasMore ? ["Load older receipts"] : []),
     ];
     const controls = [
       {
         id: "sync_gmail_receipts",
-        label: "Sync receipts",
+        label: "Refresh mail",
         purpose: "starts or refreshes Gmail receipt sync.",
         actionId: "profile.gmail.sync_now",
         role: "button",
-        voiceAliases: ["sync gmail", "sync receipts"],
+        voiceAliases: ["refresh gmail", "refresh mail", "sync receipts"],
       },
       {
         id: "open_gmail_connector",
         label: "Connect Gmail",
         purpose:
-          "opens the Gmail connector so you can connect or reconnect Gmail.",
-        actionId: "route.profile_gmail_panel",
+          "starts Gmail read-only authorization so you can connect or reconnect Gmail.",
+        actionId: "profile.gmail.connect",
         role: "button",
         voiceAliases: ["connect gmail", "open gmail connector", "open gmail"],
+      },
+      {
+        id: "disconnect_gmail",
+        label: "Disconnect Gmail",
+        purpose: "stops future Gmail receipt syncs.",
+        actionId: "profile.gmail.disconnect",
+        role: "button",
+        voiceAliases: ["disconnect gmail", "stop gmail sync"],
       },
       {
         id: "edit_receipts_summary",
@@ -792,7 +892,6 @@ export default function ProfileReceiptsPage() {
       },
     };
   }, [
-    canBuildReceiptMemoryPreview,
     connectorState,
     gmail.presentation.badgeLabel,
     gmail.status?.last_sync_error,
@@ -808,7 +907,9 @@ export default function ProfileReceiptsPage() {
     receiptMemoryArtifact,
     receiptMemoryLoading,
     receiptMemorySaving,
+    primaryActionLabel,
     statusSummary.detail,
+    showReceiptInsights,
     showDisconnectedNotice,
     showVaultUnlock,
     syncing,
@@ -1036,44 +1137,67 @@ export default function ProfileReceiptsPage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="One / Gmail"
-          title="Receipts"
+          title="Gmail"
           description={pageTitle}
           actions={
-            <Button
-              onClick={() =>
-                isConnected
-                  ? void handleSyncNow()
-                  : router.push(`${ROUTES.PROFILE}?panel=gmail`)
-              }
-              disabled={
-                isConnected ? syncing : gmail.status?.configured === false
-              }
-              className="min-w-[140px]"
-              data-voice-control-id={
-                isConnected ? "sync_gmail_receipts" : "open_gmail_connector"
-              }
-              data-voice-action-id={
-                isConnected
-                  ? "profile.gmail.sync_now"
-                  : "route.profile_gmail_panel"
-              }
-              data-voice-label={primaryActionLabel}
-              data-voice-purpose={
-                isConnected
-                  ? "starts or refreshes Gmail receipt sync."
-                  : "opens the Gmail connector so you can connect Gmail."
-              }
-            >
-              {syncing || (!isConnected && loadingStatus) ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : isConnected ? (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              ) : (
-                <Mail className="mr-2 h-4 w-4" />
-              )}
-              {primaryActionLabel}
-            </Button>
+            <>
+              <Button
+                onClick={() =>
+                  isConnected ? void handleSyncNow() : void handleConnectGmail()
+                }
+                disabled={
+                  isConnected
+                    ? syncing
+                    : gmail.status?.configured === false || isConnectingGmail
+                }
+                className="min-w-[136px]"
+                data-voice-control-id={
+                  isConnected ? "sync_gmail_receipts" : "open_gmail_connector"
+                }
+                data-voice-action-id={
+                  isConnected
+                    ? "profile.gmail.sync_now"
+                    : "profile.gmail.connect"
+                }
+                data-voice-label={primaryActionLabel}
+                data-voice-purpose={
+                  isConnected
+                    ? "starts or refreshes Gmail receipt sync."
+                    : "starts Gmail authorization so you can connect Gmail."
+                }
+              >
+                {syncing || isConnectingGmail ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : isConnected ? (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                ) : (
+                  <Mail className="mr-2 h-4 w-4" />
+                )}
+                {primaryActionLabel}
+              </Button>
+
+              {isConnected ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  effect="fade"
+                  onClick={() => setDisconnectDialogOpen(true)}
+                  disabled={gmailActionsBusy}
+                  className="min-w-[124px]"
+                  data-voice-control-id="disconnect_gmail"
+                  data-voice-action-id="profile.gmail.disconnect"
+                  data-voice-label="Disconnect Gmail"
+                  data-voice-purpose="stops future Gmail receipt syncs."
+                >
+                  {isDisconnectingGmail ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" />
+                  )}
+                  Disconnect
+                </Button>
+              ) : null}
+            </>
           }
         />
       </AppPageHeaderRegion>
@@ -1105,7 +1229,9 @@ export default function ProfileReceiptsPage() {
               </Badge>
             </div>
 
-            {isSyncingState && latestRunMetrics && !isPassiveBackfillState ? (
+            {isSyncingState &&
+            hasLatestRunMetrics &&
+            !isPassiveBackfillState ? (
               <div className="space-y-2">
                 <Progress value={progressPercent} className="h-2" />
                 <p className="text-xs text-muted-foreground">
@@ -1196,8 +1322,8 @@ export default function ProfileReceiptsPage() {
 
                 {receiptMemoryArtifact.freshness.is_stale ? (
                   <p className="text-xs text-amber-600">
-                    This summary is a little older. We&apos;ll refresh it again
-                    after your next sync.
+                    This summary is a little older. We&apos;ll refresh it
+                    again after your next sync.
                   </p>
                 ) : null}
               </div>
@@ -1229,7 +1355,7 @@ export default function ProfileReceiptsPage() {
 
             {!canBuildReceiptMemoryPreview ? (
               <p className="text-xs text-muted-foreground">
-                Sync receipts first to create a shopping summary.
+                Refresh mail first to create a shopping summary.
               </p>
             ) : isSyncingState ? (
               <p className="text-xs text-muted-foreground">
@@ -1249,50 +1375,6 @@ export default function ProfileReceiptsPage() {
             ) : null}
           </SurfaceInset>
 
-          {loadingStatus ? (
-            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading Gmail connector status...
-            </SurfaceInset>
-          ) : null}
-
-          {isSyncingState && gmail.syncRun ? (
-            <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
-              <p className="font-medium text-foreground">Latest sync</p>
-              <p className="text-muted-foreground">
-                Run: {gmail.syncRun.run_id}
-              </p>
-              <p className="text-muted-foreground">
-                Status: {gmail.syncRun.status}
-              </p>
-              <p className="text-muted-foreground">
-                Synced {gmail.syncRun.synced_count} / Filtered{" "}
-                {gmail.syncRun.filtered_count} / Extracted{" "}
-                {gmail.syncRun.extracted_count}
-              </p>
-              {latestRunMetrics ? (
-                <div className="space-y-2 pt-1">
-                  <Progress value={progressPercent} className="h-2" />
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
-                    <span>Scanned: {latestRunMetrics.listed}</span>
-                    <span>Matched: {latestRunMetrics.filtered}</span>
-                    <span>Stored: {latestRunMetrics.synced}</span>
-                    <span>Extracted: {latestRunMetrics.extracted}</span>
-                    <span>Duplicates: {latestRunMetrics.duplicates}</span>
-                    <span>
-                      Extract %: {latestRunMetrics.extractionSuccessPercent}%
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-              {gmail.syncRun.error_message ? (
-                <p className="text-destructive">
-                  {gmail.syncRun.error_message}
-                </p>
-              ) : null}
-            </SurfaceInset>
-          ) : null}
-
           {gmail.status?.configured === false && !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
               Gmail receipts are not configured in this environment yet.
@@ -1302,7 +1384,7 @@ export default function ProfileReceiptsPage() {
           {showDisconnectedNotice ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
               Gmail is currently disconnected. Your previously synced receipts
-              stay available below, but Sync now is disabled until you
+              stay available below, but Refresh mail is disabled until you
               reconnect.
             </SurfaceInset>
           ) : null}
@@ -1334,7 +1416,7 @@ export default function ProfileReceiptsPage() {
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
               {gmail.syncRun?.synced_count
                 ? "Your receipts are still finishing up. Please try syncing again in a moment."
-                : "No receipts yet. Sync receipts to bring in your recent purchases."}
+                : "No receipts yet. Refresh mail to bring in your recent purchases."}
             </SurfaceInset>
           ) : null}
 
@@ -1343,7 +1425,12 @@ export default function ProfileReceiptsPage() {
               columns={receiptColumns}
               data={receipts}
               searchKey="merchant_name"
-              globalSearchKeys={["merchant_name", "from_name", "subject", "order_id"]}
+              globalSearchKeys={[
+                "merchant_name",
+                "from_name",
+                "subject",
+                "order_id",
+              ]}
               searchPlaceholder="Search receipts"
               initialPageSize={8}
               pageSizeOptions={[8, 16, 24]}
@@ -1384,6 +1471,40 @@ export default function ProfileReceiptsPage() {
           }}
         />
       ) : null}
+
+      <AlertDialog
+        open={disconnectDialogOpen}
+        onOpenChange={(open) => {
+          if (!isDisconnectingGmail) {
+            setDisconnectDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Future receipt syncs will stop. Receipts already saved in One stay
+              available.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDisconnectingGmail}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDisconnectingGmail}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDisconnectGmail();
+              }}
+            >
+              {isDisconnectingGmail ? "Disconnecting..." : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppPageShell>
   );
 }

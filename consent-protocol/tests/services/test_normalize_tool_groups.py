@@ -310,6 +310,9 @@ class TestVisibleToolNamesForGroups:
     def test_internal_only_group_returns_delegate_tool(self):
         result = visible_tool_names_for_groups([TOOL_GROUP_INTERNAL_ONLY])
         assert "delegate_to_agent" in result
+        assert "agent_chat_turn" in result
+        public_result = visible_tool_names_for_groups([TOOL_GROUP_CORE_CONSENT])
+        assert "agent_chat_turn" not in public_result
 
     def test_two_groups_returns_union_of_tools(self):
         result = visible_tool_names_for_groups([TOOL_GROUP_CORE_CONSENT, TOOL_GROUP_RIA_READ])

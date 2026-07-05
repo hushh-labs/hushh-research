@@ -1306,6 +1306,30 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("request_1")).toBeNull();
   });
 
+  it("renders my requests with safe labels instead of raw owner ids", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_1",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "pending",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.getByText("My requests")).toBeTruthy();
+    expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
+    expect(screen.queryByText("user_b")).toBeNull();
+    expect(screen.queryByText("request_1")).toBeNull();
+  });
+
   it("fans out approval-first requests to multiple selected owners without coordinates", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),

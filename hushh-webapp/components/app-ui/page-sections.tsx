@@ -145,6 +145,7 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
+  id,
   testId = "page-header",
 }: {
   eyebrow?: string;
@@ -157,11 +158,13 @@ export function PageHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  id?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
     <header
+      id={id}
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-slot="page-header"
       data-page-primary="true"

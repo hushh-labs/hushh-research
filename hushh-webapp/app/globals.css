@@ -1702,6 +1702,16 @@ md-ripple.morphy-md-ripple {
   box-shadow: none !important;
 }
 
+body:has([data-one-market-surface="true"]) .bar-glass-top {
+  --app-bar-glass-bg-light: var(--background) !important;
+  --app-bar-glass-bg-dark: rgb(28, 28, 30) !important;
+  --app-bar-shadow: none !important;
+  --app-bar-fade-top-strong: transparent !important;
+  --app-bar-fade-top-medium: transparent !important;
+  --app-bar-fade-top-soft: transparent !important;
+  --app-bar-fade-top-trace: transparent !important;
+}
+
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
 .carousel-side-glass {
   background-color: color-mix(in oklch, lab(100 0 0 / 0.68) 28%, transparent);
@@ -1896,6 +1906,24 @@ md-ripple.morphy-md-ripple {
 
 .dark .morphy-app-bg-radial {
   background: transparent;
+}
+
+.agent-themed-card-surface {
+  background-color: var(--app-card-surface-default-solid);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+.agent-themed-popover-surface {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  border-color: var(--border);
+}
+
+.agent-themed-app-surface {
+  background-color: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
 }
 
 /* Custom Scrollbar Styles */

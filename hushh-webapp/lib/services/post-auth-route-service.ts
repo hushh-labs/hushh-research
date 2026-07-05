@@ -19,11 +19,27 @@ const DEFAULT_HOME_ROUTE = ROUTES.ONE_HOME;
 const NO_VAULT_DEFAULT_ROUTE = ROUTES.ONE_HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
-  if (!path || !path.trim()) return DEFAULT_HOME_ROUTE;
-  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+  const normalizedPath = path?.trim();
+  if (!normalizedPath) return DEFAULT_HOME_ROUTE;
+  if (normalizedPath === ROUTES.PHONE_MANDATE) {
     return DEFAULT_HOME_ROUTE;
   }
-  return path;
+
+  if (normalizedPath.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+    const query = normalizedPath.slice(ROUTES.PHONE_MANDATE.length + 1);
+    const nestedRedirect = new URLSearchParams(query).get("redirect");
+    if (nestedRedirect && isPriorityReturnRoute(nestedRedirect)) {
+      return nestedRedirect;
+    }
+
+    return ROUTES.KAI_HOME;
+  }
+
+  return normalizedPath;
+}
+
+function isPriorityReturnRoute(path: string): boolean {
+  return isOneLocationInviteRedirect(path);
 }
 
 function hasCompletePreVaultAnswers(
@@ -88,6 +104,7 @@ export class PostAuthRouteService {
   }): Promise<string> {
     const hasExplicitRedirect = Boolean(params.redirectPath && params.redirectPath.trim());
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
+    const shouldPreservePriorityReturn = isPriorityReturnRoute(fallbackRoute);
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
     const canOverrideWithPersona =
       !params.redirectPath ||
@@ -195,6 +212,7 @@ export class PostAuthRouteService {
         : PRE_VAULT_ROUTE;
 
     if (
+      !shouldPreservePriorityReturn &&
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         phoneVerified: params.phoneVerified,

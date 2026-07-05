@@ -129,6 +129,7 @@ vi.mock("@/components/app-ui/shell-action-surface", () => ({
 
 vi.mock("@/components/agent/agent-popover-provider", () => ({
   useOptionalAgentPopover: () => ({
+    available: true,
     openAgent: mockOpenAgent,
   }),
 }));
@@ -463,6 +464,7 @@ describe("kai-search-bar helpers", () => {
         voiceAvailable: false,
         voiceVisibilityMode: "disabled",
         voiceUnavailableReason: "Unlock your vault to use voice",
+        showAgent: true,
       }),
     );
 

@@ -80,6 +80,105 @@ describe("PostAuthRouteService", () => {
     ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
   });
 
+  it("preserves a Location Agent phone-verification return for verified vault users", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: ROUTES.ONE_LOCATION,
+        phoneVerified: true,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("returns unverified Location Agent users directly to One Location", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: ROUTES.ONE_LOCATION,
+        phoneNumber: null,
+        phoneVerified: false,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("returns Location Agent users from a stale phone mandate login detour", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: buildPhoneMandateRoute(ROUTES.ONE_LOCATION),
+        phoneNumber: null,
+        phoneVerified: false,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("does not require phone verification for Location Agent when Firebase has a stale phone value", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: buildPhoneMandateRoute(ROUTES.ONE_LOCATION),
+        phoneNumber: "+16505550101",
+        phoneVerified: false,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("returns verified Location Agent users after the phone verification login detour", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: buildPhoneMandateRoute(ROUTES.ONE_LOCATION),
+        phoneVerified: true,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("does not preserve unrelated phone mandate redirects through login", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: buildPhoneMandateRoute(ROUTES.PROFILE),
+        phoneVerified: true,
+      })
+    ).resolves.toBe(ROUTES.KAI_HOME);
+  });
+
   it("does not send completed vault users back into onboarding from a stale redirect", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
@@ -357,8 +456,45 @@ describe("PostAuthRouteService", () => {
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
 
-  it("skips the phone mandate for localhost development sessions", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+  it("returns no-vault users to Location Agent after phone verification when they came from Location Agent", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: ROUTES.ONE_LOCATION,
+        phoneVerified: true,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("keeps the Location Agent redirect without requiring phone verification", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: ROUTES.ONE_LOCATION,
+        phoneNumber: null,
+        phoneVerified: false,
+      })
+    ).resolves.toBe(ROUTES.ONE_LOCATION);
+  });
+
+  it("does not bypass the phone mandate for localhost UAT sessions", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
       setupCompleted: true,

@@ -54,7 +54,7 @@ export function shouldRequirePhoneMandate(params: {
   hostname?: string | null;
   pathname?: string | null;
 }): boolean {
-  if (params.phoneVerified === true || hasVerifiedPhoneNumber(params.phoneNumber)) {
+  if (params.phoneVerified === true) {
     return false;
   }
 
@@ -71,6 +71,14 @@ export function shouldRequirePhoneMandate(params: {
   }
 
   if (params.exemptVaultUsers && params.hasVault) {
+    return false;
+  }
+
+  if (params.phoneVerified === false) {
+    return true;
+  }
+
+  if (hasVerifiedPhoneNumber(params.phoneNumber)) {
     return false;
   }
 

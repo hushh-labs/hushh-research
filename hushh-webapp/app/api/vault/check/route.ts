@@ -39,6 +39,12 @@ const vaultCheckInflight = new Map<
   Promise<{ status: number; payload: { hasVault: boolean; cached?: boolean; degraded?: boolean; error?: string; code?: string; hint?: string } }>
 >();
 
+function vaultServiceUnavailableHint(): string {
+  return isDevelopment()
+    ? "Local backend data is unavailable right now. Start the local backend with the proxy-aware launcher, then try again."
+    : "Vault status is temporarily unavailable. Please try again.";
+}
+
 function readFreshVaultCheck(userId: string): boolean | null {
   const cached = vaultCheckCache.get(userId);
   if (!cached) return null;
@@ -180,8 +186,15 @@ export async function GET(request: NextRequest) {
                 ? payload.code
                 : response.status === 401
                   ? "AUTH_INVALID"
+                  : response.status >= 500
+                    ? "DATABASE_UNAVAILABLE"
+                    : undefined,
+            hint:
+              typeof payload?.hint === "string"
+                ? payload.hint
+                : response.status >= 500
+                  ? vaultServiceUnavailableHint()
                   : undefined,
-            hint: typeof payload?.hint === "string" ? payload.hint : undefined,
           },
         };
       }
@@ -222,7 +235,7 @@ export async function GET(request: NextRequest) {
 
     return withRequestIdJson(requestId, { hasVault });
   } catch (error) {
-    console.error(`[API] request_id=${requestId} vault_check error:`, error);
+    console.warn(`[API] request_id=${requestId} vault_check unavailable:`, error);
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
     if (userId) {
@@ -237,7 +250,12 @@ export async function GET(request: NextRequest) {
     }
     return withRequestIdJson(
       requestId,
-      { error: "Failed to check vault status", hasVault: false },
+      {
+        error: "Failed to check vault status",
+        hasVault: false,
+        code: "DATABASE_UNAVAILABLE",
+        hint: vaultServiceUnavailableHint(),
+      },
       { status: 504 }
     );
   }

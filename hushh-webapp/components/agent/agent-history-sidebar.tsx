@@ -299,21 +299,21 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-black/10 bg-white/92 text-[#1d1d1f] shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl transition-[width] duration-200 ease-out dark:border-white/10 dark:bg-[#101216] dark:text-zinc-200 dark:shadow-none",
+          "agent-themed-card-surface flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-border/70 shadow-[inset_-1px_0_0_var(--app-card-border-standard)] backdrop-blur-xl transition-[width] duration-200 ease-out",
           collapsed ? "w-16" : "w-72",
           className
         )}
         aria-label="Agent chat history"
         data-collapsed={collapsed ? "true" : "false"}
       >
-        <div className="flex items-center gap-2 border-b border-black/10 p-3 dark:border-white/10">
+        <div className="flex items-center gap-2 border-b border-border/70 p-3">
           {collapsed ? (
             <div className="flex w-full flex-col items-center gap-2">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-lg border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.62)] hover:bg-black/[0.06] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:hover:bg-white/[0.08]"
+                className="h-10 w-10 rounded-lg border border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
                 onClick={onToggleCollapsed}
                 aria-label="Expand chat history"
                 title="Expand chat history"
@@ -324,7 +324,7 @@ export function AgentHistorySidebar({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-lg text-[rgba(0,0,0,0.54)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
+                className="h-10 w-10 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
                 onClick={onCreateNew}
                 disabled={disabled}
                 aria-label="Create new Agent chat"
@@ -338,7 +338,7 @@ export function AgentHistorySidebar({
               <Button
                 type="button"
                 variant="ghost"
-                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-black/10 bg-black/[0.035] px-3 text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition-colors hover:bg-black/[0.06] focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:shadow-none dark:hover:bg-white/[0.08]"
+                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-border bg-muted/50 px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
                 onClick={onCreateNew}
                 disabled={disabled}
                 aria-label="Create new Agent chat"
@@ -352,7 +352,7 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="hidden h-10 w-10 rounded-lg text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:inline-flex"
+                  className="hidden h-10 w-10 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:inline-flex"
                   onClick={onToggleCollapsed}
                   aria-label="Collapse chat history"
                   title="Collapse chat history"
@@ -367,7 +367,7 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-lg text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:hidden"
+              className="h-10 w-10 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
               onClick={onClose}
               aria-label="Close chat history"
               title="Close chat history"
@@ -403,11 +403,11 @@ export function AgentHistorySidebar({
           {collapsed ? <div className="h-4" aria-hidden="true" /> : null}
 
           {loading ? (
-            <div className="h-10 w-full rounded-lg bg-black/[0.04] dark:bg-white/[0.05]" />
+            <div className="h-10 w-full rounded-lg bg-muted" />
           ) : null}
 
           {!collapsed && !loading && conversations.length === 0 ? (
-            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-500">
+            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-border px-3 text-center text-xs text-muted-foreground">
               No chats yet
             </div>
           ) : null}

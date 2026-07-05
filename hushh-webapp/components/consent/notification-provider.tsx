@@ -380,7 +380,6 @@ function oneLocationOwnerLabel(data: Record<string, string>): string {
   return (
     String(data.owner_display_label || "").trim() ||
     String(data.owner_label || "").trim() ||
-    String(data.owner_user_id || "").trim() ||
     "A trusted person"
   );
 }
@@ -389,7 +388,6 @@ function oneLocationRequesterLabel(data: Record<string, string>): string {
   return (
     String(data.requester_display_label || "").trim() ||
     String(data.requester_label || "").trim() ||
-    String(data.requester_user_id || "").trim() ||
     "Someone"
   );
 }
@@ -397,7 +395,6 @@ function oneLocationRequesterLabel(data: Record<string, string>): string {
 function oneLocationReferringLabel(data: Record<string, string>): string {
   return (
     String(data.referring_display_label || "").trim() ||
-    String(data.referring_user_id || "").trim() ||
     "A trusted person"
   );
 }
@@ -608,7 +605,9 @@ export function ConsentNotificationProvider({
   const showOneLocationShareNotification = useCallback(
     (data: Record<string, string>) => {
       if (!user?.uid || isNativePlatform) return;
-      const grantId = String(data.grant_id || data.grantId || "").trim();
+      const grantId = String(
+        data.grant_id || data.grantId || data.approved_grant_id || "",
+      ).trim();
       if (!grantId) return;
       const ownerLabel = oneLocationOwnerLabel(data);
       const created = recordOneLocationShareNotification({

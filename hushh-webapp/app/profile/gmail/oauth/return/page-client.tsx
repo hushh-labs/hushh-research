@@ -13,6 +13,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   buildProfileGmailReturnPath,
+  consumeGmailOAuthReturnTarget,
   isRecoverableGmailOAuthReplayError,
   stashProfileGmailReturnStatus,
 } from "@/lib/profile/mail-flow";
@@ -45,20 +46,30 @@ export default function ProfileGmailOAuthReturnPageClient({
   const { user, loading } = useAuth();
   const [stage, setStage] = useState<CompleteStage>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [returnTarget] = useState(
+    () => consumeGmailOAuthReturnTarget() || buildProfileGmailReturnPath(),
+  );
 
   useEffect(() => {
     if (loading || startedRef.current) return;
 
     const liveError = String(searchParams.get("error") || "").trim();
-    const liveErrorDescription = String(searchParams.get("error_description") || "").trim();
+    const liveErrorDescription = String(
+      searchParams.get("error_description") || "",
+    ).trim();
     const liveCode = String(searchParams.get("code") || "").trim();
     const liveState = String(searchParams.get("state") || "").trim();
 
     const oauthError = liveError || initialError;
     if (oauthError) {
-      const oauthErrorDescription = liveErrorDescription || initialErrorDescription;
+      const oauthErrorDescription =
+        liveErrorDescription || initialErrorDescription;
       setStage("error");
-      setError(oauthErrorDescription || oauthError || "Google OAuth authorization was denied.");
+      setError(
+        oauthErrorDescription ||
+          oauthError ||
+          "Google OAuth authorization was denied.",
+      );
       return;
     }
 
@@ -66,7 +77,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     const state = liveState || initialState;
     if (!code || !state) {
       setStage("error");
-      setError("Missing OAuth code or state. Start Connect Gmail again from Profile.");
+      setError("Missing OAuth code or state. Start Connect Gmail again.");
       return;
     }
 
@@ -99,13 +110,13 @@ export default function ProfileGmailOAuthReturnPageClient({
         primeConnectorStatus({
           userId: user.uid,
           status,
-          routeHref: buildProfileGmailReturnPath(),
+          routeHref: returnTarget,
           source: "oauth_return",
         });
         stashProfileGmailReturnStatus(status);
 
         setStage("redirecting");
-        router.replace(buildProfileGmailReturnPath());
+        router.replace(returnTarget);
       } catch (completeError) {
         if (isRecoverableGmailOAuthReplayError(completeError)) {
           try {
@@ -118,12 +129,12 @@ export default function ProfileGmailOAuthReturnPageClient({
               primeConnectorStatus({
                 userId: user.uid,
                 status,
-                routeHref: buildProfileGmailReturnPath(),
+                routeHref: returnTarget,
                 source: "oauth_return",
               });
               stashProfileGmailReturnStatus(status);
               setStage("redirecting");
-              router.replace(buildProfileGmailReturnPath());
+              router.replace(returnTarget);
               return;
             }
           } catch {
@@ -141,6 +152,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     initialState,
     loading,
     router,
+    returnTarget,
     searchParams,
     user,
   ]);
@@ -155,7 +167,8 @@ export default function ProfileGmailOAuthReturnPageClient({
           routeId: "/profile/gmail/oauth/return",
           marker: "native-route-profile-gmail-return",
           authState: user?.uid ? "authenticated" : "pending",
-          dataState: stage === "redirecting" ? "redirect-valid" : "unavailable-valid",
+          dataState:
+            stage === "redirecting" ? "redirect-valid" : "unavailable-valid",
           errorCode: error ? "gmail_oauth" : null,
           errorMessage: error,
         }}
@@ -164,7 +177,9 @@ export default function ProfileGmailOAuthReturnPageClient({
           <HushhLoader
             label={
               stage === "redirecting"
-                ? "Returning to your profile..."
+                ? returnTarget === ROUTES.GMAIL
+                  ? "Returning to Gmail..."
+                  : "Returning to your profile..."
                 : "Completing your Gmail connector setup..."
             }
           />
@@ -189,11 +204,18 @@ export default function ProfileGmailOAuthReturnPageClient({
     >
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">Gmail connection needs attention</h1>
+          <h1 className="text-lg font-semibold text-foreground">
+            Gmail connection needs attention
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
-            <Button onClick={() => router.replace(buildProfileGmailReturnPath())} className="w-full">
-              Back to Profile
+            <Button
+              onClick={() => router.replace(returnTarget)}
+              className="w-full"
+            >
+              {returnTarget === ROUTES.GMAIL
+                ? "Back to Gmail"
+                : "Back to Profile"}
             </Button>
           </div>
         </div>
