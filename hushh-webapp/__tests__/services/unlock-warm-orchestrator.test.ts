@@ -130,6 +130,15 @@ vi.mock("@/lib/utils/portfolio-normalize", () => ({
   normalizeStoredPortfolio: vi.fn((raw: unknown) => raw),
 }));
 
+// Mock the One Location recipient key bootstrap: run() fires this fire-and-forget
+// (queueLocationRecipientKeyBootstrap). Left unmocked, the real implementation
+// rejects with "Location key storage is unavailable on this device." after the
+// test completes, and its console.warn lands during worker teardown -> Vitest
+// EnvironmentTeardownError ("Closing rpc while onUserConsoleLog was pending").
+vi.mock("@/lib/one-location/key-bootstrap", () => ({
+  bootstrapCurrentUserLocationRecipientKey: vi.fn(() => Promise.resolve()),
+}));
+
 import {
   UnlockWarmOrchestrator,
 } from "@/lib/services/unlock-warm-orchestrator";
