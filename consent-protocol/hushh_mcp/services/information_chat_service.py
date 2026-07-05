@@ -101,11 +101,14 @@ def _function_declarations(types: Any) -> list:
         types.FunctionDeclaration(
             name="get_earnings_summary",
             description=(
-                "Summarize POTENTIAL monthly earnings across the user's published "
-                "slices. Returns each slice's price plus its `math` factors (floor, "
-                "data value, buyer fit, freshness, exclusivity, geo) and the pricing "
-                "`formula` — use these to explain 'show math'. There is no buyer or "
-                "payment rail yet, so nothing is accrued (accruedCents is 0). Read-only."
+                "Summarize buyer demand + POTENTIAL monthly earnings for the user's "
+                "published slices. Returns real demand (pendingRequestCount, "
+                "approvedBuyerCount, interestedBuyerCount) plus each slice's price and "
+                "its `math` factors (floor, data value, buyer fit, freshness, "
+                "exclusivity, geo) and the pricing `formula` — use these to explain "
+                "'show math'. Payments are NOT enabled yet (payoutsEnabled False, "
+                "accruedCents 0): cite real buyer interest but always say payments are "
+                "coming soon and nothing has been paid out. Read-only."
             ),
             parameters=schema(
                 type=kind.OBJECT,

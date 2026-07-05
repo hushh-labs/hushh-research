@@ -10,10 +10,13 @@ projection. It never returns raw PKM values or another user's data. Pricing is
 computed by the pure, deterministic backend engine (hushh_mcp.pricing), so the
 agent cannot fabricate a number.
 
-Honesty about "earnings": there is NO payment rail and NO buyers yet. Published
-slices have a *potential* monthly price only; nothing is accrued or settled. The
-summary makes that explicit (accrued_cents is always 0) so the agent never
-implies money that does not exist.
+Honesty about "earnings": there is NO payment rail yet, so nothing is ever
+accrued or settled (accrued_cents is always 0, payouts_enabled is always False).
+What IS real is buyer *demand* — durable access requests (migration 076) that
+buyers file against published slices. The summary reports that real demand
+(pending/approved counts) alongside a *potential* monthly price tag, and says
+payments are "coming soon" — so the agent surfaces genuine interest without ever
+implying money has changed hands.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from hushh_mcp.pricing import (
     category_from_sensitivity,
     compute_suggested_price,
 )
+from hushh_mcp.services.marketplace_request_service import MarketplaceRequestService
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelService,
 )
@@ -41,6 +45,32 @@ def _domain_title(domain: str) -> str:
 def _attribute_count(entry: dict) -> int:
     segments = entry.get("segment_ids") or []
     return max(1, len(segments))
+
+
+def _plural(n: int, singular: str, plural: str) -> str:
+    return singular if n == 1 else plural
+
+
+def _earnings_note(demand: dict[str, Any]) -> str:
+    """Honest one-liner for the summary: report real buyer demand but never imply
+    money — payouts are not enabled yet ("payments coming soon")."""
+    approved = demand.get("approvedBuyerCount", 0)
+    pending = demand.get("pendingRequestCount", 0)
+    if approved or pending:
+        parts: list[str] = []
+        if approved:
+            parts.append(f"{approved} {_plural(approved, 'buyer has', 'buyers have')} access")
+        if pending:
+            parts.append(f"{pending} {_plural(pending, 'request is', 'requests are')} waiting")
+        lead = " and ".join(parts)
+        return (
+            f"{lead}. Payments are coming soon — no payout has been made yet, so "
+            "nothing is accrued or settled."
+        )
+    return (
+        "Potential only. No buyer has requested access yet and payments are coming "
+        "soon (no payment rail), so nothing is accrued or settled."
+    )
 
 
 # Commercial-intent / life-event cues that make an unpublished slice worth offers
@@ -124,8 +154,44 @@ def _matches_topic(topic: str, label: str, domain_title: str) -> bool:
 class MarketplaceInformationService:
     """Read-only view over the owner's published marketplace slices + pricing."""
 
-    def __init__(self, pkm_service: PersonalKnowledgeModelService | None = None) -> None:
+    def __init__(
+        self,
+        pkm_service: PersonalKnowledgeModelService | None = None,
+        request_service: MarketplaceRequestService | None = None,
+    ) -> None:
         self._pkm = pkm_service or PersonalKnowledgeModelService()
+        self._requests = request_service or MarketplaceRequestService()
+
+    async def _demand_snapshot(self, *, user_id: str) -> dict[str, Any]:
+        """Real buyer demand for this owner from the durable access-request inbox
+        (migration 076). Best-effort: a broken inbox degrades to zero demand
+        rather than breaking the earnings summary."""
+        empty = {
+            "pendingRequestCount": 0,
+            "approvedBuyerCount": 0,
+            "interestedBuyerCount": 0,
+            "hasBuyers": False,
+        }
+        try:
+            requests = await self._requests.list_requests(owner_user_id=user_id)
+        except Exception:
+            logger.exception("marketplace.earnings_demand_read_failed")
+            return empty
+        pending = [r for r in requests if r.get("status") == "pending"]
+        approved = [r for r in requests if r.get("status") == "approved"]
+
+        def _buyer_key(r: dict) -> str:
+            # Prefer a real account id; fall back to the label, then the request id
+            # so an anonymous request still counts as one distinct interested buyer.
+            return r.get("buyerUserId") or r.get("buyerLabel") or str(r.get("id"))
+
+        interested = {_buyer_key(r) for r in (pending + approved)}
+        return {
+            "pendingRequestCount": len(pending),
+            "approvedBuyerCount": len(approved),
+            "interestedBuyerCount": len(interested),
+            "hasBuyers": len(approved) > 0,
+        }
 
     async def list_published_slices(self, *, user_id: str) -> list[dict[str, Any]]:
         """Every scope the owner has set to `default_available` (published), across
@@ -207,12 +273,19 @@ class MarketplaceInformationService:
                 except KeyError:
                     price_cents = 0
                     currency = "USD"
+                # The section path the publish flow targets (slice-publishing.ts
+                # matches on `summary_projection.top_level_scope_path`). Surfacing it
+                # here lets the opportunity card publish the slice without a second
+                # manifest lookup to rediscover the section.
+                projection = entry.get("summary_projection") or {}
+                top_level_scope_path = projection.get("top_level_scope_path")
                 out.append(
                     {
                         "domain": entry.get("domain") or domain,
                         "domainTitle": domain_title,
                         "label": label,
                         "scopeHandle": entry.get("scope_handle"),
+                        "topLevelScopePath": top_level_scope_path,
                         "attributeCount": _attribute_count(entry),
                         "suggestedPriceCents": price_cents,
                         "currency": currency,
@@ -227,10 +300,12 @@ class MarketplaceInformationService:
         power: str = "affluent",
         mood: str = "affinity",
     ) -> dict[str, Any]:
-        """Potential (never accrued) monthly earnings across the owner's published
-        slices. `accruedCents` is always 0 — there is no payment rail or buyer yet.
+        """Real buyer demand + potential (never accrued) monthly price across the
+        owner's published slices. `accruedCents` is always 0 and `payoutsEnabled`
+        is always False — there is no payment rail yet ("payments coming soon").
         """
         slices = await self.list_published_slices(user_id=user_id)
+        demand = await self._demand_snapshot(user_id=user_id)
         per_slice: list[dict[str, Any]] = []
         total_potential_cents = 0
         currency = "USD"
@@ -288,11 +363,14 @@ class MarketplaceInformationService:
                 "Exclusivity: sold to everyone = base, one buyer = worth more."
             ),
             "band": {"power": power, "mood": mood},
-            # Explicit honesty flags the agent's prompt relies on.
-            "hasBuyers": False,
+            # Real buyer demand from the durable access-request inbox (migration 076).
+            "pendingRequestCount": demand["pendingRequestCount"],
+            "approvedBuyerCount": demand["approvedBuyerCount"],
+            "interestedBuyerCount": demand["interestedBuyerCount"],
+            # Explicit honesty flags the agent's prompt relies on. Demand can be
+            # real, but money never is yet: nothing is accrued and payouts are off.
+            "hasBuyers": demand["hasBuyers"],
             "hasPaymentRail": False,
-            "note": (
-                "Potential only. No buyer has subscribed and no payment rail exists "
-                "yet, so nothing is accrued or settled."
-            ),
+            "payoutsEnabled": False,
+            "note": _earnings_note(demand),
         }
