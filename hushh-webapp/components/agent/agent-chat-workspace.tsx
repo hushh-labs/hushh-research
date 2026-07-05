@@ -46,6 +46,7 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
+import { OpportunityNudgeStack } from "@/components/agent/opportunity-nudge-card";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import type { PublishableSlice } from "@/lib/one-marketplace/service";
@@ -4166,6 +4167,15 @@ export function AgentChatWorkspace({
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
+
+              {hasChatAccess ? (
+                <OpportunityNudgeStack
+                  userId={user?.uid ?? null}
+                  vaultOwnerToken={vaultOwnerToken}
+                  vaultKey={vaultKey}
+                  onRequireUnlock={() => setVaultDialogOpen(true)}
+                />
+              ) : null}
 
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (

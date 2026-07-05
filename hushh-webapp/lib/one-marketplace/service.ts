@@ -1,4 +1,5 @@
 import { apiJson } from "@/lib/services/api-client";
+import { type PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 
 /** A durable Information Marketplace access request (migration 075). */
 export interface MarketplaceRequest {
@@ -26,6 +27,25 @@ export interface PublishableSlice {
   scopeHandle?: string | null;
   suggestedPriceCents?: number;
   currency?: string;
+}
+
+/**
+ * One anonymized listing in the cross-user Buyer directory. The owner's identity
+ * is never sent — only a stable opaque `ownerRef` and an opaque `listingId` the
+ * server maps back to the real owner when a request is filed.
+ */
+export interface AvailableListing {
+  listingId: string;
+  ownerRef: string;
+  domain: string;
+  domainTitle: string;
+  label: string;
+  topLevelScopePath: string;
+  attributeCount: number;
+  /** The owner's published safe-summary preview — same detail shown on the owner side. */
+  preview: PkmSectionPreviewPresentation | null;
+  suggestedPriceCents: number;
+  currency: string;
 }
 
 /** Inline "publish for offers?" card the agent can surface in chat. */
@@ -84,6 +104,29 @@ export class OneMarketplaceService {
       { headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
     return res.requests ?? [];
+  }
+
+  /** Anonymized directory of other users' published slices (Buyer tab). */
+  static async listAvailable(params: {
+    vaultOwnerToken: string;
+  }): Promise<AvailableListing[]> {
+    const res = await apiJson<{ listings: AvailableListing[] }>(
+      "/api/one/marketplace/available",
+      { headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
+    return res.listings ?? [];
+  }
+
+  /** File a real cross-account access request against a listing's true owner. */
+  static async requestListing(params: {
+    vaultOwnerToken: string;
+    listingId: string;
+  }): Promise<MarketplaceRequest> {
+    const res = await apiJson<{ request: MarketplaceRequest }>(
+      `/api/one/marketplace/available/${encodeURIComponent(params.listingId)}/request`,
+      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
+    return res.request;
   }
 
   static async createRequest(params: {
