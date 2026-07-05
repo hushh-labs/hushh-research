@@ -102,9 +102,15 @@ Use `--phase mid` with the router and record whether the parent spawned a new re
 
 1. Keep `agents.max_threads = 6` unless a later review proves a different cap is necessary.
 2. Keep `agents.max_depth = 1` unless a later review proves recursive delegation is worth the cost and predictability risk.
-3. Keep wave-1 repo-scoped custom agents read-only by default.
-4. Use high reasoning as the minimum for repo-scoped specialist agents. Use extra-high reasoning for governor synthesis, reviewer regression review, security/consent/vault audits, and voice/action-runtime audits.
-5. Leave edits to the parent session or the built-in `worker`.
+3. Treat those values as the hard host cap, not as the normal spawn target. The effective-spawn budget is `max_threads - open_child_threads - 1`.
+4. Always reserve one thread for recovery, synthesis, or governor-style follow-up.
+5. Default to two read-only evidence lanes per wave. Use three or four only for critical cross-domain work after stale child threads are closed.
+6. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
+7. Ask children for compact handoffs. If a wait result is too large or truncated, ask that child for a bounded summary instead of waiting again.
+8. Apply the close freeze circuit breaker: if a `close_agent` call hangs, freezes, or is interrupted in the current turn, stop all further close/spawn attempts, treat open child state as saturated, continue locally, and report the host-management gap.
+9. Keep wave-1 repo-scoped custom agents read-only by default.
+10. Use high reasoning as the minimum for repo-scoped specialist agents. Use extra-high reasoning for governor synthesis, reviewer regression review, security/consent/vault audits, and voice/action-runtime audits.
+11. Leave edits to the parent session or the built-in `worker`.
 
 ## Pre-Authorized Evidence Lanes
 

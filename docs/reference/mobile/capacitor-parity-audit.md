@@ -58,9 +58,11 @@ Current policy keeps the full visible app surface in scope, including:
 
 Current inventory policy:
 
-- 36 routes are native-required and must pass on iOS and Android.
+- 76 routes are native-required and must pass on iOS and Android.
 - 3 routes are explicit web-only exclusions: `/developers`, `/labs/profile-appearance`, `/profile/pkm-agent-lab`.
 - New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
+
+Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.
 
 ## Browser API Policy
 

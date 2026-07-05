@@ -49,6 +49,25 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/labs/profile-appearance`
 - `/agent`
 - `/profile`
+- `/profile/account`
+- `/profile/account/phone`
+- `/profile/preferences`
+- `/profile/preferences/kai`
+- `/profile/preferences/device`
+- `/profile/security`
+- `/profile/security/vault`
+- `/profile/security/session`
+- `/profile/my-data`
+- `/profile/my-data/domain?key=<domain_key>`
+- `/profile/access`
+- `/profile/access/connection?id=<connection_id>`
+- `/profile/connected-systems`
+- `/profile/gmail`
+- `/profile/gmail/connection`
+- `/profile/gmail/actions`
+- `/profile/support`
+- `/profile/support/routing`
+- `/profile/support/compose?kind=<support_kind>`
 - `/profile/receipts`
 - `/profile/gmail/oauth/return`
 - `/consents`
@@ -79,8 +98,27 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 
 - `/marketplace/ria?riaId=<ria_id>`
 - `/ria/workspace?clientId=<investor_user_id>`
+- `/profile/my-data/domain?key=<domain_key>`
+- `/profile/access/connection?id=<connection_id>`
+- `/profile/support/compose?kind=<support_kind>`
 
 Legacy `/kai/*` aliases and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
+
+Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only. Canonical profile navigation is nested under `/profile/<panel>` and owned by `hushh-webapp/lib/navigation/profile-routes.ts`.
+
+## Route Contract Cascade
+
+Every added, removed, or renamed app route must update the route contract cascade in one change:
+
+- `hushh-webapp/lib/navigation/routes.ts`, route builders, breadcrumbs, bottom navigation, and signed-in route coverage
+- `hushh-webapp/lib/navigation/app-route-layout.contract.json`
+- `hushh-webapp/frontend-native-surface-map.generated.json`
+- `hushh-webapp/cache-coherence-screen-manifest.generated.json`
+- `hushh-webapp/native-route-inventory.json`
+- local `.voice-action-contract.json` files and generated voice gateway artifacts when route/action reachability changes
+- route docs, cache-coherence docs, One Voice docs, mobile parity docs, and owning Codex skill reads/checks
+
+Preserve query params for transient state such as OAuth callbacks, filters, pagination, `unlock_vault`, `return_to`, redirects, and static-export-sensitive identifiers. Do not use query params as durable panel/detail navigation when a finite nested route exists.
 
 ## Visible Route Coverage
 

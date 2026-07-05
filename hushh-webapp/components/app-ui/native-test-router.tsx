@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { getNativeTestConfig } from "@/lib/testing/native-test";
+import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
 
 let lastAppliedInitialRoute: string | null = null;
 let lastAppliedInitialRouteRequest: { route: string; appliedAt: number } | null = null;
@@ -43,6 +44,25 @@ function getRedirectTarget(route: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+function routePathname(value: string | null | undefined) {
+  if (!value) return "";
+  try {
+    return new URL(value, "https://native-test.local").pathname;
+  } catch {
+    return value.split("?")[0] || "";
+  }
+}
+
+function isAcceptedOneSetupFallback(currentRoute: string, initialRoute: string | null | undefined) {
+  const currentPath = routePathname(currentRoute);
+  const initialPath = routePathname(initialRoute);
+  return (
+    isOneSetupRoute(currentPath) &&
+    (initialPath === ROUTES.ONE_HOME || initialPath.startsWith(`${ROUTES.ONE_HOME}/`)) &&
+    !isOneSetupRoute(initialPath)
+  );
 }
 
 function canRecoverToExpectedRoute() {
@@ -107,6 +127,11 @@ export function NativeTestRouter() {
 
       missingConfigAttempts = 0;
       const currentRoute = `${pathname}${window.location.search || ""}`;
+      if (isAcceptedOneSetupFallback(currentRoute, config.initialRoute)) {
+        lastAppliedInitialRoute = config.initialRoute;
+        lastAppliedExpectedRouteRecovery = null;
+        return true;
+      }
       if (sameRoute(currentRoute, config.initialRoute)) {
         lastAppliedInitialRoute = config.initialRoute;
         lastAppliedExpectedRouteRecovery = null;

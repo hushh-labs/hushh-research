@@ -1,4 +1,5 @@
 import { ROUTES } from "@/lib/navigation/routes";
+import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
 
 export type VoiceRouteScreenInfo = {
   screen: string;
@@ -149,7 +150,7 @@ export function deriveVoiceRouteScreen(
     return { screen: "gmail", subview: "legacy" };
   }
   if (normalizedPath === ROUTES.PROFILE) {
-    const panel = query.get("panel");
+    const { panel } = resolveProfileRouteState(normalizedPath, query);
     const tab = query.get("tab");
     if (panel === "gmail") {
       return { screen: "profile_gmail_panel", subview: tab || null };
@@ -167,12 +168,43 @@ export function deriveVoiceRouteScreen(
       return { screen: "profile_preferences", subview: null };
     }
     if (tab === "privacy") {
-      return { screen: "profile_privacy", subview: panel || null };
+      return {
+        screen: "profile_privacy",
+        subview: panel === "access" ? null : panel || null,
+      };
     }
     return { screen: "profile_account", subview: panel || null };
   }
-  if (normalizedPath.startsWith(ROUTES.PROFILE)) {
-    return { screen: "profile", subview: null };
+  if (normalizedPath.startsWith(`${ROUTES.PROFILE}/`)) {
+    const { panel, detail } = resolveProfileRouteState(normalizedPath, query);
+    if (panel === "gmail") {
+      return {
+        screen: "profile_gmail_panel",
+        subview: detail?.replace(/^gmail-/, "") || null,
+      };
+    }
+    if (panel === "connected-systems") {
+      return { screen: "connected_systems", subview: "legacy" };
+    }
+    if (panel === "support") {
+      return {
+        screen: "profile_support_panel",
+        subview: detail?.replace(/^support-/, "") || null,
+      };
+    }
+    if (panel === "security") {
+      return { screen: "profile_security_panel", subview: detail || null };
+    }
+    if (panel === "preferences") {
+      return { screen: "profile_preferences", subview: detail || null };
+    }
+    if (panel === "access") {
+      return { screen: "profile_privacy", subview: detail || null };
+    }
+    if (panel === "my-data") {
+      return { screen: "profile_my_data", subview: detail || null };
+    }
+    return { screen: "profile_account", subview: detail || panel || null };
   }
   if (normalizedPath.startsWith(ROUTES.KAI_HOME)) {
     const subview = normalizedPath.slice(ROUTES.KAI_HOME.length).split("/").filter(Boolean)[0];

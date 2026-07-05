@@ -37,6 +37,7 @@ class TrustLink(BaseModel):
     expires_at: int
     signed_by_user: UserID
     signature: str
+    session_id: str = ""
 
 
 # ==================== Vault Structures ====================

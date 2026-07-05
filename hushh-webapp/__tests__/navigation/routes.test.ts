@@ -15,10 +15,70 @@ import {
   resolveCapabilityHandoffTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
+import {
+  buildCanonicalProfileRouteFromLegacyQuery,
+  buildProfileRoute,
+  resolveProfileRouteState,
+} from "@/lib/navigation/profile-routes";
 
 
 
 describe("navigation routes", () => {
+  it("builds canonical nested profile routes while preserving transient query state", () => {
+    const transient = new URLSearchParams({
+      unlock_vault: "1",
+      return_to: "/one/location/invite/token_123",
+      panel: "security",
+    });
+
+    expect(buildProfileRoute({ panel: "account" })).toBe("/profile/account");
+    expect(
+      buildProfileRoute({ panel: "account", detail: "phone" }),
+    ).toBe("/profile/account/phone");
+    expect(
+      buildProfileRoute({ panel: "preferences", detail: "kai-preferences" }),
+    ).toBe("/profile/preferences/kai");
+    expect(
+      buildProfileRoute({ panel: "security", detail: "vault" }),
+    ).toBe("/profile/security/vault");
+    expect(
+      buildProfileRoute({ panel: "my-data", detail: "domain:finance" }),
+    ).toBe("/profile/my-data/domain?key=finance");
+    expect(
+      buildProfileRoute({ panel: "access", detail: "connection:abc 123" }),
+    ).toBe("/profile/access/connection?id=abc+123");
+    expect(
+      buildProfileRoute({
+        panel: "support",
+        detail: "support-compose:bug_report",
+      }),
+    ).toBe("/profile/support/compose?kind=bug_report");
+    expect(
+      buildProfileRoute({ panel: "security", searchParams: transient }),
+    ).toBe(
+      "/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Ftoken_123",
+    );
+  });
+
+  it("resolves nested and legacy profile route state through the same contract", () => {
+    expect(resolveProfileRouteState("/profile/gmail/actions")).toEqual({
+      panel: "gmail",
+      detail: "gmail-actions",
+    });
+    expect(
+      resolveProfileRouteState("/profile/my-data/domain", "key=finance"),
+    ).toEqual({ panel: "my-data", detail: "domain:finance" });
+    expect(
+      resolveProfileRouteState("/profile", "tab=privacy&detail=connection:abc"),
+    ).toEqual({ panel: "access", detail: "connection:abc" });
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/profile",
+        "panel=support&detail=support-routing",
+      ),
+    ).toBe("/profile/support/routing");
+  });
+
   it("preserves query parameter integrity for ria workspace tabs", () => {
     expect(buildRiaClientWorkspaceRoute("client-123", { tab: "kai" })).toBe(
       "/ria/clients/client-123?tab=kai"

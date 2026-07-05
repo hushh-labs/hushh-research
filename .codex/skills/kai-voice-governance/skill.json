@@ -34,6 +34,7 @@
   "required_reads": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
     "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/one/one-agent-hierarchy.md",
     "docs/reference/one/one-voice-kai-compatibility-runtime.md",
     ".codex/skills/kai-voice-governance/references/voice-review-checklist.md"
   ],

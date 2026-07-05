@@ -64,6 +64,15 @@ Rules:
 
 Vault-backed planning may still send the richer structured screen context through the existing planner contract. The One snapshot is attached as `one_voice_context` so backend consumers that read `screen_context.route` continue to work.
 
+## Route Context Cascade
+
+One Voice route awareness follows the same route contract cascade as the app shell:
+
+- `deriveVoiceRouteScreen` must understand canonical nested routes and legacy compatibility inputs.
+- Profile panels are canonical nested routes, for example `/profile/security`, `/profile/gmail/actions`, and `/profile/support/compose?kind=<support_kind>`.
+- Legacy `/profile?panel=...&detail=...` URLs are accepted for compatibility, but generated route actions should target nested profile routes unless they intentionally target canonical One capability routes such as `/one/gmail`, `/one/pkm`, or `/one/connected-systems`.
+- Realtime context snapshots may include route family, active panel/detail, allowed action ids, cache posture, vault readiness, and redacted world-model summary. They must not include raw vault data, decrypted PKM, raw cache keys, transcript history, or private documents.
+
 ## Migration Rule
 
 Do not describe One Voice as fully shipped end-to-end until these are true:
