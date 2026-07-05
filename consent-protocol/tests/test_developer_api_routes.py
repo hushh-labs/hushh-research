@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -46,6 +47,7 @@ def test_list_scopes_returns_dynamic_catalog(monkeypatch):
     names = [item["name"] for item in payload["scopes"]]
     assert payload["scopes_are_dynamic"] is True
     assert "pkm.read" in names
+    assert "agent.one.orchestrate" in names
     assert all("world" not in name for name in names)
     assert "attr.{domain}.*" in names
     assert payload["request_endpoint"] == "/api/v1/request-consent"
@@ -686,6 +688,119 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["developer_app_display_name"] == "Demo App"
     assert inserted["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_KEY
     assert inserted["metadata"]["connector_key_id"] == _CONNECTOR_KEY_ID
+    assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
+
+
+def test_request_consent_creates_pending_agent_one_orchestration_request(monkeypatch):
+    inserted: dict[str, object] = {}
+
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return []
+
+        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+            assert user_id == "user_123"
+            return []
+
+    class _FakeIndex:
+        available_domains: list[str] = []
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def resolve_metadata_index(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert requested_scope == "agent.one.orchestrate"
+            assert agent_id == "developer:app_demo_123"
+            return []
+
+        async def get_pending_request_for_scope(
+            self,
+            user_id: str,
+            *,
+            agent_id: str,
+            scope: str,
+        ):
+            assert user_id == "user_123"
+            assert agent_id == "developer:app_demo_123"
+            assert scope == "agent.one.orchestrate"
+            return None
+
+        async def get_superseded_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert requested_scope == "agent.one.orchestrate"
+            assert agent_id == "developer:app_demo_123"
+            return []
+
+        async def was_recently_denied(
+            self,
+            user_id: str,
+            scope: str,
+            cooldown_seconds: int = 60,
+            agent_id: str | None = None,
+        ):
+            assert user_id == "user_123"
+            assert scope == "agent.one.orchestrate"
+            assert agent_id == "developer:app_demo_123"
+            return False
+
+        async def insert_event(self, **kwargs):
+            inserted.update(kwargs)
+            return 1
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": "agent.one.orchestrate",
+            "expiry_hours": 24,
+            "approval_timeout_minutes": 60,
+            "reason": "Coordinate this request through Agent One",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["scope"] == "agent.one.orchestrate"
+    assert payload["requested_scope"] == "agent.one.orchestrate"
+    assert payload["granted_scope"] is None
+    assert payload["agent_id"] == "developer:app_demo_123"
+    assert payload["approval_timeout_minutes"] == 60
+    assert inserted["action"] == "REQUESTED"
+    assert inserted["agent_id"] == "developer:app_demo_123"
+    assert inserted["scope"] == "agent.one.orchestrate"
+    assert inserted["metadata"]["reason"] == "Coordinate this request through Agent One"
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
 
 
@@ -1365,6 +1480,186 @@ def test_get_consent_status_uses_covering_active_token(monkeypatch):
     assert payload["export_refresh_status"] == "current"
 
 
+def test_get_consent_status_pending_request_does_not_return_event_token(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(
+            self,
+            user_id: str,
+            *,
+            requested_scope: str,
+            agent_id: str | None = None,
+        ):
+            return []
+
+        async def get_request_status(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_pending"
+            return {
+                "action": "REQUESTED",
+                "agent_id": "developer:app_demo_123",
+                "scope": "agent.one.orchestrate",
+                "request_id": "req_pending",
+                "token_id": "evt_internal_row_id",
+                "poll_timeout_at": 123456789,
+                "metadata": {
+                    "approval_timeout_minutes": 60,
+                    "expiry_hours": 24,
+                    "requester_label": "Demo App",
+                },
+            }
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-status?token=hdk_demo&user_id=user_123&request_id=req_pending"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["consent_token"] is None
+
+
+def test_developer_consent_status_payload_only_returns_token_after_grant():
+    principal = _fake_principal()
+
+    pending = developer._developer_consent_status_payload(
+        latest={
+            "action": "REQUESTED",
+            "scope": "agent.one.orchestrate",
+            "token_id": "evt_internal",
+            "metadata": {"requester_label": "Demo App"},
+        },
+        user_id="user_123",
+        request_id="req_pending",
+        principal=principal,
+    )
+    granted = developer._developer_consent_status_payload(
+        latest={
+            "action": "CONSENT_GRANTED",
+            "scope": "agent.one.orchestrate",
+            "token_id": "HCT:granted",
+            "expires_at": 123456789,
+            "metadata": {"requester_label": "Demo App"},
+        },
+        user_id="user_123",
+        request_id="req_pending",
+        principal=principal,
+    )
+
+    assert pending["status"] == "pending"
+    assert pending["consent_token"] is None
+    assert pending["terminal"] is False
+    assert granted["status"] == "granted"
+    assert granted["consent_token"] == "HCT:granted"
+    assert granted["terminal"] is True
+
+
+def test_developer_consent_event_stream_rejects_other_developer(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status(self, user_id: str, request_id: str):
+            return {
+                "action": "REQUESTED",
+                "agent_id": "developer:other_app",
+                "scope": "agent.one.orchestrate",
+                "request_id": request_id,
+            }
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-events?user_id=user_123&request_id=req_pending",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error_code"] == "CONSENT_REQUEST_NOT_FOUND"
+
+
+def test_developer_consent_event_stream_returns_terminal_snapshot(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status(self, user_id: str, request_id: str):
+            return {
+                "action": "CONSENT_GRANTED",
+                "agent_id": "developer:app_demo_123",
+                "scope": "agent.one.orchestrate",
+                "request_id": request_id,
+                "token_id": "HCT:granted",
+                "expires_at": 123456789,
+                "metadata": {"requester_label": "Demo App"},
+            }
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-events?user_id=user_123&request_id=req_granted",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "no-store" in response.headers["cache-control"].lower()
+    body = response.text
+    assert "event: snapshot" in body
+    assert '"status": "granted"' in body
+    assert '"consent_token": "HCT:granted"' in body
+
+
+def test_developer_consent_subscribers_are_fanout_not_shared_queue():
+    from api import consent_listener
+
+    async def _run():
+        q1 = await consent_listener.subscribe_developer_consent_queue(
+            request_id="req_fanout",
+            agent_id="developer:app_demo_123",
+        )
+        q2 = await consent_listener.subscribe_developer_consent_queue(
+            request_id="req_fanout",
+            agent_id="developer:app_demo_123",
+        )
+        try:
+            await consent_listener._push_to_developer_consent_queues(
+                {
+                    "request_id": "req_fanout",
+                    "agent_id": "developer:app_demo_123",
+                    "action": "CONSENT_GRANTED",
+                }
+            )
+            assert (await asyncio.wait_for(q1.get(), timeout=1))["action"] == "CONSENT_GRANTED"
+            assert (await asyncio.wait_for(q2.get(), timeout=1))["action"] == "CONSENT_GRANTED"
+        finally:
+            await consent_listener.unsubscribe_developer_consent_queue(
+                request_id="req_fanout",
+                agent_id="developer:app_demo_123",
+                queue=q1,
+            )
+            await consent_listener.unsubscribe_developer_consent_queue(
+                request_id="req_fanout",
+                agent_id="developer:app_demo_123",
+                queue=q2,
+            )
+
+    asyncio.run(_run())
+
+
 def test_default_available_export_returns_safe_projection_and_audits(monkeypatch):
     audit_event: dict[str, object] = {}
 
@@ -1872,6 +2167,10 @@ def test_is_supported_scope_accepts_pkm_read():
 
 def test_is_supported_scope_accepts_pkm_write():
     assert _is_supported_scope("pkm.write") is True
+
+
+def test_is_supported_scope_accepts_agent_one_orchestrate():
+    assert _is_supported_scope("agent.one.orchestrate") is True
 
 
 def test_is_supported_scope_accepts_dynamic_attr_scope():
