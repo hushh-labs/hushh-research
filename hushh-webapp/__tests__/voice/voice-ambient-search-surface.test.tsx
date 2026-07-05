@@ -55,8 +55,16 @@ function renderSurface(
 describe("voice-ambient-search-surface", () => {
   it("starts voice from the compact searchbar control", () => {
     const props = renderSurface();
+    const mic = screen.getByLabelText("Toggle voice microphone");
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    expect(mic.getAttribute("data-native-voice-control-id")).toBe(
+      "one_voice_toggle_mic",
+    );
+    expect(
+      screen.getByTestId("one-voice-surface").getAttribute("data-voice-mode"),
+    ).toBe("idle");
+
+    fireEvent.click(mic);
 
     expect(props.onMicToggle).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Analyze Nvidia")).toBeNull();
@@ -106,6 +114,11 @@ describe("voice-ambient-search-surface", () => {
     expect(screen.getByText("Listening...")).toBeTruthy();
     expect(screen.getByLabelText("Mute microphone")).toBeTruthy();
     expect(screen.getByLabelText("End voice session")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("one-voice-end-session")
+        .getAttribute("data-native-voice-control-id"),
+    ).toBe("one_voice_end_session");
     expect(screen.getByLabelText("Voice input level")).toBeTruthy();
   });
 

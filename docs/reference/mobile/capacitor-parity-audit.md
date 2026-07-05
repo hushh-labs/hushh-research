@@ -105,9 +105,19 @@ Parity is also not complete until the native reports are fresh against the curre
 
 - `cd hushh-webapp && npm run ios:test`
 - `cd hushh-webapp && npm run android:test`
+- `cd hushh-webapp && npm run ios:voice:test`
+- `cd hushh-webapp && npm run android:voice:test`
 - `cd hushh-webapp && npm run verify:capacitor:reports`
 
 `verify:capacitor:reports` fails when either platform audits fewer native-required routes than the current inventory, or when an `ok: true` result lacks `ready=1`, `found=1`, the expected marker, route match, auth match, or allowed data state.
+
+`ios:voice:test` and `android:voice:test` run the shared
+`native-one-voice-control-smoke` flow. The flow signs in with the native test
+bridge, opens `/one/kai`, verifies the stable One Voice control hook, starts the
+realtime voice surface, waits for a recognized voice state or simulator-safe
+permission/provider fallback, and ends the active session when possible. These
+tests verify control wiring and recovery; live microphone quality, latency, and
+provider ranking still require device/provider benchmark artifacts.
 
 ## Authentication Provider Parity
 

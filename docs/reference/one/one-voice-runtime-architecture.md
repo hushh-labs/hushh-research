@@ -37,6 +37,7 @@ Implemented foundation:
 - Gemini Live is represented as a provider adapter over the `RealtimeVoiceTransport` interface.
 - `/api/one/voice/session`, `/api/one/voice/plan`, and `/api/one/voice/compose` are One route wrappers over the Kai-era compatibility runtime.
 - `/api/one/voice/benchmark` reports that live benchmark promotion still requires provider adapters and versioned artifacts.
+- Native iOS and Android UI audits include a One Voice control smoke flow that starts the realtime surface, observes a voice mode or deterministic simulator permission/provider fallback, and ends the session when active.
 
 The mature execution runtime still carries Kai-era implementation identifiers today. The generated Kai action gateway remains the semantic authority for action ids, `speaker_persona`, `delegate_agent_id`, confirmation policy, and runtime grounding until the One-owned gateway migration is complete.
 
@@ -81,8 +82,12 @@ Focused checks for this foundation:
 cd hushh-webapp && npm run test -- __tests__/voice/voice-ui-state-machine.test.ts __tests__/lib/agent-voice-state.test.ts __tests__/voice/screen-context-builder.test.ts __tests__/voice/api-service-voice.test.ts
 cd consent-protocol && python3 -m pytest tests/test_agent_persona.py tests/test_kai_voice_rollout_guardrails.py -q
 cd hushh-webapp && npm run verify:voice-gateway
+cd hushh-webapp && npm run ios:voice:test
+cd hushh-webapp && npm run android:voice:test
 ./bin/hushh docs verify
 ```
+
+Simulator voice tests prove the native control path, state exposure, permission fallback, and recovery behavior. They do not prove microphone quality, audio latency, or provider quality; those claims require live device/provider benchmark artifacts.
 
 ## Related References
 
