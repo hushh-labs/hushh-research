@@ -52,11 +52,14 @@ async def get_earnings_summary(
     power: str = "affluent",
     mood: str = "affinity",
 ) -> dict[str, Any]:
-    """Summarize potential monthly earnings across the user's published slices.
+    """Summarize buyer demand + potential monthly earnings for published slices.
 
-    Read-only. Earnings are POTENTIAL only — there is no payment rail and no buyer
-    yet, so accruedCents is always 0. Use this to answer 'how much money have I
-    made / what are my slices worth'. Always be honest that nothing is accrued yet.
+    Read-only. Reports REAL buyer demand (pendingRequestCount, approvedBuyerCount,
+    interestedBuyerCount) alongside each slice's potential monthly price. But
+    payments are NOT enabled yet (payoutsEnabled is False, accruedCents is always
+    0). Use this to answer 'how much have I made / what are my slices worth / who
+    wants my data'. Be honest: cite real buyer interest if any, but always say
+    payments are coming soon and nothing has been paid out yet.
     """
     context = _ctx()
     return await _service().earnings_summary(user_id=context.user_id, power=power, mood=mood)
