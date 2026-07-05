@@ -97,6 +97,82 @@ def _presentation_attribute_count(presentation: dict[str, Any]) -> int:
     return max(1, count)
 
 
+def _attribute_count_for(entry: dict[str, Any] | None, presentation: dict[str, Any]) -> int:
+    """The number of attributes in a slice, used for both display and pricing.
+
+    A registry entry's `segment_ids` is authoritative for a *segment* scope (the
+    owner hand-picked those attributes). But a *subtree* scope stores a single
+    marker (`["root"]`), so its length is 1 regardless of how many leaf fields the
+    subtree actually holds — that undercounts (and underprices) the slice. For
+    subtrees (or a missing entry) we fall back to the published preview's field
+    count, which reflects the real leaves.
+    """
+    presentation_count = _presentation_attribute_count(presentation)
+    if entry is None:
+        return presentation_count
+    segment_ids = entry.get("segment_ids") or []
+    is_subtree = entry.get("scope_kind") == "subtree" or segment_ids in ([], ["root"])
+    if is_subtree:
+        return max(presentation_count, len(segment_ids), 1)
+    return max(1, len(segment_ids))
+
+
+def _safe_preview(presentation: dict[str, Any]) -> dict[str, Any]:
+    """Buyer-safe projection of an owner's published presentation.
+
+    CRITICAL PRIVACY BOUNDARY. The presentation stored in
+    `pkm_default_available_projections` is the OWNER's own preview and embeds raw
+    saved VALUES (e.g. a home address, a postal code). A browsing buyer must never
+    see those — only the *shape* of the slice: its title, which field names it
+    contains, and how many items each group holds. This rebuilds a preview that
+    keeps labels and aggregate counts and drops every value-bearing key.
+    """
+    if not isinstance(presentation, dict):
+        return {}
+    safe: dict[str, Any] = {"title": presentation.get("title") or "Data slice", "stats": []}
+    if presentation.get("description"):
+        safe["description"] = presentation["description"]
+    # stats are aggregate counts (e.g. "Fields: 5") — no raw values, safe to keep.
+    stats = presentation.get("stats")
+    if isinstance(stats, list):
+        safe["stats"] = [
+            {"label": s.get("label"), "value": s.get("value")}
+            for s in stats
+            if isinstance(s, dict) and s.get("label") is not None
+        ]
+
+    field_names: list[str] = []
+    for group in presentation.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        kind = group.get("kind")
+        if kind == "fields":
+            for field in group.get("fields") or []:
+                if isinstance(field, dict) and field.get("label"):
+                    field_names.append(str(field["label"]))
+        elif kind == "entities":
+            # Entity titles/subtitles/section items are raw values → never surface.
+            # Only the field *names* inside entities describe the slice shape.
+            for entity in group.get("items") or []:
+                if not isinstance(entity, dict):
+                    continue
+                for field in entity.get("fields") or []:
+                    if isinstance(field, dict) and field.get("label"):
+                        field_names.append(str(field["label"]))
+        # chips / list groups are pure values (e.g. saved preferences) — dropped
+        # entirely; the count already lives in `stats`.
+
+    # De-duplicate while preserving order so the buyer sees each field name once.
+    seen: set[str] = set()
+    unique_names = [n for n in field_names if not (n in seen or seen.add(n))]
+
+    groups: list[dict[str, Any]] = []
+    if unique_names:
+        groups.append({"kind": "chips", "title": "Included fields", "items": unique_names})
+    safe["groups"] = groups
+    return safe
+
+
 class MarketplaceCatalogService:
     """Read model for the anonymized cross-user Buyer directory + listing resolution."""
 
@@ -151,22 +227,21 @@ class MarketplaceCatalogService:
         cache[key] = index
         return index
 
-    def _price_for(
-        self, entry: dict[str, Any] | None, *, fallback_attributes: int
-    ) -> tuple[int, str]:
+    def _price_for(self, entry: dict[str, Any] | None, *, attribute_count: int) -> tuple[int, str]:
         """Suggested 30-day price for a slice. Uses the owner's real registry entry
-        (sensitivity tier, scope kind, attribute count) when matched; otherwise a
-        conservative demographics default with the preview-derived attribute count.
-        Band is the neutral affluent/affinity default the owner-side read model uses.
+        for the sensitivity category when matched; otherwise a conservative
+        demographics default. The attribute count is computed by the caller (see
+        `_attribute_count_for`, which handles subtree scopes) and passed in so
+        display and price never disagree. Band is the neutral affluent/affinity
+        default the owner-side read model uses.
         """
         if entry is not None:
             category = category_from_sensitivity(
                 entry.get("sensitivity_tier"), entry.get("scope_kind")
             )
-            attribute_count = max(1, len(entry.get("segment_ids") or []))
         else:
             category = "demographics_lifestyle"
-            attribute_count = max(1, int(fallback_attributes or 1))
+        attribute_count = max(1, int(attribute_count or 1))
         try:
             breakdown = compute_suggested_price(
                 SlicePricingInput(
@@ -212,12 +287,8 @@ class MarketplaceCatalogService:
             entry = registry.get(f"h:{row.get('scope_handle')}") or registry.get(
                 f"p:{top_level_scope_path}"
             )
-            attribute_count = (
-                max(1, len(entry.get("segment_ids") or []))
-                if entry is not None
-                else _presentation_attribute_count(presentation)
-            )
-            price_cents, currency = self._price_for(entry, fallback_attributes=attribute_count)
+            attribute_count = _attribute_count_for(entry, presentation)
+            price_cents, currency = self._price_for(entry, attribute_count=attribute_count)
             listings.append(
                 {
                     "listingId": str(row.get("id")),
@@ -227,7 +298,9 @@ class MarketplaceCatalogService:
                     "label": label,
                     "topLevelScopePath": top_level_scope_path,
                     "attributeCount": attribute_count,
-                    "preview": presentation,
+                    # NEVER send the raw presentation to a buyer — it embeds saved
+                    # values. Only the value-stripped, names-only shape crosses the wire.
+                    "preview": _safe_preview(presentation),
                     "suggestedPriceCents": price_cents,
                     "currency": currency,
                 }
@@ -270,12 +343,8 @@ class MarketplaceCatalogService:
         entry = registry.get(f"h:{row.get('scope_handle')}") or registry.get(
             f"p:{top_level_scope_path}"
         )
-        attribute_count = (
-            max(1, len(entry.get("segment_ids") or []))
-            if entry is not None
-            else _presentation_attribute_count(presentation)
-        )
-        price_cents, currency = self._price_for(entry, fallback_attributes=attribute_count)
+        attribute_count = _attribute_count_for(entry, presentation)
+        price_cents, currency = self._price_for(entry, attribute_count=attribute_count)
         return {
             "listingId": str(row.get("id")),
             "ownerUserId": owner_user_id,

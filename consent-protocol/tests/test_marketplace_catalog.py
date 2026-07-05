@@ -11,7 +11,9 @@ import pytest
 
 from hushh_mcp.services.marketplace_catalog_service import (
     MarketplaceCatalogService,
+    _attribute_count_for,
     _owner_ref,
+    _safe_preview,
 )
 
 
@@ -128,6 +130,107 @@ async def test_list_excludes_viewer_via_neq_and_anonymizes():
     assert listing["label"] == "Insurance renewal"
     assert listing["preview"]["title"] == "Insurance renewal"
     assert listing["suggestedPriceCents"] > 0
+
+
+async def test_buyer_preview_never_leaks_raw_values():
+    # Regression: the stored projection is the OWNER's own preview and embeds raw
+    # saved VALUES. A browsing buyer must see field *names* only, never the values.
+    row = _row(
+        projection_payload={
+            "label": "Address",
+            "section": "address",
+            "presentation": {
+                "title": "Address",
+                "stats": [{"label": "Fields", "value": "2"}],
+                "groups": [
+                    {
+                        "kind": "fields",
+                        "title": "Saved values",
+                        "fields": [
+                            {"label": "Line1", "value": "123 Test Street"},
+                            {"label": "Postal Code", "value": "94016"},
+                        ],
+                    },
+                    # Pure-value groups (e.g. saved preferences) must be dropped whole.
+                    {
+                        "kind": "chips",
+                        "title": "Preferences",
+                        "items": ["Vegetarian", "Aisle seat"],
+                    },
+                ],
+            },
+        }
+    )
+    svc, _ = _service_with([row])
+
+    listings = await svc.list_available_listings(viewer_user_id="viewer-B")
+    preview = listings[0]["preview"]
+    blob = str(preview)
+
+    # No raw value ever appears in the buyer-facing payload.
+    for leaked in ("123 Test Street", "94016", "Vegetarian", "Aisle seat"):
+        assert leaked not in blob
+    # Field names DO appear so the buyer can judge the slice shape.
+    assert preview["groups"][0]["kind"] == "chips"
+    assert preview["groups"][0]["items"] == ["Line1", "Postal Code"]
+    assert preview["title"] == "Address"
+
+
+def test_safe_preview_strips_entity_values_keeps_field_names():
+    # Entity titles/subtitles/section items are raw values; only field names survive.
+    presentation = {
+        "title": "Receipts",
+        "stats": [{"label": "Purchases", "value": "1"}],
+        "groups": [
+            {
+                "kind": "entities",
+                "title": "Recent purchases",
+                "items": [
+                    {
+                        "title": "Whole Foods Market",
+                        "subtitle": "Groceries",
+                        "fields": [
+                            {"label": "Amount", "value": "$42.10"},
+                            {"label": "Merchant", "value": "Whole Foods Market"},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    safe = _safe_preview(presentation)
+    blob = str(safe)
+    for leaked in ("Whole Foods Market", "$42.10", "Groceries"):
+        assert leaked not in blob
+    assert safe["groups"][0]["items"] == ["Amount", "Merchant"]
+
+
+def test_attribute_count_subtree_uses_preview_field_count():
+    # A subtree scope stores a single "root" marker; segment length would undercount
+    # (and underprice) the slice. The real leaf count comes from the preview.
+    presentation = {
+        "groups": [
+            {
+                "kind": "fields",
+                "fields": [
+                    {"label": f, "value": "x"}
+                    for f in ("Line1", "City", "Region", "Postal", "Country")
+                ],
+            }
+        ]
+    }
+    subtree_entry = {"scope_kind": "subtree", "segment_ids": ["root"]}
+    assert _attribute_count_for(subtree_entry, presentation) == 5
+    # A segment scope's hand-picked segment_ids stay authoritative.
+    segment_entry = {"scope_kind": "segment", "segment_ids": ["a", "b"]}
+    assert _attribute_count_for(segment_entry, presentation) == 2
+    # No registry entry → preview count.
+    assert _attribute_count_for(None, presentation) == 5
+
+
+def test_safe_preview_handles_empty_and_non_dict():
+    assert _safe_preview({}) == {"title": "Data slice", "stats": [], "groups": []}
+    assert _safe_preview(None) == {}  # type: ignore[arg-type]
 
 
 async def test_list_drops_viewer_owned_rows_defensively():
