@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from .a2a import router as a2a_router
 from .a2a import well_known_router as a2a_well_known_router
 from .email import router as email_router
+from .email_chat import router as email_chat_router
 from .information_chat import router as information_chat_router
 from .location import router as location_router
 from .location_chat import router as location_chat_router
@@ -14,6 +15,7 @@ router = APIRouter()
 router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
 router.include_router(email_router)
+router.include_router(email_chat_router)
 router.include_router(location_router)
 router.include_router(location_chat_router)
 router.include_router(information_chat_router)
