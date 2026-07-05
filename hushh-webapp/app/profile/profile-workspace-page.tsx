@@ -679,11 +679,11 @@ function ProfilePageContent() {
 
   const legacyProfileRedirectHref = useMemo(
     () => buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
-    [pathname, searchParamsString, searchParams],
+    [pathname, searchParams],
   );
   const profileRouteState = useMemo(
     () => resolveProfileRouteState(pathname, searchParams),
-    [pathname, searchParamsString, searchParams],
+    [pathname, searchParams],
   );
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
