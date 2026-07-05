@@ -23,9 +23,10 @@ class _FakeService:
         return self.list_rows
 
     def _resolve_query(self, owner_user_id, query):
-        # Simple identity: return query string as the resolved user id.
-        # Tests that need IdentityUnresolvedError on the remove path can override.
-        return query
+        # Return a DISTINCT user id (not the raw name) so the two-step
+        # resolve -> remove flow is actually proven. Tests that need
+        # IdentityUnresolvedError on the remove path override this.
+        return f"uid-of-{query.strip().lower()}"
 
 
 async def _turn(svc, message):
@@ -58,7 +59,28 @@ async def test_add_unresolved_asks_to_clarify_with_candidates():
 async def test_remove_intent_calls_remove():
     svc = _FakeService()
     out = await _turn(svc, "remove Bob from my trusted connections")
-    assert svc.removed and "removed" in out["response"].lower()
+    # The resolved id (not the raw name) must be what gets passed to remove.
+    assert svc.removed == [("owner1", "uid-of-bob")]
+    assert "removed" in out["response"].lower()
+
+
+async def test_remove_unresolved_asks_to_clarify_and_does_not_remove():
+    svc = _FakeService()
+
+    def _raise(owner_user_id, query):
+        raise IdentityUnresolvedError(
+            "ambiguous",
+            candidates=[
+                {"userId": "u1", "displayName": "Alice Rivera"},
+                {"userId": "u2", "displayName": "Alice Tan"},
+            ],
+        )
+
+    svc._resolve_query = _raise
+    out = await _turn(svc, "remove Alice from my trusted connections")
+    assert out["stateChanged"] is False
+    assert "specific" in out["response"].lower() or "uniquely" in out["response"].lower()
+    assert svc.removed == []
 
 
 async def test_list_intent_lists_names():
