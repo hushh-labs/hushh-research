@@ -1543,7 +1543,6 @@ export function KaiFlow({
         if (resumeError instanceof Error && resumeError.name === "AbortError") {
           return;
         }
-        console.warn("[KaiFlow] Failed to resume import stream:", resumeError);
       } finally {
         abortControllerRef.current = null;
         resumeImportStreamInFlightRef.current = false;
