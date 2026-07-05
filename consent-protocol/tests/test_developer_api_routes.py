@@ -1580,7 +1580,8 @@ def test_developer_consent_event_stream_rejects_other_developer(monkeypatch):
 
     client = TestClient(_build_app())
     response = client.get(
-        "/api/v1/consent-events?token=hdk_demo&user_id=user_123&request_id=req_pending"
+        "/api/v1/consent-events?user_id=user_123&request_id=req_pending",
+        headers={"Authorization": "Bearer hdk_demo"},
     )
 
     assert response.status_code == 404
@@ -1609,11 +1610,13 @@ def test_developer_consent_event_stream_returns_terminal_snapshot(monkeypatch):
 
     client = TestClient(_build_app())
     response = client.get(
-        "/api/v1/consent-events?token=hdk_demo&user_id=user_123&request_id=req_granted"
+        "/api/v1/consent-events?user_id=user_123&request_id=req_granted",
+        headers={"Authorization": "Bearer hdk_demo"},
     )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
+    assert "no-store" in response.headers["cache-control"].lower()
     body = response.text
     assert "event: snapshot" in body
     assert '"status": "granted"' in body

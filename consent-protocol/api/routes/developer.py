@@ -1220,7 +1220,8 @@ async def stream_consent_events(
             initial_latest=latest,
         ),
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-store, no-cache",
+            "Pragma": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },

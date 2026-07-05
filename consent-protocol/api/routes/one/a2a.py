@@ -17,10 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.developer_auth import authenticate_developer_principal
 from api.utils.firebase_admin import get_firebase_auth_app
-from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token
 from hushh_mcp.agents.one.manifest import get_manifest
 from hushh_mcp.agents.orchestrator.agent import get_orchestrator
 from hushh_mcp.consent.scope_helpers import get_scope_description
+from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
@@ -90,6 +91,7 @@ def _agent_card() -> dict[str, Any]:
         },
         "protocol": {
             "transport": "https",
+            "developerAuth": "Authorization: Bearer <developer-token>",
             "consentHeader": "X-Consent-Token",
             "requiredScope": "agent.one.orchestrate",
         },
@@ -102,6 +104,17 @@ def _required_scope() -> str:
 
 def _consent_reason(body: AgentOneA2AMessageRequest) -> str:
     return str(body.reason or "").strip() or "Coordinate this request through Agent One."
+
+
+def _has_user_target(body: AgentOneA2AMessageRequest) -> bool:
+    return any(
+        str(value or "").strip()
+        for value in (
+            body.user_id,
+            body.email,
+            body.phone_number,
+        )
+    )
 
 
 def _a2a_requester_metadata(
@@ -336,15 +349,29 @@ async def agent_one_a2a_message(
             developer_token=token,
         )
 
-    validation = validate_a2a_consent_token("agent_one", consent_token)
-    if not validation.ok or not validation.user_id:
+    principal = authenticate_developer_principal(
+        token=token,
+        authorization=authorization,
+        request=request,
+    )
+    valid, _reason, token_obj = await validate_token_with_db(
+        consent_token,
+        expected_scope=ConsentScope.AGENT_ONE_ORCHESTRATE,
+    )
+    if not valid or token_obj is None:
         logger.warning("agent_one_a2a.request_rejected_invalid_token")
         raise HTTPException(status_code=403, detail="Invalid consent token")
 
-    user_id = str(validation.user_id)
-    if body.user_id is not None and body.user_id != user_id:
-        logger.warning("agent_one_a2a.request_rejected_user_mismatch")
-        raise HTTPException(status_code=403, detail="Token user does not match request user")
+    if str(token_obj.agent_id) != principal.agent_id:
+        logger.warning("agent_one_a2a.request_rejected_app_mismatch")
+        raise HTTPException(status_code=403, detail="Token app does not match caller")
+
+    user_id = str(token_obj.user_id)
+    if _has_user_target(body):
+        requested_user_id = await _resolve_consent_user_id(body)
+        if requested_user_id != user_id:
+            logger.warning("agent_one_a2a.request_rejected_user_mismatch")
+            raise HTTPException(status_code=403, detail="Token user does not match request user")
 
     try:
         result = get_orchestrator().handle_message(

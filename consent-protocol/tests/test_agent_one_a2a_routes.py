@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import a2a
-from hushh_mcp.consent.token import issue_token
+from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 
 
@@ -22,8 +22,31 @@ def _client() -> TestClient:
 def _token(
     scope: ConsentScope = ConsentScope.AGENT_ONE_ORCHESTRATE,
     user_id: str = "user-one",
+    agent_id: str = "developer:brand-agent",
 ) -> str:
-    return issue_token(user_id, "calling_agent", scope).token
+    return issue_token(user_id, agent_id, scope).token
+
+
+def _principal(agent_id: str = "developer:brand-agent") -> SimpleNamespace:
+    return SimpleNamespace(
+        app_id="app_brand",
+        agent_id=agent_id,
+        display_name="Brand Agent",
+        allowed_tool_groups=("core_consent",),
+        brand_image_url=None,
+        website_url=None,
+    )
+
+
+def _patch_developer_auth(monkeypatch, *, agent_id: str = "developer:brand-agent") -> None:
+    monkeypatch.setattr(a2a, "authenticate_developer_principal", lambda **_: _principal(agent_id))
+
+
+def _patch_db_token_validation(monkeypatch) -> None:
+    async def _validate(token, expected_scope=None, **kwargs):
+        return validate_token(token, expected_scope, **kwargs)
+
+    monkeypatch.setattr(a2a, "validate_token_with_db", _validate)
 
 
 def test_agent_card_is_manifest_backed():
@@ -34,6 +57,7 @@ def test_agent_card_is_manifest_backed():
     assert payload["agentId"] == "agent_one"
     assert payload["name"] == "Agent One"
     assert payload["requiredScopes"] == ["agent.one.orchestrate"]
+    assert payload["protocol"]["developerAuth"] == "Authorization: Bearer <developer-token>"
     assert payload["protocol"]["consentHeader"] == "X-Consent-Token"
     assert payload["endpoints"]["message"] == "/api/one/a2a/message"
     assert payload["capabilities"]["specialist_delegation"] is True
@@ -100,14 +124,7 @@ def test_message_without_consent_token_creates_pending_consent_request(monkeypat
     monkeypatch.setattr(
         a2a,
         "authenticate_developer_principal",
-        lambda **_: SimpleNamespace(
-            app_id="app_brand",
-            agent_id="developer:brand-agent",
-            display_name="Brand Agent",
-            allowed_tool_groups=("core_consent",),
-            brand_image_url=None,
-            website_url=None,
-        ),
+        lambda **_: _principal(),
     )
     monkeypatch.setattr(a2a, "_resolve_consent_user_id", _resolve_user)
     monkeypatch.setattr(a2a, "ConsentDBService", _FakeConsentDBService)
@@ -158,14 +175,7 @@ def test_message_without_consent_token_reports_existing_pending_request(monkeypa
     monkeypatch.setattr(
         a2a,
         "authenticate_developer_principal",
-        lambda **_: SimpleNamespace(
-            app_id="app_brand",
-            agent_id="developer:brand-agent",
-            display_name="Brand Agent",
-            allowed_tool_groups=("core_consent",),
-            brand_image_url=None,
-            website_url=None,
-        ),
+        lambda **_: _principal(),
     )
     monkeypatch.setattr(a2a, "_resolve_consent_user_id", _resolve_user)
     monkeypatch.setattr(a2a, "ConsentDBService", _FakeConsentDBService)
@@ -183,33 +193,122 @@ def test_message_without_consent_token_reports_existing_pending_request(monkeypa
     assert payload["consent"]["requestId"] == "req_pending"
 
 
-def test_message_rejects_wrong_scope():
+def test_message_with_consent_token_requires_developer_auth():
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={"message": "Who are you?"},
+        headers={"X-Consent-Token": _token()},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+
+
+def test_message_rejects_wrong_scope(monkeypatch):
+    _patch_developer_auth(monkeypatch)
+    _patch_db_token_validation(monkeypatch)
+
     response = _client().post(
         "/api/one/a2a/message",
         json={"message": "Analyze my portfolio"},
-        headers={"X-Consent-Token": _token(ConsentScope.AGENT_KAI_ANALYZE)},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(ConsentScope.AGENT_KAI_ANALYZE),
+        },
     )
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Invalid consent token"
 
 
-def test_message_rejects_user_mismatch():
+def test_message_rejects_developer_app_mismatch(monkeypatch):
+    _patch_developer_auth(monkeypatch, agent_id="developer:other-agent")
+    _patch_db_token_validation(monkeypatch)
+
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={"message": "Who are you?"},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(agent_id="developer:brand-agent"),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Token app does not match caller"
+
+
+def test_message_rejects_db_revoked_token(monkeypatch):
+    _patch_developer_auth(monkeypatch)
+
+    async def _revoked(*args, **kwargs):
+        return False, "Token has been revoked (DB check)", None
+
+    monkeypatch.setattr(a2a, "validate_token_with_db", _revoked)
+
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={"message": "Who are you?"},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid consent token"
+
+
+def test_message_rejects_user_mismatch(monkeypatch):
+    _patch_developer_auth(monkeypatch)
+    _patch_db_token_validation(monkeypatch)
+
     response = _client().post(
         "/api/one/a2a/message",
         json={"message": "Who are you?", "userId": "other-user"},
-        headers={"X-Consent-Token": _token(user_id="user-one")},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(user_id="user-one"),
+        },
     )
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Token user does not match request user"
 
 
-def test_message_routes_general_turn_to_one():
+def test_message_rejects_email_target_mismatch(monkeypatch):
+    _patch_developer_auth(monkeypatch)
+    _patch_db_token_validation(monkeypatch)
+
+    async def _resolve_user(body):
+        return "other-user"
+
+    monkeypatch.setattr(a2a, "_resolve_consent_user_id", _resolve_user)
+
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={"message": "Who are you?", "email": "other@example.com"},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(user_id="user-one"),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Token user does not match request user"
+
+
+def test_message_routes_general_turn_to_one(monkeypatch):
+    _patch_developer_auth(monkeypatch)
+    _patch_db_token_validation(monkeypatch)
+
     response = _client().post(
         "/api/one/a2a/message",
         json={"message": "Who are you?", "userId": "user-one", "conversationId": "conv-1"},
-        headers={"X-Consent-Token": _token(user_id="user-one")},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(user_id="user-one"),
+        },
     )
 
     assert response.status_code == 200
@@ -221,11 +320,17 @@ def test_message_routes_general_turn_to_one():
     assert "One" in payload["response"]
 
 
-def test_message_surfaces_specialist_delegation():
+def test_message_surfaces_specialist_delegation(monkeypatch):
+    _patch_developer_auth(monkeypatch)
+    _patch_db_token_validation(monkeypatch)
+
     response = _client().post(
         "/api/one/a2a/message",
         json={"message": "Please review my portfolio allocation"},
-        headers={"X-Consent-Token": _token(user_id="user-one")},
+        headers={
+            "Authorization": "Bearer hdk_demo",
+            "X-Consent-Token": _token(user_id="user-one"),
+        },
     )
 
     assert response.status_code == 200
