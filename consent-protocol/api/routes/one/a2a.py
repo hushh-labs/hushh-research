@@ -178,7 +178,7 @@ async def _resolve_consent_user_id(body: AgentOneA2AMessageRequest) -> str:
         ) from exc
 
     if lookup_kind == "uid":
-        return lookup_value
+        return str(lookup_value)
 
     from firebase_admin import auth
 
