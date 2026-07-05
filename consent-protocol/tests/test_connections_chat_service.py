@@ -29,9 +29,23 @@ class _FakeService:
         return f"uid-of-{query.strip().lower()}"
 
 
+def _two_candidates():
+    return [
+        {"userId": "u1", "displayName": "Alice Rivera"},
+        {"userId": "u2", "displayName": "Alice Tan"},
+    ]
+
+
 async def _turn(svc, message):
     chat = ConnectionsChatService(service=svc)
     return await chat.handle_turn(user_id="owner1", message=message, conversation_id="c1")
+
+
+async def _selection_turn(svc, selection_result):
+    chat = ConnectionsChatService(service=svc)
+    return await chat.handle_turn(
+        user_id="owner1", message="", conversation_id="c1", selection_result=selection_result
+    )
 
 
 async def test_add_intent_calls_add_with_query():
@@ -42,17 +56,67 @@ async def test_add_intent_calls_add_with_query():
     assert out["stateChanged"] is True
 
 
-async def test_add_unresolved_asks_to_clarify_with_candidates():
+async def test_add_ambiguous_returns_select_prompt():
     svc = _FakeService()
-    svc.raise_unresolved = IdentityUnresolvedError(
-        "ambiguous",
-        candidates=[
-            {"userId": "u1", "displayName": "Alice Rivera"},
-            {"userId": "u2", "displayName": "Alice Tan"},
-        ],
-    )
+    svc.raise_unresolved = IdentityUnresolvedError("ambiguous", candidates=_two_candidates())
     out = await _turn(svc, "add Alice to my trusted connections")
-    assert "Alice Rivera" in out["response"] and "Alice Tan" in out["response"]
+
+    # No write happened; a selection prompt is returned instead of plain text.
+    assert svc.added == []
+    assert out["stateChanged"] is False
+    assert out["isComplete"] is False
+    prompt = out["clientPrompt"]
+    assert prompt["kind"] == "select"
+    assert prompt["purpose"] == "add_trusted_connection"
+    assert prompt["id"].startswith("prm-")
+    refs = [o["ref"] for o in prompt["options"]]
+    assert refs == [
+        {"trustedUserId": "u1", "label": "Alice Rivera", "op": "add"},
+        {"trustedUserId": "u2", "label": "Alice Tan", "op": "add"},
+    ]
+
+
+async def test_add_no_match_is_plain_text_no_prompt():
+    svc = _FakeService()
+    svc.raise_unresolved = IdentityUnresolvedError("none", candidates=[])
+    out = await _turn(svc, "add Zzz to my trusted connections")
+    assert svc.added == []
+    assert "clientPrompt" not in out
+    assert "couldn't find" in out["response"].lower()
+
+
+async def test_selection_completes_add():
+    svc = _FakeService()
+    out = await _selection_turn(
+        svc,
+        {
+            "status": "answered",
+            "selected": [{"trustedUserId": "u1", "label": "Alice Rivera", "op": "add"}],
+        },
+    )
+    assert svc.added == [("owner1", None, "u1")]
+    assert out["response"] == "Added Alice Rivera to your trusted connections."
+    assert out["stateChanged"] is True
+
+
+async def test_selection_completes_remove():
+    svc = _FakeService()
+    out = await _selection_turn(
+        svc,
+        {
+            "status": "answered",
+            "selected": [{"trustedUserId": "u2", "label": "Alice Tan", "op": "remove"}],
+        },
+    )
+    assert svc.removed == [("owner1", "u2")]
+    assert out["response"] == "Removed Alice Tan from your trusted connections."
+    assert out["stateChanged"] is True
+
+
+async def test_selection_cancelled_changes_nothing():
+    svc = _FakeService()
+    out = await _selection_turn(svc, {"status": "cancelled", "selected": []})
+    assert svc.added == [] and svc.removed == []
     assert out["stateChanged"] is False
 
 
@@ -64,23 +128,20 @@ async def test_remove_intent_calls_remove():
     assert "removed" in out["response"].lower()
 
 
-async def test_remove_unresolved_asks_to_clarify_and_does_not_remove():
+async def test_remove_ambiguous_returns_select_prompt():
     svc = _FakeService()
 
     def _raise(owner_user_id, query):
-        raise IdentityUnresolvedError(
-            "ambiguous",
-            candidates=[
-                {"userId": "u1", "displayName": "Alice Rivera"},
-                {"userId": "u2", "displayName": "Alice Tan"},
-            ],
-        )
+        raise IdentityUnresolvedError("ambiguous", candidates=_two_candidates())
 
     svc._resolve_query = _raise
     out = await _turn(svc, "remove Alice from my trusted connections")
-    assert out["stateChanged"] is False
-    assert "specific" in out["response"].lower() or "uniquely" in out["response"].lower()
     assert svc.removed == []
+    assert out["stateChanged"] is False
+    prompt = out["clientPrompt"]
+    assert prompt["kind"] == "select"
+    assert prompt["purpose"] == "remove_trusted_connection"
+    assert all(o["ref"]["op"] == "remove" for o in prompt["options"])
 
 
 async def test_list_intent_lists_names():

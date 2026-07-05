@@ -13,7 +13,16 @@ def _ensure_specialists_registered():
 
 
 class _FakeChat:
-    async def handle_turn(self, *, user_id, message, consent_token=None, conversation_id=None):
+    def __init__(self, out=None):
+        self._out = out
+        self.calls = []
+
+    async def handle_turn(
+        self, *, user_id, message, consent_token=None, conversation_id=None, selection_result=None
+    ):
+        self.calls.append({"message": message, "selection_result": selection_result})
+        if self._out is not None:
+            return {"conversationId": conversation_id or "c1", **self._out}
         return {
             "response": f"ok:{message}",
             "conversationId": conversation_id or "c1",
@@ -34,6 +43,59 @@ async def test_handle_maps_chat_output_to_turn_result():
     assert result.text == "ok:add Alice to my trusted connections"
     assert result.model == "one+connections"
     assert result.directive is None
+    assert result.state_changed is True
+
+
+async def test_handle_maps_client_prompt_to_prompt_directive():
+    prompt = {"id": "prm-x", "kind": "select", "options": []}
+    agent = ConnectionsAgentA2A(
+        service=_FakeChat(
+            {
+                "response": "Which one?",
+                "isComplete": False,
+                "stateChanged": False,
+                "clientPrompt": prompt,
+            }
+        )
+    )
+    task = A2ATask(
+        user_id="owner1",
+        consent_token="tok",  # noqa: S106
+        conversation_id="c1",
+        message="add Alice to my trusted connections",
+    )
+    result = await agent.handle(task)
+    assert result.directive is not None
+    assert result.directive.kind == "prompt"
+    assert result.directive.payload == prompt
+    assert result.is_complete is False
+
+
+async def test_handle_translates_delegate_selection_into_selection_result():
+    fake = _FakeChat(
+        {"response": "Added Alice Rivera to your trusted connections.", "stateChanged": True}
+    )
+    agent = ConnectionsAgentA2A(service=fake)
+    task = A2ATask(
+        user_id="owner1",
+        consent_token="tok",  # noqa: S106
+        conversation_id="c1",
+        message="",
+        delegate_result={
+            "delegate_agent_id": "agent_connections",
+            "kind": "selection",
+            "status": "answered",
+            "selected": [{"trustedUserId": "u1", "label": "Alice Rivera", "op": "add"}],
+            "display": "Alice Rivera",
+        },
+    )
+    result = await agent.handle(task)
+    assert fake.calls[-1]["selection_result"] == {
+        "status": "answered",
+        "selected": [{"trustedUserId": "u1", "label": "Alice Rivera", "op": "add"}],
+        "display": "Alice Rivera",
+    }
+    assert result.text == "Added Alice Rivera to your trusted connections."
     assert result.state_changed is True
 
 
