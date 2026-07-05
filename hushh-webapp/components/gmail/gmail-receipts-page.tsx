@@ -1269,118 +1269,111 @@ export default function ProfileReceiptsPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Creating your shopping summary…
               </div>
+            ) : null}
 
-              {receiptMemoryLoading && !receiptMemoryArtifact ? (
-                <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-3 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating your shopping summary...
+            {receiptMemoryArtifact ? (
+              <div className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">
+                    {receiptMemoryArtifact.freshness.is_stale
+                      ? "Needs refresh"
+                      : "Ready to save"}
+                  </Badge>
+                  <Badge variant="outline">
+                    {
+                      receiptMemoryArtifact.deterministic_projection
+                        .budget_stats.eligible_receipt_count
+                    }{" "}
+                    receipts
+                  </Badge>
                 </div>
-              ) : null}
 
-              {receiptMemoryArtifact ? (
-                <div className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">
-                      {receiptMemoryArtifact.freshness.is_stale
-                        ? "Needs refresh"
-                        : "Ready to save"}
-                    </Badge>
-                    <Badge variant="outline">
-                      {
-                        receiptMemoryArtifact.deterministic_projection
-                          .budget_stats.eligible_receipt_count
-                      }{" "}
-                      receipts
-                    </Badge>
+                <label htmlFor="receipt-summary-draft" className="space-y-2">
+                  <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Shopping summary
+                  </span>
+                  <textarea
+                    id="receipt-summary-draft"
+                    value={receiptSummaryDraft}
+                    onChange={(event) =>
+                      setReceiptSummaryDraft(event.target.value)
+                    }
+                    rows={5}
+                    className="min-h-[128px] w-full resize-y rounded-xl border border-border/70 bg-background px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/80 focus:border-foreground/20"
+                    placeholder="Your shopping summary will appear here."
+                    data-voice-control-id="edit_receipts_summary"
+                    data-voice-label="Shopping summary"
+                    data-voice-purpose="edits the shopping summary before you save it."
+                  />
+                </label>
+
+                {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory
+                  .readable_summary.highlights.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
+                      (item) => (
+                        <Badge key={item} variant="outline">
+                          {item}
+                        </Badge>
+                      ),
+                    )}
                   </div>
+                ) : null}
 
-                  <label htmlFor="receipt-summary-draft" className="space-y-2">
-                    <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      Shopping summary
-                    </span>
-                    <textarea
-                      id="receipt-summary-draft"
-                      value={receiptSummaryDraft}
-                      onChange={(event) =>
-                        setReceiptSummaryDraft(event.target.value)
-                      }
-                      rows={5}
-                      className="min-h-[128px] w-full resize-y rounded-xl border border-border/70 bg-background px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/80 focus:border-foreground/20"
-                      placeholder="Your shopping summary will appear here."
-                      data-voice-control-id="edit_receipts_summary"
-                      data-voice-label="Shopping summary"
-                      data-voice-purpose="edits the shopping summary before you save it."
-                    />
-                  </label>
-
-                  {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory
-                    .readable_summary.highlights.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
-                        (item) => (
-                          <Badge key={item} variant="outline">
-                            {item}
-                          </Badge>
-                        ),
-                      )}
-                    </div>
-                  ) : null}
-
-                  {receiptMemoryArtifact.freshness.is_stale ? (
-                    <p className="text-xs text-amber-600">
-                      This summary is a little older. We&apos;ll refresh it
-                      again after your next sync.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => void handleSaveReceiptMemory()}
-                  disabled={
-                    !receiptMemoryArtifact ||
-                    !receiptSummaryDraftTrimmed ||
-                    receiptMemorySaving
-                  }
-                  variant="none"
-                  effect="fade"
-                  data-voice-control-id="save_receipts_memory"
-                  data-voice-action-id="profile.receipts_memory.save"
-                  data-voice-label="Save insights"
-                  data-voice-purpose="saves the current shopping summary into your personal memory."
-                >
-                  {receiptMemorySaving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : !vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
-                    <Lock className="mr-2 h-4 w-4" />
-                  ) : null}
-                  Save insights
-                </Button>
+                {receiptMemoryArtifact.freshness.is_stale ? (
+                  <p className="text-xs text-amber-600">
+                    This summary is a little older. We&apos;ll refresh it
+                    again after your next sync.
+                  </p>
+                ) : null}
               </div>
+            ) : null}
 
-              {!canBuildReceiptMemoryPreview ? (
-                <p className="text-xs text-muted-foreground">
-                  Refresh mail first to create a shopping summary.
-                </p>
-              ) : isSyncingState ? (
-                <p className="text-xs text-muted-foreground">
-                  We&apos;ll prepare your shopping summary after Gmail finishes
-                  syncing.
-                </p>
-              ) : null}
-              {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
-                <p className="text-xs text-muted-foreground">
-                  Unlock your vault to save this summary.
-                </p>
-              ) : null}
-              {receiptMemoryMessage ? (
-                <p className="text-xs text-muted-foreground">
-                  {receiptMemoryMessage}
-                </p>
-              ) : null}
-            </SurfaceInset>
-          ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => void handleSaveReceiptMemory()}
+                disabled={
+                  !receiptMemoryArtifact ||
+                  !receiptSummaryDraftTrimmed ||
+                  receiptMemorySaving
+                }
+                variant="none"
+                effect="fade"
+                data-voice-control-id="save_receipts_memory"
+                data-voice-action-id="profile.receipts_memory.save"
+                data-voice-label="Save insights"
+                data-voice-purpose="saves the current shopping summary into your personal memory."
+              >
+                {receiptMemorySaving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : !vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
+                  <Lock className="mr-2 h-4 w-4" />
+                ) : null}
+                Save insights
+              </Button>
+            </div>
+
+            {!canBuildReceiptMemoryPreview ? (
+              <p className="text-xs text-muted-foreground">
+                Refresh mail first to create a shopping summary.
+              </p>
+            ) : isSyncingState ? (
+              <p className="text-xs text-muted-foreground">
+                We&apos;ll prepare your shopping summary after Gmail finishes
+                syncing.
+              </p>
+            ) : null}
+            {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
+              <p className="text-xs text-muted-foreground">
+                Unlock your vault to save this summary.
+              </p>
+            ) : null}
+            {receiptMemoryMessage ? (
+              <p className="text-xs text-muted-foreground">
+                {receiptMemoryMessage}
+              </p>
+            ) : null}
+          </SurfaceInset>
 
           {gmail.status?.configured === false && !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
