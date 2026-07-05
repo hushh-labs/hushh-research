@@ -1,7 +1,7 @@
 """
 tests/test_kai_voice_tools.py
 
-Unit tests for Kai voice action MCP tool handlers.
+Unit tests for Kai compatibility voice action MCP tool handlers.
 Verifies:
   - All handlers return list[TextContent] with valid JSON payload
   - action_id matches the canonical voice action manifest

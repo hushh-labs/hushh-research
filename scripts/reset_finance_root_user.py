@@ -319,14 +319,14 @@ def _build_onboarding_profile(
     selected_at = now_iso if has_complete_answers else None
 
     profile_payload = {
-        "schema_version": 2,
-        "onboarding": {
+        "schema_version": 3,
+        "setup": {
             "completed": completed,
             "completed_at": completed_at,
             "skipped_preferences": bool(onboarding_skipped),
-            "nav_tour_completed_at": None,
-            "nav_tour_skipped_at": None,
-            "version": 2,
+            "nav_completed_at": None,
+            "nav_skipped_at": None,
+            "version": 3,
         },
         "preferences": {
             "investment_horizon": investment_horizon if has_complete_answers else None,

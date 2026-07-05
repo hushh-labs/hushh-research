@@ -1,4 +1,4 @@
-"""Test the encrypted CRM registry seed script round-trips through the repo."""
+"""Test the CRM registry seed script round-trips through the repo (PBKDF2-CBC)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,14 @@ import os
 from pathlib import Path
 
 from hushh_mcp.services import crm_registry_repo
-from hushh_mcp.types import EncryptedPayload
-from hushh_mcp.vault.encrypt import decrypt_data
+from hushh_mcp.vault.encrypt import PBKDF2_CBC_ALGORITHM, decrypt_data_pbkdf2_cbc
 
-# Fresh random 64-hex (256-bit) test key — generated per run, never a static
-# literal, so secret scanners do not flag it (matches conftest test_vault_key).
-TEST_VAULT_KEY = os.urandom(32).hex()
+# Fresh random connector password per run, never a static literal, so secret
+# scanners do not flag it. Salt is non-secret config; iterations kept low so the
+# test stays fast.
+TEST_CONNECTOR_KEY = os.urandom(32).hex()
+TEST_KDF_SALT = "MuleSoftSalt123"
+TEST_KDF_ITERATIONS = "1000"
 SEED_CLIENT_ID = "seed-client-id-abcdef0123456789"
 SEED_CLIENT_SECRET = "seed-client-secret-9876543210fedcba"
 MCP_ENDPOINT = "https://example-crm-gateway.invalid/crm-connect/v1/mcp"
@@ -25,6 +27,12 @@ def _load_seed_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _set_connector_env(monkeypatch):
+    monkeypatch.setenv("CONNECTOR_SECRETS_KEY", TEST_CONNECTOR_KEY)
+    monkeypatch.setenv("CONNECTOR_KDF_SALT", TEST_KDF_SALT)
+    monkeypatch.setenv("CONNECTOR_KDF_ITERATIONS", TEST_KDF_ITERATIONS)
 
 
 class _Result:
@@ -48,13 +56,11 @@ class _CaptureDb:
 
 
 def test_seed_script_encrypts_and_round_trips(monkeypatch):
+    _set_connector_env(monkeypatch)
     monkeypatch.setenv("CRM_SEED_CLIENT_ID", SEED_CLIENT_ID)
     monkeypatch.setenv("CRM_SEED_CLIENT_SECRET", SEED_CLIENT_SECRET)
 
-    # Patch the seed module's VAULT_DATA_KEY and get_db.
     seed = _load_seed_module()
-    monkeypatch.setattr(seed, "VAULT_DATA_KEY", TEST_VAULT_KEY)
-
     capture = _CaptureDb()
     monkeypatch.setattr(seed, "get_db", lambda: capture)
 
@@ -63,7 +69,7 @@ def test_seed_script_encrypts_and_round_trips(monkeypatch):
         [
             "seed_crm_registry_row.py",
             "--crm-id",
-            "salesforce-fsc-customer0",
+            "salesforce-fsc-macys",
             "--enterprise-name",
             "Macy's",
             "--crm-type",
@@ -80,30 +86,21 @@ def test_seed_script_encrypts_and_round_trips(monkeypatch):
 
     params = capture.registry_params
     assert params is not None
-    # Ciphertext columns are populated and are NOT the plaintext.
-    assert params["cid_ct"] and params["cid_ct"] != SEED_CLIENT_ID
-    assert params["csec_ct"] and params["csec_ct"] != SEED_CLIENT_SECRET
+    # Declared algorithm is the MuleSoft-native standard.
+    assert params["algorithm"] == PBKDF2_CBC_ALGORITHM
+    # Blob columns are populated and are NOT the plaintext.
+    assert params["cid_blob"] and params["cid_blob"] != SEED_CLIENT_ID
+    assert params["csec_blob"] and params["csec_blob"] != SEED_CLIENT_SECRET
+    # GCM envelope params are no longer produced.
+    assert "cid_ct" not in params
+    assert "csec_ct" not in params
 
-    # Round-trip: decrypt the stored envelope with the same key → original plaintext.
-    decrypted_id = decrypt_data(
-        EncryptedPayload(
-            ciphertext=params["cid_ct"],
-            iv=params["cid_iv"],
-            tag=params["cid_tag"],
-            encoding="base64",
-            algorithm="aes-256-gcm",
-        ),
-        TEST_VAULT_KEY,
+    # Round-trip: decrypt the stored blob with the same connector params.
+    decrypted_id = decrypt_data_pbkdf2_cbc(
+        params["cid_blob"], TEST_CONNECTOR_KEY, TEST_KDF_SALT, int(TEST_KDF_ITERATIONS)
     )
-    decrypted_secret = decrypt_data(
-        EncryptedPayload(
-            ciphertext=params["csec_ct"],
-            iv=params["csec_iv"],
-            tag=params["csec_tag"],
-            encoding="base64",
-            algorithm="aes-256-gcm",
-        ),
-        TEST_VAULT_KEY,
+    decrypted_secret = decrypt_data_pbkdf2_cbc(
+        params["csec_blob"], TEST_CONNECTOR_KEY, TEST_KDF_SALT, int(TEST_KDF_ITERATIONS)
     )
     assert decrypted_id == SEED_CLIENT_ID
     assert decrypted_secret == SEED_CLIENT_SECRET
@@ -120,12 +117,12 @@ def test_seed_script_encrypts_and_round_trips(monkeypatch):
 
 
 def test_seed_then_load_active_definition_yields_headers(monkeypatch):
-    """The seeded envelope decrypts back into transport_headers via the repo."""
+    """The seeded blob decrypts back into transport_headers via the repo."""
+    _set_connector_env(monkeypatch)
     monkeypatch.setenv("CRM_SEED_CLIENT_ID", SEED_CLIENT_ID)
     monkeypatch.setenv("CRM_SEED_CLIENT_SECRET", SEED_CLIENT_SECRET)
 
     seed = _load_seed_module()
-    monkeypatch.setattr(seed, "VAULT_DATA_KEY", TEST_VAULT_KEY)
     capture = _CaptureDb()
     monkeypatch.setattr(seed, "get_db", lambda: capture)
     monkeypatch.setattr(
@@ -139,20 +136,17 @@ def test_seed_then_load_active_definition_yields_headers(monkeypatch):
     assert seed.main() == 0
     p = capture.registry_params
 
-    # Build a registry row dict as the repo would SELECT it.
+    # Build a registry row dict as the repo would SELECT it. KDF params are
+    # resolved from connector config (the row omits them after migration 073).
     row = {
         "crm_id": p["crm_id"],
         "crm_enterprise_name": p["crm_enterprise_name"],
         "crm_type": p["crm_type"],
         "crm_mcp_endpoint": p["crm_mcp_endpoint"],
-        "crm_client_id_ciphertext": p["cid_ct"],
-        "crm_client_id_iv": p["cid_iv"],
-        "crm_client_id_tag": p["cid_tag"],
-        "crm_client_secret_ciphertext": p["csec_ct"],
-        "crm_client_secret_iv": p["csec_iv"],
-        "crm_client_secret_tag": p["csec_tag"],
-        "encryption_algorithm": "aes-256-gcm",
-        "key_id": "vault_data_key_v1",
+        "crm_client_id_blob": p["cid_blob"],
+        "crm_client_secret_blob": p["csec_blob"],
+        "encryption_algorithm": PBKDF2_CBC_ALGORITHM,
+        "key_id": "connector_secrets_key_v1",
         "auth_header_style": "client_id_secret_headers",
         "user_object_name": "Contact",
     }
@@ -163,7 +157,6 @@ def test_seed_then_load_active_definition_yields_headers(monkeypatch):
                 return _Result([])
             return _Result([row])
 
-    monkeypatch.setattr(crm_registry_repo, "_vault_key_hex", lambda: TEST_VAULT_KEY)
     definition = crm_registry_repo.load_active_definition(p["crm_id"], db=_RepoDb())
     headers = dict(definition.transport_headers)
     assert headers["client_id"] == SEED_CLIENT_ID

@@ -225,11 +225,11 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     for fragment in spine_fragments:
         assert fragment not in executed_sql
 
-    # The spine is re-seeded to a clean One default, and onboarding flags reset.
+    # The spine is re-seeded to a clean One default, and setup flags reset.
     assert "UPDATE actor_profiles" in executed_sql
     assert "UPDATE runtime_persona_state" in executed_sql
     assert "UPDATE vault_keys" in executed_sql
-    assert "pre_onboarding_completed = NULL" in executed_sql
+    assert "setup_completed = NULL" in executed_sql
 
 
 @pytest.mark.asyncio

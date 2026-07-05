@@ -268,13 +268,34 @@ class FourUserMemoryService(OneLocationAgentService):
                 if connection["status"] == "active"
                 and owner in {connection["user_a_id"], connection["user_b_id"]}
             }
+            # Mirror the real SQL: a user connected to the owner through an
+            # approved marketplace (advisor<->investor) relationship is eligible
+            # even if not phone-verified.
+            marketplace_connected_ids = set()
+            for relationship in self.professional_relationships:
+                if str(relationship.get("status") or "") != "approved":
+                    continue
+                investor_id = str(relationship.get("investor_user_id") or "")
+                ria_id = str(relationship.get("ria_user_id") or "")
+                if owner == investor_id and ria_id:
+                    marketplace_connected_ids.add(ria_id)
+                elif owner == ria_id and investor_id:
+                    marketplace_connected_ids.add(investor_id)
             for user_id, identity in self.identities.items():
                 if user_id == owner:
                     continue
-                # Mirror the real SQL: phone-verified users OR active One Network
-                # connections are visible recipients.
-                if not identity["phone_verified"] and user_id not in connected_ids:
-                    continue
+                network_connected = user_id in connected_ids
+                # Explicit One Network connections always win, even over a
+                # marketplace visibility opt-out.
+                if not network_connected:
+                    eligible = identity["phone_verified"] or user_id in marketplace_connected_ids
+                    if not eligible:
+                        continue
+                    # Privacy gate: a user who turned marketplace visibility OFF
+                    # (is_discoverable = FALSE) disappears from the directory too.
+                    profile = self.marketplace_profiles.get(user_id)
+                    if profile is not None and profile.get("is_discoverable") is False:
+                        continue
                 key = self._active_key(user_id)
                 rows.append(
                     {
@@ -286,6 +307,7 @@ class FourUserMemoryService(OneLocationAgentService):
                     }
                 )
             return rows
+
         if (
             "FROM one_location_share_grants" in sql
             and "owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id" in sql
@@ -734,6 +756,12 @@ class FourUserMemoryService(OneLocationAgentService):
             return row
         if "FROM one_location_share_grants" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
+            if (
+                "recipient_user_id = :owner_user_id" in sql
+                and grant
+                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
+            ):
+                return grant
             if grant and grant["owner_user_id"] == params["owner_user_id"]:
                 return grant
             return None
@@ -1040,7 +1068,13 @@ class FourUserMemoryService(OneLocationAgentService):
             grant = self.grants.get(params["grant_id"])
             if (
                 grant
-                and grant["owner_user_id"] == params["owner_user_id"]
+                and (
+                    grant["owner_user_id"] == params["owner_user_id"]
+                    or (
+                        "recipient_user_id = :owner_user_id" in sql
+                        and grant["recipient_user_id"] == params["owner_user_id"]
+                    )
+                )
                 and grant["status"] == "active"
             ):
                 grant["status"] = "revoked"
@@ -1530,6 +1564,43 @@ def test_four_user_location_workflow_contract() -> None:
     assert "longitude" not in serialized_state
 
 
+def test_location_grant_recipient_can_mark_share_revoked() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.revoke_grant(owner_user_id="user_c", grant_id=grant["id"])
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+    revoked = service.revoke_grant(owner_user_id="user_b", grant_id=grant["id"])
+
+    assert revoked["status"] == "revoked"
+    assert service.grants[grant["id"]]["status"] == "revoked"
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked"
+    ]
+    assert revoke_events[-1]["actor_user_id"] == "user_b"
+    assert revoke_events[-1]["metadata"]["reason"] == "recipient_revoke"
+    assert service.notifications[-1]["user_id"] == "user_a"
+
+    already_revoked = service.revoke_grant(owner_user_id="user_b", grant_id=grant["id"])
+    assert already_revoked["status"] == "revoked"
+
+
 def test_location_request_creation_does_not_require_requester_key_material() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -1809,6 +1880,82 @@ def test_invite_to_one_claim_requires_phone_verified_identity() -> None:
     assert service.network_connections == {}
     assert service.requests == {}
     assert next(iter(service.circle_invites.values()))["status"] == "active"
+
+
+def test_marketplace_connection_makes_user_a_location_recipient() -> None:
+    # An approved marketplace (advisor<->investor) connection should surface the
+    # other party as a One Location recipient even if they are NOT phone-verified
+    # -- the marketplace handshake already established mutual consent.
+    service = FourUserMemoryService()
+    service.identities["user_b"]["phone_verified"] = False
+    service.professional_relationships.append(
+        {
+            "investor_user_id": "user_a",
+            "ria_user_id": "user_b",
+            "status": "approved",
+            "ria_display_name": "User B",
+            "ria_verification_status": "verified",
+            "relationship_share_status": "active",
+        }
+    )
+
+    recipient_ids = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+
+    assert "user_b" in recipient_ids
+
+
+def test_marketplace_visibility_off_hides_user_from_location_directory() -> None:
+    # Turning marketplace visibility OFF (is_discoverable = FALSE) must hide the
+    # user from the One Location directory too -- the same flag the Connect tab
+    # filters on -- even though they remain phone-verified.
+    service = FourUserMemoryService()
+    service.marketplace_profiles["user_b"] = {
+        "user_id": "user_b",
+        "profile_type": "investor",
+        "is_discoverable": False,
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+    recipient_ids = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+
+    assert "user_b" not in recipient_ids
+    # A user with no marketplace profile (user_c) is unaffected.
+    assert "user_c" in recipient_ids
+
+
+def test_explicit_network_connection_overrides_marketplace_visibility_off() -> None:
+    # Explicit One Network connections (Circle-invite claim) are explicit mutual
+    # consent and must win even when the user opted out of marketplace
+    # discoverability.
+    service = FourUserMemoryService()
+    service.marketplace_profiles["user_b"] = {
+        "user_id": "user_b",
+        "profile_type": "investor",
+        "is_discoverable": False,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    service.network_connections["conn-1"] = {
+        "id": "conn-1",
+        "user_a_id": "user_a",
+        "user_b_id": "user_b",
+        "inviter_user_id": "user_a",
+        "invitee_user_id": "user_b",
+        "status": "active",
+        "connected_at": datetime.now(timezone.utc),
+    }
+
+    recipient_ids = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+
+    assert "user_b" in recipient_ids
 
 
 def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> None:

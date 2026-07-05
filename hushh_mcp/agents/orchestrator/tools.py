@@ -31,6 +31,50 @@ def _create_delegation_response(
 # deterministically (and testably) without a live model. Each entry maps a
 # specialist to its delegation domain/target plus the cues that route to it.
 _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # Information Marketplace must precede finance (kai claims the generic
+    # "market"/"earnings" cues). Cues are QUALIFIED — bare "marketplace" is left
+    # unrouted on purpose so One can ask which marketplace the user means
+    # (Information Marketplace vs Kai Market Home).
+    (
+        "information_marketplace",
+        "agent_personal_information",
+        (
+            "information marketplace",
+            "data marketplace",
+            "slice",
+            "slices",
+            "made available",
+            "available to buyers",
+            "available for buyers",
+            "publish my data",
+            "sell my data",
+            "sell my information",
+            "what have i published",
+            "what data have i published",
+            "my data worth",
+            "from my data",
+            "for my data",
+            "access request",
+            "my request for",
+            "approve my request",
+            "deny my request",
+            "approve the request",
+            "pending request",
+        ),
+    ),
+    (
+        "connected_systems_crm",
+        "agent_connected_systems",
+        (
+            "crm",
+            "salesforce",
+            "connected system",
+            "connected systems",
+            "mulesoft",
+            "contact record",
+            "crm record",
+        ),
+    ),
     (
         "finance",
         "agent_kai",
@@ -82,6 +126,31 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "accreditation",
         ),
     ),
+    (
+        "location",
+        "agent_location",
+        (
+            "location",
+            "where is",
+            "where am i",
+            "share my location",
+            "live location",
+        ),
+    ),
+    (
+        "email",
+        "agent_email",
+        (
+            "needs a reply",
+            "my inbox",
+            "check my inbox",
+            "my email",
+            "my emails",
+            "unread email",
+            "emails from",
+            "gmail",
+        ),
+    ),
 )
 
 
@@ -102,16 +171,23 @@ def classify_specialist_domain(message: str) -> Optional[tuple[str, str]]:
     return None
 
 
+# Deprecated delegate shims (food / professional profile) from older roadmap
+# experiments. They are NOT routed by the live classifier (no _SPECIALIST_ROUTES
+# entries) and the ontology has no such specialists. They are retained on
+# purpose as @hushh_tool fixtures for the hushh_adk manifest-loader tests
+# (tests/test_hushh_adk_from_manifest.py, tests/test_hushh_adk_manifest_and_factory.py),
+# which import them by dotted path to exercise manifest binding. Do not delete
+# these without first updating those tests.
 @hushh_tool(scope="agent.one.orchestrate", name="delegate_to_food_agent")
 def delegate_to_food_agent() -> Dict[str, Any]:
-    """Deprecated compatibility delegate for older roadmap experiments."""
+    """Deprecated delegate shim; retained only as a manifest-loader test fixture."""
     ctx = HushhContext.current()
     return _create_delegation_response("food_dining", "agent_food_dining", ctx)
 
 
 @hushh_tool(scope="agent.one.orchestrate", name="delegate_to_professional_agent")
 def delegate_to_professional_agent() -> Dict[str, Any]:
-    """Deprecated compatibility delegate for older roadmap experiments."""
+    """Deprecated delegate shim; retained only as a manifest-loader test fixture."""
     ctx = HushhContext.current()
     return _create_delegation_response("professional_profile", "agent_professional_profile", ctx)
 

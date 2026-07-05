@@ -1,7 +1,7 @@
 """
 mcp_modules/tools/kai_tools.py
 
-Kai voice-agent tool handlers for the MCP server.
+Kai compatibility voice-action tool handlers for the MCP server.
 
 Each handler corresponds to one actionable function inside the Kai mobile app.
 The mobile client receives a structured KaiAction payload and routes accordingly.
@@ -71,7 +71,7 @@ _VOICE_MANIFEST_PATH = (
 
 @lru_cache(maxsize=1)
 def get_manifest_action_ids() -> frozenset[str]:
-    """Return action IDs from the generated Kai voice manifest when available."""
+    """Return action IDs from the generated Kai compatibility manifest when available."""
     if not _VOICE_MANIFEST_PATH.exists():
         logger.warning("kai_tool.manifest_missing path=%s", _VOICE_MANIFEST_PATH)
         return frozenset()

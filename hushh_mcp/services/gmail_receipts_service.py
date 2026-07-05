@@ -39,6 +39,17 @@ from hushh_mcp.runtime_settings import (
     get_core_security_settings,
     get_optional_gmail_oauth_token_key,
 )
+from hushh_mcp.services.gmail_nudges import (
+    MeetingEvent,
+    NudgeMessage,
+    NudgeThread,
+    derive_nudges,
+    derive_upcoming_meeting_nudges,
+    extract_meeting_datetime,
+    extract_meeting_url,
+    looks_like_meeting,
+    parse_ics_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +58,24 @@ _GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 _GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+_GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
+
+# Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
+# how many recent threads to inspect, and how many cards to return.
+_NUDGE_INBOX_QUERY = "in:inbox category:primary newer_than:30d"
+_NUDGE_MAX_THREADS = 25
+_NUDGE_DEFAULT_LIMIT = 10
+# Calendar invites carry an .ics attachment; scan recent ones for upcoming meetings.
+_NUDGE_MEETING_QUERY = "filename:ics newer_than:45d"
+# Plus body-text meeting mentions (emails proposing a meeting without a .ics).
+_NUDGE_BODY_MEETING_QUERY = (
+    "in:inbox newer_than:14d -category:promotions -category:social "
+    '(meeting OR "let\'s meet" OR "meet up" OR "catch up" OR "sync up" OR '
+    'zoom OR "google meet" OR "schedule a call" OR "schedule a meeting")'
+)
+_NUDGE_MAX_MEETINGS = 20
 
 _RECEIPT_SUBJECT_RE = re.compile(
     r"\b(receipt|invoice|order(?:\s+confirmation)?|payment|transaction|purchase|paid)\b",
@@ -1699,6 +1726,341 @@ class GmailReceiptsService:
                 continue
             payloads.append(result)
         return payloads
+
+    async def _get_thread_metadata(self, *, access_token: str, thread_id: str) -> dict[str, Any]:
+        return await self._http_get_json(
+            f"{_GMAIL_THREADS_URL}/{thread_id}",
+            token=access_token,
+            params={
+                "format": "metadata",
+                "metadataHeaders": ["From", "Subject", "Date"],
+            },
+        )
+
+    def _message_received_at(self, raw: dict[str, Any], headers: dict[str, str]) -> datetime | None:
+        internal = _clean_text(raw.get("internalDate"))
+        if internal.isdigit():
+            try:
+                return datetime.fromtimestamp(int(internal) / 1000, tz=timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                pass
+        date_header = headers.get("date")
+        if date_header:
+            try:
+                parsed = parsedate_to_datetime(date_header)
+            except (TypeError, ValueError):
+                parsed = None
+            if parsed is not None:
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
+        return None
+
+    def _nudge_thread_from_payload(self, payload: dict[str, Any]) -> NudgeThread | None:
+        thread_id = _clean_text(payload.get("id"))
+        raw_messages = payload.get("messages")
+        if not thread_id or not isinstance(raw_messages, list):
+            return None
+        messages: list[NudgeMessage] = []
+        for raw in raw_messages:
+            if not isinstance(raw, dict):
+                continue
+            headers = self._extract_headers(raw)
+            from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            messages.append(
+                NudgeMessage(
+                    message_id=_clean_text(raw.get("id")),
+                    from_email=from_email or "",
+                    from_name=from_name or "",
+                    subject=_clean_text(headers.get("subject")),
+                    received_at=self._message_received_at(raw, headers),
+                )
+            )
+        if not messages:
+            return None
+        messages.sort(key=lambda m: m.received_at or datetime.min.replace(tzinfo=timezone.utc))
+        return NudgeThread(thread_id=thread_id, messages=tuple(messages))
+
+    async def list_nudges(
+        self, *, user_id: str, limit: int = _NUDGE_DEFAULT_LIMIT
+    ) -> dict[str, Any]:
+        """Derive inbox flashcard nudges ("Needs a reply") for the connected account.
+
+        Reuses the receipts Gmail connection (``gmail.readonly`` — no new scope):
+        scans recent primary-inbox threads and returns structured nudges. The
+        intent logic is the pure ``derive_nudges`` so it stays unit-testable.
+        """
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
+        user_email = _clean_text(profile.get("emailAddress"))
+
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_NUDGE_INBOX_QUERY,
+            page_token=None,
+            max_results=100,
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        thread_ids: list[str] = []
+        seen: set[str] = set()
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            thread_id = _clean_text(entry.get("threadId"))
+            if thread_id and thread_id not in seen:
+                seen.add(thread_id)
+                thread_ids.append(thread_id)
+            if len(thread_ids) >= _NUDGE_MAX_THREADS:
+                break
+
+        payloads = await asyncio.gather(
+            *[
+                self._get_thread_metadata(access_token=access_token, thread_id=thread_id)
+                for thread_id in thread_ids
+            ],
+            return_exceptions=True,
+        )
+        threads: list[NudgeThread] = []
+        for thread_id, payload in zip(thread_ids, payloads, strict=False):
+            if isinstance(payload, Exception):
+                logger.warning(
+                    "gmail.nudges.thread_failed thread_id=%s reason=%s",
+                    thread_id,
+                    str(payload)[:200],
+                )
+                continue
+            thread = self._nudge_thread_from_payload(payload)
+            if thread is not None:
+                threads.append(thread)
+
+        bounded_limit = max(1, min(int(limit or _NUDGE_DEFAULT_LIMIT), 50))
+        needs_reply = derive_nudges(threads, user_email=user_email, limit=bounded_limit)
+
+        # Upcoming meetings from calendar invites AND body-text meeting mentions
+        # (best-effort — never fail the whole nudge response over meeting parsing).
+        # Invite events are listed first so they win the per-thread de-dupe.
+        try:
+            invite_events = await self._fetch_meeting_events(
+                access_token=access_token, limit=bounded_limit
+            )
+            body_events = await self._fetch_body_meeting_events(
+                access_token=access_token, limit=bounded_limit
+            )
+            meetings = derive_upcoming_meeting_nudges(
+                invite_events + body_events, limit=bounded_limit
+            )
+        except Exception:
+            logger.warning("gmail.nudges.meetings_failed", exc_info=True)
+            meetings = []
+
+        return {
+            "user_id": user_id,
+            "account_email": user_email or None,
+            "nudges": [nudge.to_dict() for nudge in needs_reply]
+            + [nudge.to_dict() for nudge in meetings],
+        }
+
+    async def _get_message_full(
+        self, *, access_token: str, gmail_message_id: str
+    ) -> dict[str, Any]:
+        return await self._http_get_json(
+            f"{_GMAIL_MESSAGES_URL}/{gmail_message_id}",
+            token=access_token,
+            params={"format": "full"},
+        )
+
+    def _find_calendar_part(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Depth-first search a message payload for a text/calendar (.ics) part."""
+        stack: list[Any] = [payload]
+        while stack:
+            part = stack.pop()
+            if not isinstance(part, dict):
+                continue
+            mime = _clean_text(part.get("mimeType")).lower()
+            filename = _clean_text(part.get("filename")).lower()
+            if mime == "text/calendar" or filename.endswith(".ics"):
+                return part
+            sub_parts = part.get("parts")
+            if isinstance(sub_parts, list):
+                stack.extend(sub_parts)
+        return None
+
+    async def _extract_ics_text(self, *, access_token: str, message: dict[str, Any]) -> str | None:
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        part = self._find_calendar_part(payload)
+        if part is None:
+            return None
+        body = part.get("body") if isinstance(part.get("body"), dict) else {}
+        data = _clean_text(body.get("data"))
+        if not data:
+            attachment_id = _clean_text(body.get("attachmentId"))
+            message_id = _clean_text(message.get("id"))
+            if attachment_id and message_id:
+                attachment = await self._http_get_json(
+                    f"{_GMAIL_MESSAGES_URL}/{message_id}/attachments/{attachment_id}",
+                    token=access_token,
+                )
+                data = _clean_text(attachment.get("data"))
+        if not data:
+            return None
+        try:
+            return base64.urlsafe_b64decode(data + "===").decode("utf-8", errors="replace")
+        except (ValueError, TypeError):
+            return None
+
+    async def _fetch_meeting_events(self, *, access_token: str, limit: int) -> list:
+        """List recent calendar-invite emails and parse their .ics into events."""
+        scan = min(max(int(limit), 1) * 2, _NUDGE_MAX_MEETINGS)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_NUDGE_MEETING_QUERY,
+            page_token=None,
+            max_results=scan,
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        message_ids: list[str] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+            if len(message_ids) >= scan:
+                break
+
+        events: list = []
+        for message_id in message_ids:
+            try:
+                message = await self._get_message_full(
+                    access_token=access_token, gmail_message_id=message_id
+                )
+                ics_text = await self._extract_ics_text(access_token=access_token, message=message)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "gmail.nudges.meeting_fetch_failed id=%s reason=%s",
+                    message_id,
+                    str(exc)[:200],
+                )
+                continue
+            if not ics_text:
+                continue
+            event = parse_ics_event(
+                ics_text,
+                message_id=message_id,
+                thread_id=_clean_text(message.get("threadId")),
+            )
+            if event is not None:
+                events.append(event)
+        return events
+
+    async def _fetch_body_meeting_events(self, *, access_token: str, limit: int) -> list:
+        """Scan recent meeting-language emails (no .ics) and build meeting events.
+
+        A time is extracted from the subject/snippet when present; otherwise the
+        event is an undated "mention" carrying the email's received time, which
+        the deriver still surfaces so plain "let's meet" emails aren't lost."""
+        scan = min(max(int(limit), 1) * 3, _NUDGE_MAX_MEETINGS)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_NUDGE_BODY_MEETING_QUERY,
+            page_token=None,
+            max_results=scan,
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        message_ids: list[str] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+            if len(message_ids) >= scan:
+                break
+
+        metas = await self._get_message_metadata_batch(
+            access_token=access_token, gmail_message_ids=message_ids
+        )
+        events: list = []
+        for meta in metas:
+            headers = self._extract_headers(meta)
+            subject = _clean_text(headers.get("subject")) or "(no subject)"
+            snippet = _clean_text(meta.get("snippet"))
+            text = f"{subject}\n{snippet}"
+            # The Gmail query is coarse; confirm meeting intent locally.
+            if not looks_like_meeting(text):
+                continue
+            from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            received_at = self._message_received_at(meta, headers)
+            events.append(
+                MeetingEvent(
+                    message_id=_clean_text(meta.get("id")),
+                    thread_id=_clean_text(meta.get("threadId")),
+                    summary=subject,
+                    organizer_name=from_name or "",
+                    organizer_email=from_email or "",
+                    # Resolve relative times ("Monday 3pm") against the email's own
+                    # date, not today — otherwise an old email is projected into a
+                    # phantom future meeting.
+                    starts_at=extract_meeting_datetime(text, now=received_at),
+                    received_at=received_at,
+                    source="email",
+                    meeting_url=extract_meeting_url(text),
+                )
+            )
+        return events
+
+    async def search_inbox(
+        self, *, user_id: str, query: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Run a Gmail search and return lightweight message summaries.
+
+        Reuses the receipts ``gmail.readonly`` connection. ``query`` is a raw Gmail
+        search expression (e.g. ``from:ravi newer_than:7d``). Read-only.
+        """
+        bounded_limit = max(1, min(int(limit or 10), 25))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text=_clean_text(query),
+            page_token=None,
+            max_results=min(bounded_limit * 2, 50),
+        )
+        raw_entries = listing.get("messages")
+        raw_entries = raw_entries if isinstance(raw_entries, list) else []
+        message_ids: list[str] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+            if len(message_ids) >= bounded_limit:
+                break
+
+        metas = await self._get_message_metadata_batch(
+            access_token=access_token, gmail_message_ids=message_ids
+        )
+        summaries: list[dict[str, Any]] = []
+        for meta in metas:
+            headers = self._extract_headers(meta)
+            from_name, from_email = self._parse_from_header(headers.get("from", ""))
+            received_at = self._message_received_at(meta, headers)
+            summaries.append(
+                {
+                    "thread_id": _clean_text(meta.get("threadId")),
+                    "subject": _clean_text(headers.get("subject")) or "(no subject)",
+                    "from": from_name or from_email or "Unknown sender",
+                    "from_email": from_email or "",
+                    "snippet": _clean_text(meta.get("snippet"))[:200],
+                    "received_at": received_at.isoformat() if received_at else None,
+                }
+            )
+        return summaries
 
     async def _list_history(
         self,

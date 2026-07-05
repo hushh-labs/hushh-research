@@ -5,7 +5,7 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One is the product ownership target for relationship memory; the current implementation evidence still comes through the Kai-first runtime because Kai is the shipped finance specialist and voice/action surface.
+The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One is the product ownership target for relationship memory; current implementation evidence still comes through finance-specialist and Kai-era compatibility runtime docs because Kai remains the shipped finance specialist and generated action authority.
 
 The approved product direction is One-owned relationship memory with specialist slices beneath it:
 

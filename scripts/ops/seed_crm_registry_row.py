@@ -2,18 +2,26 @@
 
 Inserts (or updates) one `enterprise_crm_registry` row plus its
 `crm_operation_endpoints` catalog, encrypting client_id / client_secret with
-AES-256-GCM under VAULT_DATA_KEY. The plaintext credentials are read from the
+the MuleSoft-native PBKDF2-HMAC-SHA256 + AES-256-CBC scheme so every published
+CRM uses one standard interop shape (matching MuleSoft JCE Decrypt output).
+
+The credential blobs are base64(iv || ciphertext). The KDF password is the
+connector secret (CONNECTOR_SECRETS_KEY); the salt and iteration count are
+constant connector config (CONNECTOR_KDF_SALT / CONNECTOR_KDF_ITERATIONS), so
+they are NOT written per-row. Plaintext credentials are read from the
 environment at run time ONLY and are never written to git, logs, or stdout.
 
 Usage (non-prod example):
 
     cd consent-protocol
-    VAULT_DATA_KEY=<64-hex> \
+    CONNECTOR_SECRETS_KEY=<connector password> \
+    CONNECTOR_KDF_SALT=<shared salt> \
+    CONNECTOR_KDF_ITERATIONS=<iterations> \
     DB_USER=... DB_PASSWORD=... DB_HOST=... DB_NAME=... \
     CRM_SEED_CLIENT_ID=<id> \
     CRM_SEED_CLIENT_SECRET=<secret> \
     python scripts/ops/seed_crm_registry_row.py \
-      --crm-id salesforce-fsc-customer0 \
+      --crm-id salesforce-fsc-macys \
       --enterprise-name "Macy's" \
       --crm-type Salesforce \
       --environment sandbox \
@@ -30,8 +38,12 @@ import os
 import sys
 
 from db.db_client import get_db
-from hushh_mcp.config import VAULT_DATA_KEY
-from hushh_mcp.vault.encrypt import encrypt_data
+from hushh_mcp.runtime_settings import (
+    get_connector_kdf_iterations,
+    get_connector_kdf_salt,
+    get_connector_secrets_key,
+)
+from hushh_mcp.vault.encrypt import PBKDF2_CBC_ALGORITHM, encrypt_data_pbkdf2_cbc
 
 # operation -> live MCP tool name (verified against testCrm-salesforce-mcp-server).
 _OPERATION_TOOLS = (
@@ -60,6 +72,11 @@ def main() -> int:
     parser.add_argument("--mcp-endpoint", required=True)
     parser.add_argument("--base-url", default="https://api.salesforce.com/platform")
     parser.add_argument("--token-url", default=None)
+    parser.add_argument(
+        "--delete-endpoint",
+        default=None,
+        help="Salesforce delete path (used only when --supports-delete is set).",
+    )
     parser.add_argument("--business-owner", default=None)
     parser.add_argument("--technical-owner", default=None)
     parser.add_argument(
@@ -69,16 +86,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Validate the vault key early so we fail before touching the DB.
-    if not VAULT_DATA_KEY or len(VAULT_DATA_KEY) != 64:
-        print("ERROR: VAULT_DATA_KEY must be a 64-char hex string.", file=sys.stderr)
+    # Resolve the MuleSoft-native PBKDF2 KDF parameters from connector config and
+    # fail before touching the DB if any are missing.
+    password = get_connector_secrets_key()
+    if not password:
+        print(
+            "ERROR: CONNECTOR_SECRETS_KEY (or VAULT_DATA_KEY fallback) must be set.",
+            file=sys.stderr,
+        )
         return 2
+    salt = get_connector_kdf_salt()
+    if not salt:
+        print("ERROR: CONNECTOR_KDF_SALT must be set.", file=sys.stderr)
+        return 2
+    iterations = get_connector_kdf_iterations()
 
     client_id = _require_env("CRM_SEED_CLIENT_ID")
     client_secret = _require_env("CRM_SEED_CLIENT_SECRET")
 
-    cid = encrypt_data(client_id, VAULT_DATA_KEY)
-    csec = encrypt_data(client_secret, VAULT_DATA_KEY)
+    # MuleSoft-native single-blob credentials: base64(iv || ciphertext).
+    cid_blob = encrypt_data_pbkdf2_cbc(client_id, password, salt, iterations)
+    csec_blob = encrypt_data_pbkdf2_cbc(client_secret, password, salt, iterations)
 
     db = get_db()
 
@@ -86,18 +114,16 @@ def main() -> int:
         """
         INSERT INTO enterprise_crm_registry (
           crm_id, crm_enterprise_name, crm_type, environment,
-          crm_base_url, crm_token_url, crm_mcp_endpoint,
-          crm_client_id_ciphertext, crm_client_id_iv, crm_client_id_tag,
-          crm_client_secret_ciphertext, crm_client_secret_iv, crm_client_secret_tag,
+          crm_base_url, crm_token_url, crm_mcp_endpoint, crm_delete_endpoint,
+          crm_client_id_blob, crm_client_secret_blob,
           encryption_algorithm, key_id, auth_header_style,
           supports_create, supports_read, supports_update, supports_delete,
           user_object_name, timeout_seconds, retry_count, is_active,
           business_owner, technical_owner, updated_at
         ) VALUES (
           :crm_id, :crm_enterprise_name, :crm_type, :environment,
-          :crm_base_url, :crm_token_url, :crm_mcp_endpoint,
-          :cid_ct, :cid_iv, :cid_tag,
-          :csec_ct, :csec_iv, :csec_tag,
+          :crm_base_url, :crm_token_url, :crm_mcp_endpoint, :crm_delete_endpoint,
+          :cid_blob, :csec_blob,
           :algorithm, :key_id, :auth_header_style,
           TRUE, TRUE, TRUE, :supports_delete,
           'Contact', 30, 3, TRUE,
@@ -107,12 +133,9 @@ def main() -> int:
           crm_base_url = EXCLUDED.crm_base_url,
           crm_token_url = EXCLUDED.crm_token_url,
           crm_mcp_endpoint = EXCLUDED.crm_mcp_endpoint,
-          crm_client_id_ciphertext = EXCLUDED.crm_client_id_ciphertext,
-          crm_client_id_iv = EXCLUDED.crm_client_id_iv,
-          crm_client_id_tag = EXCLUDED.crm_client_id_tag,
-          crm_client_secret_ciphertext = EXCLUDED.crm_client_secret_ciphertext,
-          crm_client_secret_iv = EXCLUDED.crm_client_secret_iv,
-          crm_client_secret_tag = EXCLUDED.crm_client_secret_tag,
+          crm_delete_endpoint = EXCLUDED.crm_delete_endpoint,
+          crm_client_id_blob = EXCLUDED.crm_client_id_blob,
+          crm_client_secret_blob = EXCLUDED.crm_client_secret_blob,
           encryption_algorithm = EXCLUDED.encryption_algorithm,
           key_id = EXCLUDED.key_id,
           auth_header_style = EXCLUDED.auth_header_style,
@@ -130,14 +153,11 @@ def main() -> int:
             "crm_base_url": args.base_url,
             "crm_token_url": args.token_url,
             "crm_mcp_endpoint": args.mcp_endpoint,
-            "cid_ct": cid.ciphertext,
-            "cid_iv": cid.iv,
-            "cid_tag": cid.tag,
-            "csec_ct": csec.ciphertext,
-            "csec_iv": csec.iv,
-            "csec_tag": csec.tag,
-            "algorithm": "aes-256-gcm",
-            "key_id": "vault_data_key_v1",
+            "crm_delete_endpoint": args.delete_endpoint,
+            "cid_blob": cid_blob,
+            "csec_blob": csec_blob,
+            "algorithm": PBKDF2_CBC_ALGORITHM,
+            "key_id": "connector_secrets_key_v1",
             "auth_header_style": "client_id_secret_headers",
             "supports_delete": bool(args.supports_delete),
             "business_owner": args.business_owner,
@@ -166,7 +186,7 @@ def main() -> int:
         f"Seeded enterprise_crm_registry crm_id={args.crm_id} "
         f"environment={args.environment} endpoint_host="
         f"{args.mcp_endpoint.split('/')[2] if '//' in args.mcp_endpoint else 'set'} "
-        "credentials=encrypted(aes-256-gcm) [plaintext never printed]"
+        f"credentials=encrypted({PBKDF2_CBC_ALGORITHM}) [plaintext never printed]"
     )
     return 0
 

@@ -12,7 +12,9 @@ This package organizes Kai routes into logical modules:
 - consent.py: Kai-specific consent grants
 - support.py: Profile support and bug-report messaging via Gmail API
 - agent_chat.py: Gemini-backed Agent text chat with encrypted durable history
+- agent_intro.py: Pre-vault informational/navigation-only One chat (no PKM, no persistence)
 - agent_realtime.py: Minimal OpenAI Realtime endpoint for the Agent chat and voice surface
+- agent_realtime_gemini.py: Gemini Live ephemeral-token endpoint for in-bar full-duplex voice
 - agent_voice.py: Gemini STT adapter for chained Agent voice mode
 - location.py: legacy prototype only; not mounted for product traffic
 
@@ -22,7 +24,9 @@ All sub-routers are aggregated into `kai_router` for backward compatibility.
 from fastapi import APIRouter
 
 from .agent_chat import router as agent_chat_router
+from .agent_intro import router as agent_intro_router
 from .agent_realtime import router as agent_realtime_router
+from .agent_realtime_gemini import router as agent_realtime_gemini_router
 from .agent_voice import router as agent_voice_router
 from .analyze import router as analyze_router
 from .chat import router as chat_router
@@ -55,6 +59,8 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/agent/voice/stt",
     "/agent/voice/tts",
     "/agent/realtime/session",
+    "/agent/realtime/gemini/token",
+    "/agent/realtime/gemini/live",
     "/consent/grant",
     "/analyze",
     "/analyze/stream",
@@ -123,7 +129,9 @@ KAI_ROUTE_CONTRACT_PATHS = [
 # Include all sub-routers (no prefix since main router has /api/kai)
 kai_router.include_router(health_router)
 kai_router.include_router(agent_chat_router)
+kai_router.include_router(agent_intro_router)
 kai_router.include_router(agent_realtime_router)
+kai_router.include_router(agent_realtime_gemini_router)
 kai_router.include_router(agent_voice_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)

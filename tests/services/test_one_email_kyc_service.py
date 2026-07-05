@@ -2604,3 +2604,77 @@ async def test_reject_draft_requires_ready_review_draft():
         )
 
     assert exc.value.code == "ONE_KYC_DRAFT_NOT_READY"
+
+
+def _binding_export(scope, revision, generated_at="2026-06-26T06:10:54+00:00", key="key-1"):
+    return {
+        "scope": scope,
+        "export_revision": revision,
+        "export_generated_at": generated_at,
+        "connector_key_id": key,
+        "connector_wrapping_alg": "X25519-AES256-GCM",
+    }
+
+
+def test_validate_send_export_binding_accepts_broader_bound_scope():
+    """A narrower expected scope (attr.financial.portfolio.*) is satisfied by a
+    broader bound/current export scope (attr.financial.*); the validator must NOT
+    fall back to the identity binding and raise EXPORT_STALE."""
+    service = _service(_FakeDb(), _FakeConsentDb())
+    workflow = {
+        "workflow_id": "wf_scope",
+        "metadata": {
+            "consent_export": _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
+            "consent_exports": [
+                _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
+                _binding_export("attr.financial.*", 2),
+            ],
+        },
+    }
+    # Must not raise: the financial.* binding covers the financial.portfolio.* request.
+    service._validate_send_export_binding(
+        workflow=workflow,
+        export_package=_binding_export("attr.financial.*", 2),
+        expected_scope="attr.financial.portfolio.*",
+    )
+
+
+def test_validate_send_export_binding_still_rejects_revision_drift():
+    """Scope tolerance must not relax data-integrity checks: a revision change
+    between the bound export and the current export still raises EXPORT_STALE."""
+    service = _service(_FakeDb(), _FakeConsentDb())
+    workflow = {
+        "workflow_id": "wf_drift",
+        "metadata": {
+            "consent_exports": [_binding_export("attr.financial.*", 1)],
+        },
+    }
+    with pytest.raises(OneEmailKycError) as exc:
+        service._validate_send_export_binding(
+            workflow=workflow,
+            export_package=_binding_export("attr.financial.*", 2),  # revision 1 -> 2
+            expected_scope="attr.financial.portfolio.*",
+        )
+    assert exc.value.code == "ONE_KYC_DRAFT_EXPORT_STALE"
+
+
+def test_validate_send_export_binding_rejects_unrelated_scope_binding():
+    """If only an identity binding exists, a financial request is reported as
+    binding-missing rather than silently compared against the identity export."""
+    service = _service(_FakeDb(), _FakeConsentDb())
+    workflow = {
+        "workflow_id": "wf_missing",
+        "metadata": {
+            "consent_export": _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
+            "consent_exports": [
+                _binding_export("attr.identity.*", 1, "2026-06-25T23:29:35+00:00"),
+            ],
+        },
+    }
+    with pytest.raises(OneEmailKycError) as exc:
+        service._validate_send_export_binding(
+            workflow=workflow,
+            export_package=_binding_export("attr.financial.*", 2),
+            expected_scope="attr.financial.portfolio.*",
+        )
+    assert exc.value.code == "ONE_KYC_DRAFT_EXPORT_BINDING_MISSING"

@@ -73,7 +73,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_UAT_PHONE_TEST_CODE` | `api/routes/account.py` | UAT test only | Fixed OTP for the UAT phone allowlist. Store in UAT Secret Manager and never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Optional | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
-| `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Optional Agent text chat model override. Defaults to stable `gemini-2.5-pro`. |
+| `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Reserved / not applied. The Agent text chat model is manifest-driven (`hushh_mcp/agents/kai/agent.yaml`, currently `gemini-3.5-flash`); this env var is intentionally ignored (see `test_agent_chat_service_ignores_env_model_override`). To change the chat model, edit the manifest. |
 | `AGENT_GEMINI_VOICE_ENABLED` | `api/routes/kai/agent_voice.py` | No | Agent chained voice kill switch. Defaults enabled; set a disabled flag value to turn off Gemini STT/TTS adapters. |
 | `AGENT_GEMINI_STT_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT model override. Defaults to `gemini-2.5-flash`. |
 | `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT Gemini timeout. Defaults to `30`. |
