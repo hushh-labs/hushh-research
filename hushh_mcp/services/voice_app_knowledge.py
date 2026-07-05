@@ -785,17 +785,18 @@ _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
         "label": "Kai",
         "aliases": ["kai", "kai app", "kai voice"],
         "short": (
-            "Kai is the investor app. Its voice assistant helps with investor profile optimization, "
-            "screen guidance, navigation, approved actions, PKM, and connected Gmail receipt workflows."
+            "One Voice is the direct voice surface. Kai is the finance specialist it can use for "
+            "investor profile optimization, screen guidance, navigation, approved actions, PKM, "
+            "and connected Gmail receipt workflows."
         ),
         "detailed": (
-            "Kai is the investor app for profile optimization and personalized investor guidance. "
-            "The voice assistant lives inside Kai. It can explain screens, navigate the app, start "
-            "approved actions, and use PKM or connected data like Gmail-derived receipt workflows when allowed."
+            "Kai is the investor finance specialist for profile optimization and personalized investor guidance. "
+            "One Voice is the direct voice surface. It can explain screens, navigate the app, start approved "
+            "actions, and use PKM or connected data like Gmail-derived receipt workflows when allowed."
         ),
     },
     "voice_assistant": {
-        "label": "Kai voice assistant",
+        "label": "One Voice",
         "aliases": [
             "voice assistant",
             "kai voice assistant",

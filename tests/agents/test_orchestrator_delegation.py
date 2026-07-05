@@ -80,3 +80,30 @@ def test_handle_message_answers_general_directly_without_delegation():
     result = get_orchestrator().handle_message("Who are you?", "user_one", _orchestrate_token())
     assert result["delegation"] is None
     assert "One" in result["response"]
+
+
+def test_direct_response_persona_lens_investor_vs_ria():
+    investor = get_orchestrator().handle_message(
+        "Who are you?", "user_one", _orchestrate_token(), persona="investor"
+    )
+    ria = get_orchestrator().handle_message(
+        "Who are you?", "user_one", _orchestrate_token(), persona="ria"
+    )
+    assert "your money" in investor["response"]
+    assert "your practice" in ria["response"]
+    # Unknown persona degrades to investor framing (matches persona composer).
+    unknown = get_orchestrator().handle_message(
+        "Who are you?", "user_one", _orchestrate_token(), persona="totally-unknown"
+    )
+    assert "your money" in unknown["response"]
+
+
+def test_adk_delegation_flag_defaults_off(monkeypatch):
+    from hushh_mcp.agents.orchestrator.agent import adk_delegation_enabled
+
+    monkeypatch.delenv("AGENT_ONE_ADK_DELEGATION", raising=False)
+    assert adk_delegation_enabled() is False
+    monkeypatch.setenv("AGENT_ONE_ADK_DELEGATION", "1")
+    assert adk_delegation_enabled() is True
+    monkeypatch.setenv("AGENT_ONE_ADK_DELEGATION", "off")
+    assert adk_delegation_enabled() is False

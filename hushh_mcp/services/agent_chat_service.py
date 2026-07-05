@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
 from uuid import uuid4
 
 import yaml
@@ -50,8 +51,9 @@ Current capability boundary:
 - When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say One cannot save to PKM.
 - Normal finance and app questions should be answered as streaming text. Use concise GitHub-flavored Markdown with headings, lists, links, code, or tables when structure makes the answer easier to scan.
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
-- For Connected Systems / Salesforce CRM, read/create/update requests are frontend tool proposals. Create and update execution requires explicit user approval in Profile > Connected Systems. Delete is blocked in v1.
+- For Connected Systems CRM, read/create/update requests require explicit user approval. Delete is blocked in v1.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
+- "Marketplace" is ambiguous: there are TWO. The Information Marketplace is where the user publishes and prices their own personal-data slices (what they've published, potential earnings). Kai's Market Home is the markets/investing surface. If the user says just "marketplace" without qualifying which, ask a short clarifying question — "Do you mean your Information Marketplace (your personal data slices) or Kai's Market Home (markets)?" — before answering or navigating. Once qualified (e.g. "information marketplace", "data marketplace", or "market home"), proceed to the right one.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
 
@@ -63,8 +65,14 @@ Call exactly one function only when the user clearly asks One to do one of these
 - start stock analysis for a ticker or public company
 - open a Hussh/Kai app surface
 - save, remember, or add durable personal context to the user's PKM
-- read a Salesforce CRM record or propose a Salesforce CRM create/update through Connected Systems
+- read a CRM record or propose a CRM create/update through Connected Systems
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
+
+For CRM read/update planning, extract the requested target scope from the user's wording.
+Use target_scope="all_connected_crm_systems" when the user is asking to list, read, or update every connected brand,
+all brand registries, brand CRMs, or all connected CRM systems. Otherwise use target_scope="single_connected_crm_system".
+Map natural contact fields to CRM field API names in additional_fields_json, for example:
+city/current city/new city -> {"MailingCity":"Las Vegas"}.
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
 When unsure, do not call a function.
@@ -79,6 +87,11 @@ _APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
     "analysis_history": ("route.analysis_history", "Open Analysis History"),
     "optimize": ("route.kai_optimize", "Open Optimize Surface"),
     "market_home": ("route.kai_home", "Open Market Home"),
+    # NOTE: the Information Marketplace surface is intentionally NOT exposed to the
+    # LLM action planner. The planner opens surfaces too eagerly (it would navigate
+    # on questions and on a bare "marketplace"). Marketplace navigation is handled
+    # deterministically by _plan_marketplace_navigation (qualified open-intent only),
+    # and marketplace questions are answered by the delegated specialist.
     "connected_systems": ("route.profile_connected_systems", "Open Connected Systems"),
 }
 
@@ -178,8 +191,21 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Optimize Surface",
     ),
     (
+        # Must precede the "market"/kai-home pattern: "marketplace" contains
+        # "market". Cues are QUALIFIED (information/data marketplace, data slices)
+        # so a bare "open marketplace" is left for One to disambiguate rather than
+        # silently opening the wrong surface.
         re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:market|kai home|home)\b",
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*"
+            r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
+            re.IGNORECASE,
+        ),
+        "route.one_marketplace",
+        "Open Information Marketplace",
+    ),
+    (
+        re.compile(
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:market home|kai market|kai home|home)\b",
             re.IGNORECASE,
         ),
         "route.kai_home",
@@ -194,6 +220,15 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Connected Systems",
     ),
 ]
+
+# Deterministic Information Marketplace navigation: only a QUALIFIED open-intent
+# ("open/take me to the information/data marketplace", "open my slices"). A bare
+# "marketplace" deliberately does NOT match so One can disambiguate.
+_INFO_MARKETPLACE_NAV_RE = re.compile(
+    r"\b(?:open|go to|show|take me to|navigate to|bring up|launch)\b.*"
+    r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
+    re.IGNORECASE,
+)
 
 _CRM_READ_PATTERNS = [
     re.compile(
@@ -278,6 +313,7 @@ class AgentChatMessage:
     model: str | None
     created_at: str | None
     completed_at: str | None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -543,6 +579,78 @@ def _is_google_provider_runtime_error(error: Exception) -> bool:
     }
 
 
+# Transient Gemini status codes worth a short, jittered retry: rate limit (429),
+# and the overloaded/unavailable family (500/503). Auth/quota-config errors
+# (401/403/404) are deliberately excluded - retrying those is pointless.
+_RETRYABLE_GEMINI_STATUS = {429, 500, 503}
+
+
+def _is_retryable_gemini_error(error: Exception) -> bool:
+    status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
+    if isinstance(status_code, int) and status_code in _RETRYABLE_GEMINI_STATUS:
+        return True
+    status_value = str(getattr(error, "status", "") or "").upper()
+    return status_value in {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"}
+
+
+def _jittered_backoff_seconds(
+    attempt: int, *, base_delay: float = 0.5, max_delay: float = 8.0
+) -> float:
+    """Decorrelated jittered exponential backoff to avoid retry thundering-herd."""
+    import random
+
+    exponent = max(0, attempt - 1)
+    ceiling = min(base_delay * (2**exponent), max_delay)
+    # Jitter here is for retry timing only, not security; pseudo-random is fine.
+    return (
+        random.uniform(base_delay, ceiling)  # noqa: S311
+        if ceiling > base_delay
+        else base_delay
+    )
+
+
+async def _retry_transient_gemini(
+    operation: "Callable[[], Awaitable[Any]]",
+    *,
+    max_attempts: int = 3,
+    phase: str,
+) -> Any:
+    """Run an idempotent Gemini call with jittered backoff on transient errors.
+
+    Only safe for non-streaming, idempotent operations (e.g. action planning).
+    Never use for the token stream, where a retry would duplicate output.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await operation()
+        except genai_errors.APIError as error:
+            last_error = error
+            if attempt >= max_attempts or not _is_retryable_gemini_error(error):
+                raise
+        except Exception as error:  # noqa: BLE001 - bounded to provider errors below
+            last_error = error
+            if (
+                attempt >= max_attempts
+                or not _is_google_provider_runtime_error(error)
+                or not _is_retryable_gemini_error(error)
+            ):
+                raise
+        delay = _jittered_backoff_seconds(attempt)
+        logger.info(
+            "agent_chat_transient_retry phase=%s attempt=%d/%d delay=%.2fs error=%s",
+            phase,
+            attempt,
+            max_attempts,
+            delay,
+            last_error.__class__.__name__ if last_error else "unknown",
+        )
+        await asyncio.sleep(delay)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("retry loop exited without result")
+
+
 def _runtime_provider_error_code(detail: dict[str, Any]) -> str:
     likely_issue = str(detail.get("likely_issue") or "")
     if likely_issue == "invalid_or_unauthorized_api_key":
@@ -764,20 +872,23 @@ def _agent_action_tool() -> genai_types.Tool:
             genai_types.FunctionDeclaration(
                 name="read_crm_record",
                 description=(
-                    "Open the Connected Systems Salesforce CRM read workflow. Use when the "
+                    "Open the Connected Systems CRM read workflow. Use when the "
                     "user asks to read, fetch, search, or look up a CRM Contact record."
                 ),
                 parameters=_schema_object(
                     {
                         "email": _schema_string("Contact email if the user supplied it."),
                         "phone": _schema_string("Contact phone if the user supplied it."),
+                        "target_scope": _schema_string(
+                            "single_connected_crm_system or all_connected_crm_systems."
+                        ),
                     }
                 ),
             ),
             genai_types.FunctionDeclaration(
                 name="propose_crm_create",
                 description=(
-                    "Open the Connected Systems Salesforce CRM create proposal workflow. "
+                    "Open the Connected Systems CRM create proposal workflow. "
                     "Execution will still require explicit user approval."
                 ),
                 parameters=_schema_object(
@@ -787,7 +898,7 @@ def _agent_action_tool() -> genai_types.Tool:
                         "first_name": _schema_string("Contact first name if supplied."),
                         "last_name": _schema_string("Contact last name if supplied."),
                         "additional_fields_json": _schema_string(
-                            "Optional JSON object string for supported Salesforce fields."
+                            "Optional JSON object string for supported CRM fields."
                         ),
                     }
                 ),
@@ -795,16 +906,20 @@ def _agent_action_tool() -> genai_types.Tool:
             genai_types.FunctionDeclaration(
                 name="propose_crm_update",
                 description=(
-                    "Open the Connected Systems Salesforce CRM update proposal workflow. "
+                    "Open the Connected Systems CRM update proposal workflow. "
                     "Execution will still require explicit user approval."
                 ),
                 parameters=_schema_object(
                     {
-                        "record_id": _schema_string(
-                            "Salesforce record Id if the user supplied it."
+                        "record_id": _schema_string("CRM record Id if the user supplied it."),
+                        "email": _schema_string("Contact email if the user supplied it."),
+                        "phone": _schema_string("Contact phone if the user supplied it."),
+                        "target_scope": _schema_string(
+                            "single_connected_crm_system or all_connected_crm_systems."
                         ),
                         "additional_fields_json": _schema_string(
-                            "Optional JSON object string for supported Salesforce fields to update."
+                            "Optional JSON object string for supported CRM fields to update. "
+                            'Use CRM field API names, for example {"MailingCity":"Las Vegas"}.'
                         ),
                     }
                 ),
@@ -1181,9 +1296,13 @@ class AgentChatService:
         status: MessageStatus,
         model: str | None = None,
         error_code: str | None = None,
+        metadata: dict | None = None,
     ) -> AgentChatMessage:
         message_id = str(uuid4())
         encrypted = self._encrypt_text(content)
+        encrypted_metadata = (
+            self._encrypt_text(json.dumps(metadata)) if metadata is not None else None
+        )
         result = await self._execute_raw(
             """
             INSERT INTO agent_chat_messages (
@@ -1198,6 +1317,10 @@ class AgentChatService:
               content_algorithm,
               model,
               error_code,
+              metadata_ciphertext,
+              metadata_iv,
+              metadata_tag,
+              metadata_algorithm,
               completed_at
             )
             VALUES (
@@ -1212,6 +1335,10 @@ class AgentChatService:
               :content_algorithm,
               :model,
               :error_code,
+              :metadata_ciphertext,
+              :metadata_iv,
+              :metadata_tag,
+              :metadata_algorithm,
               now()
             )
             RETURNING *
@@ -1228,6 +1355,12 @@ class AgentChatService:
                 "content_algorithm": encrypted.algorithm,
                 "model": model,
                 "error_code": error_code,
+                "metadata_ciphertext": encrypted_metadata.ciphertext
+                if encrypted_metadata
+                else None,
+                "metadata_iv": encrypted_metadata.iv if encrypted_metadata else None,
+                "metadata_tag": encrypted_metadata.tag if encrypted_metadata else None,
+                "metadata_algorithm": encrypted_metadata.algorithm if encrypted_metadata else None,
             },
         )
         await self._execute_raw(
@@ -1361,37 +1494,52 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
         screen_context: dict[str, Any] | None = None,
+        deterministic_crm_first: bool = True,
     ) -> AgentChatActionPlan | None:
         current_screen = _current_screen_from_context(screen_context)
 
-        crm_action = self._plan_crm_action(user_message)
-        if crm_action is not None:
-            return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
+        if deterministic_crm_first:
+            crm_action = self._plan_crm_action(user_message)
+            if crm_action is not None:
+                return _enrich_plan_with_manifest(crm_action, current_screen=current_screen)
 
         deterministic_block = self._plan_blocked_action(user_message)
         if deterministic_block is not None:
             return deterministic_block
 
+        # Deterministic Information Marketplace navigation (qualified open-intent
+        # only), decided BEFORE the LLM planner so questions and a bare
+        # "marketplace" are never auto-navigated by the model.
+        marketplace_nav = self._plan_marketplace_navigation(user_message)
+        if marketplace_nav is not None:
+            return _enrich_plan_with_manifest(marketplace_nav, current_screen=current_screen)
+
         try:
-            response = await runtime_client.aio.models.generate_content(
-                model=runtime_model,
-                contents=self._build_action_planning_contents(
-                    user_message=user_message,
-                    history=history,
-                    pkm_context=pkm_context,
-                ),
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=AGENT_ACTION_PLANNER_PROMPT,
-                    temperature=0.0,
-                    max_output_tokens=256,
-                    tools=[_agent_action_tool()],
-                    automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
-                        disable=True
+            # Action planning is a non-streaming, idempotent call, so a short
+            # jittered retry on transient 429/503 is safe (unlike the token
+            # stream, where a retry would duplicate output).
+            response = await _retry_transient_gemini(
+                lambda: runtime_client.aio.models.generate_content(
+                    model=runtime_model,
+                    contents=self._build_action_planning_contents(
+                        user_message=user_message,
+                        history=history,
+                        pkm_context=pkm_context,
                     ),
-                    tool_config=genai_types.ToolConfig(
-                        function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=AGENT_ACTION_PLANNER_PROMPT,
+                        temperature=0.0,
+                        max_output_tokens=256,
+                        tools=[_agent_action_tool()],
+                        automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                            disable=True
+                        ),
+                        tool_config=genai_types.ToolConfig(
+                            function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
+                        ),
                     ),
                 ),
+                phase="planner",
             )
             for function_call in self._function_calls_from_response(response):
                 action_plan = self._action_plan_from_function_call(function_call)
@@ -1477,6 +1625,22 @@ class AgentChatService:
                 )
         return None
 
+    def _plan_marketplace_navigation(self, user_message: str) -> AgentChatActionPlan | None:
+        """Deterministic navigation to the Information Marketplace on a QUALIFIED
+        open-intent. Bare "marketplace" and questions return None (One handles them:
+        disambiguation for bare, delegated answer for questions)."""
+        message = " ".join(str(user_message or "").split())
+        if not message or not _INFO_MARKETPLACE_NAV_RE.search(message):
+            return None
+        return AgentChatActionPlan(
+            call_id=_tool_call_id(),
+            action_id="route.one_marketplace",
+            label="Open Information Marketplace",
+            execution="frontend",
+            slots={},
+            message="Open Information Marketplace in the app.",
+        )
+
     def _plan_crm_action(self, user_message: str) -> AgentChatActionPlan | None:
         message = " ".join(str(user_message or "").split())
         if not message:
@@ -1486,11 +1650,11 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.delete",
-                label="Blocked Salesforce CRM Delete",
+                label="Blocked CRM Delete",
                 execution="blocked",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
                 message=(
-                    "Salesforce CRM delete is blocked in Agent v1. Open Connected Systems "
+                    "CRM delete is blocked in Agent v1. Open Connected Systems "
                     "and use a maintainer-only test path if this is intentional."
                 ),
                 reason="crm_delete_manual_only",
@@ -1500,7 +1664,7 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.update.propose",
-                label="Propose Salesforce CRM Update",
+                label="Propose CRM Update",
                 execution="frontend",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
                 message="Opening Connected Systems so you can review and approve the CRM update.",
@@ -1510,7 +1674,7 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.create.propose",
-                label="Propose Salesforce CRM Create",
+                label="Propose CRM Create",
                 execution="frontend",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
                 message="Opening Connected Systems so you can review and approve the CRM create.",
@@ -1520,10 +1684,10 @@ class AgentChatService:
             return AgentChatActionPlan(
                 call_id=_tool_call_id(),
                 action_id="connected_system.crm.read",
-                label="Read Salesforce CRM Record",
+                label="Read CRM Record",
                 execution="frontend",
                 slots={"systemId": "salesforce-fsc-customer0", "objectType": "Contact"},
-                message="Opening Connected Systems for the Salesforce CRM read.",
+                message="Opening Connected Systems for the CRM read.",
             )
 
         return None
@@ -1717,25 +1881,29 @@ class AgentChatService:
             )
 
         if name == "read_crm_record":
+            scope = str(args.get("target_scope") or args.get("scope") or "").strip()
+            slots: dict[str, Any] = {
+                "systemId": "salesforce-fsc-customer0",
+                "objectType": "Contact",
+                "email": str(args.get("email") or "").strip(),
+                "phone": str(args.get("phone") or "").strip(),
+            }
+            if scope == "all_connected_crm_systems":
+                slots["scope"] = scope
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.read",
-                label="Read Salesforce CRM Record",
+                label="Read CRM Record",
                 execution="frontend",
-                slots={
-                    "systemId": "salesforce-fsc-customer0",
-                    "objectType": "Contact",
-                    "email": str(args.get("email") or "").strip(),
-                    "phone": str(args.get("phone") or "").strip(),
-                },
-                message="Opening Connected Systems for the Salesforce CRM read.",
+                slots=slots,
+                message="Opening Connected Systems for the CRM read.",
             )
 
         if name == "propose_crm_create":
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.create.propose",
-                label="Propose Salesforce CRM Create",
+                label="Propose CRM Create",
                 execution="frontend",
                 slots={
                     "systemId": "salesforce-fsc-customer0",
@@ -1750,17 +1918,23 @@ class AgentChatService:
             )
 
         if name == "propose_crm_update":
+            scope = str(args.get("target_scope") or args.get("scope") or "").strip()
+            slots: dict[str, Any] = {
+                "systemId": "salesforce-fsc-customer0",
+                "objectType": "Contact",
+                "id": str(args.get("record_id") or "").strip(),
+                "email": str(args.get("email") or "").strip(),
+                "phone": str(args.get("phone") or "").strip(),
+                "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
+            }
+            if scope == "all_connected_crm_systems":
+                slots["scope"] = scope
             return AgentChatActionPlan(
                 call_id=call_id,
                 action_id="connected_system.crm.update.propose",
-                label="Propose Salesforce CRM Update",
+                label="Propose CRM Update",
                 execution="frontend",
-                slots={
-                    "systemId": "salesforce-fsc-customer0",
-                    "objectType": "Contact",
-                    "id": str(args.get("record_id") or "").strip(),
-                    "additionalFieldsJson": str(args.get("additional_fields_json") or "").strip(),
-                },
+                slots=slots,
                 message="Opening Connected Systems so you can review and approve the CRM update.",
             )
 
@@ -1819,6 +1993,15 @@ class AgentChatService:
         except Exception:
             logger.warning("agent_chat.message_decrypt_failed message_id=%s", row.get("id"))
             content = ""
+        metadata: dict | None = None
+        if row.get("metadata_ciphertext"):
+            try:
+                raw = self._decrypt_text(row, "metadata")
+                parsed = json.loads(raw) if raw else None
+                metadata = parsed if isinstance(parsed, dict) else None
+            except Exception:
+                logger.warning("agent_chat.metadata_decrypt_failed message_id=%s", row.get("id"))
+                metadata = None
         return AgentChatMessage(
             id=str(row.get("id") or ""),
             conversation_id=str(row.get("conversation_id") or ""),
@@ -1829,6 +2012,7 @@ class AgentChatService:
             model=str(row.get("model")) if row.get("model") else None,
             created_at=_iso(row.get("created_at")),
             completed_at=_iso(row.get("completed_at")),
+            metadata=metadata,
         )
 
 

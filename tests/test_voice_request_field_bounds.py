@@ -34,6 +34,7 @@ from api.routes.kai.voice import (
     VoiceRealtimeSessionRequest,
     VoiceResponsePayload,
     VoiceTTSRequest,
+    _measure_voice_payload_sections,
 )
 
 # ---------------------------------------------------------------------------
@@ -79,6 +80,25 @@ class TestVoicePlanRequestBounds:
     def test_valid_request_accepted(self):
         req = VoicePlanRequest(user_id="uid123", transcript="What is AAPL?")
         assert req.transcript == "What is AAPL?"
+
+    def test_oversized_nested_context_is_budget_violation(self):
+        measurements = _measure_voice_payload_sections(
+            {
+                "context": {},
+                "context_structured": {
+                    "one_voice_context": {
+                        "visible_modules": ["module"] * 65,
+                    }
+                },
+                "memory_short": [],
+                "memory_retrieved": [],
+            }
+        )
+
+        assert any(
+            violation.startswith("context_structured.one_voice_context.visible_modules:list_items>")
+            for violation in measurements["violations"]
+        )
 
 
 # ---------------------------------------------------------------------------

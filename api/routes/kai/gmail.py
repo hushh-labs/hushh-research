@@ -300,6 +300,29 @@ async def gmail_receipts(
         raise _to_http_exception(exc, operation="receipts") from exc
 
 
+@router.get("/gmail/nudges/{user_id}")
+async def gmail_nudges(
+    user_id: str = Path(..., min_length=1, max_length=128),
+    limit: int = Query(10, ge=1, le=50),
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Derive inbox flashcard nudges ("Needs a reply") from the connected Gmail
+    account. Reuses the receipts gmail.readonly connection — no new scope. Verifies
+    VAULT_OWNER consent before any inbox access."""
+    verify_user_id_match(firebase_uid, user_id)
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+    try:
+        return await _service().list_nudges(user_id=user_id, limit=limit)
+    except Exception as exc:
+        logger.exception("kai.gmail.nudges_failed user_id=%s", user_id)
+        raise _to_http_exception(exc, operation="nudges") from exc
+
+
 @router.post("/gmail/receipts-memory/preview")
 async def gmail_receipts_memory_preview(
     payload: GmailReceiptMemoryPreviewRequest,

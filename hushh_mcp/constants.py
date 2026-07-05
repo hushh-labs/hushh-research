@@ -61,6 +61,7 @@ class ConsentScope(str, Enum):
     AGENT_KYC_PROCESS = "agent.kyc.process"
     AGENT_KYC_DRAFT = "agent.kyc.draft"
     AGENT_KYC_WRITEBACK = "agent.kyc.writeback"
+    AGENT_KYC_REDRAFT_LLM = "agent.kyc.redraft.llm"
 
     # ==================== LIVE LOCATION CAPABILITIES ====================
     # Capability scopes for One Location Agent. These are workflow/action
@@ -70,6 +71,16 @@ class ConsentScope(str, Enum):
     CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
     CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
     CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
+
+    # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
+    # Capability scopes for the One Personal Information Agent — the marketplace
+    # chatbot that lets an owner query, publish, and manage their own PKM data
+    # slices. Workflow/action scopes, not durable attr.* PKM scopes. VIEW is
+    # read-only (list published slices + potential earnings); PUBLISH and MANAGE
+    # gate the write/consent paths (later slices).
+    CAP_PKM_MARKETPLACE_VIEW = "cap.pkm.marketplace.view"
+    CAP_PKM_MARKETPLACE_PUBLISH = "cap.pkm.marketplace.publish"
+    CAP_PKM_MARKETPLACE_MANAGE = "cap.pkm.marketplace.manage"
 
     # ==================== EXTERNAL DATA SOURCES ====================
     # Hybrid mode - per-request consent
@@ -227,6 +238,9 @@ class ConsentScope(str, Enum):
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,
+            cls.CAP_PKM_MARKETPLACE_VIEW,
+            cls.CAP_PKM_MARKETPLACE_PUBLISH,
+            cls.CAP_PKM_MARKETPLACE_MANAGE,
         ]
 
     @classmethod
@@ -249,6 +263,7 @@ AGENT_PORTS = {
     "agent_kai": 10005,  # Kai investment analysis agent
     "agent_nav": 10006,  # Nav privacy and consent guardian
     "agent_kyc": 10007,  # KYC identity workflow specialist
+    "agent_personal_information": 10008,  # One marketplace data-slice agent
 }
 
 # ==================== Token & Link Prefixes ====================

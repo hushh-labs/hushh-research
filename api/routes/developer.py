@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
+import json
 import logging
 import time
 import uuid
-from typing import Any, Literal, Optional, TypedDict, cast
+from typing import Any, AsyncGenerator, Literal, Optional, TypedDict, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from sse_starlette.sse import EventSourceResponse
 
 from api.developer_auth import (
     authenticate_developer_principal,
@@ -36,12 +39,23 @@ router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
-_STATIC_REQUESTABLE_SCOPES: frozenset[str] = frozenset({"pkm.read", "pkm.write"})
+_STATIC_REQUESTABLE_SCOPES: frozenset[str] = frozenset(
+    {"agent.one.orchestrate", "pkm.read", "pkm.write"}
+)
 _MIN_PUBLIC_EXPIRY_HOURS = 24
 _MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
 _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
 _MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 24 * 60
 _CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONSENT_REQUEST_STATUS_MAP = {
+    "REQUESTED": "pending",
+    "CONSENT_GRANTED": "granted",
+    "CONSENT_DENIED": "denied",
+    "TIMEOUT": "expired",
+    "CANCELLED": "cancelled",
+    "REVOKED": "revoked",
+}
+_TERMINAL_CONSENT_STATUSES = {"granted", "denied", "expired", "cancelled", "revoked"}
 
 
 class DeveloperScopeDescriptor(BaseModel):
@@ -306,6 +320,10 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
         DeveloperScopeDescriptor(
             name="pkm.write",
             description="Write to the user personal knowledge model in governed flows.",
+        ),
+        DeveloperScopeDescriptor(
+            name="agent.one.orchestrate",
+            description="Coordinate a user request through Agent One and its specialist handoff layer.",
         ),
         DeveloperScopeDescriptor(
             name="attr.{domain}.*",
@@ -584,6 +602,121 @@ def _offer_response_fields(metadata: dict[str, object] | None) -> dict[str, obje
             "settlement_rail": "ap2",
         }
     }
+
+
+def _developer_consent_status_payload(
+    *,
+    latest: dict[str, Any],
+    user_id: str,
+    request_id: str,
+    principal: DeveloperPrincipal,
+) -> dict[str, Any]:
+    latest_action = str(latest.get("action") or "").strip().upper()
+    resolved_status = _CONSENT_REQUEST_STATUS_MAP.get(latest_action, "unknown")
+    metadata = _metadata_object_map(latest.get("metadata"))
+    approval_timeout_at = latest.get("poll_timeout_at") or metadata.get("approval_timeout_at")
+    consent_token = latest.get("token_id") if latest_action == "CONSENT_GRANTED" else None
+    return {
+        "status": resolved_status,
+        "user_id": user_id,
+        "request_id": request_id,
+        "scope": latest.get("scope"),
+        "requested_scope": str(latest.get("scope") or "") or None,
+        "granted_scope": str(latest.get("scope") or "") or None,
+        "coverage_kind": "exact" if latest.get("scope") else None,
+        "covered_by_existing_grant": False,
+        "consent_token": consent_token,
+        "expires_at": latest.get("expires_at"),
+        "poll_timeout_at": _optional_int(latest.get("poll_timeout_at")),
+        "approval_timeout_at": _optional_int(approval_timeout_at),
+        "approval_timeout_minutes": _optional_int(metadata.get("approval_timeout_minutes")),
+        "expiry_hours": _optional_int(metadata.get("expiry_hours")),
+        "request_url": _request_url_from_metadata(request_id, metadata),
+        "requester_label": _optional_str(metadata.get("requester_label")),
+        "requester_image_url": _optional_str(metadata.get("requester_image_url")),
+        "reason": _optional_str(metadata.get("reason")),
+        "app_id": principal.app_id,
+        "app_display_name": principal.display_name,
+        "terminal": resolved_status in _TERMINAL_CONSENT_STATUSES,
+    }
+
+
+async def _developer_consent_event_generator(
+    *,
+    request: Request,
+    user_id: str,
+    request_id: str,
+    principal: DeveloperPrincipal,
+    initial_latest: dict[str, Any],
+) -> AsyncGenerator[dict[str, str], None]:
+    from api.consent_listener import (
+        subscribe_developer_consent_queue,
+        unsubscribe_developer_consent_queue,
+    )
+
+    queue = await subscribe_developer_consent_queue(
+        request_id=request_id,
+        agent_id=principal.agent_id,
+    )
+    try:
+        initial_payload = _developer_consent_status_payload(
+            latest=initial_latest,
+            user_id=user_id,
+            request_id=request_id,
+            principal=principal,
+        )
+        yield {
+            "event": "snapshot",
+            "id": f"{request_id}:snapshot",
+            "data": json.dumps(initial_payload),
+        }
+        if initial_payload["terminal"]:
+            return
+
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=30)
+            except asyncio.TimeoutError:
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps(
+                        {
+                            "request_id": request_id,
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    ),
+                }
+                continue
+
+            if str(data.get("request_id") or "") != request_id:
+                continue
+            if str(data.get("agent_id") or "") != principal.agent_id:
+                continue
+            payload = _developer_consent_status_payload(
+                latest=data,
+                user_id=user_id,
+                request_id=request_id,
+                principal=principal,
+            )
+            event_id = (
+                f"{request_id}:{data.get('action') or 'UNKNOWN'}:"
+                f"{data.get('issued_at') or int(time.time() * 1000)}"
+            )
+            yield {
+                "event": "consent_update",
+                "id": event_id,
+                "data": json.dumps(payload),
+            }
+            if payload["terminal"]:
+                return
+    finally:
+        await unsubscribe_developer_consent_queue(
+            request_id=request_id,
+            agent_id=principal.agent_id,
+            queue=queue,
+        )
 
 
 def _resolve_principal(
@@ -1006,6 +1139,7 @@ async def get_consent_status(
                     str(latest.get("token_id"))
                 )
             export_fields = _export_fields(export_metadata)
+            consent_token = latest.get("token_id") if latest_action == "CONSENT_GRANTED" else None
             return DeveloperConsentStatusResponse(
                 status=resolved_status,
                 user_id=user_id,
@@ -1015,7 +1149,7 @@ async def get_consent_status(
                 coverage_kind="exact" if latest.get("scope") else None,
                 covered_by_existing_grant=False,
                 request_id=request_id,
-                consent_token=latest.get("token_id"),
+                consent_token=consent_token,
                 expires_at=latest.get("expires_at"),
                 export_revision=export_fields["export_revision"],
                 export_generated_at=export_fields["export_generated_at"],
@@ -1051,6 +1185,46 @@ async def get_consent_status(
         app_id=principal.app_id,
         app_display_name=principal.display_name,
         message="No matching consent state was found for this app.",
+    )
+
+
+@developer_api_router.get("/consent-events")
+async def stream_consent_events(
+    request: Request,
+    user_id: str = Query(..., alias="user_id", max_length=128),
+    request_id: str = Query(..., max_length=200),
+    token: Optional[str] = Query(None, max_length=2048),
+    authorization: Optional[str] = Header(None),
+):
+    principal = _resolve_principal(
+        request=request,
+        token=token,
+        authorization=authorization,
+    )
+    latest = await ConsentDBService().get_request_status(user_id, request_id)
+    if not latest or latest.get("agent_id") != principal.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "CONSENT_REQUEST_NOT_FOUND",
+                "message": "No matching consent request was found for this developer app.",
+            },
+        )
+
+    return EventSourceResponse(
+        _developer_consent_event_generator(
+            request=request,
+            user_id=user_id,
+            request_id=request_id,
+            principal=principal,
+            initial_latest=latest,
+        ),
+        headers={
+            "Cache-Control": "no-store, no-cache",
+            "Pragma": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

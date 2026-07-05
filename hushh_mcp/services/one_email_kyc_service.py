@@ -34,6 +34,25 @@ from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_au
 from db.db_client import get_db
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
+from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.constants import (
+    KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
+    KAI_LLM_TEMPERATURE,
+    ConsentScope,
+)
+from hushh_mcp.operons.kai import llm as _kai_llm
+from hushh_mcp.operons.kai.llm import (
+    _gemini_client,
+    _gemini_model_name,
+    _gemini_unavailable_payload,
+    _require_gemini_ready,
+)
+
+try:
+    from google.genai import types as _genai_types  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    _genai_types = None  # type: ignore
+
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url, frontend_origin
@@ -3441,15 +3460,33 @@ class OneEmailKycService:
         if expected_scope and isinstance(metadata, dict):
             exports = metadata.get("consent_exports")
             if isinstance(exports, list):
-                workflow_export = next(
-                    (
-                        item
-                        for item in exports
-                        if isinstance(item, dict)
-                        and _clean_text(item.get("scope")) == _clean_text(expected_scope)
-                    ),
-                    workflow_export,
-                )
+                scoped_entries = [item for item in exports if isinstance(item, dict)]
+                if scoped_entries:
+                    expected_clean = _clean_text(expected_scope)
+                    # Prefer an exact-scope binding; otherwise accept a bound
+                    # export whose scope SATISFIES the expected scope (a broader
+                    # grant like attr.financial.* covers attr.financial.portfolio.*).
+                    # Never fall back to an unrelated-scope binding (e.g. the
+                    # identity export), which would compare a financial export
+                    # against an identity snapshot and guarantee a false stale
+                    # mismatch whenever the request scope is narrower than the
+                    # actual export scope.
+                    workflow_export = next(
+                        (
+                            item
+                            for item in scoped_entries
+                            if _clean_text(item.get("scope")) == expected_clean
+                        ),
+                        None,
+                    ) or next(
+                        (
+                            item
+                            for item in scoped_entries
+                            if _clean_text(item.get("scope"))
+                            and scope_matches(_clean_text(item.get("scope")), expected_clean)
+                        ),
+                        None,
+                    )
         if not isinstance(workflow_export, dict):
             raise OneEmailKycError(
                 "KYC workflow is not bound to the approved export revision.",
@@ -3465,8 +3502,25 @@ class OneEmailKycService:
                 status_code=409,
                 code="ONE_KYC_DRAFT_EXPORT_STALE",
             )
+        # Scope is validated by COMPATIBILITY, not byte-equality: a broader
+        # bound/export scope (attr.financial.*) legitimately covers a narrower
+        # expected/current scope (attr.financial.portfolio.*). The remaining
+        # fields must still match exactly — they prove the underlying export
+        # data has not changed since the reply was bound.
+        bound_scope = _clean_text(workflow_export.get("scope"))
+        current_scope = _clean_text(current_export.get("scope"))
+        if (
+            bound_scope
+            and current_scope
+            and not scope_matches(bound_scope, current_scope)
+            and not scope_matches(current_scope, bound_scope)
+        ):
+            raise OneEmailKycError(
+                "KYC approved reply must be regenerated because the approved export changed.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_EXPORT_STALE",
+            )
         compared_fields = (
-            "scope",
             "export_revision",
             "export_generated_at",
             "connector_key_id",
@@ -3882,6 +3936,131 @@ class OneEmailKycService:
                 "client_draft_required": True,
             },
         )
+
+    async def redraft_llm(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        tokenized_template: str,
+        instruction: str,
+        consent_token: str,
+    ) -> dict[str, Any]:
+        """Redact-safe LLM proxy for KYC redraft (Phase 03).
+
+        Accepts a PII-free tokenized template (placeholders like ``{{F0}}``) plus
+        a free-form instruction, validates the ``agent.kyc.redraft.llm`` consent
+        scope, and forwards only the template + instruction to server-side Gemini
+        Vertex (reusing the shared client from ``operons/kai/llm.py``). The
+        rewritten template is returned to the client, which re-substitutes the
+        real values locally.
+
+        Zero-knowledge contract: the template body is NEVER persisted or logged.
+        ``draft_body`` stays NULL. Only the instruction hash + revision metadata
+        are recorded.
+        """
+        # Step 1 — Consent gate (DB-aware so revoked tokens are rejected).
+        valid, reason, _token_obj = await validate_token_with_db(
+            consent_token, ConsentScope.AGENT_KYC_REDRAFT_LLM
+        )
+        if not valid:
+            raise PermissionError(f"KYC LLM redraft denied: {reason}")
+
+        # Step 2 — Workflow must be awaiting user review with a ready draft.
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready for redraft.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
+
+        # Step 3 — Scope-expansion guard. The LLM must not pull in new scopes.
+        if _redraft_requests_more_data(instruction):
+            raise OneEmailKycError(
+                "The instruction requests data outside the approved scopes.",
+                status_code=422,
+                code="ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED",
+            )
+
+        # Step 4 — Gemini readiness (lazy-inits the shared Vertex client).
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC LLM redraft")
+
+        # Step 5 — Token-preserving prompt.
+        system_instruction = (
+            "You are a professional email rewriter. Your task is to rewrite an email draft "
+            "according to the user's instruction. The draft contains placeholder tokens in the "
+            "format {{F0}}, {{F1}}, {{F2}}, etc. These tokens represent private information "
+            "that you must not alter. Rules: (1) Preserve EVERY placeholder token exactly as-is "
+            "— same spelling, same braces, same index. (2) Do not add, remove, rename, "
+            "duplicate, or invent any placeholder. (3) Output ONLY the rewritten email text, "
+            "no commentary, no markdown fences."
+        )
+        user_message = (
+            f"Instruction: {_truncate(instruction, 1000)}\n\n"
+            f"Email to rewrite:\n{tokenized_template}"
+        )
+
+        # Step 6 — Call Gemini via the shared client (no new client instantiated).
+        # Prefer the (possibly test-patched) module-level globals; fall back to the
+        # live values in the kai.llm module after lazy init.
+        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+        model_name = _gemini_model_name or _kai_llm._gemini_model_name
+        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+        if client is None or types_mod is None:
+            return _gemini_unavailable_payload("Gemini unavailable for KYC LLM redraft")
+
+        config = types_mod.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=KAI_LLM_TEMPERATURE,
+            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
+        )
+
+        def _invoke() -> Any:
+            return client.models.generate_content(
+                model=model_name,
+                contents=user_message,
+                config=config,
+            )
+
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, _invoke)
+        rewritten_template = getattr(response, "text", None)
+        if not rewritten_template:
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+                if parts:
+                    rewritten_template = getattr(parts[0], "text", None)
+        rewritten_template = (rewritten_template or "").strip()
+
+        # Step 7 — Log the instruction hash only. NEVER log the template body.
+        instruction_hash = hashlib.sha256(instruction.encode("utf-8")).hexdigest()
+        logger.info(
+            "one.kyc.redraft_llm user_id=%s workflow_id=%s instruction_hash=%s",
+            user_id,
+            workflow_id,
+            instruction_hash,
+        )
+
+        # Step 8 — Update workflow metadata only (no draft_body).
+        metadata = workflow.get("metadata", {})
+        revision = int(metadata.get("draft_revision") or 1) + 1
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **metadata,
+                "draft_revision": revision,
+                "last_redraft_source": "llm",
+                "last_redraft_at": _utcnow().isoformat(),
+                "last_redraft_instruction_hash": instruction_hash,
+                "client_draft_required": True,
+            },
+        )
+
+        # Step 9 — Return the rewritten template for client-side re-substitution.
+        return {"rewritten_template": rewritten_template}
 
     async def reject_draft(
         self,

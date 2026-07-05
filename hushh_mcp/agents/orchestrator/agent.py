@@ -25,6 +25,19 @@ from .tools import (
 
 logger = logging.getLogger(__name__)
 
+# Feature flag: ADK-native delegation (LLM tool loop / transfer_to_agent) for
+# One stays OFF by default until the Phase 4 realtime/agent benchmark justifies
+# adopting the ADK runtime over the deterministic classifier. When disabled, the
+# deterministic, fail-closed classifier is the sole router, which is the proven,
+# testable path. Set AGENT_ONE_ADK_DELEGATION=1 (or true/on/yes) to opt in.
+_ADK_DELEGATION_ENABLED_VALUES = {"1", "true", "on", "yes", "enabled"}
+
+
+def adk_delegation_enabled() -> bool:
+    return (
+        os.getenv("AGENT_ONE_ADK_DELEGATION", "").strip().lower() in _ADK_DELEGATION_ENABLED_VALUES
+    )
+
 
 class OrchestratorAgent(HushhAgent):
     """
@@ -45,7 +58,13 @@ class OrchestratorAgent(HushhAgent):
             required_scopes=self.manifest.required_scopes,
         )
 
-    def handle_message(self, message: str, user_id: str, consent_token: str = "") -> Dict[str, Any]:
+    def handle_message(
+        self,
+        message: str,
+        user_id: str,
+        consent_token: str = "",
+        persona: str = "investor",
+    ) -> Dict[str, Any]:
         """
         Main entry point for routing.
 
@@ -84,7 +103,7 @@ class OrchestratorAgent(HushhAgent):
         classification = classify_specialist_domain(message)
         if classification is None:
             return {
-                "response": self._direct_response(message),
+                "response": self._direct_response(message, persona=persona),
                 "delegation": None,
             }
 
@@ -105,12 +124,20 @@ class OrchestratorAgent(HushhAgent):
         }
 
     @staticmethod
-    def _direct_response(message: str) -> str:
-        """Lightweight first-line reply for general (non-specialist) requests."""
+    def _direct_response(message: str, persona: str = "investor") -> str:
+        """Lightweight first-line reply for general (non-specialist) requests.
+
+        The persona lens keeps One's framing consistent with the realtime-voice
+        persona composer (investor vs RIA) from Phase 3.
+        """
+        from hushh_mcp.services.agent_persona import normalize_persona
+
+        normalized = normalize_persona(persona)
+        practice = "your practice" if normalized == "ria" else "your money"
         return (
-            "Hi, I'm One, your personal agent in Hussh. I can bring in finance (Kai), "
-            "privacy and consent (Nav), or identity (KYC) specialists when you need them. "
-            "What would you like to do?"
+            "Hi, I'm One, your personal agent in Hussh. I can bring in finance (Kai) "
+            f"for {practice}, privacy and consent (Nav), or identity (KYC) specialists "
+            "when you need them. What would you like to do?"
         )
 
 
