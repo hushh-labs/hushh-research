@@ -16,6 +16,16 @@ vi.mock("@/lib/one-location/service", () => ({
   },
 }));
 
+vi.mock("@/lib/one-connections/service", () => ({
+  OneConnectionsService: {
+    seedTrustedConnections: vi.fn(async () => ({
+      seeded: 0,
+      existingCount: 0,
+      skippedSelf: 0,
+    })),
+  },
+}));
+
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { OneLocationService } from "@/lib/one-location/service";
 

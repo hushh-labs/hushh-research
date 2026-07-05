@@ -2,6 +2,7 @@
 
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { OneConnectionsService } from "@/lib/one-connections/service";
 
 /**
  * Syncs pre-vault onboarding data to the encrypted PKM after vault unlock.
@@ -15,7 +16,7 @@ export class PostUnlockSyncService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
-  }): Promise<{ onboardingSynced: boolean; sosSeeded: boolean }> {
+  }): Promise<{ onboardingSynced: boolean; sosSeeded: boolean; trustedSeeded: boolean }> {
     const syncResult = await KaiProfileSyncService.syncPendingToVault({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -35,9 +36,20 @@ export class PostUnlockSyncService {
       return { seeded: 0, existingCount: 0, skippedSelf: 0 };
     });
 
+    // Seed the generalized trusted-connections graph (idempotent, gated
+    // server-side on zero edges). Separate from the SOS seed above; a failure
+    // here must not abort onboarding sync.
+    const trustedSeed = await OneConnectionsService.seedTrustedConnections({
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      console.warn("[PostUnlockSyncService] Trusted-connection seed failed:", error);
+      return { seeded: 0, existingCount: 0, skippedSelf: 0 };
+    });
+
     return {
       onboardingSynced: Boolean(syncResult.synced),
       sosSeeded: Boolean(seedResult.seeded),
+      trustedSeeded: Boolean(trustedSeed.seeded),
     };
   }
 }
