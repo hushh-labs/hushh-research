@@ -29,6 +29,7 @@ from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/a2a", tags=["Agent One A2A"])
+well_known_router = APIRouter(tags=["Agent One A2A"])
 
 
 class AgentOneA2AMessageRequest(BaseModel):
@@ -308,6 +309,12 @@ async def _create_or_report_consent_request(
 @router.get("/card")
 async def agent_one_a2a_card() -> dict[str, Any]:
     """Return Agent One capability metadata from the checked-in manifest."""
+    return _agent_card()
+
+
+@well_known_router.get("/.well-known/agent-card.json")
+async def agent_one_well_known_agent_card() -> dict[str, Any]:
+    """Return the public A2A Agent Card at the standard well-known URI."""
     return _agent_card()
 
 

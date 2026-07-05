@@ -194,8 +194,10 @@ not the product owner for live location.
 
 ### Agent One A2A
 
-Agent One exposes a scoped A2A coordination surface. The card endpoint is
-manifest-backed metadata. The message endpoint has two paths:
+Agent One exposes a scoped A2A coordination surface. The standard A2A discovery
+endpoint is `/.well-known/agent-card.json`; `/api/one/a2a/card` remains a Hussh
+compatibility alias. Both return manifest-backed metadata. The message endpoint
+has two paths:
 
 1. With `X-Consent-Token`, the token must validate for `agent_one` with
    `agent.one.orchestrate`; the route derives `userId` from the signed token,
@@ -209,6 +211,7 @@ Specialist work still validates at the specialist boundary.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
+| GET | `/.well-known/agent-card.json` | Public metadata | Standard A2A Agent Card discovery endpoint for Agent One |
 | GET | `/api/one/a2a/card` | Public metadata | Return Agent One manifest, required scope, specialists, and endpoint metadata |
 | POST | `/api/one/a2a/message` | `X-Consent-Token` scoped `agent.one.orchestrate` | Invoke Agent One as the coordinator for a user request; returns either a direct One response or a specialist delegation payload |
 | POST | `/api/one/a2a/message` | Developer `Authorization: Bearer <token>` or legacy `?token=` | Create or report pending Agent One orchestration consent for a resolved user; returns consent request metadata only |

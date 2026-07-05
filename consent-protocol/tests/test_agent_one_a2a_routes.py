@@ -15,6 +15,7 @@ from hushh_mcp.constants import ConsentScope
 def _client() -> TestClient:
     app = FastAPI()
     app.include_router(a2a.router)
+    app.include_router(a2a.well_known_router)
     return TestClient(app)
 
 
@@ -36,6 +37,15 @@ def test_agent_card_is_manifest_backed():
     assert payload["protocol"]["consentHeader"] == "X-Consent-Token"
     assert payload["endpoints"]["message"] == "/api/one/a2a/message"
     assert payload["capabilities"]["specialist_delegation"] is True
+
+
+def test_standard_well_known_agent_card_matches_manifest_card():
+    client = _client()
+    standard = client.get("/.well-known/agent-card.json")
+    compat = client.get("/api/one/a2a/card")
+
+    assert standard.status_code == 200
+    assert standard.json() == compat.json()
 
 
 def test_message_requires_consent_token_or_developer_auth():
