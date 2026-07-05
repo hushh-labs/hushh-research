@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, Inbox, Sparkles } from "lucide-react";
+import { CalendarClock, Inbox } from "lucide-react";
 
 import { Button, morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { formatCents } from "@/lib/services/slice-pricing-service";
@@ -70,11 +70,7 @@ function OpportunityNudgeCard({
   return (
     <div className="rounded-2xl border border-emerald-300/50 bg-emerald-50/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
       <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-emerald-900 dark:text-emerald-200">
-        {isExpiry ? (
-          <CalendarClock className="h-4 w-4 shrink-0" aria-hidden />
-        ) : (
-          <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
-        )}
+        {isExpiry ? <CalendarClock className="h-4 w-4 shrink-0" aria-hidden /> : null}
         <span className="min-w-0">{signal.title}</span>
       </div>
       {signal.body ? (
