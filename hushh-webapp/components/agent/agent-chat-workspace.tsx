@@ -11,6 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -4013,8 +4014,16 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary max-sm:h-11 max-sm:w-11 max-sm:rounded-full dark:border-white/10 dark:bg-white/[0.04]">
-                <Bot className="h-4 w-4" />
+              <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-black/10 bg-black/[0.035] max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[rgba(214,175,106,0.30)] dark:border-white/10 dark:bg-white/[0.04] dark:max-sm:border-[rgba(212,175,106,0.25)]">
+                <Image
+                  src="/one-quiet-emoji.png"
+                  alt="One"
+                  width={762}
+                  height={766}
+                  unoptimized
+                  draggable={false}
+                  className="h-6 w-6 object-contain max-sm:h-8 max-sm:w-8"
+                />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-base font-medium leading-5 text-foreground">

@@ -33,6 +33,7 @@ import {
 } from "@/lib/agent/agent-popover-layout";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import { isNativePlatform } from "@/lib/utils/session-storage";
 
 type AgentPopoverContextValue = {
   expanded: boolean;
@@ -292,27 +293,83 @@ function AgentPopoverSurface({
   // (no on-screen keyboard → inset stays 0; only the max-sm height calc uses it).
   const [keyboardInset, setKeyboardInset] = useState(0);
   useEffect(() => {
-    if (!expanded) {
-      setKeyboardInset(0);
-      return;
-    }
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!vv) return;
-    const update = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setKeyboardInset(inset > 80 ? Math.round(inset) : 0);
-      // Reset any document scroll iOS applied to reveal the input, so the fixed
-      // header cannot drift up under the status bar.
-      if (window.scrollX !== 0 || window.scrollY !== 0) {
-        window.scrollTo(0, 0);
+    // Apply the keyboard height to state AND a document class so scoped CSS can
+    // drop the composer's home-indicator padding while the keyboard is up.
+    const applyInset = (px: number) => {
+      setKeyboardInset(px);
+      if (typeof document !== "undefined") {
+        document.documentElement.classList.toggle("agent-kb-open", px > 0);
       }
     };
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
+
+    if (!expanded) {
+      applyInset(0);
+      return;
+    }
+
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+
+    if (isNativePlatform()) {
+      // Native (iOS/Android): the @capacitor/keyboard plugin reports the
+      // authoritative keyboard height from UIKit's keyboardWillShow — no
+      // visualViewport heuristics, no offsetTop drift, no threshold guessing.
+      // Combined with ios.scrollEnabled=false, the fixed overlay never drifts,
+      // and the sheet shrinks to keep the composer above the keyboard. The
+      // dynamic import keeps the module out of the plain web bundle path.
+      void import("@capacitor/keyboard")
+        .then(({ Keyboard }) => {
+          if (cancelled) return;
+          const showPromise = Keyboard.addListener(
+            "keyboardWillShow",
+            (info) => {
+              applyInset(Math.round(info.keyboardHeight));
+              // Native scroll is disabled; harmless extra guard against drift.
+              window.scrollTo(0, 0);
+            },
+          );
+          const hidePromise = Keyboard.addListener("keyboardWillHide", () => {
+            applyInset(0);
+          });
+          cleanup = () => {
+            void showPromise.then((handle) => handle.remove());
+            void hidePromise.then((handle) => handle.remove());
+          };
+        })
+        .catch(() => {
+          // Plugin unavailable (shouldn't happen on native) — leave inset at 0.
+        });
+    } else {
+      // Web / non-Capacitor: fall back to the visualViewport heuristic. iOS
+      // WKWebView never reaches this branch (isNativePlatform() is true there).
+      const vv = typeof window !== "undefined" ? window.visualViewport : null;
+      if (vv) {
+        const update = () => {
+          const inset = Math.max(
+            0,
+            window.innerHeight - vv.height - vv.offsetTop,
+          );
+          applyInset(inset > 80 ? Math.round(inset) : 0);
+          if (window.scrollX !== 0 || window.scrollY !== 0) {
+            window.scrollTo(0, 0);
+          }
+        };
+        update();
+        vv.addEventListener("resize", update);
+        vv.addEventListener("scroll", update);
+        cleanup = () => {
+          vv.removeEventListener("resize", update);
+          vv.removeEventListener("scroll", update);
+        };
+      }
+    }
+
     return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
+      cancelled = true;
+      cleanup?.();
+      if (typeof document !== "undefined") {
+        document.documentElement.classList.remove("agent-kb-open");
+      }
     };
   }, [expanded]);
 

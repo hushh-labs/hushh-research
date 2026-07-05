@@ -608,6 +608,19 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-composer-focused-bottom: calc(1.75rem + var(--app-safe-area-bottom-effective));
 }
 
+/*
+ * Keyboard open: the popover sheet is already shrunk to sit exactly above the
+ * keyboard (agent-popover-provider sets --agent-kb-height and toggles
+ * `agent-kb-open`). The home-indicator safe area is covered by the keyboard, so
+ * its inset in the composer padding is dead space that pushes the composer up
+ * off the keyboard. Drop it to a tight, uniform gap while typing. Scoped to the
+ * chat workspace only — resting (keyboard-closed) padding is untouched.
+ */
+html.agent-kb-open .agent-chat-workspace {
+  --agent-chat-composer-bottom: 0.5rem;
+  --agent-chat-composer-focused-bottom: 0.5rem;
+}
+
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);

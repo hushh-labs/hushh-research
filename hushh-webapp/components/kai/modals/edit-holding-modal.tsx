@@ -398,7 +398,13 @@ export function EditHoldingModal({
   const isNewHolding = !holding?.symbol;
 
   return (
-    <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    // repositionInputs={false}: with ios.scrollEnabled=false + Keyboard
+    // resize:"none", the app owns keyboard avoidance; let vaul not fight it.
+    <Drawer
+      open={isOpen}
+      onOpenChange={(open) => !open && onClose()}
+      repositionInputs={false}
+    >
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>
