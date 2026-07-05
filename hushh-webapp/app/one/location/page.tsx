@@ -1916,6 +1916,18 @@ function OneLocationAgentPageContent() {
     [rankedRecipients, state?.networkConnections, auth.userId],
   );
 
+  // Recipients shown + alerted by the SOS and Check-In quick actions. Prefer the
+  // explicit One Network (SOS-connected) circle; when the user has no active
+  // network connections yet, fall back to their share-ready trusted people (the
+  // same list the People tab shows) so "Who gets alerted?" / "Who should know?"
+  // are never empty and the SOS button stays actionable, mirroring how the
+  // original main-page panic panel surfaced trusted contacts.
+  const sosActionRecipients = useMemo(() => {
+    if (sosTrustedRecipients.length > 0) return sosTrustedRecipients;
+    return rankedRecipients.filter(isShareReadyRecipient);
+  }, [sosTrustedRecipients, rankedRecipients]);
+
+
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
   const sosIncidentRef = useRef(sosIncident);
@@ -2943,8 +2955,8 @@ function OneLocationAgentPageContent() {
   const handleTriggerSos = useCallback(async () => {
     if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
     if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) return;
-    const readyRecipients = sosTrustedRecipients.filter(isSosShareReadyRecipient);
-    const totalTrusted = sosTrustedRecipients.length;
+    const readyRecipients = sosActionRecipients.filter(isSosShareReadyRecipient);
+    const totalTrusted = sosActionRecipients.length;
     if (!readyRecipients.length) {
       toast.error("No trusted contacts are ready to receive your location yet.");
       return;
@@ -2991,7 +3003,7 @@ function OneLocationAgentPageContent() {
     ensureForegroundLocationReady,
     permission,
     publishEnvelopeWithRetry,
-    sosTrustedRecipients,
+    sosActionRecipients,
     refresh,
     sosIncident,
     vaultOwnerToken,
@@ -4018,6 +4030,100 @@ function OneLocationAgentPageContent() {
     [selectedRequestOwnerIds],
   );
 
+  // Check-In quick action: shares live location with a caller-provided set of
+  // trusted contacts (the same SOS-connected circle) for a chosen duration.
+  // Reuses the exact encrypted share pipeline (createGrant + publish) as the
+  // normal share flow — no new crypto, no new consent surface — so a check-in
+  // is just a fast, pre-scoped share to the people who already receive SOS.
+  const handleCheckIn = useCallback(
+    async (
+      recipientIds: string[],
+      durationHoursValue: string,
+      messageValue?: string,
+    ) => {
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+        toast.error("Location permission is required to check in.");
+        return;
+      }
+      const selected = sosActionRecipients
+        .filter((recipient) => recipientIds.includes(recipient.userId))
+        .filter(isShareReadyRecipient);
+      if (!selected.length) {
+        toast.error(
+          "Select at least one trusted contact who is ready to receive your location.",
+        );
+        return;
+      }
+      // The check-in note rides along as the grant reason so it surfaces in the
+      // recipient's notification ("<You>: I've checked in here..."). Trimmed and
+      // bounded; empty falls back to a plain share on the backend.
+      const checkInMessage = (messageValue || "").trim().slice(0, 160) || undefined;
+      setBusy("share");
+      let successCount = 0;
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) {
+          toast.error("Couldn't get your location — check-in not sent.");
+          return;
+        }
+        const point = readiness.point;
+        const durationHoursNum = Number(durationHoursValue) || 1;
+        for (const recipient of selected) {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: durationHoursNum,
+            reason: checkInMessage,
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+          successCount += 1;
+        }
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, 0),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: 0,
+          duration_bucket: oneLocationDurationBucket(durationHoursValue),
+          review_required: false,
+        });
+        toast.success(`Checked in with ${peopleCountLabel(selected.length)}.`);
+        // Closes the Check-In flow and returns to the hub (same signal the
+        // share flow uses).
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        const failureCount = selected.length - successCount || 1;
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          duration_bucket: oneLocationDurationBucket(durationHoursValue),
+          review_required: false,
+        });
+        toast.error(
+          error instanceof Error ? error.message : "Could not check in.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      vaultOwnerToken,
+      permission,
+      sosActionRecipients,
+      ensureForegroundLocationReady,
+      publishEnvelopeWithRetry,
+      refresh,
+    ],
+  );
+
   const canShare = Boolean(
     vaultOwnerToken &&
     selectedShareRecipients.length &&
@@ -4402,12 +4508,14 @@ function OneLocationAgentPageContent() {
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
     decryptedPoints,
-    sosRecipients: sosTrustedRecipients,
+    sosRecipients: sosActionRecipients,
     sosActive: Boolean(sosIncident?.grantIds.length),
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident ? formatDateTime(sosIncident.startedAt) : null,
     onTriggerSos: handleTriggerSos,
     onStopSos: handleStopSos,
+    onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
+      void handleCheckIn(recipientIds, durationHoursValue, messageValue),
   };
 
   if (USE_LOCATION_REDESIGN && !loadError) {
