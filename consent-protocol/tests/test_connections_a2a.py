@@ -1,7 +1,15 @@
+import pytest
+
 import hushh_mcp.adk_bridge  # noqa: F401  (registers specialists)
+from hushh_mcp.adk_bridge import _register_builtin_specialists
 from hushh_mcp.adk_bridge.connections_agent import ConnectionsAgentA2A
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
+
+
+@pytest.fixture(autouse=True)
+def _ensure_specialists_registered():
+    _register_builtin_specialists()
 
 
 class _FakeChat:

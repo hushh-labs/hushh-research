@@ -1,5 +1,13 @@
+import pytest
+
 import hushh_mcp.adk_bridge  # noqa: F401  (ensures agent_connections is registered)
+from hushh_mcp.adk_bridge import _register_builtin_specialists
 from hushh_mcp.agents.orchestrator.tools import classify_specialist_domain
+
+
+@pytest.fixture(autouse=True)
+def _ensure_specialists_registered():
+    _register_builtin_specialists()
 
 
 def test_add_routes_to_connections():
