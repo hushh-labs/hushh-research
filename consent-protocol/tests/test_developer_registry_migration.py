@@ -19,7 +19,7 @@ def test_developer_registry_migration_is_registered_at_release_head():
     assert "070_developer_registry.sql" in manifest["groups"]["developer"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 75
+    assert contract["expected_migration_version"] == 76
     assert contract["migration_version_policy"] == "exact"
 
 
