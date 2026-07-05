@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, Sparkles } from "lucide-react";
+import { CalendarClock, Inbox, Sparkles } from "lucide-react";
 
 import { Button, morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { formatCents } from "@/lib/services/slice-pricing-service";
@@ -11,6 +11,19 @@ import {
   OneOpportunityService,
   type OpportunitySignal,
 } from "@/lib/one-marketplace/opportunity-service";
+import {
+  OneMarketplaceService,
+  type MarketplaceRequest,
+} from "@/lib/one-marketplace/service";
+
+/** Honest posture until a payment rail exists: approving grants access, not money. */
+function PaymentsComingSoonChip() {
+  return (
+    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+      Payments coming soon
+    </span>
+  );
+}
 
 /**
  * Proactive Information Marketplace flashcards on Agent One. Unlike the derived-
@@ -107,9 +120,74 @@ function OpportunityNudgeCard({
 }
 
 /**
- * On-open stack of due opportunity signals. Self-fetching (like GmailNudgesSection)
- * so the workspace only has to render it; renders nothing until there is at least
- * one due signal. Vault-token gated — no Firebase id-token.
+ * A real buyer asking to access a published slice (durable request, migration
+ * 076). This is the demand half of the loop: publish → a buyer requests → the
+ * owner approves here. Consent-first — approving grants scoped access to the safe
+ * summary only, and NO money moves (payments are coming soon), so the card never
+ * promises a payout.
+ */
+function BuyerRequestCard({
+  request,
+  busy,
+  onApprove,
+  onDecline,
+}: {
+  request: MarketplaceRequest;
+  busy: boolean;
+  onApprove: (request: MarketplaceRequest) => void;
+  onDecline: (request: MarketplaceRequest) => void;
+}) {
+  const buyer = request.buyerLabel?.trim() || "A buyer";
+  const price = request.priceCents
+    ? formatCents(request.priceCents, request.currency ?? "USD")
+    : null;
+
+  return (
+    <div className="rounded-2xl border border-sky-300/50 bg-sky-50/50 p-3 dark:border-sky-900/40 dark:bg-sky-950/15">
+      <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-900 dark:text-sky-200">
+        <Inbox className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="min-w-0">{buyer} wants access</span>
+      </div>
+      <p className="mb-2 text-xs text-sky-900/80 dark:text-sky-200/70">
+        {request.sliceName}
+        {request.message ? <span className="italic"> — “{request.message}”</span> : null}
+      </p>
+      <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        {price ? <span>suggested ~{price}/mo</span> : null}
+        <PaymentsComingSoonChip />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="none"
+          effect="fade"
+          disabled={busy}
+          onClick={() => onApprove(request)}
+        >
+          {busy ? "Approving…" : "Approve access"}
+        </Button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onDecline(request)}
+          className="text-xs font-medium text-muted-foreground hover:underline disabled:opacity-50"
+        >
+          Decline
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * On-open stack of due opportunity signals plus pending buyer requests.
+ * Self-fetching (like GmailNudgesSection) so the workspace only has to render it;
+ * renders nothing until there is at least one buyer request or due signal.
+ * Vault-token gated — no Firebase id-token.
+ *
+ * Order: buyer requests first (real demand to act on), then publish
+ * opportunities (things to put up for offers).
  */
 export function OpportunityNudgeStack({
   userId,
@@ -124,6 +202,7 @@ export function OpportunityNudgeStack({
   onRequireUnlock: () => void;
 }) {
   const [signals, setSignals] = useState<OpportunitySignal[]>([]);
+  const [requests, setRequests] = useState<MarketplaceRequest[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const loadKeyRef = useRef<string | null>(null);
 
@@ -131,13 +210,21 @@ export function OpportunityNudgeStack({
 
   const load = useCallback(async () => {
     if (!vaultOwnerToken) return;
-    try {
-      const due = await OneOpportunityService.listDue({ vaultOwnerToken });
-      setSignals(due.filter((s) => s.status === "active" || s.status === "snoozed"));
-    } catch {
-      // A nudge fetch failing is non-fatal — just show nothing this open.
-      setSignals([]);
-    }
+    // Fetch both halves independently so one failing doesn't blank the other.
+    const [dueResult, requestResult] = await Promise.allSettled([
+      OneOpportunityService.listDue({ vaultOwnerToken }),
+      OneMarketplaceService.listRequests({ vaultOwnerToken, status: "pending" }),
+    ]);
+    setSignals(
+      dueResult.status === "fulfilled"
+        ? dueResult.value.filter((s) => s.status === "active" || s.status === "snoozed")
+        : [],
+    );
+    setRequests(
+      requestResult.status === "fulfilled"
+        ? requestResult.value.filter((r) => r.status === "pending")
+        : [],
+    );
   }, [vaultOwnerToken]);
 
   useEffect(() => {
@@ -155,6 +242,48 @@ export function OpportunityNudgeStack({
       void load();
     },
     [load],
+  );
+
+  const removeRequestAndRefresh = useCallback(
+    (requestId: string) => {
+      setRequests((current) => current.filter((r) => r.id !== requestId));
+      void load();
+    },
+    [load],
+  );
+
+  const handleApproveRequest = useCallback(
+    async (request: MarketplaceRequest) => {
+      if (!vaultOwnerToken) return;
+      setBusyId(request.id);
+      try {
+        await OneMarketplaceService.approveRequest({ vaultOwnerToken, requestId: request.id });
+        // Honest: access is granted, but no money moves yet.
+        toast.success("Approved — buyer now has access. Payouts are coming soon.");
+        removeRequestAndRefresh(request.id);
+      } catch {
+        toast.error("Couldn't approve this request.");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [vaultOwnerToken, removeRequestAndRefresh],
+  );
+
+  const handleDeclineRequest = useCallback(
+    async (request: MarketplaceRequest) => {
+      if (!vaultOwnerToken) return;
+      setBusyId(request.id);
+      try {
+        await OneMarketplaceService.denyRequest({ vaultOwnerToken, requestId: request.id });
+        removeRequestAndRefresh(request.id);
+      } catch {
+        toast.error("Couldn't decline this request.");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [vaultOwnerToken, removeRequestAndRefresh],
   );
 
   const handlePublish = useCallback(
@@ -252,13 +381,22 @@ export function OpportunityNudgeStack({
     [vaultOwnerToken, removeAndRefresh],
   );
 
-  if (signals.length === 0) return null;
+  if (signals.length === 0 && requests.length === 0) return null;
 
   return (
     <div className="space-y-2">
       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
         Marketplace opportunities
       </p>
+      {requests.map((request) => (
+        <BuyerRequestCard
+          key={request.id}
+          request={request}
+          busy={busyId === request.id}
+          onApprove={handleApproveRequest}
+          onDecline={handleDeclineRequest}
+        />
+      ))}
       {signals.map((signal) => (
         <OpportunityNudgeCard
           key={signal.id}
