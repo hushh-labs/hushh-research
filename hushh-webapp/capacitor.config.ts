@@ -68,14 +68,16 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // Keyboard handling: `resize: "none"` keeps the WKWebView frame at full
-    // height (100dvh stays full-screen) so our own layout owns keyboard
-    // avoidance. The chat popover reads the authoritative native keyboard height
-    // from `keyboardWillShow` (see agent-popover-provider) and shrinks its sheet
-    // so the composer stays above the keyboard. `resize: "native"` would
-    // double-shrink and make every fixed-bottom element jump over the keyboard.
+    // Keyboard handling: `resize: "native"` (the plugin default) shrinks the
+    // WKWebView frame by the keyboard height, so 100dvh/svh and position:fixed
+    // bottom elements sit above the keyboard on EVERY screen with no per-screen
+    // JS — the standard iOS behavior. `scrollEnabled:false` (ios block) keeps
+    // the native scroll from fighting the frame shrink; all app scrolling is via
+    // inner overflow-y containers. NOTE: the chat popover must NOT also subtract
+    // a manual keyboard-height (that would double-shrink) — its sheet is plain
+    // 100dvh, which now shrinks with the webview.
     Keyboard: {
-      resize: "none" as KeyboardResize,
+      resize: "native" as KeyboardResize,
       style: "LIGHT" as KeyboardStyle,
       resizeOnFullScreen: false,
     },

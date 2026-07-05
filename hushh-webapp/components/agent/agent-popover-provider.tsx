@@ -33,7 +33,6 @@ import {
 } from "@/lib/agent/agent-popover-layout";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
-import { isNativePlatform } from "@/lib/utils/session-storage";
 
 type AgentPopoverContextValue = {
   expanded: boolean;
@@ -284,103 +283,17 @@ function AgentPopoverSurface({
     );
   }, [customSize, sizeMode]);
 
-  // Keyboard-safe sizing (iOS): when the on-screen keyboard opens, iOS WKWebView
-  // does NOT shrink 100dvh — instead it scrolls the whole fixed overlay UP to
-  // reveal the focused composer, which pushes the header under the status bar.
-  // Track the keyboard height via visualViewport and shrink the mobile sheet to
-  // sit above the keyboard: the composer stays visible (so iOS has no reason to
-  // scroll) and the header stays pinned below the status bar. No-op on desktop
-  // (no on-screen keyboard → inset stays 0; only the max-sm height calc uses it).
-  const [keyboardInset, setKeyboardInset] = useState(0);
-  useEffect(() => {
-    // Apply the keyboard height to state AND a document class so scoped CSS can
-    // drop the composer's home-indicator padding while the keyboard is up.
-    const applyInset = (px: number) => {
-      setKeyboardInset(px);
-      if (typeof document !== "undefined") {
-        document.documentElement.classList.toggle("agent-kb-open", px > 0);
-      }
-    };
-
-    if (!expanded) {
-      applyInset(0);
-      return;
-    }
-
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    if (isNativePlatform()) {
-      // Native (iOS/Android): the @capacitor/keyboard plugin reports the
-      // authoritative keyboard height from UIKit's keyboardWillShow — no
-      // visualViewport heuristics, no offsetTop drift, no threshold guessing.
-      // Combined with ios.scrollEnabled=false, the fixed overlay never drifts,
-      // and the sheet shrinks to keep the composer above the keyboard. The
-      // dynamic import keeps the module out of the plain web bundle path.
-      void import("@capacitor/keyboard")
-        .then(({ Keyboard }) => {
-          if (cancelled) return;
-          const showPromise = Keyboard.addListener(
-            "keyboardWillShow",
-            (info) => {
-              applyInset(Math.round(info.keyboardHeight));
-              // Native scroll is disabled; harmless extra guard against drift.
-              window.scrollTo(0, 0);
-            },
-          );
-          const hidePromise = Keyboard.addListener("keyboardWillHide", () => {
-            applyInset(0);
-          });
-          cleanup = () => {
-            void showPromise.then((handle) => handle.remove());
-            void hidePromise.then((handle) => handle.remove());
-          };
-        })
-        .catch(() => {
-          // Plugin unavailable (shouldn't happen on native) — leave inset at 0.
-        });
-    } else {
-      // Web / non-Capacitor: fall back to the visualViewport heuristic. iOS
-      // WKWebView never reaches this branch (isNativePlatform() is true there).
-      const vv = typeof window !== "undefined" ? window.visualViewport : null;
-      if (vv) {
-        const update = () => {
-          const inset = Math.max(
-            0,
-            window.innerHeight - vv.height - vv.offsetTop,
-          );
-          applyInset(inset > 80 ? Math.round(inset) : 0);
-          if (window.scrollX !== 0 || window.scrollY !== 0) {
-            window.scrollTo(0, 0);
-          }
-        };
-        update();
-        vv.addEventListener("resize", update);
-        vv.addEventListener("scroll", update);
-        cleanup = () => {
-          vv.removeEventListener("resize", update);
-          vv.removeEventListener("scroll", update);
-        };
-      }
-    }
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-      if (typeof document !== "undefined") {
-        document.documentElement.classList.remove("agent-kb-open");
-      }
-    };
-  }, [expanded]);
-
+  // Keyboard avoidance is handled globally by @capacitor/keyboard
+  // `resize: "native"` (capacitor.config.ts): the WKWebView frame shrinks by
+  // the keyboard height, so the sheet's 100dvh shrinks with it and the composer
+  // stays above the keyboard — no per-screen JS, matching every other screen.
   const panelStyle = useMemo<CSSProperties>(
     () =>
       ({
         "--agent-popover-width": `${resolvedPanelSize.width}px`,
         "--agent-popover-height": `${resolvedPanelSize.height}px`,
-        "--agent-kb-height": `${keyboardInset}px`,
       }) as CSSProperties,
-    [resolvedPanelSize.height, resolvedPanelSize.width, keyboardInset],
+    [resolvedPanelSize.height, resolvedPanelSize.width],
   );
 
   const handleNavigationActionComplete = useCallback(() => {
@@ -467,7 +380,7 @@ function AgentPopoverSurface({
                   // edge across the entire dynamic viewport (incl. safe areas),
                   // no rounded corners and no hairline border. On >=sm it is a
                   // floating, rounded, inset card with a hairline border.
-                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg border border-black/10 max-sm:inset-x-0 max-sm:top-0 max-sm:bottom-auto max-sm:h-[calc(100dvh-var(--agent-kb-height,0px))] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))] dark:border-white/10",
+                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg border border-black/10 max-sm:inset-x-0 max-sm:top-0 max-sm:bottom-auto max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))] dark:border-white/10",
               expanded
                 ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0"
                 : // Closed/closing motion. On phones the sheet simply slides down

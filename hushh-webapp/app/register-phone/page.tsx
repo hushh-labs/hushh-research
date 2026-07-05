@@ -206,8 +206,12 @@ function PhoneMandatePageContent() {
           </p>
         </div>
 
-        {/* White form sheet */}
-        <div className="relative rounded-t-[34px] bg-white px-6 pt-7 pb-[calc(34px+var(--app-safe-area-bottom-effective,0px))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
+        {/* White form sheet. max-h + overflow-y-auto is a safety net: with
+            Keyboard.resize:"native" the viewport shrinks above the keyboard, and
+            the page root is overflow-hidden, so on a very short screen (iPhone SE)
+            a tall step scrolls WITHIN the sheet instead of clipping. At rest the
+            content is short so no scroll appears — resting look is unchanged. */}
+        <div className="relative max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-t-[34px] bg-white px-6 pt-7 pb-[calc(34px+var(--app-safe-area-bottom-effective,0px))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
           <PhoneVerificationFlow
             mode="link"
             currentPhoneNumber={phoneNumber}
