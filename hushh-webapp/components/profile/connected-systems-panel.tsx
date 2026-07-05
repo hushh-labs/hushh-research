@@ -316,7 +316,7 @@ function CrmTypeLogoBadge({ system }: { system?: ConnectedSystemSummary | null }
   const logoSrc = crmTypeLogoSrc(system);
   if (!logoSrc) return null;
   return (
-    <span className="inline-flex h-7 w-20 items-center justify-center rounded-md border border-border/60 bg-white px-2 py-1 shadow-sm">
+    <span className="hidden h-7 w-20 items-center justify-center rounded-md border border-border/60 bg-white px-2 py-1 shadow-sm sm:inline-flex">
       <Image
         src={logoSrc}
         alt="CRM platform logo"
@@ -1479,11 +1479,30 @@ export function ConnectedSystemsPanel({
               <span>
                 {filteredSystems.length} CRM system{filteredSystems.length === 1 ? "" : "s"}
               </span>
-              {filteredSystems.length > CRM_LIST_PAGE_SIZE ? (
-                <span>
-                  Page {normalizedListPage} of {listPageCount}
-                </span>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {filteredSystems.length > CRM_LIST_PAGE_SIZE ? (
+                  <span>
+                    Page {normalizedListPage} of {listPageCount}
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() => void refreshSystems()}
+                  aria-label="Refresh CRM systems"
+                  className="h-7 px-2 text-xs"
+                >
+                  <Icon
+                    icon={RefreshCw}
+                    size="xs"
+                    className={busy === "systems" ? "mr-1.5 animate-spin" : "mr-1.5"}
+                  />
+                  Refresh
+                </Button>
+              </div>
             </div>
           </div>
           {systems.length === 0 && busy === "systems" ? (
@@ -1534,18 +1553,16 @@ export function ConnectedSystemsPanel({
                 key={system.systemId}
                 asChild
                 leading={<ConnectedSystemLogo system={system} />}
+                className="[--settings-row-stack-indent:4.75rem]"
                 title={system.displayName || "CRM system"}
                 description={`${systemCustomer} / ${
                   system.objectTypeDefault || "Contact"
                 } / ${system.transportLabel || "External CRM MCP"}`}
                 trailing={
-                  <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                  <div className="flex min-w-0 max-w-[calc(100%-1.75rem)] flex-wrap items-center justify-start gap-2 sm:max-w-none sm:justify-end">
                     <CrmTypeLogoBadge system={system} />
                     <Badge variant="secondary">{statusBadge(system.status)}</Badge>
                     {typeLabel ? <Badge variant="secondary">{typeLabel}</Badge> : null}
-                    {system.toolCatalog?.length ? (
-                      <Badge variant="secondary">{system.toolCatalog.length} MCP tools</Badge>
-                    ) : null}
                   </div>
                 }
                 chevron
@@ -1592,17 +1609,6 @@ export function ConnectedSystemsPanel({
             {error}
           </SurfaceInset>
         ) : null}
-
-        <SettingsGroup title="Actions">
-          <SettingsRow
-            icon={RefreshCw}
-            title="Refresh CRM systems"
-            description="Reload the connected-system registry and status from the backend."
-            disabled={busy !== null}
-            chevron
-            onClick={() => void refreshSystems()}
-          />
-        </SettingsGroup>
       </div>
     );
   }
@@ -1631,9 +1637,6 @@ export function ConnectedSystemsPanel({
             <div className="mt-2">
               {statusBadge(selectedSystem?.status || "connected")} through{" "}
               {selectedSystem?.transportLabel || "External CRM MCP"}
-              {selectedSystem?.toolCatalog?.length
-                ? ` / ${selectedSystem.toolCatalog.length} MCP tools`
-                : ""}
             </div>
           </div>
         </div>

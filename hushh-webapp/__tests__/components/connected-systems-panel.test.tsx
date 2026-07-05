@@ -110,7 +110,7 @@ describe("ConnectedSystemsPanel", () => {
     );
     expect(screen.getByRole("searchbox", { name: /Search CRM systems/i })).toBeTruthy();
     expect(screen.getByText(/Macy's \/ Contact \/ External CRM MCP/)).toBeTruthy();
-    expect(screen.getByText("5 MCP tools")).toBeTruthy();
+    expect(screen.queryByText(/MCP tools/i)).toBeNull();
     expect(screen.getByAltText("Macy's logo")).toBeTruthy();
     expect(screen.getByAltText("CRM platform logo")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Refresh from Macy's/i })).toBeNull();
@@ -138,7 +138,7 @@ describe("ConnectedSystemsPanel", () => {
     expect(screen.getByAltText("Macy's logo")).toBeTruthy();
     expect(screen.getByAltText("CRM platform logo")).toBeTruthy();
     expect(screen.getByText(/Connected through External CRM MCP/)).toBeTruthy();
-    expect(screen.getByText(/5 MCP tools/)).toBeTruthy();
+    expect(screen.queryByText(/MCP tools/i)).toBeNull();
     expect(screen.queryByText("Registry backed")).toBeNull();
     expect(screen.queryByText(/My Macy's Contact/i)).toBeNull();
     expect(screen.queryByText(/No CRM record is connected/i)).toBeNull();
