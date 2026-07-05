@@ -116,7 +116,7 @@ class TrustedConnectionsService:
                 "TRUSTED_NO_SELF", "You cannot add yourself.", status_code=422
             )
 
-        self._execute_one(
+        row = self._execute_one(
             """
             INSERT INTO trusted_connections (
               owner_user_id, trusted_user_id, status, source, resolved_via,
@@ -145,6 +145,7 @@ class TrustedConnectionsService:
             },
         )
         return {
+            "id": (row or {}).get("id"),
             "ownerUserId": owner_user_id,
             "trustedUserId": target,
             "status": "active",

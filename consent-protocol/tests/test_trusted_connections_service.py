@@ -43,6 +43,7 @@ def _tag(sql: str) -> str:
 def test_add_by_user_id_passthrough_upserts():
     svc = _service(rows_one={"insert": {"id": "c1"}})
     out = svc.add_connection("owner1", trusted_user_id="devA", label="Dad")
+    assert out["id"] == "c1"
     assert out["trustedUserId"] == "devA"
     assert out["resolvedVia"] == "user_id"
     assert svc._calls["one"][-1][1]["owner_user_id"] == "owner1"
