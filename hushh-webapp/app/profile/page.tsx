@@ -4206,21 +4206,21 @@ function ProfilePageContent() {
     <>
       <AppPageHeaderRegion className={styles.profilePageHeaderRegion}>
         <header data-slot="page-header" data-page-primary="true">
-          {/* 12a dark identity card — dark gradient + indigo glow, photo-drop
+          {/* 12a dark identity card — warm onyx gradient + gold glow, photo-drop
               avatar (photo or initials), name, and a provider email pill. */}
           <div
             className="relative overflow-hidden rounded-[26px] p-6 text-center"
-            style={{ background: "linear-gradient(150deg, #17171F 0%, #0B0B0F 100%)" }}
+            style={{ background: "linear-gradient(150deg, #1A1712 0%, #0A0908 100%)" }}
           >
             <span
               aria-hidden
               className="pointer-events-none absolute -right-10 -top-16 h-52 w-52 rounded-full"
-              style={{ background: "rgba(94,92,230,0.38)", filter: "blur(62px)" }}
+              style={{ background: "rgba(212,175,106,0.30)", filter: "blur(62px)" }}
             />
             <span
               aria-hidden
               className="pointer-events-none absolute -bottom-10 -left-12 h-44 w-44 rounded-full"
-              style={{ background: "rgba(18,161,80,0.14)", filter: "blur(62px)" }}
+              style={{ background: "rgba(212,175,106,0.12)", filter: "blur(62px)" }}
             />
             <div className="relative flex flex-col items-center gap-3">
               <Avatar className="h-[104px] w-[104px] shrink-0 border-[1.5px] border-dashed border-white/25 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">

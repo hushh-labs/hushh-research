@@ -54,24 +54,24 @@
   border-radius: 9999px;
 }
 .cinematicSettings [data-tone="default"] [data-slot="settings-row-icon"] {
-  background: rgba(94, 92, 230, 0.1);
-  color: #5e5ce6;
+  background: rgba(156, 116, 52, 0.1);
+  color: #9c7434;
 }
 :global(.dark)
   .cinematicSettings
   [data-tone="default"]
   [data-slot="settings-row-icon"] {
-  background: rgba(133, 131, 255, 0.16);
-  color: #8583ff;
+  background: rgba(212, 175, 106, 0.16);
+  color: #d4af6a;
 }
 
-/* Title sized to match the home dashboard card titles (Email/Location = 22px);
-   weight/tracking/color unchanged so only the SIZE tracks home. Detail 13px
-   already matches the home card description size. */
+/* Match the One home Email/Location tile title recipe exactly. */
 .cinematicSettings [data-slot="settings-row-title"] {
+  font-family: var(--font-app-display);
   font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.3px;
   color: #0a0a0a;
 }
 :global(.dark) .cinematicSettings [data-slot="settings-row-title"] {
@@ -87,9 +87,9 @@
 
 /* Sign out (destructive) — red circle + red label. */
 .cinematicSettings [data-tone="destructive"] [data-slot="settings-row-icon"] {
-  background: rgba(255, 59, 48, 0.1);
-  color: #ff3b30;
+  background: rgba(201, 79, 68, 0.1);
+  color: #c94f44;
 }
 .cinematicSettings [data-tone="destructive"] [data-slot="settings-row-title"] {
-  color: #ff3b30;
+  color: #c94f44;
 }

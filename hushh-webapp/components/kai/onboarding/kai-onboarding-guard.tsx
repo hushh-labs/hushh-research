@@ -19,27 +19,14 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
+import {
+  readOneSetupCompletionHint,
+  writeOneSetupCompletionHint,
+} from "@/lib/services/one-setup-exit-service";
+import { isNativePlatform } from "@/lib/utils/session-storage";
 import { ROUTES, isOneSetupWizardRoute } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
-
-const KAI_ONBOARDING_COMPLETION_SESSION_PREFIX = "hushh_setup_complete";
-
-function onboardingCompletionSessionKey(userId: string): string {
-  return `${KAI_ONBOARDING_COMPLETION_SESSION_PREFIX}:${userId}`;
-}
-
-function readOnboardingCompletionHint(userId: string): boolean | null {
-  const raw = getSessionItem(onboardingCompletionSessionKey(userId));
-  if (raw === "1") return true;
-  if (raw === "0") return false;
-  return null;
-}
-
-function writeOnboardingCompletionHint(userId: string, completed: boolean): void {
-  setSessionItem(onboardingCompletionSessionKey(userId), completed ? "1" : "0");
-}
 
 /**
  * OneOnboardingGuard: the hard gate for the One onboarding surface.
@@ -97,7 +84,28 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
 
       try {
         setGuardError(null);
-        const cachedCompletionHint = readOnboardingCompletionHint(user.uid);
+        const cachedCompletionHint = readOneSetupCompletionHint(user.uid);
+        // NATIVE fast-path: on iOS the async vault/bootstrap check can transiently
+        // report setup "incomplete" and bounce the user back to /one/setup (dead
+        // back button / trapped on setup) even immediately after they resolved it.
+        // The in-session completion hint — written synchronously by
+        // primeOneSetupResolved (the setup back button, Skip, and Continue) and by
+        // this guard after a real check — is the authoritative "already resolved"
+        // signal, and it is purged on a native cold start. So on native, trust it
+        // and let the user onto standard /one/* routes without the async bounce.
+        // Web behavior is unchanged (guarded by isNativePlatform()).
+        if (
+          isNativePlatform() &&
+          !onOnboardingRoute &&
+          cachedCompletionHint === true
+        ) {
+          setOnboardingRequiredCookie(false);
+          if (chromeState.onboardingFlowActive) {
+            setOnboardingFlowActiveCookie(false);
+          }
+          setChecking(false);
+          return;
+        }
         const unlockedOnStandardKaiRoute = isVaultUnlocked && !onOnboardingRoute;
         if (unlockedOnStandardKaiRoute && cachedCompletionHint !== false) {
           setChecking(false);
@@ -150,7 +158,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             }
           }
           setOnboardingRequiredCookie(onboardingIncomplete);
-          writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
+          writeOneSetupCompletionHint(user.uid, !onboardingIncomplete);
 
           if (onboardingIncomplete && !onOnboardingRoute) {
             router.replace(ROUTES.ONE_SETUP);
@@ -187,7 +195,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             remoteState.setupCompleted === false && !onboardingResolved;
 
           setOnboardingRequiredCookie(onboardingExplicitlyIncomplete);
-          writeOnboardingCompletionHint(user.uid, onboardingResolved);
+          writeOneSetupCompletionHint(user.uid, onboardingResolved);
 
           if (!onOnboardingRoute && onboardingExplicitlyIncomplete) {
             router.replace(ROUTES.ONE_SETUP);
@@ -255,7 +263,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
           }
         }
         setOnboardingRequiredCookie(onboardingIncomplete);
-        writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
+        writeOneSetupCompletionHint(user.uid, !onboardingIncomplete);
 
         if (onboardingIncomplete && !onOnboardingRoute) {
           router.replace(ROUTES.ONE_SETUP);
