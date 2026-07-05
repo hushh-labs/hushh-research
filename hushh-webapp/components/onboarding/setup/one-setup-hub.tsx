@@ -159,6 +159,7 @@ export function OneSetupHub() {
           title={allReady ? "You're all set" : "Finish setting up One"}
           description={summary}
           accent="neutral"
+          className={styles.setupHeader}
           actions={
             <Button
               type="button"

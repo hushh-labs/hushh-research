@@ -71,7 +71,7 @@ export function CapabilitySetupTile({
     <SettingsRow
       asChild
       leading={
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgba(156,116,52,0.10)] text-[#9C7434] dark:bg-[rgba(212,175,106,0.16)] dark:text-[#D4AF6A]">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-border bg-accent-surface text-accent-strong">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
       }
@@ -81,7 +81,7 @@ export function CapabilitySetupTile({
       trailing={
         isComplete ? (
           <CheckCircle2
-            className="h-[18px] w-[18px] shrink-0 text-[#12A150] dark:text-[#3FBF77]"
+            className="h-[18px] w-[18px] shrink-0 text-emerald-600 dark:text-emerald-300"
             aria-hidden
           />
         ) : (
