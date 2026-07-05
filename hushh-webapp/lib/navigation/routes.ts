@@ -296,6 +296,7 @@ export const ONE_SETUP_CAPABILITY_IDS: readonly string[] = [
   "location",
   "pkm",
   "consent",
+  "marketplace",
   "connected-systems",
 ];
 

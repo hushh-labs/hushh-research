@@ -1,0 +1,43 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { Mail } from "lucide-react";
+import { describe, expect, it, vi } from "vitest";
+
+import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.push }),
+}));
+
+describe("CapabilitySetupTile", () => {
+  it("navigates the whole setup row through the Next router on tap", () => {
+    render(
+      <CapabilitySetupTile
+        title="Gmail"
+        description="Bring in receipts."
+        href="/one/setup/gmail"
+        icon={Mail}
+        tone="gmail"
+        status={{
+          id: "gmail",
+          state: "not-started",
+          pendingCount: 0,
+          prerequisite: null,
+          requiresUnlock: false,
+        }}
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: "Gmail: Set up" });
+
+    expect(row).toHaveAttribute("data-href", "/one/setup/gmail");
+    fireEvent.click(row);
+
+    expect(mocks.push).toHaveBeenCalledWith("/one/setup/gmail", {
+      scroll: false,
+    });
+  });
+});

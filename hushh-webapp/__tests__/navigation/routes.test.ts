@@ -99,6 +99,7 @@ describe("navigation routes", () => {
     expect(isOneSetupCapabilityRoute("/one/setup/location")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/pkm")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/consent")).toBe(true);
+    expect(isOneSetupCapabilityRoute("/one/setup/marketplace")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/connected-systems")).toBe(true);
 
     // Unknown segments and the bare hub/wizard are NOT capability routes.

@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, type LucideIcon } from "lucide-react";
 
 import {
@@ -22,8 +23,10 @@ import { cn } from "@/lib/utils";
  * list (hairline dividers, one calm surface). Tone color is sanctioned in
  * exactly ONE place — the leading icon well — never on row chrome, never as a
  * status pill background. State emphasis is carried by copy weight, never by
- * tinting the row to "pop". Whole-row tap navigates (and prefetches) via the
- * cloned `<Link>`; press feedback is SettingsRow's built-in wash.
+ * tinting the row to "pop". Whole-row tap uses a real `<button>` and
+ * programmatic navigation so iOS WKWebView/Capacitor static builds do not
+ * silently drop cloned `<Link>` taps; press feedback is SettingsRow's built-in
+ * wash.
  */
 const STATUS_TEXT_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
   ready: "text-muted-foreground",
@@ -57,8 +60,12 @@ export function CapabilitySetupTile({
   isCurrent = false,
   className,
 }: CapabilitySetupTileProps) {
+  const router = useRouter();
   const display = getCapabilityStatusDisplay(status, { isExploreOnly });
   const isComplete = isCapabilitySetupComplete(status);
+  const handleOpen = useCallback(() => {
+    router.push(href, { scroll: false });
+  }, [href, router]);
 
   return (
     <SettingsRow
@@ -89,11 +96,12 @@ export function CapabilitySetupTile({
         )
       }
     >
-      <Link
-        href={href}
-        prefetch
+      <button
+        type="button"
+        onClick={handleOpen}
         aria-label={`${title}: ${display.label}`}
         aria-current={isCurrent ? "step" : undefined}
+        data-href={href}
         className={cn(
           "[&]:focus-visible:ring-2 [&]:focus-visible:ring-ring [&]:focus-visible:ring-inset",
           className,
