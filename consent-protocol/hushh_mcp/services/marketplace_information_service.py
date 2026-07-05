@@ -207,12 +207,19 @@ class MarketplaceInformationService:
                 except KeyError:
                     price_cents = 0
                     currency = "USD"
+                # The section path the publish flow targets (slice-publishing.ts
+                # matches on `summary_projection.top_level_scope_path`). Surfacing it
+                # here lets the opportunity card publish the slice without a second
+                # manifest lookup to rediscover the section.
+                projection = entry.get("summary_projection") or {}
+                top_level_scope_path = projection.get("top_level_scope_path")
                 out.append(
                     {
                         "domain": entry.get("domain") or domain,
                         "domainTitle": domain_title,
                         "label": label,
                         "scopeHandle": entry.get("scope_handle"),
+                        "topLevelScopePath": top_level_scope_path,
                         "attributeCount": _attribute_count(entry),
                         "suggestedPriceCents": price_cents,
                         "currency": currency,

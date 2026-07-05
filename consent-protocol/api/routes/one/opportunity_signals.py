@@ -19,6 +19,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.opportunity_signal_derivation_service import (
+    OpportunitySignalDerivationService,
+)
 from hushh_mcp.services.opportunity_signal_service import OpportunitySignalService
 
 logger = logging.getLogger(__name__)
@@ -58,8 +61,16 @@ class AuthorSignalBody(BaseModel):
 async def list_due_opportunities(
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
+    user_id = token_data["user_id"]
+    # Derive-on-read: refresh server-derivable `intent` signals from the owner's
+    # publishable slices before listing. Best-effort — a derivation hiccup must not
+    # break the read of already-persisted signals.
     try:
-        opportunities = await _service().list_due(user_id=token_data["user_id"])
+        await OpportunitySignalDerivationService().derive_for_user(user_id=user_id)
+    except Exception:
+        logger.exception("opportunities.derive_failed")
+    try:
+        opportunities = await _service().list_due(user_id=user_id)
         return {"opportunities": opportunities}
     except Exception:
         logger.exception("opportunities.list_due_failed")
