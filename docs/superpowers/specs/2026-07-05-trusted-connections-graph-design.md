@@ -11,9 +11,10 @@ app-wide, directional social graph** that any Hushh agent can read, and that onl
 central **Hushh One** agent can write.
 
 Concretely: when a user tells **One** "add Alice to my trusted connections," One resolves
-Alice to a real `user_id` (by phone or email) and writes a **directional** trust edge
-(`owner → trusted`). Any backend agent (Location, Email, …) can then **read** that graph
-in-process to make trust-aware decisions.
+Alice to a real `user_id` by looking her up in the **platform people directory** — the same
+directory Location already shows as its recipient list — and writes a **directional** trust
+edge (`owner → trusted`). Any backend agent (Location, Email, …) can then **read** that
+graph in-process to make trust-aware decisions.
 
 ## Non-goals (YAGNI)
 
@@ -22,7 +23,8 @@ in-process to make trust-aware decisions.
 - **No changes to SOS / One Location code.** The existing
   `one_location_network_connections` graph, its seed, and all its reads stay exactly as
   they are. Converging SOS onto the shared graph is explicit future work.
-- **No UI, no invite links, no bidirectional mesh, no display-name resolution.**
+- **No UI, no invite links, no bidirectional mesh.** (Names are disambiguated by
+  selecting from the directory, so no free-text name → user_id guessing is needed.)
 
 ## Guiding principles
 
@@ -44,7 +46,7 @@ in-process to make trust-aware decisions.
 | Read access | **Any backend agent**, via in-process `TrustedConnectionsService` (no HTTP) |
 | Storage | **New dedicated table** `trusted_connections` — separate from `one_location_network_connections` |
 | SOS / location code | **Untouched** — no reads/writes/seed of `one_location_network_connections` change |
-| Identity resolution | **Phone or email only** (reuse existing resolvers); unresolved → One asks the user to clarify. Raw `user_id` allowed for seed/testing |
+| Identity resolution | **Platform people directory** — resolve via the same directory Location's recipient list uses (`list_verified_recipients`, backed by `actor_identity_cache`), returning the directory `user_id`; ambiguous/absent → One shows matches or asks to clarify. Raw `user_id` allowed for seed/testing. **Not** phone-typed. |
 | Seed topology | **New user → seed set** — mirror the existing SOS topology into the new table, reusing `SOS_SEED_DEV_USER_IDS`, as a *separate* seed call |
 | Branch | `feat/trusted-connections-graph` from `main` |
 
@@ -57,7 +59,8 @@ WRITE (only via One)
   user → One (agent_chat) → classifier matches "trusted connection" keywords
     → adk_bridge dispatch → agent_connections lane
       → TrustedConnectionsService.add_connection / remove_connection
-        → resolve person (phone|email → user_id) → upsert trusted_connections row
+        → resolve person via platform people directory (list_verified_recipients → user_id)
+          → upsert trusted_connections row
 
 SEED (post vault-unlock, mirror — SOS seed untouched)
   PostUnlockSyncService → (new) seed_new_user(owner, SOS_SEED_DEV_USER_IDS)
@@ -77,7 +80,7 @@ CREATE TABLE trusted_connections (
   trusted_user_id TEXT NOT NULL,        -- the person being trusted
   status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','revoked')),
   source          TEXT NOT NULL DEFAULT 'agent_one' CHECK (source IN ('agent_one','seed','import')),
-  resolved_via    TEXT CHECK (resolved_via IN ('phone','email','user_id')),
+  resolved_via    TEXT CHECK (resolved_via IN ('directory','user_id')),
   label           TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -113,8 +116,12 @@ New service module (sibling to `one_location_agent_service.py`). No agent-specif
 coupling; any backend caller can import it.
 
 - **Write (invoked only from One's lane):**
-  - `add_connection(owner_user_id, *, phone=None, email=None, user_id=None, label=None) -> row`
-    — resolves identity, records `resolved_via`, upserts an `active` edge.
+  - `add_connection(owner_user_id, *, trusted_user_id=None, query=None, label=None) -> row`
+    — accepts either a directory-selected `trusted_user_id` (the normal path — the person
+    was already resolved from the directory) or a free-text `query` (name fragment) that the
+    service matches against the platform directory. On a unique match it records
+    `resolved_via='directory'` and upserts an `active` edge; on multiple/zero matches it
+    raises `IdentityUnresolvedError` carrying the candidate list so One can disambiguate.
   - `remove_connection(owner_user_id, trusted_user_id) -> row` — soft revoke
     (`status='revoked'`, `revoked_at=now()`).
 - **Read (any agent):**
@@ -126,12 +133,23 @@ coupling; any backend caller can import it.
     `source='seed'`. Mirrors the shape/guarantees of the existing
     `seed_trusted_connections` (so its tests translate directly).
 
-**Identity resolution helper.** Extract a shared resolver reusing the existing primitives:
-phone via the digit-normalized match in `_identity_row_by_phone_digits`
-(`one_location_agent_service.py`), email via the Firebase / `actor_identity_cache.email` /
-`actor_verified_email_aliases` path. Contract: return a `user_id` or raise a typed
-"unresolved" error that One surfaces as a clarifying question. **No display-name
-resolution** (names are non-unique).
+**Identity resolution via the platform directory.** Resolution reuses the **same directory
+Location shows** — `OneLocationAgentService.list_verified_recipients(owner_user_id=...)`
+(backed by `actor_identity_cache`), called **read-only** (no location code changes). Two
+paths:
+
+- **Directory-selected (primary):** One presents the directory to the user (or matches the
+  named person against it) and passes the chosen `trusted_user_id` straight through — the
+  `user_id` is authoritative, no fuzzy matching.
+- **Name query (fallback):** the service filters the directory by `display_name`
+  fragment. Exactly one match → resolve; multiple/zero → `IdentityUnresolvedError` with the
+  candidates so One asks the user to pick.
+
+Because the trusted person must be someone the owner can already see in their directory,
+this inherits the directory's privacy/eligibility rules for free. The plan may extract a
+lighter `list_platform_people` reader if `list_verified_recipients`' extra joins (recipient
+keys, Kai recommendations) prove unnecessary for resolution — but the source of truth is
+the same directory. **No phone-typed and no free-text guessing** beyond directory matches.
 
 ### Component 3 — One's write path (`agent_connections` lane)
 
@@ -165,21 +183,25 @@ Extend the post-unlock bridge (`PostUnlockSyncService`) with a **separate** call
 `one_location_network_connections`) is left exactly as-is; the two seeds run
 independently.
 
-## Data flow — "add Alice by phone"
+## Data flow — "add Alice from the directory"
 
-1. User → One: "add Alice, +1 555 010 1234, to my trusted connections."
+1. User → One: "add Alice to my trusted connections."
 2. One's classifier matches → delegate to `agent_connections`.
-3. Lane parses intent `add`, extracts phone → `TrustedConnectionsService.add_connection(owner, phone=...)`.
-4. Service resolves phone → `user_id` (verified). If unresolved → typed error → One replies
-   "I couldn't find a Hushh user with that phone/email — can you share their verified
-   phone or email?"
-5. On success, upsert `trusted_connections (owner, trusted_user_id, source='agent_one',
-   resolved_via='phone')`; One confirms.
+3. Lane calls `TrustedConnectionsService.add_connection(owner, query="Alice")`, which filters
+   the platform directory (`list_verified_recipients`) by name.
+   - **Unique match** → resolve to that `user_id`.
+   - **Multiple matches** → `IdentityUnresolvedError` with candidates → One asks "I see two
+     Alices — Alice R. or Alice T.?" and re-calls with the chosen `trusted_user_id`.
+   - **No match** → One tells the user Alice isn't in their directory yet.
+4. On success, upsert `trusted_connections (owner, trusted_user_id, source='agent_one',
+   resolved_via='directory')`; One confirms.
 
 ## Error handling
 
-- **Unresolved identity** → typed `IdentityUnresolvedError`; One asks for clarification
-  (never writes a guessed edge).
+- **Unresolved identity** → typed `IdentityUnresolvedError` (carries directory candidates on
+  a multi-match); One shows matches / asks for clarification, never writes a guessed edge.
+- **Person not in directory** → One tells the user they aren't a visible platform user yet;
+  no edge written.
 - **Self-add** → rejected by `trusted_connections_no_self` and pre-checked in the service.
 - **Duplicate / re-add** → idempotent upsert; revoked edges are reactivated.
 - **Remove of a non-existent edge** → no-op success (idempotent).
@@ -189,10 +211,12 @@ independently.
 
 Mirror the existing `test_one_location_sos_seed.py` style (stubbed DB, no real Postgres):
 
-- Service: `add_connection` (phone-resolved, email-resolved, `user_id` passthrough,
-  unresolved → error), `remove_connection` (revoke + idempotent no-op), `list_connections`
-  (active only), `is_trusted` (directional true/false), `seed_new_user` (idempotency,
-  skip-self, skip-blank, zero-gate).
+- Service: `add_connection` (directory-selected `user_id` passthrough, name query unique
+  match, name query multi-match → `IdentityUnresolvedError` with candidates, no match →
+  error), `remove_connection` (revoke + idempotent no-op), `list_connections` (active only),
+  `is_trusted` (directional true/false), `seed_new_user` (idempotency, skip-self,
+  skip-blank, zero-gate). Directory reads are stubbed (no real Postgres), same as the
+  existing SOS-seed tests.
 - Migration applies cleanly (up).
 - Classifier: the new keywords route to `agent_connections`; unrelated messages do not.
 - `no_self` constraint rejects self-edges.
@@ -202,5 +226,6 @@ Mirror the existing `test_one_location_sos_seed.py` style (stubbed DB, no real P
 - Exact migration number (next after `076_marketplace_access_requests.sql`).
 - Whether the `agent_connections` handler lives in `adk_bridge/` alone or gets a thin
   `agents/connections/` manifest for symmetry with other specialists.
-- Precise email-resolution source of truth (Firebase vs `actor_identity_cache.email` vs
-  verified aliases) — pick one and document it in the plan.
+- Whether resolution calls `list_verified_recipients` directly or the plan extracts a
+  lighter `list_platform_people` reader over the same `actor_identity_cache` directory
+  (dropping the recipient-key + Kai-recommendation joins that resolution doesn't need).
