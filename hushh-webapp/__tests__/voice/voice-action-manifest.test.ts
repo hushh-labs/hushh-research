@@ -89,7 +89,7 @@ describe("voice-action-manifest", () => {
   it("exposes the checked-in neutral manifest with a stable schema version", () => {
     expect(VOICE_ACTION_MANIFEST.schema_version).toBe("kai.voice_action_manifest.v1");
     expect(VOICE_ACTION_MANIFEST.source_registry).toBe(
-      "generated from colocated Kai voice/action contracts"
+      "generated from colocated One Voice/Kai compatibility action contracts"
     );
   });
 

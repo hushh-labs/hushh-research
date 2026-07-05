@@ -341,10 +341,13 @@ fun chat(call: PluginCall) {
 | **PKM** | `pkm.read` | Read PKM attributes |
 | | `pkm.write` | Write PKM attributes |
 | | `pkm.metadata` | Access PKM metadata |
+| **Agent One** | `agent.one.orchestrate` | Coordinate user intent and specialist handoff framing |
 | **Agent Kai** | `agent.kai.analyze` | Run Kai analysis pipelines |
 | | `agent.kai.debate` | Run Kai debate/reasoning |
 | | `agent.kai.infer` | Run Kai inference |
 | | `agent.kai.chat` | Kai chat interactions |
+| **Agent Nav** | `agent.nav.review` | Review consent, privacy, vault, and scope decisions |
+| **Agent KYC** | `agent.kyc.process` | Process identity workflow requirements inside the granted scope |
 | **External** | `external.sec.filings` | Access SEC filing data |
 | | `external.news.api` | Access news API data |
 | | `external.market.data` | Access market data feeds |

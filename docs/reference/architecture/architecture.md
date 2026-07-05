@@ -212,7 +212,7 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
 - What exists today:
   - `hushh-webapp/` as the primary experience runtime
   - shared web and native shell
-  - generated action gateway and Kai voice/runtime work
+  - generated action gateway and One Voice/Kai compatibility runtime work
   - explicit web-proxy and native-plugin transport boundaries
 - What is missing for full-scale architecture:
   - a cleaner product-wide experience contract beyond the current generated Kai action gateway for typed search, voice, and UI actionability

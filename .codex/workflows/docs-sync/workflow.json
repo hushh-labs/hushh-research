@@ -8,21 +8,29 @@
   "affected_surfaces": [
     "docs",
     "consent-protocol/docs",
-    "hushh-webapp/docs"
+    "hushh-webapp/docs",
+    ".codex/skills",
+    ".codex/workflows"
   ],
   "required_reads": [
     "docs/reference/operations/documentation-architecture-map.md",
     "docs/reference/operations/docs-governance.md",
+    "docs/reference/README.md",
+    "docs/reference/operations/documentation-recursive-knowledge-model.md",
     "docs/reference/quality/pr-impact-checklist.md"
   ],
   "required_commands": [
     "./bin/hushh codex route-task docs-sync",
-    "./bin/hushh docs verify"
+    "./bin/hushh docs verify",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders"
   ],
   "verification_bundle": {
     "id": "docs-sync",
     "commands": [
-      "./bin/hushh docs verify"
+      "./bin/hushh docs verify",
+      "python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
+      "python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders"
     ],
     "tests": [
       "./bin/hushh docs verify"

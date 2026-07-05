@@ -23,8 +23,24 @@ WORKFLOWS_DIR = Path(".codex/workflows")
 MIN_AGENT_COUNT = 8
 MAX_AGENT_COUNT = 12
 ALLOWED_REASONING_EFFORTS = {"high", "xhigh"}
+DEVELOPER_INSTRUCTIONS_MAX_LINES = 48
+DEVELOPER_INSTRUCTIONS_MAX_CHARS = 3000
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 ADVISORY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
+PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel from AGENTS.md"
+DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
+    "Project-Wide Principal Craft Kernel",
+    "Operate as a principal-level software engineer",
+    "Optimize in this order:",
+    "Engineering style:",
+    "Calibration standards:",
+    "Margaret Hamilton",
+    "Grace Hopper",
+    "Barbara Liskov",
+    "Leslie Lamport",
+    "John Carmack",
+    "Steve Jobs",
+]
 TRUTH_FIRST_HEADER = "Truth-first protocol:"
 TRUTH_FIRST_TOKENS = [
     "already_exists",
@@ -76,7 +92,7 @@ def _load_skills(root: Path) -> dict[str, dict[str, Any]]:
                 "path": str(path.relative_to(root)),
                 "owner_family": data.get("owner_family") or data.get("role") or "",
                 "role": data.get("role") or "",
-                "lane_label": "master" if data.get("role") == "owner" else "spoke",
+                "lane_label": "owner" if data.get("role") == "owner" else "spoke",
                 "task_types": data.get("task_types") or [],
             }
     return skills
@@ -88,13 +104,20 @@ def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
         data = _read_toml(path)
         name = str(data.get("name") or path.stem)
         instructions = str(data.get("developer_instructions") or "")
+        craft_duplication_tokens = [
+            token for token in DISALLOWED_CRAFT_DUPLICATION_TOKENS if token in instructions
+        ]
         agents[name] = {
             "path": str(path.relative_to(root)),
             "description": data.get("description") or "",
             "sandbox_mode": data.get("sandbox_mode") or "",
             "default_reasoning_effort": data.get("default_reasoning_effort") or "",
+            "developer_instruction_lines": len(instructions.splitlines()),
+            "developer_instruction_chars": len(instructions),
             "skills": _parse_skill_block(instructions),
             "has_advisory_rule": name == "governor" or ADVISORY_RULE in instructions,
+            "has_principal_craft_kernel": PRINCIPAL_CRAFT_RULE in instructions,
+            "craft_duplication_tokens": craft_duplication_tokens,
             "has_truth_first_protocol": TRUTH_FIRST_HEADER in instructions
             and all(token in instructions for token in TRUTH_FIRST_TOKENS),
         }
@@ -161,6 +184,20 @@ def audit(root: Path) -> OrderedDict[str, Any]:
             hard_findings.append(f"{agent['path']}: reasoning effort must be high or xhigh")
         if not agent["has_advisory_rule"]:
             hard_findings.append(f"{agent['path']}: missing advisory-only authority rule")
+        if not agent["has_principal_craft_kernel"]:
+            hard_findings.append(f"{agent['path']}: missing Principal Craft Kernel inheritance hook")
+        if agent["developer_instruction_lines"] > DEVELOPER_INSTRUCTIONS_MAX_LINES:
+            hard_findings.append(
+                f"{agent['path']}: developer_instructions too long: {agent['developer_instruction_lines']} lines > {DEVELOPER_INSTRUCTIONS_MAX_LINES}"
+            )
+        if agent["developer_instruction_chars"] > DEVELOPER_INSTRUCTIONS_MAX_CHARS:
+            hard_findings.append(
+                f"{agent['path']}: developer_instructions too long: {agent['developer_instruction_chars']} chars > {DEVELOPER_INSTRUCTIONS_MAX_CHARS}"
+            )
+        if agent["craft_duplication_tokens"]:
+            hard_findings.append(
+                f"{agent['path']}: duplicates Principal Craft Kernel text: {', '.join(agent['craft_duplication_tokens'])}"
+            )
         if not agent["has_truth_first_protocol"]:
             hard_findings.append(f"{agent['path']}: missing complete truth-first protocol")
         if not agent["skills"]:
@@ -339,7 +376,7 @@ def _text(payload: dict[str, Any]) -> str:
             f"- {row['lane_label']} {skill_id}: agents={agents}; workflows={workflows}; mechanisms={mechanisms}"
         )
     if payload["parent_skill_only_families"]:
-        lines.append("Parent-skill-only master families:")
+        lines.append("Parent-skill-only owner families:")
         for owner, skills in payload["parent_skill_only_families"].items():
             lines.append(f"- {owner}: {', '.join(skills)}")
     return "\n".join(lines)

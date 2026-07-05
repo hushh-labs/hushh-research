@@ -11,7 +11,9 @@ Define one durable documentation model across:
 
 - root markdown entrypoints
 - `docs/` (cross-cutting)
+- `docs/reference/` (execution-owned current contracts)
 - `docs/future/` (future roadmap and R&D planning)
+- `docs/superpowers/` (agentic implementation plans and design snapshots)
 - `consent-protocol/docs/` (backend)
 - `hushh-webapp/docs/` (frontend/native)
 
@@ -38,11 +40,12 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 3. Do not rename current endpoints, packages, token types, or code symbols in docs prose.
 4. Do not describe future-state Kai/Nav separation, Merkle sealing, threshold signing, or other unshipped controls as implemented truth.
 5. When a doc introduces a new architecture-heavy term, reconcile it against the founder-language matrix in the same PR.
-6. Treat Hussh / One / Kai / Nav as a role contract, not interchangeable voice labels:
+6. Treat Hussh / One / Kai / Nav / KYC as a role contract, not interchangeable voice labels:
    - Hussh is platform, trust model, and infrastructure.
    - One is the personal agent and relationship layer.
    - Kai is the finance specialist.
    - Nav is the privacy, consent, vault, deletion, and scope-review guardian.
+   - KYC is the identity and verification workflow specialist.
 7. Founder draft phrases must be normalized through [../architecture/founder-language-matrix.md](../architecture/founder-language-matrix.md) before becoming canonical docs. Do not preserve stale wording such as `Hussh is your personal MCP server and AI agent`, `One has two faces`, or `Kai is the One who remembers`.
 8. `hu_ssh` and `SSH for humans` are secondary founder metaphors. The canonical expansion remains `Human Secure Socket Host`.
 9. Strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, or user-private action receipts require implementation references before they can leave `docs/future/`.
@@ -53,10 +56,12 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 2. Put frontend/native implementation docs in `hushh-webapp/docs/`.
 3. Keep cross-cutting architecture/ops/policy docs in root `docs/`.
 4. Do not duplicate source-of-truth content across homes; link instead.
-5. Put planning-only future-state concepts and R&D assessments in `docs/future/`.
-6. Put execution-owned AI strategy/runtime contracts in `docs/reference/ai/` unless they are backend- or frontend-only.
-7. Keep root markdowns thin and contributor-facing; do not let them become detailed setup or architecture specs.
-8. Keep `consent-protocol/docs/README.md` and `hushh-webapp/docs/README.md` as package docs indexes, not second package READMEs.
+5. Put execution-owned current cross-cutting contracts in `docs/reference/`; start from [../README.md](../README.md).
+6. Put planning-only future-state concepts and R&D assessments in `docs/future/`.
+7. Put scoped agentic execution plans and design snapshots in `docs/superpowers/`; promote shipped truth out to `docs/reference/`, `consent-protocol/docs/`, or `hushh-webapp/docs/`, then delete superseded plan/spec artifacts unless they are intentionally retained for active traceability.
+8. Put execution-owned AI strategy/runtime contracts in `docs/reference/ai/` unless they are backend- or frontend-only.
+9. Keep root markdowns thin and contributor-facing; do not let them become detailed setup or architecture specs.
+10. Keep `consent-protocol/docs/README.md` and `hushh-webapp/docs/README.md` as package docs indexes, not second package READMEs.
 
 ## Visual Coverage Rules
 
@@ -66,14 +71,17 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 4. Tier A visual owners are:
    - major README/index docs under `docs/`, `consent-protocol/docs/`, and `hushh-webapp/docs/`
    - `docs/project_context_map.md`
+   - `docs/reference/README.md`
    - `docs/reference/operations/documentation-architecture-map.md`
    - `docs/reference/architecture/architecture.md`
    - `docs/reference/architecture/README.md`
    - `docs/reference/iam/README.md`
+   - `docs/reference/one/README.md`
    - `docs/reference/kai/README.md`
    - `docs/reference/mobile/README.md`
    - `docs/reference/operations/README.md`
-   - canonical architecture, IAM, Kai, mobile, CI, and branch-governance north-star docs
+   - `docs/superpowers/README.md`
+   - canonical architecture, IAM, One, Kai, mobile, CI, branch-governance, and planning-archive north-star docs
 5. Tier B docs may link to the nearest Tier A owner instead of embedding a local diagram.
 6. Diagrams must stay markdown-native. Prefer Mermaid for larger flows and ASCII only when the smaller inline sketch reads better.
 7. Do not add diagrams for transient incident history, one-time maintenance activity, or branch-only cleanup.
@@ -132,8 +140,11 @@ Every maintained doc should be classified as one of:
 
 1. `canonical`
 2. `pointer/index`
-3. `merge into existing canonical doc`
-4. `delete`
+3. `future-plan`
+4. `planning-archive`
+5. `historical-provenance`
+6. `merge-then-delete`
+7. `delete`
 
 Default bias:
 
@@ -141,6 +152,10 @@ Default bias:
 2. merge duplicate setup/testing/reference content into the canonical doc
 3. downgrade navigation-only docs into short indexes or pointers
 4. keep package-local docs package-local instead of moving them into root `docs/`
+5. never treat date-stamped `docs/superpowers/plans/*` or `docs/superpowers/specs/*` artifacts as current implementation truth
+6. keep `merge-then-delete` as a temporary cleanup state, not a permanent classification
+
+Recursive rewrite policy lives in [documentation-recursive-knowledge-model.md](./documentation-recursive-knowledge-model.md). Use it before splitting or deleting a folder-level docs surface.
 
 ## Required Quality Gates
 
@@ -163,6 +178,8 @@ Terminology review gate:
 
 1. Sweep changed docs for founder terms and implementation terms with `rg`.
 2. Confirm the page still contains exact runtime labels where the reader must act on them.
+3. Run `python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates` before claiming stale docs are cleaned up.
+4. Run `python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders` before claiming a recursive folder restructure is complete.
 
 Brand review gate:
 

@@ -363,7 +363,7 @@ export async function executeVoiceResponse(
         responseKind: response.kind,
         actionResult: buildExecutorActionResult("noop", input, {
           actionId: groundedPlan.actionId,
-          resultSummary: "I couldn't complete that action from the current Kai voice plan.",
+          resultSummary: "I couldn't complete that action from the current One Voice plan.",
           data: {
             executionMode: groundedPlan.execution.mode,
             resolutionSource: groundedPlan.resolutionSource,
@@ -391,7 +391,11 @@ export async function executeVoiceResponse(
       );
     }
 
-    if (groundedPlan.status === "resolved" && groundedPlan.execution.steps.length === 0) {
+    if (
+      groundedPlan.status === "resolved" &&
+      groundedPlan.execution.steps.length === 0 &&
+      !waitingForConfirmation
+    ) {
       emitExecutionTelemetry(input, "grounded_execution_noop", {
         action_id: groundedPlan.actionId,
         execution_mode: groundedPlan.execution.mode,
@@ -407,7 +411,7 @@ export async function executeVoiceResponse(
           resultSummary:
             groundedPlan.execution.mode === "navigate_only"
               ? "You're already on the right Kai screen."
-              : "That Kai voice action is already in the expected state.",
+              : "That One Voice action is already in the expected state.",
           data: {
             executionMode: groundedPlan.execution.mode,
             resolutionSource: groundedPlan.resolutionSource,
@@ -640,6 +644,7 @@ export async function executeVoiceResponse(
         transcript: response.message,
         turnId: input.turnId || null,
         responseId: input.responseId || null,
+        actionId: groundedPlan?.actionId || null,
       });
       emitExecutionTelemetry(input, "confirmation_required", {
         tool_name: response.tool_call.tool_name,

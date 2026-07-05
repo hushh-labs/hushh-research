@@ -115,7 +115,7 @@ Native parity for authenticated flows now includes the verified phone mandate af
 
 - `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
 - `/register-phone` is a contract route even though it bypasses the standard shell.
-- Kai voice surfaces require native microphone permission metadata:
+- One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
 - One Location Agent requires foreground-only location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,

@@ -127,6 +127,10 @@ export type KaiActionDefinition = {
   };
 };
 
+type WiredKaiActionDefinition = KaiActionDefinition & {
+  execution_target: Extract<KaiActionExecutionTarget, { status: "wired" }>;
+};
+
 export type KaiActionSurfaceDefinition = {
   schema_version: string;
   surface_id: string;
@@ -534,16 +538,55 @@ export function getKaiActionByKaiCommand(
   return null;
 }
 
+function voiceToolParamsMatch(
+  params: Record<string, unknown> | undefined,
+  toolCall: VoiceToolCall
+): boolean {
+  if (!params || Object.keys(params).length === 0) return true;
+  const args = toolCall.args as Record<string, unknown>;
+  return Object.entries(params).every(([key, expected]) => args[key] === expected);
+}
+
+function isWiredVoiceToolAction(
+  action: KaiActionDefinition,
+  toolName: VoiceToolCall["tool_name"]
+): action is WiredKaiActionDefinition {
+  return (
+    action.execution_target.status === "wired" &&
+    action.execution_target.path === "voice_tool" &&
+    action.execution_target.target === toolName
+  );
+}
+
 export function getKaiActionByVoiceToolCall(toolCall: VoiceToolCall): KaiActionDefinition | null {
   if (toolCall.tool_name === "execute_kai_command") {
     return getKaiActionByKaiCommand(toolCall.args.command);
   }
-  for (const action of KAI_ACTION_GATEWAY_ACTIONS) {
-    if (action.execution_target.status !== "wired") continue;
-    if (action.execution_target.path !== "voice_tool") continue;
-    if (action.execution_target.target === toolCall.tool_name) return action;
+  const candidates = KAI_ACTION_GATEWAY_ACTIONS.filter((action) =>
+    isWiredVoiceToolAction(action, toolCall.tool_name)
+  );
+  if (candidates.length === 0) {
+    return null;
   }
-  return null;
+  const paramMatches = candidates.filter((action) =>
+    voiceToolParamsMatch(action.execution_target.params, toolCall)
+  );
+  if (paramMatches.length === 1) {
+    return paramMatches[0] || null;
+  }
+  if (paramMatches.length > 1) {
+    const unparameterized = paramMatches.filter(
+      (action) =>
+        action.execution_target.status === "wired" &&
+        (!action.execution_target.params ||
+          Object.keys(action.execution_target.params).length === 0)
+    );
+    return unparameterized.length === 1 ? unparameterized[0] || null : null;
+  }
+  if (candidates.length !== 1) return null;
+  const candidate = candidates[0];
+  if (!candidate || candidate.execution_target.status !== "wired") return null;
+  return candidate.execution_target.params ? null : candidate;
 }
 
 function boolFromSurfaceMetadata(

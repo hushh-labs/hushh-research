@@ -4,7 +4,10 @@ import { ApiService } from "@/lib/services/api-service";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { normalizeClarifyToolCall, validateVoicePlanPayload } from "@/lib/voice/voice-json-validator";
 import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
-import { buildStructuredScreenContext, type StructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import {
+  buildOneVoiceStructuredScreenContext,
+  type StructuredScreenContext,
+} from "@/lib/voice/screen-context-builder";
 import { composeVoiceSpeechAfterExecution } from "@/lib/voice/voice-response-composer";
 import {
   resolveGroundedVoicePlan,
@@ -289,7 +292,7 @@ export class VoiceTurnOrchestrator {
 
     const appRuntimeState = this.config.getAppRuntimeState();
     const voiceContext = this.config.getVoiceContext() || {};
-    const structuredContext: StructuredScreenContext = buildStructuredScreenContext({
+    const structuredContext: StructuredScreenContext = buildOneVoiceStructuredScreenContext({
       appRuntimeState,
       voiceContext,
     });
@@ -313,7 +316,7 @@ export class VoiceTurnOrchestrator {
 
     try {
       this.config.onStageChange?.("planning");
-      const planningResponse = await ApiService.planKaiVoiceIntent({
+      const planningResponse = await ApiService.planOneVoiceIntent({
         userId: this.config.userId,
         vaultOwnerToken: this.config.vaultOwnerToken,
         transcript: cleanTranscript,
@@ -557,7 +560,7 @@ export class VoiceTurnOrchestrator {
       const actionResult = extractActionResultFromDispatch(dispatchOutcome);
       const appRuntimeStateAfter = this.config.getAppRuntimeState();
       const voiceContextAfter = this.config.getVoiceContext() || {};
-      const structuredContextAfter: StructuredScreenContext = buildStructuredScreenContext({
+      const structuredContextAfter: StructuredScreenContext = buildOneVoiceStructuredScreenContext({
         appRuntimeState: appRuntimeStateAfter,
         voiceContext: voiceContextAfter,
       });
@@ -565,7 +568,7 @@ export class VoiceTurnOrchestrator {
       let composedSpeech: VoiceComposedSpeech | null = null;
       if (response.speak && normalizedPlan.reply_strategy === "llm") {
         try {
-          const composeResponse = await ApiService.composeKaiVoiceReply({
+          const composeResponse = await ApiService.composeOneVoiceReply({
             userId: this.config.userId,
             vaultOwnerToken: this.config.vaultOwnerToken,
             transcript: cleanTranscript,

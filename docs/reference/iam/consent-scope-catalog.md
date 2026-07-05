@@ -133,6 +133,22 @@ Denied selected scopes block external reply-all. Missing fields inside an
 approved export are described in the client-generated draft; the backend never
 decrypts or drafts from the scoped data.
 
+## Agent Coordination Scopes
+
+Agent coordination scopes authorize bounded agent entrypoints. They do not
+replace specialist scopes or PKM/data scopes.
+
+| Scope | Intended Use |
+| --- | --- |
+| `agent.one.orchestrate` | Invoke Agent One as the coordinator for intent routing and specialist handoff framing |
+| `agent.kai.analyze` | Invoke Kai for finance, portfolio, market, and RIA/investor analysis |
+| `agent.nav.review` | Invoke Nav for privacy, consent, vault, deletion, and scope-review guidance |
+| `agent.kyc.process` | Invoke KYC for identity workflow state and approval-gated KYC processing |
+
+Specialist execution remains scoped at the specialist boundary. A caller using
+Agent One over A2A presents `agent.one.orchestrate`; any delegated specialist
+entrypoint validates its own required scope before doing specialist work.
+
 ## Duration Policy
 
 1. Presets: `24h`, `7d`, `30d`, `90d`

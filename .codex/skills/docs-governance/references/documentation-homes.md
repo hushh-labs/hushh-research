@@ -1,6 +1,6 @@
 # Documentation Homes
 
-This repo uses a strict three-home model plus thin root entrypoints and an explicit future-roadmap tier inside root `docs/`.
+This repo uses a strict home model: thin root entrypoints, execution-owned current references, future roadmap docs, short-lived Superpowers planning artifacts, and package-local implementation docs.
 
 ## Root markdowns
 
@@ -28,7 +28,8 @@ Within root `docs/`, keep these boundaries explicit:
 
 - `docs/vision/` = durable north stars only
 - `docs/future/` = planning-only future-state concepts and R&D assessments
-- `docs/reference/` = execution-owned cross-cutting contracts
+- `docs/superpowers/` = scoped implementation plans and design snapshots for agentic execution; promote durable truth elsewhere, then delete superseded artifacts
+- `docs/reference/` = execution-owned current cross-cutting contracts; start at `docs/reference/README.md`
 
 ## `consent-protocol/docs/`
 
@@ -55,7 +56,10 @@ When deciding whether to keep or remove a doc, classify it as one of:
 
 - `canonical`
 - `pointer/index`
-- `merge into canonical doc`
+- `future-plan`
+- `planning-archive`
+- `historical-provenance`
+- `merge-then-delete`
 - `delete`
 
 Default bias:
@@ -64,3 +68,4 @@ Default bias:
 2. merge duplicated guidance
 3. keep package docs local
 4. keep root docs thin
+5. never classify date-stamped `docs/superpowers/plans/*` or `docs/superpowers/specs/*` as canonical shipped truth

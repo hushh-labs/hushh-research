@@ -25,3 +25,16 @@ async def test_importing_package_wires_location(monkeypatch):
     from hushh_mcp.adk_bridge import dispatch as d
 
     assert d.is_wired_specialist("agent_location") is True
+
+
+@pytest.mark.asyncio
+async def test_importing_package_wires_email(monkeypatch):
+    # Fresh import wires agent_email into the live registry.
+    import importlib
+
+    from hushh_mcp import adk_bridge
+
+    importlib.reload(adk_bridge)
+    from hushh_mcp.adk_bridge import dispatch as d
+
+    assert d.is_wired_specialist("agent_email") is True

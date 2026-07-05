@@ -15,6 +15,14 @@ Founder-language note: this contract is part of the platform's `Tamper-Evident H
 - Fail closed when required realtime dependencies are missing on deterministic decision-critical paths.
 - Every dashboard KPI must map to explicit provenance.
 
+## Decision Robustness Principles
+- Run deterministic preprocessing before LLM synthesis on decision-critical paths.
+- Require evidence references for debate outputs, optimization proposals, and dashboard claims.
+- Validate unsupported or weakly sourced claims at schema boundaries before UI render.
+- Use LLMs for explanation and synthesis after deterministic eligibility, concentration, exposure, and policy checks.
+- Preserve freshness metadata (`source`, `fetched_at`, `ttl_seconds`, `is_stale`) with provider-backed payloads.
+- Keep cache coherence deterministic: invalidate stale snapshots on mutation and never let cached provider data become durable private memory without an explicit encrypted PKM write.
+
 ## Realtime Provider Matrix
 - Quotes/market snapshot: `Finnhub` -> `PMP/FMP` -> `yfinance` -> Yahoo quote fallback.
 - News sentiment: `Finnhub` -> `PMP/FMP` -> NewsAPI -> Google News RSS.

@@ -54,24 +54,6 @@ class AccountService:
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
-            "kai_location_access_requests": text(
-                "DELETE FROM kai_location_access_requests WHERE owner_user_id = :user_id"
-            ),
-            "kai_location_contacts": text(
-                "DELETE FROM kai_location_contacts WHERE owner_user_id = :user_id"
-            ),
-            "kai_location_events": text(
-                "DELETE FROM kai_location_events WHERE owner_user_id = :user_id"
-            ),
-            "kai_location_latest": text(
-                "DELETE FROM kai_location_latest WHERE owner_user_id = :user_id"
-            ),
-            "kai_location_shares": text(
-                "DELETE FROM kai_location_shares WHERE owner_user_id = :user_id"
-            ),
-            "kai_location_update_sessions": text(
-                "DELETE FROM kai_location_update_sessions WHERE owner_user_id = :user_id"
-            ),
             "kai_funding_ach_relationships": text(
                 "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
             ),
@@ -785,12 +767,6 @@ class AccountService:
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
-            "kai_location_access_requests": False,
-            "kai_location_contacts": False,
-            "kai_location_events": False,
-            "kai_location_latest": False,
-            "kai_location_shares": False,
-            "kai_location_update_sessions": False,
             "one_location_events": False,
             "one_location_referrals": False,
             "one_location_access_requests": False,
@@ -837,12 +813,6 @@ class AccountService:
                         "pkm_default_available_projections",
                         "pkm_upgrade_steps",
                         "pkm_upgrade_runs",
-                        "kai_location_access_requests",
-                        "kai_location_events",
-                        "kai_location_latest",
-                        "kai_location_update_sessions",
-                        "kai_location_shares",
-                        "kai_location_contacts",
                     ],
                     params=params,
                     results=results,

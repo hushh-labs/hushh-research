@@ -4,6 +4,8 @@ This is the canonical contract for the Codex operating system under `.codex/skil
 
 The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
 
+Documentation-home and stale-knowledge classification lives in `docs/reference/README.md` and `docs/reference/operations/docs-governance.md`. Skill and workflow changes must point to that model instead of duplicating a second taxonomy.
+
 ## Machine-readable source of truth
 
 Every repo-local skill must have:
@@ -55,7 +57,7 @@ Owner-skill rules:
 1. The skill folder name must match `Owner family`.
 2. Owner skills are the default entrypoint for broad requests in that domain.
 3. Every meaningful repo surface must map to at least one owner skill.
-4. Human-facing fleet reports label owner lanes as `master <skill-id>`; the machine-readable manifest role stays `owner` for compatibility.
+4. Human-facing fleet reports label owner lanes as `owner <skill-id>`; the machine-readable manifest role stays `owner` for compatibility.
 
 Spoke-skill rules:
 
@@ -133,7 +135,7 @@ Workflow-routing rules:
    - `references/` contains detailed gates, examples, templates, and calibration notes that are loaded only when relevant.
    - `scripts/` contains repeatable classification, reporting, linting, or generation logic.
    - `workflow.json` and `skill.json` contain routing and machine-readable metadata.
-14. Enforce strict compact budgets: master/owner `SKILL.md` max 110 lines, spoke `SKILL.md` max 85 lines, reference file max 220 lines, `Read First` max 8 entries, and `Required Checks` max 8 commands.
+14. Enforce strict compact budgets: owner `SKILL.md` max 110 lines, spoke `SKILL.md` max 85 lines, reference file max 220 lines, `Read First` max 8 entries, and `Required Checks` max 8 commands.
 15. Do not patch skills by appending every newly discovered miss to the main workflow. First decide whether the fix belongs in a script, a focused reference, a workflow playbook, or a shorter operating rule.
 16. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
 17. A scan for skill quality should report line count, role, owner family, reads, checks, references, scripts, budget status, likely duplication, and agent/subagent activation mechanisms.

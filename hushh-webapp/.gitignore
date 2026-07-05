@@ -37,6 +37,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Local dev-server logs (agent-run backgrounded frontend output)
+frontend.local.log
+frontend.err.log
+frontend*.log
+
 # Runtime-generated PKM debug logs
 pkm-debug.log*
 pkm-debug-*.log*

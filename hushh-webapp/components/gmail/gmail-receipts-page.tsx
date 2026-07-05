@@ -12,6 +12,8 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
+import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -1245,13 +1247,27 @@ export default function ProfileReceiptsPage() {
             ) : null}
           </SurfaceInset>
 
-          {showReceiptInsights ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
-              <div className="space-y-1">
-                <p className="font-medium text-foreground">Save insights</p>
-                <p className="text-muted-foreground">
-                  Review and edit your shopping summary before you save it.
-                </p>
+          {isConnected ? <GmailChatPanel vaultOwnerToken={vaultOwnerToken} /> : null}
+
+          <GmailNudgesSection
+            userId={user?.uid || null}
+            vaultOwnerToken={vaultOwnerToken}
+            isConnected={isConnected}
+            idTokenProvider={user?.getIdToken ? () => user.getIdToken() : null}
+          />
+
+          <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">Save insights</p>
+              <p className="text-muted-foreground">
+                Review and edit your shopping summary before you save it.
+              </p>
+            </div>
+
+            {receiptMemoryLoading && !receiptMemoryArtifact ? (
+              <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-3 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Creating your shopping summary…
               </div>
 
               {receiptMemoryLoading && !receiptMemoryArtifact ? (

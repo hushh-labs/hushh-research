@@ -284,6 +284,26 @@ def _fingerprint_public_key(public_key_jwk: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+# Internal grant "reason" markers used for plain shares and approved access
+# requests. These are plumbing, never a human message, so they must NOT be shown
+# to the recipient. Anything else (e.g. a Check-In note) is a real message.
+_INTERNAL_SHARE_REASONS = {"owner_approved", "request_approved"}
+
+
+def _visible_share_message(reason: str | None) -> str | None:
+    """Return a human-facing share message, or None for internal markers.
+
+    A Check-In (or any future quick action) can pass a short note as the grant
+    reason so the recipient's notification reads "<Owner>: <message>" instead of
+    the generic "<Owner> shared location access with you." Internal defaults are
+    filtered out and never surfaced.
+    """
+    text = " ".join(str(reason or "").split())
+    if not text or text.lower() in _INTERNAL_SHARE_REASONS:
+        return None
+    return text[:160]
+
+
 def _loads_json(value: Any) -> Any:
     if value is None:
         return None
@@ -2558,11 +2578,22 @@ class OneLocationAgentService:
             event_type="location_share_created",
             metadata={"duration_hours": duration},
         )
+        # A caller-supplied reason (e.g. a Check-In note like "I've checked in
+        # here, let's catch up") is surfaced verbatim in the recipient's
+        # notification so they see WHO shared and WHY. Internal markers
+        # ("owner_approved" / "request_approved") are never shown — those are the
+        # default reasons for a plain share or an approved access request.
+        share_message = _visible_share_message(reason)
+        notification_body = (
+            f"{owner_label}: {share_message}"
+            if share_message
+            else f"{owner_label} shared location access with you."
+        )
         self._send_metadata_notification(
             user_id=recipient_user_id,
             notification_type="location_share_created",
             title="Location shared",
-            body=f"{owner_label} shared location access with you.",
+            body=notification_body,
             notification_tag=f"one-location-share:{grant['id']}",
             request_url=_one_location_url(
                 grantId=grant["id"],
@@ -2578,6 +2609,7 @@ class OneLocationAgentService:
                 else None,
                 "duration_hours": str(duration),
                 "expires_at": grant.get("expiresAt"),
+                **({"share_message": share_message} if share_message else {}),
             },
         )
         return grant

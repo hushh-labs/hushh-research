@@ -23,11 +23,17 @@ import { useSearchParams } from "next/navigation";
 
 
 import {
+  CalendarClock,
+  Car,
+  CheckCircle2,
+  Hand,
+  Home,
   Inbox as InboxIcon,
   Link as LinkIcon,
   MapPin,
   Plus,
   Send,
+  ShieldAlert,
   UserPlus,
   UsersRound,
 } from "lucide-react";
@@ -76,6 +82,11 @@ import {
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import {
+  QuickActionCard,
+  QuickActionsSection,
+} from "@/components/one-location/redesign/quick-actions";
+import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -164,6 +175,15 @@ export type LocationHubViewModel = {
   onTriggerSos: () => void;
   onStopSos: () => void;
 
+  /* Check-In (quick action) — reuses the encrypted share pipeline. The message
+     is surfaced in the recipient's notification (e.g. "Alex: I've checked in
+     here, let's catch up") so they see who checked in and why. */
+  onCheckIn: (
+    recipientIds: string[],
+    durationHours: string,
+    message?: string,
+  ) => void;
+
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
   recipientSubtitle: (r: OneLocationRecipient) => string;
@@ -184,7 +204,14 @@ export type LocationHubViewModel = {
   decryptedPoints: Record<string, PlainLocationPoint>;
 };
 
-type FlowKind = "none" | "share" | "ask" | "invite" | "temp-link";
+type FlowKind =
+  | "none"
+  | "share"
+  | "ask"
+  | "invite"
+  | "temp-link"
+  | "check-in"
+  | "sos";
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
@@ -319,6 +346,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             setReason={setReason}
             onClose={closeFlow}
           />
+        ) : flow === "check-in" ? (
+          <CheckInFlow vm={vm} onClose={closeFlow} />
+        ) : flow === "sos" ? (
+          <SosFlow vm={vm} onClose={closeFlow} />
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : (
@@ -379,6 +410,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             setFlow("share");
           }}
           onAsk={() => setFlow("ask")}
+          onCheckIn={() => setFlow("check-in")}
+          onSos={() => setFlow("sos")}
           onGoTab={setTab}
         />
       ) : tab === "people" ? (
@@ -409,6 +442,8 @@ function NowHub({
   inboxCount,
   onStartShare,
   onAsk,
+  onCheckIn,
+  onSos,
   onGoTab,
 }: {
   vm: LocationHubViewModel;
@@ -416,6 +451,8 @@ function NowHub({
   inboxCount: number;
   onStartShare: () => void;
   onAsk: () => void;
+  onCheckIn: () => void;
+  onSos: () => void;
   onGoTab: (tab: LocationHubTab) => void;
 }) {
   // When location permission is blocked (denied / restricted / services off),
@@ -485,16 +522,90 @@ function NowHub({
         </Button>
       </div>
 
-      <SosPanel
-        recipients={vm.sosRecipients}
-        active={vm.sosActive}
-        busy={vm.sosBusy}
-        startedAtLabel={vm.sosStartedAtLabel}
-        onTrigger={vm.onTriggerSos}
-        onStop={vm.onStopSos}
-        recipientLabel={vm.recipientLabel}
-        isRecipientShareReady={vm.isRecipientShareReady}
-      />
+      {/* Quick actions — six reusable location shortcuts. Two are live
+          (Check-In + SOS); the rest surface as "Coming soon". When SOS is
+          already active, its card reflects the live state and reopens the
+          panel to stop sharing. */}
+      <QuickActionsSection title="Quick actions">
+        <QuickActionCard
+          tone="green"
+          icon={<CheckCircle2 className="h-6 w-6" />}
+          title="Check-In"
+          subtitle="Share now"
+          onClick={onCheckIn}
+        />
+        <QuickActionCard
+          tone="red"
+          icon={<ShieldAlert className="h-6 w-6" />}
+          title="SOS"
+          subtitle={vm.sosActive ? "Live now" : "Emergency"}
+          onClick={onSos}
+          badge={
+            vm.sosActive ? (
+              <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600 dark:text-red-300">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                </span>
+                Live
+              </span>
+            ) : undefined
+          }
+        />
+        <QuickActionCard
+          tone="blue"
+          icon={<Car className="h-6 w-6" />}
+          title="Drive To"
+          subtitle="Navigation"
+          comingSoon
+        />
+        <QuickActionCard
+          tone="amber"
+          icon={<Hand className="h-6 w-6" />}
+          title="Pick Me Up"
+          subtitle="Request"
+          comingSoon
+        />
+        <QuickActionCard
+          tone="violet"
+          icon={<CalendarClock className="h-6 w-6" />}
+          title="Meeting"
+          subtitle="Venue"
+          comingSoon
+        />
+        <QuickActionCard
+          tone="slate"
+          icon={<Home className="h-6 w-6" />}
+          title="Safe Arrival"
+          subtitle="Notify"
+          comingSoon
+        />
+      </QuickActionsSection>
+
+      {/* Active SOS banner (only while an incident is live) — quick stop
+          without opening the full SOS panel. */}
+      {vm.sosActive ? (
+        <button
+          type="button"
+          onClick={onSos}
+          className="flex w-full items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-left transition-colors hover:bg-red-500/15"
+        >
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-red-700 dark:text-red-300">
+              SOS live location active
+            </span>
+            <span className="block text-xs text-red-600/80 dark:text-red-300/80">
+              {vm.sosStartedAtLabel
+                ? `Since ${vm.sosStartedAtLabel} · tap to manage`
+                : "Tap to manage or stop"}
+            </span>
+          </span>
+        </button>
+      ) : null}
 
       {/* Active shares */}
       <SectionCard title="Active shares">
@@ -847,6 +958,49 @@ function InboxHub({ vm }: { vm: LocationHubViewModel }) {
           </div>
         </SectionCard>
       ) : null}
+    </div>
+  );
+}
+
+/* =================================================================== */
+/* SOS FLOW (Quick Action wrapper around the existing SOS panic panel)  */
+/* =================================================================== */
+
+function SosFlow({
+  vm,
+  onClose,
+}: {
+  vm: LocationHubViewModel;
+  onClose: () => void;
+}) {
+  return (
+    <div className="space-y-5">
+      {/* Minimal back-nav header only. The SosPanel below renders the single
+          "SOS" header, so we intentionally do NOT repeat an "SOS" title here
+          (that produced the duplicate-header the screenshot flagged). */}
+      <TaskFlowHeader eyebrow="Location" title="Emergency" onBack={onClose} />
+      <SosPanel
+        recipients={vm.sosRecipients}
+        active={vm.sosActive}
+        busy={vm.sosBusy}
+        startedAtLabel={vm.sosStartedAtLabel}
+        onTrigger={vm.onTriggerSos}
+        onStop={vm.onStopSos}
+        recipientLabel={vm.recipientLabel}
+        isRecipientShareReady={vm.isRecipientShareReady}
+      />
+      <TrustNoteCard
+        title="Only your trusted contacts are alerted"
+        description="The same people who receive your SOS also appear in Check-In. Nothing is shared publicly."
+      />
+      {/* Inline so it renders above the chat panel, not floating over it. */}
+      <Button
+        variant="ghost"
+        onClick={onClose}
+        className="h-11 w-full rounded-2xl text-sm text-muted-foreground"
+      >
+        Back to One Location
+      </Button>
     </div>
   );
 }

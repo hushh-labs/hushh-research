@@ -42,7 +42,7 @@ vi.mock("@/components/kai/kai-command-palette", () => ({
           "button",
           {
             type: "button",
-            "aria-label": voiceActive ? "End Kai voice" : "Start Kai voice",
+            "aria-label": voiceActive ? "End One Voice" : "Start One Voice",
             "aria-disabled": voiceDisabled,
             onClick: onVoiceClick,
           },
@@ -301,7 +301,7 @@ function openSearchAndStartVoice() {
   fireEvent.click(
     screen.getByRole("button", { name: "Open Kai command search" }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Start Kai voice" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start One Voice" }));
 }
 
 describe("kai-search-bar helpers", () => {
@@ -482,7 +482,7 @@ describe("kai-search-bar helpers", () => {
     expect(mockOpenAgent).not.toHaveBeenCalled();
   });
 
-  it("keeps Kai voice inside the compact search surface", () => {
+  it("keeps One Voice inside the compact search surface", () => {
     vi.useRealTimers();
 
     render(
@@ -498,13 +498,13 @@ describe("kai-search-bar helpers", () => {
     expect(
       screen.getByRole("button", { name: "Open Kai command search" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start Kai voice" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start One Voice" })).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Open Kai command search" }),
     );
 
-    expect(screen.getByRole("button", { name: "Start Kai voice" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start One Voice" })).toBeTruthy();
   });
 
   it("acquires on explicit mic tap and releases on cancel", async () => {
@@ -534,7 +534,7 @@ describe("kai-search-bar helpers", () => {
       expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "End Kai voice" }));
+    fireEvent.click(screen.getByRole("button", { name: "End One Voice" }));
 
     await waitFor(() => {
       expect(releaseMock).toHaveBeenCalled();

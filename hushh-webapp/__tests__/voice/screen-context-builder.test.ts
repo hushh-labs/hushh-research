@@ -4,6 +4,8 @@ import {
   ARRAY_DIMENSION_CAP_ERROR,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
+  buildOneVoiceContextSnapshot,
+  buildOneVoiceStructuredScreenContext,
   buildStructuredScreenContext,
   enforceArrayDimensionCap,
 } from "@/lib/voice/screen-context-builder";
@@ -757,6 +759,81 @@ describe("buildStructuredScreenContext", () => {
       pending_count: 2,
       active_count: 4,
       selected_status: "active",
+    });
+  });
+
+  it("builds a redacted One Voice snapshot with action ids and cache posture", () => {
+    window.history.pushState({}, "", "/ria/workspace?clientId=abc123&tab=access");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "ria_client_workspace",
+      title: "Client workspace",
+      visibleModules: ["Access review"],
+      controls: [
+        {
+          id: "request-access",
+          label: "Request access",
+          actionId: "ria.client_workspace.request_access",
+        },
+      ],
+      screenMetadata: {
+        raw_cache_key: "portfolio_data_user_1",
+      },
+    });
+
+    const appRuntimeState = makeRuntimeState(
+      "/ria/workspace?clientId=abc123&tab=access",
+      "ria_client_workspace"
+    );
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState,
+      state: "understanding",
+      lastTransition: {
+        from: "listening",
+        to: "understanding",
+        atMs: 10,
+        transitionSeq: 7,
+        sessionId: "session_safe",
+        sourceId: "gemini",
+        ariaLive: "polite",
+        label: "One is understanding",
+      },
+    });
+
+    expect(snapshot.schema_version).toBe("one_voice_context.v1");
+    expect(snapshot.snapshot_id).toMatch(/^ctx_/);
+    expect(snapshot.revisions).toMatchObject({
+      voice: 7,
+    });
+    expect(snapshot.route.route_family).toBe("/ria/workspace");
+    expect(snapshot.ui.selected_entity_present).toBe(false);
+    expect(snapshot.available_action_ids).toContain(
+      "ria.client_workspace.request_access"
+    );
+    expect(snapshot.cache).toMatchObject({
+      vault_ready: true,
+      portfolio_ready: true,
+      freshness: "fresh_or_stale_safe",
+    });
+    expect(snapshot.voice.state).toBe("understanding");
+    expect(snapshot.voice.transition_seq).toBe(7);
+    expect(snapshot.voice.session_id).toBe("session_safe");
+    expect(snapshot.privacy.redacted).toBe(true);
+    expect(JSON.stringify(snapshot)).not.toContain("user_1");
+    expect(JSON.stringify(snapshot)).not.toContain("portfolio_data_user_1");
+  });
+
+  it("keeps structured context shape while attaching One Voice metadata", () => {
+    const context = buildOneVoiceStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/one", "one_home"),
+      state: "listening",
+    });
+
+    expect(context.route.screen).toBe("one_home");
+    expect(context.one_voice_context).toMatchObject({
+      schema_version: "one_voice_context.v1",
+      voice: {
+        state: "listening",
+      },
     });
   });
 });

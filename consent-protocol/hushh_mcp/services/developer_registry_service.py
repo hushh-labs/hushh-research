@@ -133,7 +133,7 @@ TOOL_CATALOG = (
         "compatibility_status": "partner_preview",
         "description": "Partner-only client access summary for RIA flows.",
     },
-    # ── Kai voice actions ──────────────────────────────────────────────
+    # ── Kai compatibility voice actions ────────────────────────────────
     {
         "name": "kai_analyze_stock",
         "group": TOOL_GROUP_KAI_VOICE,

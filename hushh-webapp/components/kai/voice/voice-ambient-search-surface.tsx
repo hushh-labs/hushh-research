@@ -251,7 +251,7 @@ export function VoiceAmbientSearchSurface({
           data-voice-mode={mode}
           aria-label={
             active
-              ? `Kai voice ${modeLabel(mode).toLowerCase()}`
+              ? `One Voice ${modeLabel(mode).toLowerCase()}`
               : "Open Kai command search"
           }
           className={cn(

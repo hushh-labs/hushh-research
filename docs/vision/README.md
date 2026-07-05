@@ -71,7 +71,7 @@ The canonical product ontology is:
 | Name | Role | Current-state boundary |
 | --- | --- | --- |
 | **Hussh** | Platform, trust model, infrastructure | Owns consent, scoped access, BYOK, zero-knowledge, PKM, developer access, and audit boundaries. Hussh has values, not a character voice. |
-| **One** | Top-level personal agent and relationship layer | Approved north-star layer for shell greetings, memory, notifications, cross-domain help, and specialist handoff framing. Current runtime is still Kai-first until the One/Nav migration lands. |
+| **One** | Top-level personal agent and relationship layer | Approved north-star layer for shell greetings, memory, notifications, cross-domain help, and specialist handoff framing. One Voice is now the direct voice surface; many action/planner identifiers remain Kai-era compatibility until the wider migration lands. |
 | **Kai** | Finance specialist summoned by One | Current shipped investor/RIA finance assistant, voice/search/action gateway, portfolio analysis, market intelligence, and receipts-backed decisions. |
 | **Nav** | Privacy and consent guardian summoned by One | Approved direction for consent, scope review, vault, deletion, privacy, and trust-friction copy. Nav is not yet a separate runtime. |
 
@@ -83,8 +83,8 @@ One is the personal agent the user owns. Its durable product model is four motio
 
 | Motion | Meaning | Current-state boundary |
 | --- | --- | --- |
-| **Listens** | One reads only what the user explicitly connects through scoped, revocable grants. | Current surfaces already enforce auth, vault, consent, route, and persona guards, but the runtime identity is still Kai-first. |
-| **Remembers** | One becomes the relationship layer for context, preferences, decisions, trusted people, and previously answered questions. | Current PKM is Kai-first; One-owned memory is approved direction until the migration lands. |
+| **Listens** | One reads only what the user explicitly connects through scoped, revocable grants. | Current surfaces already enforce auth, vault, consent, route, and persona guards. Voice is One-owned; broader runtime identifiers are still being migrated out of Kai-era compatibility. |
+| **Remembers** | One becomes the relationship layer for context, preferences, decisions, trusted people, and previously answered questions. | Current PKM evidence is still described through finance-specialist and compatibility docs; One-owned relationship memory is approved direction until implementation proves full coverage. |
 | **Decides** | One reasons over the user's information and summons specialists for domain work. | Finance decisions remain Kai-owned in the current runtime. |
 | **Acts** | One helps execute bounded actions inside consent, route, vault, and workspace guards. | Strong claims about private receipts for every action stay future-state until verified by implementation. |
 

@@ -3,10 +3,12 @@
   "role": "owner",
   "owner_family": "kai-voice-governance",
   "primary_scope": "kai-voice-governance",
-  "description": "Use when changing Kai voice capability authoring, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.",
+  "description": "Use when changing One Voice capability authoring, Kai compatibility runtime contracts, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.",
   "owned_paths": [
     "contracts/kai",
     "consent-protocol/hushh_mcp/services/voice_action_manifest.py",
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-kai-compatibility-runtime.md",
     "docs/reference/kai",
     "hushh-webapp/lib/voice",
     "hushh-webapp/scripts/voice",
@@ -31,7 +33,8 @@
   ],
   "required_reads": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/reference/kai/kai-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-kai-compatibility-runtime.md",
     ".codex/skills/kai-voice-governance/references/voice-review-checklist.md"
   ],
   "required_commands": [
