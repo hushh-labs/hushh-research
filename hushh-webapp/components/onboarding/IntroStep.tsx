@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 /* ────────────────────────────────────────────────────────────
  * 14a — Immersive welcome (design.md §5.7/5.8/5.10)
  * Dark hero (bare quiet mark + gold-accent wordmark) rising into
- * a white sheet with a timeline feature list + consent note. The
- * "Get started" CTA is intentionally removed — Log in is the single
- * primary action. Content is OURS; the ask bar + theme toggle are
- * global chrome that overlays this screen.
+ * a white sheet with a timeline feature list + consent note. A single
+ * primary CTA — "Get Started" — leads into sign-in / sign-up. Content is
+ * OURS; the theme toggle is global chrome. (The agent ask bar is hidden on
+ * this logged-out screen — see agent-bar.tsx unmountBar.)
  * ──────────────────────────────────────────────────────────── */
 
 // Gold stroke glyphs (currentColor) — the parent sets the accent color.
@@ -155,14 +155,15 @@ export function IntroStep({
             safewords. Nothing leaves your vault without your approval.
           </div>
 
-          {/* Primary action — Log in (Get started removed) */}
+          {/* Primary action — "Get Started" leads into sign-in / sign-up
+              (onLogin → /login → AuthStep, which handles both new + returning). */}
           <div className="mt-6">
             <button
               type="button"
               onClick={onLogin}
               className="flex h-[54px] w-full items-center justify-center rounded-full border border-[rgba(214,175,106,0.55)] bg-[#F4EAD6] text-[17px] font-bold tracking-[-0.3px] text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-transform duration-150 hover:bg-[#F4EAD6] active:scale-[0.99] motion-reduce:active:scale-100 dark:bg-[#F4EAD6] dark:text-[#17130C] dark:hover:bg-[#F4EAD6]"
             >
-              Log in
+              Get Started
             </button>
           </div>
         </div>

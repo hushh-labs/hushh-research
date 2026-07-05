@@ -218,17 +218,15 @@ export function AgentBar() {
 
   // Hard unmount gates: route/auth contexts where the bar must not exist at all.
   //
-  // The agent is a SINGLE bar that is present everywhere, including the very
-  // first marketing/intro screen ("/"), onboarding, and for anonymous
-  // (pre-sign-in) users on the welcome flow. It degrades gracefully by
-  // auth/vault level: anonymous + locked-vault users get informational/
-  // navigation help and an in-place unlock prompt only when a vault operation
-  // is invoked, while unlocked users get the full agent. So we do NOT unmount
-  // on onboarding chrome, on the root intro screen, or on missing auth. We only
-  // unmount where an agent launcher genuinely must not exist (legacy dedicated
-  // agent route, phone mandate, appearance lab, developers), or on the
-  // transient auth transitions (login, logout) where the app shell is not the
-  // host.
+  // The agent bar rides most surfaces, degrading gracefully by auth/vault level
+  // (locked-vault users get an in-place unlock prompt; unlocked users get the
+  // full agent). EXCEPTION — the LOGGED-OUT welcome ("/"): an agent input has no
+  // meaning before sign-in and read as a confusing "backdoor" pinned under the
+  // CTA, so we unmount it there (signed-in users are redirected off "/", so the
+  // bar still shows on /one and every authed surface). We also unmount where an
+  // agent launcher genuinely must not exist (legacy dedicated agent route, phone
+  // mandate, appearance lab, developers) or on transient auth transitions
+  // (login, logout) where the app shell is not the host.
   const path = pathname ?? "";
   // The waveform action circle is white only on the 2c dark dashboard (where a
   // white circle pops); on every other surface (welcome, profile, kai, …) it is
@@ -236,6 +234,10 @@ export function AgentBar() {
   const onDashboard = path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
   const unmountBar =
     !agentPopover ||
+    // Logged-out welcome ("/"): no agent before sign-in. On "/" an anonymous
+    // user is always the `anon_onboarding` tier; signed-in users are redirected
+    // off "/", so the bar still shows on /one and every authed surface.
+    (isHomeRoute && runtime?.tier === "anon_onboarding") ||
     // The One setup surface is a focused onboarding flow (like Apple's "Finish
     // Setting Up" in Settings): a centered translucent agent launcher reads
     // over the wide grouped-list rows on scroll (they show through it / beside
