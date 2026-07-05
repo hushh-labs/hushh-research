@@ -5,6 +5,26 @@
 **Status:** Approved design, ready for implementation planning
 **Related:** `docs/future/email-agent-nudges-plan.md` (Phase 2 — A2A)
 
+## Visual Map
+
+```
+User ▶ Central One chat (/agent)
+        │  POST /api/kai/agent/chat/stream
+        ▼
+   stream_agent_chat ─ classify_specialist_domain ─▶ "agent_email"?
+        │  is_wired_specialist("agent_email")
+        ▼
+   a2a_dispatch ──▶ EmailAgentA2A.handle (adk_bridge/email_agent.py)
+        │                     │  wraps unchanged
+        │                     ▼
+        │            EmailChatService.handle_turn  (read-only tools:
+        │            list_needs_reply / search_inbox over gmail.readonly)
+        ▼
+   SpecialistTurnResult ─▶ SSE token/complete ─▶ One chat (read-only, no directive)
+
+Phase 2b (later): agent ▶ durable email_agent_requests ▶ owner approve/deny ▶ execute
+```
+
 ## Goal
 
 Wire the **Gmail/email agent** into the central **One** chat ("ask your agent

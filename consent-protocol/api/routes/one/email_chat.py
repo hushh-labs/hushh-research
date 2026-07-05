@@ -40,12 +40,13 @@ async def email_chat(
     if not request.message:
         raise HTTPException(status_code=422, detail="message is required")
     try:
-        return await _service().handle_turn(
+        result: dict[str, Any] = await _service().handle_turn(
             user_id=token_data["user_id"],
             message=request.message,
             consent_token=token_data.get("token", ""),
             conversation_id=request.conversation_id,
         )
+        return result
     except Exception:
         logger.exception("Email chat turn failed")
         raise HTTPException(status_code=500, detail="Email chat could not be processed")

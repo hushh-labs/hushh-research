@@ -8,6 +8,18 @@
 
 **Tech Stack:** Python 3, FastAPI, pytest (asyncio), Google GenAI (Gemini), ruff. Reference spec: `docs/superpowers/specs/2026-07-04-email-agent-a2a-design.md`.
 
+## Visual Map
+
+```
+Task 1  delegation.py         SPECIALIST_A2A_SCOPE_MAP["agent_email"] = AGENT_ONE_ORCHESTRATE
+Task 2  orchestrator/tools.py _SPECIALIST_ROUTES  ("email" cues ▶ "agent_email")
+Task 3  adk_bridge/email_agent.py  EmailAgentA2A.handle ▶ wraps EmailChatService.handle_turn
+Task 4  adk_bridge/__init__.py     register_specialist("agent_email", …)
+Task 5  verification (no code)
+
+Runtime: One route ─ classify ─▶ is_wired ─▶ a2a_dispatch ─▶ EmailAgentA2A (read-only)
+```
+
 ## Global Constraints
 
 - All backend paths are under `consent-protocol/`. Run every command from `consent-protocol/`.
@@ -510,6 +522,6 @@ git commit -m "test(email-a2a): include agent_email in delegation route expectat
 - Testing (classifier + adapter mapping, fake service, no live LLM/Gmail) → Tasks 2 & 3. ✓
 - Phase 2b (durable requests) → intentionally excluded. ✓
 
-**Placeholder scan:** No TBD/TODO/"handle edge cases"/vague steps; every code step includes the full code and every run step includes the command + expected result.
+**Placeholder scan:** No unresolved placeholders, filler, or vague steps; every code step includes the full code and every run step includes the command + expected result.
 
 **Type consistency:** `EmailChatService.handle_turn` kwargs (`user_id`, `message`, `consent_token`, `conversation_id`) and its return keys (`conversationId`, `response`, `isComplete`, `stateChanged`) match Task 3's adapter and its test's `_FakeEmailService`. `SpecialistTurnResult` fields (`conversation_id`, `text`, `directive`, `is_complete`, `state_changed`, `model`) match the adapter and assertions. `SPECIALIST_A2A_SCOPE_MAP` key `"agent_email"` is consistent across Task 1 (source + test) and the registry id used in Tasks 2/4. `get_email_a2a` defined in Task 3, consumed in Task 4. All consistent.

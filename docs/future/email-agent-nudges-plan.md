@@ -3,6 +3,22 @@
 Context doc for anyone picking up this branch. It explains the vision, what is
 built so far, the architecture, how to run it, and what comes next.
 
+## Visual Map
+
+```
+Gmail page (connected, gmail.readonly)
+   ├─ GmailChatPanel ──▶ POST /api/one/email/chat ──▶ EmailChatService (read-only tools)
+   └─ GmailNudgesSection ──▶ GET /api/kai/gmail/nudges/{uid}
+                                     │
+                                     ▼
+                            list_nudges  (reuses receipts OAuth)
+                              ├─ derive_needs_reply_nudges  ▶ "Needs a reply" cards
+                              └─ derive_upcoming_meeting_nudges (dated future only)
+                                                            ▶ "Upcoming meeting" cards
+
+Central One chat (/agent) ──(A2A delegate)──▶ agent_email specialist ──▶ EmailChatService
+```
+
 ## Vision
 
 Grow the **Gmail agent** from a passive *receipts reader* into a proactive inbox
