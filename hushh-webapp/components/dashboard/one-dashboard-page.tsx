@@ -138,7 +138,15 @@ function buildModes(
       id: cap.id,
       title: cap.title,
       description: cap.description,
-      href: cap.href,
+      // Tag the destination with the dashboard origin so its top-bar back
+      // button returns HERE (/one), not to Profile. The breadcrumb resolver
+      // reads `?from` (see resolveTopShellBreadcrumb). Raw `/one` (not encoded):
+      // normalizeInternalRouteHref requires a leading "/", and searchParams
+      // decodes on read. `&` when the capability href already has a query
+      // (e.g. consent = /consents?tab=pending).
+      href: cap.href.includes("?")
+        ? `${cap.href}&from=${ROUTES.ONE_HOME}`
+        : `${cap.href}?from=${ROUTES.ONE_HOME}`,
       icon: cap.icon,
       status: display.label,
       statusTone: display.tone,

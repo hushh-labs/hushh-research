@@ -52,8 +52,12 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-memory-section")).toBeTruthy();
     expect(screen.getByTestId("one-access-section")).toBeTruthy();
 
+    // Dashboard tiles tag their destination with `?from=/one` (or `&from=/one`
+    // when the href already has a query) so the surface's top-bar back button
+    // returns to the dashboard, not Profile. See resolveTopShellBreadcrumb.
+    const fromOne = `from=${ROUTES.ONE_HOME}`;
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
-    expect(financeLink.getAttribute("href")).toBe(ROUTES.KAI_HOME);
+    expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
     // 2a pastel-block model: no per-tone outline border on outer chrome — the
     // tone lives in the card's flat pastel FILL (inline background), not a
@@ -62,28 +66,28 @@ describe("OneDashboardPage", () => {
     expect(financeLink.getAttribute("style") ?? "").toContain("background");
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
-    ).toBe(ROUTES.GMAIL);
+    ).toBe(`${ROUTES.GMAIL}?${fromOne}`);
     expect(
       screen.getByRole("link", { name: "Open Email" }).getAttribute("href"),
-    ).toBe(ROUTES.ONE_KYC);
+    ).toBe(`${ROUTES.ONE_KYC}?${fromOne}`);
     expect(
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
-    ).toBe(ROUTES.ONE_LOCATION);
+    ).toBe(`${ROUTES.ONE_LOCATION}?${fromOne}`);
     expect(
       screen
         .getByRole("link", { name: "Open Personal Data" })
         .getAttribute("href"),
-    ).toBe(ROUTES.PKM);
+    ).toBe(`${ROUTES.PKM}?${fromOne}`);
     expect(
       screen
         .getByRole("link", { name: "Open Consent Guardian" })
         .getAttribute("href"),
-    ).toBe("/consents?tab=pending");
+    ).toBe(`/consents?tab=pending&${fromOne}`);
     expect(
       screen
         .getByRole("link", { name: "Open Connected Systems" })
         .getAttribute("href"),
-    ).toBe(ROUTES.CONNECTED_SYSTEMS);
+    ).toBe(`${ROUTES.CONNECTED_SYSTEMS}?${fromOne}`);
 
     // Resolver-driven consumer labels (plain language, no system nouns).
     expect(screen.getByText("Set up")).toBeTruthy(); // finance not-started

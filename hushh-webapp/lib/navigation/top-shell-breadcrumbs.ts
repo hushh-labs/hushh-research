@@ -72,10 +72,19 @@ function profileDetailLabel(detail: string | null): string | null {
   return null;
 }
 
+function normalizeBreadcrumbPathname(pathname: string): string {
+  const base = String(pathname || "").split(/[?#]/, 1)[0]?.trim() || "/";
+  if (base === "/") return base;
+  const withSlash = base.startsWith("/") ? base : `/${base}`;
+  return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
+}
+
 export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
 ): TopShellBreadcrumbConfig | null {
+  pathname = normalizeBreadcrumbPathname(pathname);
+
   if (pathname === ROUTES.KAI_ANALYSIS) {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
@@ -165,6 +174,24 @@ export function resolveTopShellBreadcrumb(
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Setup", href: ROUTES.ONE_SETUP },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    return {
+      // Portfolio import is the final finance setup continuation. If the
+      // wizard handed us an explicit origin, honor it; otherwise return to the
+      // setup hub so the person is never trapped in the import flow.
+      backHref: originHref || ROUTES.ONE_SETUP,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Setup", href: ROUTES.ONE_SETUP },
+        { label: "Portfolio" },
       ],
     };
   }
@@ -288,36 +315,50 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.ONE_KYC) {
+    // Origin-aware back: opened from the /one dashboard (?from=/one) → back to
+    // the dashboard; opened from Profile (no marker) → back to Profile.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromOne = originHref === ROUTES.ONE_HOME;
     return {
-      backHref: ROUTES.PROFILE,
+      backHref: originHref || ROUTES.PROFILE,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        fromOne
+          ? { label: "One", href: ROUTES.ONE_HOME }
+          : { label: "Profile", href: ROUTES.PROFILE },
         { label: "Email" },
       ],
     };
   }
 
   if (pathname === ROUTES.ONE_LOCATION) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromOne = originHref === ROUTES.ONE_HOME;
     return {
-      backHref: ROUTES.PROFILE,
+      backHref: originHref || ROUTES.PROFILE,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        fromOne
+          ? { label: "One", href: ROUTES.ONE_HOME }
+          : { label: "Profile", href: ROUTES.PROFILE },
         { label: "Location" },
       ],
     };
   }
 
   if (pathname === ROUTES.ONE_MARKETPLACE) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromOne = originHref === ROUTES.ONE_HOME;
     return {
-      backHref: ROUTES.PROFILE,
+      backHref: originHref || ROUTES.PROFILE,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        fromOne
+          ? { label: "One", href: ROUTES.ONE_HOME }
+          : { label: "Profile", href: ROUTES.PROFILE },
         { label: "Marketplace" },
       ],
     };
