@@ -129,7 +129,7 @@ function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]">
+    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-safe-pb:calc(34px+var(--app-safe-area-bottom-effective,0px))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -148,9 +148,9 @@ function PhoneMandatePageContent() {
         />
       </div>
 
-      <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
+      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
         {/* Top bar: back + account actions */}
-        <div className="flex items-center justify-between px-5 pt-[calc(18px+var(--app-safe-area-top-effective,0px))]">
+        <div className="flex items-center justify-between px-5 pt-[var(--phone-mandate-safe-pt)]">
           <button
             type="button"
             aria-label="Go back"
@@ -211,7 +211,7 @@ function PhoneMandatePageContent() {
             the page root is overflow-hidden, so on a very short screen (iPhone SE)
             a tall step scrolls WITHIN the sheet instead of clipping. At rest the
             content is short so no scroll appears — resting look is unchanged. */}
-        <div className="relative max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-t-[34px] bg-white px-6 pt-7 pb-[calc(34px+var(--app-safe-area-bottom-effective,0px))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
+        <div className="relative max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-t-[34px] bg-white px-6 pt-7 pb-[var(--phone-mandate-safe-pb)] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
           <PhoneVerificationFlow
             mode="link"
             currentPhoneNumber={phoneNumber}
