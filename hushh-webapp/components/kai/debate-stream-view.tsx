@@ -847,8 +847,8 @@ export function DebateStreamView({
           userId,
           vaultOwnerToken,
         });
-      } catch (cancelError) {
-        console.warn("[DebateStreamView] Failed to cancel run:", cancelError);
+      } catch (_cancelError) {
+        // Silently ignore cancellation failures when closing
       }
     }
     setBusyOperation("stock_analysis_stream", false);
