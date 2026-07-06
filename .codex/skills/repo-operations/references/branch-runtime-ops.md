@@ -1,5 +1,4 @@
 # Branch And Runtime Ops
-
 Use this reference for repo-operations tasks involving branch preservation,
 push safety, local runtime terminals, deploy cadence, and UAT release gates.
 
@@ -190,7 +189,8 @@ web origin `http://localhost:3000`, and `lsof -ti :6543` (proxy) / `:8000`
    gate, merge queue, and post-merge smoke gate still apply. Non-maintainer PRs
    route through `integration/pr-train`. Never cherry-pick a train-built branch
    onto `main` (it references train-only code `main` lacks → dependency trap);
-   branch from `origin/main` at the start instead.
+   branch from `origin/main` at the start instead; keep repository
+   `allow_auto_merge` enabled so `gh pr merge` can enqueue without waiving validation.
 3. `deploy to UAT` is separate: land on `main`, identify the green SHA,
    dispatch UAT deploy for that SHA, and monitor terminal status.
 4. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
