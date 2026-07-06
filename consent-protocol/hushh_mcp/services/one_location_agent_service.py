@@ -2343,7 +2343,7 @@ class OneLocationAgentService:
         # Eligibility for who can appear as a One Location recipient.
         #
         # A user is eligible when ANY of the following holds:
-        #   1. They share an active One Network connection with the owner
+        #   1. The owner has an active trusted_connections edge (owner → this person)
         #      (explicit Circle-invite claim). This is explicit mutual consent
         #      and always wins, even over marketplace visibility (below).
         #   2. They are phone-verified (the broad verified-actor directory).
@@ -2375,12 +2375,10 @@ class OneLocationAgentService:
               AND (
                 EXISTS (
                   SELECT 1
-                  FROM one_location_network_connections nc
-                  WHERE nc.status = 'active'
-                    AND (
-                      (nc.user_a_id = :owner_user_id AND nc.user_b_id = a.user_id)
-                      OR (nc.user_b_id = :owner_user_id AND nc.user_a_id = a.user_id)
-                    )
+                  FROM trusted_connections tc
+                  WHERE tc.status = 'active'
+                    AND tc.owner_user_id = :owner_user_id
+                    AND tc.trusted_user_id = a.user_id
                 )
                 OR (
                   (

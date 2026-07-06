@@ -110,10 +110,41 @@ def test_verified_recipient_directory_filters_self_and_allows_explicit_network_c
 
     assert service.list_verified_recipients(owner_user_id="owner") == []
     assert "a.phone_verified = TRUE" in service.sql
-    assert "one_location_network_connections" in service.sql
+    assert "trusted_connections" in service.sql
+    assert "one_location_network_connections" not in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
     assert "ORDER BY COALESCE" in service.sql
     assert service.params["owner_user_id"] == "owner"
+
+
+def test_list_verified_recipients_rule1_uses_trusted_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "user_id": "friend",
+                "display_name": "Friend",
+                "phone_number": None,
+                "phone_verified": True,
+                "key_id": "k1",
+                "public_key_jwk": "{}",
+                "algorithm": "ECDH-P256-AES256-GCM",
+                "key_created_at": None,
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    monkeypatch.setattr(svc, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
+    out = svc.list_verified_recipients(owner_user_id="owner")
+    assert "trusted_connections" in captured["sql"]
+    assert "one_location_network_connections" not in captured["sql"]
+    assert out and out[0]["userId"] == "friend"
 
 
 class EnvelopeReadProbe(OneLocationAgentService):
