@@ -319,6 +319,37 @@ describe("top shell breadcrumbs", () => {
     }
   });
 
+  it("retraces capability surfaces opened from the agent / other origins (?from=<route>)", () => {
+    // Non-dashboard, non-Profile entry points (agent chat, consent inbox,
+    // permission gate, kai command) tag the capability href with the CURRENT
+    // route as origin so the top-bar back retraces there instead of falling to
+    // Profile. The resolver honors any safe internal `from`.
+    const origins = ["/one", "/one/kai", "/one/kai/analysis?tab=history"];
+
+    for (const origin of origins) {
+      const params = new URLSearchParams();
+      params.set("from", origin);
+
+      for (const path of [
+        "/one/kyc",
+        "/one/location",
+        "/one/marketplace",
+        "/one/pkm",
+        "/consents",
+      ]) {
+        expect(resolveTopShellBreadcrumb(path, params)?.backHref).toBe(origin);
+      }
+    }
+
+    // Unsafe origins are still rejected → the route's own default fallback.
+    const unsafe = new URLSearchParams();
+    unsafe.set("from", "https://evil.example/path");
+    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe(
+      "/profile",
+    );
+    expect(resolveTopShellBreadcrumb("/one/pkm", unsafe)?.backHref).toBe("/one");
+  });
+
   it("owns ria client workspace back navigation from the shared top bar", () => {
     expect(resolveTopShellBreadcrumb("/ria/clients/user_123")).toEqual({
       backHref: "/ria/clients",

@@ -4123,8 +4123,11 @@ export function AgentChatWorkspace({
                       }
                     }}
                     onConsentDetails={(item) => {
+                      // Tag the agent's current route as origin so the consent
+                      // screen's back button retraces here, not to Profile
+                      // (the breadcrumb reads ?from; bare nav falls to Profile).
                       router.push(
-                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}`,
+                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                       );
                     }}
                     onPendingConsentApprove={async (item) => {
@@ -4162,8 +4165,9 @@ export function AgentChatWorkspace({
                       }
                     }}
                     onPendingConsentDetails={(item) => {
+                      // Origin-tagged so back retraces to the agent's route.
                       router.push(
-                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}`,
+                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                       );
                     }}
                   />
@@ -4207,7 +4211,9 @@ export function AgentChatWorkspace({
                     busy={specialistBusy}
                     onOpenConsent={() => {
                       setPendingSpecialistDirective(null);
-                      router.push(`${ROUTES.CONSENTS}?tab=pending`);
+                      router.push(
+                        `${ROUTES.CONSENTS}?tab=pending&from=${pathname || ROUTES.ONE_HOME}`,
+                      );
                     }}
                     onCancel={() => {
                       setPendingSpecialistDirective(null);
@@ -4397,7 +4403,9 @@ export function AgentChatWorkspace({
                     }
                     onOpenMarketplace={() => {
                       setPendingSpecialistDirective(null);
-                      router.push(ROUTES.ONE_MARKETPLACE);
+                      router.push(
+                        `${ROUTES.ONE_MARKETPLACE}?from=${pathname || ROUTES.ONE_HOME}`,
+                      );
                     }}
                     onDismiss={() => setPendingSpecialistDirective(null)}
                   />
@@ -4519,7 +4527,9 @@ export function AgentChatWorkspace({
                         // decrypted point is rendered on the dedicated location
                         // surface, so hand the user off there to see it.
                         if (directivePayloadType === "view_envelope" && result.status === "completed") {
-                          router.push(ROUTES.ONE_LOCATION);
+                          router.push(
+                            `${ROUTES.ONE_LOCATION}?from=${pathname || ROUTES.ONE_HOME}`,
+                          );
                         }
                         // Follow-up turn: report the result back so One confirms in words.
                         await sendDelegateResult(result);

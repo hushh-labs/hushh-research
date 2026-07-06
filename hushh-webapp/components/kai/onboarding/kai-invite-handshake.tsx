@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import {
@@ -52,6 +52,7 @@ function defaultPermissions() {
 
 export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [invite, setInvite] = useState<RiaInviteResolution | null>(null);
@@ -311,7 +312,11 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
               <button
                 type="button"
                 onClick={() =>
-                  router.replace(buildConsentCenterHref("pending"))
+                  router.replace(
+                    buildConsentCenterHref("pending", {
+                      from: pathname || undefined,
+                    }),
+                  )
                 }
                 className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background"
               >
