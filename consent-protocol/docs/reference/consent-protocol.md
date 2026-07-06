@@ -97,6 +97,17 @@ Hussh Approach  ✅  if (validateToken(VAULT_OWNER)) { allow(); }
 
 **Key Principle**: VAULT_OWNER token proves both identity AND consent. Firebase is ONLY used to bootstrap the VAULT_OWNER token issuance.
 
+### Delegated-Agent Boundary
+
+The consent protocol has multiple delegated-agent mechanisms. They are related, but not interchangeable:
+
+1. External MCP agents use scoped consent plus encrypted scoped exports. Hosted MCP returns ciphertext and wrapped key metadata, not plaintext user data.
+2. Agent One A2A uses `X-Consent-Token` scoped `agent.one.orchestrate` and developer-principal checks before routing intent.
+3. Specialist A2A gates validate their own specialist scopes.
+4. TrustLinks are signed A2A delegation proofs. They do not replace consent tokens or encrypted exports; session-bound TrustLinks should be verified with the server-derived session id when replay protection is required.
+
+Cross-cutting contract: [docs/reference/iam/agent-delegation-boundary.md](../../../docs/reference/iam/agent-delegation-boundary.md).
+
 ### Automated Test Token Policy
 
 - Automated test suites must use fixture-issued tokens from `consent-protocol/tests/conftest.py`.

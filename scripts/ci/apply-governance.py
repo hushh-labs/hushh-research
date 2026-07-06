@@ -9,14 +9,18 @@ action a maintainer needs: this script pushes that intent to GitHub so the live
 state matches the committed policy.
 
 WHAT IT SYNCS (all idempotent — safe to re-run):
-  1. main branch protection `review_bypass_users`
+  1. repository `allow_auto_merge`
+       <- repository.allow_auto_merge
+     (required for `gh pr merge` to enqueue merge-queue PRs instead of failing
+      with enablePullRequestAutoMerge when review is still pending.)
+  2. main branch protection `review_bypass_users`
        <- main.review_bypass_users
      (the list that was silently drifting: editing the JSON never reached GitHub,
       so a maintainer added to the JSON still couldn't approve/merge to main.)
-  2. The `allowed-maintainers-to-approve` org team membership
+  3. The `allowed-maintainers-to-approve` org team membership
        <- union(main.review_bypass_users, main.merge_queue_bypass_users)
      (this team is the merge-queue bypass actor list; membership IS the allowlist.)
-  3. UAT / production deploy allowlists need NO GitHub action — assert-governed-actor.py
+  4. UAT / production deploy allowlists need NO GitHub action — assert-governed-actor.py
      reads uat.manual_dispatch_users / production.manual_dispatch_users from this
      same JSON at workflow runtime. This script just reports them for transparency.
 
@@ -64,6 +68,46 @@ def load_policy() -> dict:
 
 def desired_review_bypass(policy: dict) -> list[str]:
     return sorted(set(policy["main"]["review_bypass_users"]))
+
+
+def desired_allow_auto_merge(policy: dict) -> bool:
+    repository_policy = policy.get("repository") or {}
+    return bool(repository_policy.get("allow_auto_merge", True))
+
+
+def current_allow_auto_merge() -> bool:
+    data = gh_json(["api", f"repos/{REPO}"]) or {}
+    return bool(data.get("allow_auto_merge", False))
+
+
+def apply_repository_settings(policy: dict, *, apply: bool) -> bool:
+    desired = desired_allow_auto_merge(policy)
+    current = current_allow_auto_merge()
+    if current == desired:
+        print(f"  ✓ allow_auto_merge already in sync: {desired}")
+        return False
+    print(f"  Δ allow_auto_merge: {current}  ->  {desired}")
+    if not apply:
+        return True
+
+    proc = subprocess.run(
+        [
+            "gh",
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{REPO}",
+            "--input",
+            "-",
+        ],
+        input=json.dumps({"allow_auto_merge": desired}),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f"Failed to update repository settings:\n{proc.stderr.strip()}")
+    print("  ✅ repository allow_auto_merge updated on GitHub")
+    return True
 
 
 def desired_team_members(policy: dict) -> list[str]:
@@ -182,16 +226,19 @@ def main() -> int:
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
 
-    print("1. main branch protection review_bypass_users")
+    print("1. repository settings")
+    changed_repo = apply_repository_settings(policy, apply=args.apply)
+
+    print("\n2. main branch protection review_bypass_users")
     changed_a = apply_review_bypass(desired_review_bypass(policy), apply=args.apply)
 
-    print(f"\n2. org team '{TEAM_SLUG}' membership (merge-queue bypass actors)")
+    print(f"\n3. org team '{TEAM_SLUG}' membership (merge-queue bypass actors)")
     changed_b = apply_team_membership(desired_team_members(policy), apply=args.apply)
 
     report_deploy_allowlists(policy)
 
     print()
-    if not args.apply and (changed_a or changed_b):
+    if not args.apply and (changed_repo or changed_a or changed_b):
         print("Plan has changes. Re-run with --apply to push them to GitHub.")
         return 0
     if args.apply:

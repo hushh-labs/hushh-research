@@ -105,6 +105,7 @@ async def handle_delegate(args: dict) -> list[TextContent]:
     to_agent = args.get("to_agent")
     scope_str = args.get("scope")
     user_id = args.get("user_id")
+    session_id = str(args.get("session_id") or "")
 
     # Map scope string to enum
     # NOTE: Legacy VAULT_READ_* scopes have been removed.
@@ -117,6 +118,7 @@ async def handle_delegate(args: dict) -> list[TextContent]:
         to_agent=AgentID(to_agent),
         scope=scope,
         signed_by_user=UserID(user_id),
+        session_id=session_id,
     )
 
     # Verify the TrustLink

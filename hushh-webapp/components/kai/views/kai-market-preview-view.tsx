@@ -2068,7 +2068,7 @@ export function KaiMarketPreviewView() {
       return;
     }
     const normalizedQuery = query.length <= 6 ? query.toUpperCase() : query;
-    openOneMarketHref(`/kai/analysis?symbol=${encodeURIComponent(normalizedQuery)}`);
+    openOneMarketHref(`${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(normalizedQuery)}`);
   }, [marketSearchQuery]);
 
   return (

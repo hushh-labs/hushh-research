@@ -434,6 +434,8 @@ export const Navbar = () => {
         <button
           type="button"
           aria-label="Search"
+          data-native-voice-control-id="one_voice_open_command_search"
+          data-testid="one-voice-open-command-search"
           className={cn(
             // Stretch to the pill height and stay a perfect circle so the search
             // bubble and the bottom-nav pill read as one symmetric row.

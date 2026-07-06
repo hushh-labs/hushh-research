@@ -13,6 +13,25 @@ export const ROUTES = {
   PHONE_MANDATE: "/register-phone",
   LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
+  PROFILE_ACCOUNT: "/profile/account",
+  PROFILE_ACCOUNT_PHONE: "/profile/account/phone",
+  PROFILE_PREFERENCES: "/profile/preferences",
+  PROFILE_PREFERENCES_KAI: "/profile/preferences/kai",
+  PROFILE_PREFERENCES_DEVICE: "/profile/preferences/device",
+  PROFILE_SECURITY: "/profile/security",
+  PROFILE_SECURITY_VAULT: "/profile/security/vault",
+  PROFILE_SECURITY_SESSION: "/profile/security/session",
+  PROFILE_MY_DATA: "/profile/my-data",
+  PROFILE_MY_DATA_DOMAIN: "/profile/my-data/domain",
+  PROFILE_ACCESS: "/profile/access",
+  PROFILE_ACCESS_CONNECTION: "/profile/access/connection",
+  PROFILE_CONNECTED_SYSTEMS: "/profile/connected-systems",
+  PROFILE_GMAIL: "/profile/gmail",
+  PROFILE_GMAIL_CONNECTION: "/profile/gmail/connection",
+  PROFILE_GMAIL_ACTIONS: "/profile/gmail/actions",
+  PROFILE_SUPPORT: "/profile/support",
+  PROFILE_SUPPORT_ROUTING: "/profile/support/routing",
+  PROFILE_SUPPORT_COMPOSE: "/profile/support/compose",
   PROFILE_PKM: "/profile/pkm",
   PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/profile/receipts",
@@ -198,8 +217,7 @@ export function buildOneSetupRoute(entries?: {
 }
 
 export function buildProfileVaultRoute(returnTo?: string | null) {
-  return withQuery(ROUTES.PROFILE, {
-    panel: "security",
+  return withQuery(ROUTES.PROFILE_SECURITY, {
     unlock_vault: "1",
     return_to: returnTo,
   });

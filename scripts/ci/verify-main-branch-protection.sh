@@ -30,10 +30,11 @@ print(urllib.parse.quote(os.environ["BRANCH_TO_ENCODE"], safe=""))
 PY
 )"
 
+REPO_JSON="$(gh api "repos/${REPO}")"
 PROTECTION_JSON="$(gh api "repos/${REPO}/branches/${ENCODED_BRANCH}/protection")"
 RULESETS_JSON="$(gh api "repos/${REPO}/rules/branches/${ENCODED_BRANCH}" || echo '[]')"
 RULESET_LIST_JSON="$(gh api "repos/${REPO}/rulesets?includes_parents=true" || echo '[]')"
-export PROTECTION_JSON RULESETS_JSON RULESET_LIST_JSON POLICY_FILE BRANCH POLICY_KEY
+export REPO_JSON PROTECTION_JSON RULESETS_JSON RULESET_LIST_JSON POLICY_FILE BRANCH POLICY_KEY
 
 python3 - "$REQUIRED_CHECKS" "$MIN_APPROVALS" "$REQUIRE_STRICT" "$REQUIRE_MERGE_QUEUE" "$REQUIRE_CONVERSATION_RESOLUTION" "$REPO" "$BRANCH" "$POLICY_KEY" <<'PY'
 import json
@@ -50,6 +51,7 @@ if policy_key not in policy:
     print(f"ERROR: policy key '{policy_key}' is missing from {os.environ['POLICY_FILE']}")
     sys.exit(1)
 branch_policy = policy[policy_key]
+repository_policy = policy.get("repository") or {}
 required_checks = [
     item.strip()
     for item in (required_checks_arg or branch_policy["required_status_check"]).split(",")
@@ -78,6 +80,8 @@ expected_queue_bypass = sorted(branch_policy["merge_queue_bypass_users"])
 expected_queue_bypass_team_name = str(branch_policy.get("merge_queue_bypass_team_name") or "").strip()
 expected_queue_bypass_team_slug = str(branch_policy.get("merge_queue_bypass_team_slug") or "").strip()
 expected_queue_ruleset_name = str(branch_policy.get("merge_queue_ruleset_name") or "").strip()
+expected_allow_auto_merge = repository_policy.get("allow_auto_merge")
+repo_data = json.loads(os.environ["REPO_JSON"])
 data = json.loads(os.environ["PROTECTION_JSON"])
 rulesets = json.loads(os.environ["RULESETS_JSON"])
 ruleset_list = json.loads(os.environ["RULESET_LIST_JSON"])
@@ -102,6 +106,7 @@ force_pushes = data.get("allow_force_pushes", {}).get("enabled", False)
 deletions = data.get("allow_deletions", {}).get("enabled", False)
 admins_enforced = data.get("enforce_admins", {}).get("enabled", False)
 conversation_resolution = data.get("required_conversation_resolution", {}).get("enabled", False)
+allow_auto_merge = bool(repo_data.get("allow_auto_merge", False))
 merge_queue_enabled = any(
     item.get("type") == "merge_queue" and item.get("parameters")
     for item in rulesets
@@ -188,6 +193,10 @@ merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
+if expected_allow_auto_merge is not None and allow_auto_merge != bool(expected_allow_auto_merge):
+    errors.append(
+        f"repository allow_auto_merge drifted: expected {bool(expected_allow_auto_merge)}, got {allow_auto_merge}"
+    )
 for required_check in required_checks:
     if required_check not in checks:
         errors.append(f"required status check missing: {required_check}")
@@ -224,7 +233,8 @@ if expected_queue_bypass_team_name and merge_queue_bypass_team_names != [expecte
         f"merge queue bypass team name drifted: expected {[expected_queue_bypass_team_name]}, got {merge_queue_bypass_team_names}"
     )
 
-print(f"Branch protection summary ({branch}): checks={checks}, approvals={approvals}, "
+print(f"Branch protection summary ({branch}): allow_auto_merge={allow_auto_merge}, "
+      f"checks={checks}, approvals={approvals}, "
       f"latest_push_approval={last_push_approval}, strict={strict_checks}, "
       f"enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
       f"allow_deletions={deletions}, conversation_resolution={conversation_resolution}, "

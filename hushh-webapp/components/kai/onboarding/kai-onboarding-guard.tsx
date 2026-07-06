@@ -53,6 +53,11 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
   const [checking, setChecking] = useState(true);
   const [guardError, setGuardError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRedirectTarget(null);
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +102,10 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
         isCapabilityHandoffTarget(pathname)
       );
     })();
+    const redirectTo = (target: string) => {
+      setRedirectTarget(target);
+      router.replace(target);
+    };
 
     async function run() {
       if (authLoading) return;
@@ -190,13 +199,13 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             !onOnboardingRoute &&
             !setupOriginatedCapabilityEntry
           ) {
-            router.replace(ROUTES.ONE_SETUP);
+            redirectTo(ROUTES.ONE_SETUP);
             return;
           }
 
           if (!onboardingIncomplete && onOnboardingWizardRoute) {
             if (!suppressWizardBounce) {
-              router.replace(ROUTES.ONE_HOME);
+              redirectTo(ROUTES.ONE_HOME);
               return;
             }
           }
@@ -231,12 +240,12 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             onboardingExplicitlyIncomplete &&
             !setupOriginatedCapabilityEntry
           ) {
-            router.replace(ROUTES.ONE_SETUP);
+            redirectTo(ROUTES.ONE_SETUP);
             return;
           }
           if (onboardingResolved && onOnboardingWizardRoute) {
             if (!suppressWizardBounce) {
-              router.replace(ROUTES.ONE_HOME);
+              redirectTo(ROUTES.ONE_HOME);
               return;
             }
           }
@@ -303,7 +312,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
           !onOnboardingRoute &&
           !setupOriginatedCapabilityEntry
         ) {
-          router.replace(ROUTES.ONE_SETUP);
+          redirectTo(ROUTES.ONE_SETUP);
           return;
         }
 
@@ -315,7 +324,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
 
         if (!onboardingIncomplete && onOnboardingWizardRoute) {
           if (!suppressWizardBounce) {
-            router.replace(ROUTES.ONE_HOME);
+            redirectTo(ROUTES.ONE_HOME);
             return;
           }
         }
@@ -350,6 +359,10 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
     router,
     retryNonce,
   ]);
+
+  if (redirectTarget) {
+    return <HushhLoader label="Opening One..." />;
+  }
 
   if (checking) {
     return <HushhLoader label="Loading Kai..." />;

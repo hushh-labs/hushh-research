@@ -4,7 +4,7 @@
 Kai Analysis Operons
 
 Core business logic for stock analysis with explicit consent validation.
-Each function is a single-purpose operon that validates TrustLinks before execution.
+Each function is a single-purpose operon that validates consent tokens before execution.
 
 Pattern:
 1. Validate consent token FIRST
@@ -43,7 +43,7 @@ def analyze_fundamentals(
     """
     Operon: Analyze company fundamentals from SEC filings.
 
-    TrustLink Required: agent.kai.analyze
+    Consent token scope: agent.kai.analyze
 
     Args:
         ticker: Stock ticker symbol
@@ -61,14 +61,14 @@ def analyze_fundamentals(
         - recommendation: "buy", "hold", or "reduce"
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
-    # Step 1: Validate TrustLink
+    # Step 1: Validate consent token
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Fundamental Operon] TrustLink validation failed: {reason}")
-        raise PermissionError(f"TrustLink validation failed: {reason}")
+        logger.error(f"[Fundamental Operon] Consent token validation failed: {reason}")
+        raise PermissionError(f"Consent token validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError(f"Token user mismatch: expected {user_id}, got {token.user_id}")
@@ -111,7 +111,7 @@ def analyze_sentiment(
     """
     Operon: Analyze market sentiment from news articles.
 
-    TrustLink Required: agent.kai.analyze
+    Consent token scope: agent.kai.analyze
 
     Args:
         ticker: Stock ticker symbol
@@ -128,14 +128,14 @@ def analyze_sentiment(
         - recommendation: "buy", "hold", or "reduce"
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
-    # Validate TrustLink
+    # Validate consent token
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Sentiment Operon] TrustLink validation failed: {reason}")
-        raise PermissionError(f"TrustLink validation failed: {reason}")
+        logger.error(f"[Sentiment Operon] Consent token validation failed: {reason}")
+        raise PermissionError(f"Consent token validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
@@ -181,7 +181,7 @@ def analyze_valuation(
     """
     Operon: Perform valuation analysis with peer comparison.
 
-    TrustLink Required: agent.kai.analyze
+    Consent token scope: agent.kai.analyze
 
     Args:
         ticker: Stock ticker symbol
@@ -199,14 +199,14 @@ def analyze_valuation(
         - recommendation: "buy", "hold", or "reduce"
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
-    # Validate TrustLink
+    # Validate consent token
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Valuation Operon] TrustLink validation failed: {reason}")
-        raise PermissionError(f"TrustLink validation failed: {reason}")
+        logger.error(f"[Valuation Operon] Consent token validation failed: {reason}")
+        raise PermissionError(f"Consent token validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")

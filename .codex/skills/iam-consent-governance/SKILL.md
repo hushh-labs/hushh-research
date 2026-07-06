@@ -48,7 +48,8 @@ Non-owned surfaces:
 1. `docs/reference/iam/README.md`
 2. `docs/reference/iam/architecture.md`
 3. `docs/reference/iam/consent-scope-catalog.md`
-4. `docs/reference/iam/validation-checklist.md`
+4. `docs/reference/iam/agent-delegation-boundary.md`
+5. `docs/reference/iam/validation-checklist.md`
 
 ## Workflow
 

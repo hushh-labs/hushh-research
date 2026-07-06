@@ -11,6 +11,8 @@ exercised directly.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from google.genai import types
 
@@ -155,6 +157,66 @@ async def test_request_recipient_choice_options_carry_real_ids_and_public_link(m
     assert "latitude" not in blob and "longitude" not in blob and "lat" not in blob.split("late")[0]
 
 
+class _DupNameSvc:
+    """Directory with two contacts sharing the same display name."""
+
+    def list_verified_recipients(self, *, owner_user_id, limit=50):
+        return [
+            {
+                "userId": "u-abdul",
+                "displayName": "Abdul Zalil",
+                "keyId": "k1",
+                "canReceiveLocation": True,
+            },
+            {
+                "userId": "u-neel-1",
+                "displayName": "Neelesh Meena",
+                "keyId": "k2",
+                "canReceiveLocation": True,
+            },
+            {
+                "userId": "u-gautam",
+                "displayName": "Gautam Ahuja",
+                "keyId": "k3",
+                "canReceiveLocation": True,
+            },
+            {
+                "userId": "u-neel-2",
+                "displayName": "Neelesh Meena",
+                "keyId": "k4",
+                "canReceiveLocation": True,
+            },
+        ]
+
+
+async def test_request_recipient_choice_filters_to_named_matches(monkeypatch):
+    # Disambiguation bug: when the user named a person that matches >1 contact,
+    # the picker must show ONLY those matches, not the whole directory, and must
+    # not offer a public link (the user named a specific person).
+    monkeypatch.setattr(loc_tools, "_service", lambda: _DupNameSvc())
+    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
+        out = await loc_tools.request_recipient_choice.__wrapped__(name="Neelesh Meena")
+    prompt = out["prompt"]
+    labels = [o["label"] for o in prompt["options"]]
+    assert labels == ["Neelesh Meena", "Neelesh Meena"]
+    refs = [o["ref"] for o in prompt["options"]]
+    assert {"recipientUserId": "u-neel-1", "recipientKeyId": "k2"} in refs
+    assert {"recipientUserId": "u-neel-2", "recipientKeyId": "k4"} in refs
+    assert all("publicLink" not in o["ref"] for o in prompt["options"])
+    assert "Neelesh Meena" in prompt["question"]
+
+
+async def test_request_recipient_choice_falls_back_when_name_unmatched(monkeypatch):
+    # A name that matches nothing must not strand the user with an empty picker:
+    # fall back to the full directory (with the public-link escape hatch).
+    monkeypatch.setattr(loc_tools, "_service", lambda: _DupNameSvc())
+    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
+        out = await loc_tools.request_recipient_choice.__wrapped__(name="Nobody Here")
+    options = out["prompt"]["options"]
+    assert len(options) == 5  # 4 contacts + public link
+    assert options[-1]["ref"] == {"publicLink": True}
+
+
 async def test_request_active_share_choice_includes_stop_all(monkeypatch):
     monkeypatch.setattr(loc_tools, "_service", lambda: _FakeSvc())
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
@@ -162,6 +224,44 @@ async def test_request_active_share_choice_includes_stop_all(monkeypatch):
     refs = [o["ref"] for o in out["prompt"]["options"]]
     assert {"grantId": "g1"} in refs
     assert {"all": True} in refs
+
+
+_NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("expires_at", "expected"),
+    [
+        # ISO timestamps (what the service actually emits) -> relative time
+        ("2026-07-06T15:00:00+00:00", "expires in 3 hours"),
+        ("2026-07-06T12:45:00+00:00", "expires in 45 minutes"),
+        ("2026-07-06T12:01:00+00:00", "expires in 1 minute"),  # singular
+        ("2026-07-06T13:00:00+00:00", "expires in 1 hour"),  # singular
+        ("2026-07-06T12:00:00+00:00", "expired"),  # boundary / already past
+        ("2026-07-06T11:30:00+00:00", "expired"),
+        # 'Z' suffix is accepted too
+        ("2026-07-06T14:00:00Z", "expires in 2 hours"),
+        # no timestamp -> no hint
+        (None, None),
+        ("", None),
+    ],
+)
+def test_expiry_hint_is_relative_and_human_friendly(expires_at, expected):
+    assert loc_tools._expiry_hint(expires_at, now=_NOW) == expected
+
+
+def test_expiry_hint_accepts_datetime_objects():
+    assert loc_tools._expiry_hint(_NOW + timedelta(hours=6), now=_NOW) == "expires in 6 hours"
+
+
+def test_expiry_hint_hours_round_to_nearest():
+    # 2h30m rounds up to 3 hours; 1h20m rounds down to 1 hour.
+    assert loc_tools._expiry_hint(_NOW + timedelta(hours=2, minutes=30), now=_NOW) == (
+        "expires in 3 hours"
+    )
+    assert loc_tools._expiry_hint(_NOW + timedelta(hours=1, minutes=20), now=_NOW) == (
+        "expires in 1 hour"
+    )
 
 
 async def test_request_confirmation_returns_confirm_prompt():

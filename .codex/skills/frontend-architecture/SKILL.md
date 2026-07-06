@@ -57,6 +57,8 @@ Non-owned surfaces:
 4. Keep signed-in route families covered by the contract-driven browser sweep.
 5. When adding Playwright route coverage, distinguish cold-entry checks from Next.js client navigation checks. Browser tests that assert memory, vault, cache, or provider continuity must run as a sequential UI-navigation lane through shell controls with a same-document navigation probe, or use the signed-in route sweep; `page.goto(...)` alone is cold-entry evidence.
 6. Keep Playwright `baseURL`, `webServer.url`, and the dev-server port in one configuration path so local browser proof does not silently wait on a different origin than the one being tested.
+7. For every added, renamed, or split app route, run the route contract cascade in one change: `ROUTES`, route builders, breadcrumbs, bottom-nav/sign-in coverage, route layout contract, generated surface map, cache manifest, voice action reachability, native inventory, docs, and focused route tests.
+8. Durable workspace panels should use finite nested routes when the route set is bounded. Keep query params for transient state, OAuth/redirects, filters/pagination, and static-export-sensitive identifiers.
 
 ## Handoff Rules
 

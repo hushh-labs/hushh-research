@@ -64,6 +64,7 @@ Non-owned surfaces:
 7. Treat performance as part of cache coherence: choose the safest available UX path before showing a blocking loader.
 8. Verify route/cache KPI coverage for changed screens: readiness, resource resolution, refresh completion, and warmup where applicable.
 9. Keep performance events metadata-only: route ID, resource class, cache tier, freshness, result, duration bucket, and footprint bucket. Never emit raw cache keys, user IDs, workflow IDs, PKM payloads, prompts, or decrypted values.
+10. When a route split reuses an existing workspace, regenerate and verify `cache-coherence-screen-manifest.generated.json`; every canonical nested route needs explicit route readiness/resource-class coverage even if the cache posture is inherited from the parent workspace.
 
 ## Handoff Rules
 

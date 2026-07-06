@@ -11,6 +11,9 @@
       "maintainer/promote-uat-summary-hardening"
     ]
   },
+  "repository": {
+    "allow_auto_merge": true
+  },
   "main": {
 
     "required_status_check": "CI Status Gate",

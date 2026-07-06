@@ -184,6 +184,8 @@ When spawning repo-scoped specialist agents, use at least high reasoning. Use ex
 
 Re-run the checkpoint mid-execution when new evidence changes the shape of the task, such as discovering a trust boundary, schema migration, generated contract, deploy surface, duplicate runtime, active requested-changes review, or cross-surface caller mismatch.
 
+Subagent host circuit breaker: if a child close/wait operation hangs, freezes, returns oversized output repeatedly, or is interrupted in the current turn, stop trying to close or spawn child threads in that turn. Treat the live child-thread state as saturated, continue the audit locally, and report the host-management gap. Do not repeat close loops to free capacity.
+
 Keep the repo-scoped fleet curated. The target is a small set of broad evidence lanes, not one agent per skill. Add a new agent only when repeated misses show a high-risk evidence family needs its own specialist authority, and validate that change with the agent fleet audit.
 
 ## Authority Boundary

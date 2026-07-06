@@ -131,7 +131,7 @@ Rules:
 1. Nested routes should navigate back through the top shell, not through feature-local inline buttons.
 2. Preserve the parent workspace context in the back target, including route params or query state when that context is part of the flow.
 3. Only use inline back controls when the surface is outside the normal shell, such as a modal, sheet, or fullscreen flow.
-4. Query-state workspaces such as `/profile?panel=...` still count as nested navigation and must resolve their back affordance through the shared top bar.
+4. Durable workspace panels should use finite nested routes and resolve their back affordance through the shared top bar. Legacy query-state inputs such as `/profile?panel=...` are compatibility redirects, not canonical navigation.
 
 ## Pattern: Standard Route Header Leading
 

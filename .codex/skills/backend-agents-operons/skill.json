@@ -22,23 +22,27 @@
   ],
   "required_reads": [
     "consent-protocol/docs/reference/agent-development.md",
+    "docs/reference/one/one-agent-hierarchy.md",
     "consent-protocol/docs/reference/kai-agents.md",
     "docs/reference/ai/README.md"
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/agents -q",
-    "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q"
+    "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q",
+    "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
   ],
   "verification_bundles": [
     {
       "id": "backend-agents-operons",
       "commands": [
         "cd consent-protocol && python3 -m pytest tests/agents -q",
-        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q"
+        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q",
+        "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
       ],
       "tests": [
         "cd consent-protocol && python3 -m pytest tests/agents -q",
-        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q"
+        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q",
+        "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
       ]
     }
   ],

@@ -203,7 +203,7 @@ export function SettingsRow({
 }) {
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive = !disabled && (typeof onClick === "function" || resolvedAsChild);
-  const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing) && !chevron;
+  const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing);
   const hasInteractiveTrailing = containsInteractiveNode(trailing);
   const splitPrimaryAction = Boolean(!asChild && onClick && hasInteractiveTrailing);
   const Comp = resolvedAsChild ? Slot.Root : onClick && !splitPrimaryAction ? "button" : "div";
@@ -264,7 +264,7 @@ export function SettingsRow({
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
           shouldStackTrailing &&
-            "w-full justify-start pl-[2.65rem] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
+            "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
         )}
     >
       {trailing}

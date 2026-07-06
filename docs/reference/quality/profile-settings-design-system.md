@@ -178,7 +178,7 @@ Rules:
 Primary files:
 
 1. `hushh-webapp/components/app-ui/settings-ui.tsx`
-2. `hushh-webapp/app/profile/page.tsx`
+2. `hushh-webapp/app/profile/profile-workspace-page.tsx`
 3. `hushh-webapp/components/profile/settings-ui.tsx`
 4. `hushh-webapp/components/ui/switch.tsx`
 

@@ -1,4 +1,9 @@
 import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildProfileRoute,
+  resolveProfileRouteState,
+  type ProfilePanel,
+} from "@/lib/navigation/profile-routes";
 
 export type TopShellBreadcrumbItem = {
   label: string;
@@ -28,7 +33,7 @@ function titleizeSegment(segment: string): string {
     .join(" ");
 }
 
-function profilePanelLabel(panel: string | null): string | null {
+function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "account") return "Account";
   if (panel === "my-data") return "My Data";
   if (panel === "access") return "Access & sharing";
@@ -40,19 +45,8 @@ function profilePanelLabel(panel: string | null): string | null {
   return null;
 }
 
-function profilePanelFromParams(
-  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
-): string {
-  const panel = String(searchParams?.get("panel") || "").trim();
-  if (panel) return panel;
-
-  const tab = String(searchParams?.get("tab") || "").trim();
-  if (tab === "privacy") return "access";
-  return tab;
-}
-
-function profilePanelHref(panel: string): string {
-  return `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}`;
+function profilePanelHref(panel: ProfilePanel): string {
+  return buildProfileRoute({ panel });
 }
 
 function profileDetailLabel(detail: string | null): string | null {
@@ -439,14 +433,14 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.PROFILE) {
-    const panel = profilePanelFromParams(searchParams);
-    const detail = String(searchParams?.get("detail") || "").trim();
+    const { panel, detail } = resolveProfileRouteState(pathname, searchParams);
     const panelLabel = profilePanelLabel(panel);
     if (!panelLabel) {
       return null;
     }
 
     const detailLabel = profileDetailLabel(detail);
+    if (!panel) return null;
     const panelHref = profilePanelHref(panel);
     return {
       backHref: detailLabel ? panelHref : ROUTES.PROFILE,
@@ -494,26 +488,22 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  const nestedPath = pathname.slice(`${ROUTES.PROFILE}/`.length);
-  const segments = nestedPath.split("/").filter(Boolean);
-  if (segments.length === 0) {
+  const { panel, detail } = resolveProfileRouteState(pathname, searchParams);
+  const panelLabel = profilePanelLabel(panel);
+  if (!panel || !panelLabel) {
     return null;
   }
-
-  const [firstSegment, ...remainingSegments] = segments;
-  if (!firstSegment) {
-    return null;
-  }
+  const detailLabel = profileDetailLabel(detail);
+  const panelHref = profilePanelHref(panel);
 
   return {
-    backHref: profilePanelHref("account"),
+    backHref: detailLabel ? panelHref : ROUTES.PROFILE,
     width: "profile",
+    align: "center",
     items: [
-      { label: "Profile", href: profilePanelHref("account") },
-      { label: titleizeSegment(firstSegment) },
-      ...remainingSegments.map((segment) => ({
-        label: titleizeSegment(segment),
-      })),
+      { label: "Profile", href: ROUTES.PROFILE },
+      { label: panelLabel, href: detailLabel ? panelHref : undefined },
+      ...(detailLabel ? [{ label: detailLabel }] : []),
     ],
   };
 }

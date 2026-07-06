@@ -107,7 +107,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/profile?panel=gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/profile/gmail");
     });
 
     expect(screen.queryByText("Gmail connection needs attention")).toBeNull();

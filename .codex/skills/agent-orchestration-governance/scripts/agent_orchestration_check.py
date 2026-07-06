@@ -26,6 +26,10 @@ DELEGATION_ROUTER_RELATIVE_PATH = Path(
 DELEGATION_CONTRACT_RELATIVE_PATH = Path(
     ".codex/skills/agent-orchestration-governance/references/delegation-contract.md"
 )
+SUBAGENT_BUDGET_RELATIVE_PATH = Path(
+    ".codex/skills/agent-orchestration-governance/scripts/subagent_budget.py"
+)
+CODING_AGENT_MCP_RELATIVE_PATH = Path("docs/reference/operations/coding-agent-mcp.md")
 
 EXPECTED_AGENTS = {
     "analytics_observability_architect",
@@ -165,6 +169,43 @@ def validate_delegation_contract(root: Path, errors: list[str]) -> None:
     for marker in required_markers:
         if marker not in contract_text:
             errors.append(f"{contract_path}: delegation contract missing marker '{marker}'")
+
+
+def validate_subagent_budget_policy(root: Path, errors: list[str]) -> None:
+    budget_path = root / SUBAGENT_BUDGET_RELATIVE_PATH
+    if not budget_path.exists():
+        errors.append(f"missing subagent budget tool: {budget_path}")
+        return
+    budget_text = budget_path.read_text(encoding="utf-8")
+    required_budget_markers = [
+        "DEFAULT_RECOVERY_SLOT = 1",
+        "DEFAULT_MAX_NEW_LANES = 2",
+        "EXPECTED_MAX_THREADS = 6",
+        "EXPECTED_MAX_DEPTH = 1",
+        "live host state is not exposed",
+        "close_hung",
+    ]
+    for marker in required_budget_markers:
+        if marker not in budget_text:
+            errors.append(f"{budget_path}: subagent budget tool missing marker '{marker}'")
+
+    contract_path = root / DELEGATION_CONTRACT_RELATIVE_PATH
+    coding_agent_mcp_path = root / CODING_AGENT_MCP_RELATIVE_PATH
+    doc_markers = [
+        "effective-spawn budget",
+        "reserve one thread",
+        "two read-only evidence lanes",
+        "close stale child threads sequentially",
+        "close freeze circuit breaker",
+    ]
+    for path in [contract_path, coding_agent_mcp_path]:
+        if not path.exists():
+            errors.append(f"missing subagent budget policy doc: {path}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker in doc_markers:
+            if marker not in text:
+                errors.append(f"{path}: subagent budget policy missing marker '{marker}'")
 
 
 def parse_skill_block(path: Path, instructions: str, errors: list[str]) -> list[str]:
@@ -392,6 +433,7 @@ def main() -> int:
     validate_config(root, errors)
     validate_delegation_router(root, errors)
     validate_delegation_contract(root, errors)
+    validate_subagent_budget_policy(root, errors)
     validate_agents(root, errors)
     validate_delegation_policies(root, errors)
 

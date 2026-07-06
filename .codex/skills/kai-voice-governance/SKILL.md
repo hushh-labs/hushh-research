@@ -56,8 +56,9 @@ Non-owned surfaces:
 
 1. `docs/reference/kai/kai-action-gateway-vnext.md`
 2. `docs/reference/one/one-voice-runtime-architecture.md`
-3. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
-4. `.codex/skills/kai-voice-governance/references/voice-review-checklist.md`
+3. `docs/reference/one/one-agent-hierarchy.md`
+4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
+5. `.codex/skills/kai-voice-governance/references/voice-review-checklist.md`
 
 ## Workflow
 
@@ -71,6 +72,8 @@ Non-owned surfaces:
 8. Keep short-term memory in-memory only and durable memory vault-gated, client-side encrypted, and out of plaintext storage.
 9. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
 10. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
+11. Route changes that affect any voice-reachable screen must update `deriveVoiceRouteScreen`, local `.voice-action-contract.json` reachability/targets, generated gateway artifacts, typed-search parity, and One Voice context snapshot expectations in the same change.
+12. Keep legacy query route inputs as compatibility only. Generated `route.*` actions should target canonical nested routes unless the action intentionally opens a canonical One capability route.
 
 ## Handoff Rules
 

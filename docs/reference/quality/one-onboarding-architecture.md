@@ -197,7 +197,7 @@ guarantee: step screens never hand‑roll top padding.
 ### Reset / come back to onboarding
 
 `handleResetAccount` in
-[`app/profile/page.tsx`](../../../hushh-webapp/app/profile/page.tsx) keeps the
+[`app/profile/profile-workspace-page.tsx`](../../../hushh-webapp/app/profile/profile-workspace-page.tsx) keeps the
 identity and vault but returns the account to a just‑set‑up state: it calls
 `AccountService.resetAccount` (clears the authoritative pre‑vault completion),
 clears local + cache state, re‑arms setup, and redirects to

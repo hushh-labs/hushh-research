@@ -48,7 +48,7 @@ def _assert_no_user_id(messages: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Storage operon -- trust_link_check_failed must not expose user_id
+# Storage operon -- consent_token_check_failed must not expose user_id
 # ---------------------------------------------------------------------------
 
 

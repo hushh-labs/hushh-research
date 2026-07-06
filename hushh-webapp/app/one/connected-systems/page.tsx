@@ -24,7 +24,7 @@ export default function ConnectedSystemsPage() {
     <AppPageShell
       as="main"
       width="standard"
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/one/connected-systems",
         marker: "native-route-connected-systems",
