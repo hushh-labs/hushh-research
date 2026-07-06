@@ -10,6 +10,25 @@ export const ROUTE_ID_VALUES = [
   "phone_mandate",
   "labs_profile_appearance",
   "profile",
+  "profile_account",
+  "profile_account_phone",
+  "profile_preferences",
+  "profile_preferences_kai",
+  "profile_preferences_device",
+  "profile_security",
+  "profile_security_vault",
+  "profile_security_session",
+  "profile_my_data",
+  "profile_my_data_domain",
+  "profile_access",
+  "profile_access_connection",
+  "profile_connected_systems",
+  "profile_gmail",
+  "profile_gmail_connection",
+  "profile_gmail_actions",
+  "profile_support",
+  "profile_support_routing",
+  "profile_support_compose",
   "gmail",
   "pkm",
   "connected_systems",
@@ -64,6 +83,25 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
   if (pathname === ROUTES.LABS_PROFILE_APPEARANCE) return "labs_profile_appearance";
   if (pathname === ROUTES.PROFILE) return "profile";
+  if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
+  if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
+  if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_KAI) return "profile_preferences_kai";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE) return "profile_preferences_device";
+  if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
+  if (pathname === ROUTES.PROFILE_SECURITY_VAULT) return "profile_security_vault";
+  if (pathname === ROUTES.PROFILE_SECURITY_SESSION) return "profile_security_session";
+  if (pathname === ROUTES.PROFILE_MY_DATA) return "profile_my_data";
+  if (pathname === ROUTES.PROFILE_MY_DATA_DOMAIN) return "profile_my_data_domain";
+  if (pathname === ROUTES.PROFILE_ACCESS) return "profile_access";
+  if (pathname === ROUTES.PROFILE_ACCESS_CONNECTION) return "profile_access_connection";
+  if (pathname === ROUTES.PROFILE_CONNECTED_SYSTEMS) return "profile_connected_systems";
+  if (pathname === ROUTES.PROFILE_GMAIL) return "profile_gmail";
+  if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION) return "profile_gmail_connection";
+  if (pathname === ROUTES.PROFILE_GMAIL_ACTIONS) return "profile_gmail_actions";
+  if (pathname === ROUTES.PROFILE_SUPPORT) return "profile_support";
+  if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING) return "profile_support_routing";
+  if (pathname === ROUTES.PROFILE_SUPPORT_COMPOSE) return "profile_support_compose";
   if (pathname === ROUTES.GMAIL || pathname === ROUTES.LEGACY_GMAIL) return "gmail";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";

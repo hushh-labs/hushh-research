@@ -18,10 +18,15 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
 AGENTS_DIR = Path(".codex/agents")
+CONFIG_PATH = Path(".codex/config.toml")
 SKILLS_DIR = Path(".codex/skills")
 WORKFLOWS_DIR = Path(".codex/workflows")
 MIN_AGENT_COUNT = 8
 MAX_AGENT_COUNT = 12
+EXPECTED_MAX_THREADS = 6
+EXPECTED_MAX_DEPTH = 1
+DEFAULT_RECOVERY_SLOT = 1
+DEFAULT_MAX_NEW_LANES = 2
 ALLOWED_REASONING_EFFORTS = {"high", "xhigh"}
 DEVELOPER_INSTRUCTIONS_MAX_LINES = 48
 DEVELOPER_INSTRUCTIONS_MAX_CHARS = 3000
@@ -124,6 +129,30 @@ def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
     return agents
 
 
+def _load_agent_runtime_budget(root: Path) -> dict[str, Any]:
+    path = root / CONFIG_PATH
+    payload: dict[str, Any] = {
+        "path": str(path.relative_to(root)),
+        "max_threads": None,
+        "max_depth": None,
+        "recovery_slot": DEFAULT_RECOVERY_SLOT,
+        "default_max_new_lanes": DEFAULT_MAX_NEW_LANES,
+        "static_effective_budget": None,
+    }
+    if not path.exists():
+        return payload
+    data = _read_toml(path)
+    agents = data.get("agents")
+    if isinstance(agents, dict):
+        payload["max_threads"] = agents.get("max_threads")
+        payload["max_depth"] = agents.get("max_depth")
+        if isinstance(payload["max_threads"], int):
+            payload["static_effective_budget"] = max(
+                0, payload["max_threads"] - DEFAULT_RECOVERY_SLOT
+            )
+    return payload
+
+
 def _load_workflows(root: Path) -> dict[str, dict[str, Any]]:
     workflows: dict[str, dict[str, Any]] = OrderedDict()
     for path in sorted((root / WORKFLOWS_DIR).glob("*/workflow.json")):
@@ -162,6 +191,7 @@ def _load_workflows(root: Path) -> dict[str, dict[str, Any]]:
 def audit(root: Path) -> OrderedDict[str, Any]:
     skills = _load_skills(root)
     agents = _load_agents(root)
+    runtime_budget = _load_agent_runtime_budget(root)
     workflows = _load_workflows(root)
     hard_findings: list[str] = []
     watchlist: list[str] = []
@@ -173,6 +203,14 @@ def audit(root: Path) -> OrderedDict[str, Any]:
     if len(agents) > MAX_AGENT_COUNT:
         hard_findings.append(
             f"agent count {len(agents)} exceeds the curated maximum {MAX_AGENT_COUNT}"
+        )
+    if runtime_budget["max_threads"] != EXPECTED_MAX_THREADS:
+        hard_findings.append(
+            f"{runtime_budget['path']}: agents.max_threads must stay {EXPECTED_MAX_THREADS}"
+        )
+    if runtime_budget["max_depth"] != EXPECTED_MAX_DEPTH:
+        hard_findings.append(
+            f"{runtime_budget['path']}: agents.max_depth must stay {EXPECTED_MAX_DEPTH}"
         )
 
     agent_skill_matrix: dict[str, list[str]] = OrderedDict()
@@ -323,6 +361,7 @@ def audit(root: Path) -> OrderedDict[str, Any]:
         review_recommended=bool(watchlist),
         hard_findings=hard_findings,
         watchlist=watchlist,
+        runtime_budget=runtime_budget,
         agents=agents,
         agent_skill_matrix=agent_skill_matrix,
         workflow_agent_coverage=workflow_agent_coverage,
@@ -339,6 +378,12 @@ def _text(payload: dict[str, Any]) -> str:
     lines = [
         "Agent Fleet Audit",
         f"Agent count: {payload['agent_count']} (curated range {payload['curated_min']}-{payload['curated_max']})",
+        "Runtime budget: "
+        f"max_threads={payload['runtime_budget']['max_threads']}, "
+        f"max_depth={payload['runtime_budget']['max_depth']}, "
+        f"recovery_slot={payload['runtime_budget']['recovery_slot']}, "
+        f"default_new_lanes={payload['runtime_budget']['default_max_new_lanes']}, "
+        f"static_effective_budget={payload['runtime_budget']['static_effective_budget']}",
         f"Update required: {payload['update_required']}",
         f"Review recommended: {payload['review_recommended']}",
         "Hard findings:",

@@ -28,6 +28,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   SettingsDetailPanel,
@@ -52,7 +53,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
-import { useRequireAuth } from "@/hooks/use-auth";
+import { useAuth, useRequireAuth } from "@/hooks/use-auth";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
@@ -288,10 +289,20 @@ function mergeWorkflows(
 }
 
 export default function OneKycPage() {
+  const auth = useAuth();
+
   return (
-    <VaultLockGuard>
-      <OneKycWorkspace />
-    </VaultLockGuard>
+    <>
+      <NativeTestBeacon
+        routeId={ROUTES.ONE_KYC}
+        marker="native-route-one-kyc"
+        authState={auth.user ? "authenticated" : auth.loading ? "pending" : "public"}
+        dataState={auth.user ? "loaded" : "loading"}
+      />
+      <VaultLockGuard>
+        <OneKycWorkspace />
+      </VaultLockGuard>
+    </>
   );
 }
 

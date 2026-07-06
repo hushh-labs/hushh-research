@@ -4652,6 +4652,8 @@ export function AgentChatWorkspace({
                       type="button"
                       variant="ghost"
                       size="icon"
+                      data-native-voice-control-id="one_voice_agent_chat_start"
+                      data-testid="one-voice-agent-chat-start"
                       className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
                       disabled={!canToggleVoice}
                       onClick={() => {

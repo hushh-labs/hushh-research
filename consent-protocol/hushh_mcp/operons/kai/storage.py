@@ -36,7 +36,7 @@ def store_decision_card(
     """
     Operon: Store encrypted decision card in vault.
 
-    TrustLink Required: pkm.write (covers attr.financial.analysis.decisions.*)
+    Consent token scope: pkm.write (covers attr.financial.analysis.decisions.*)
 
     Args:
         user_id: User identifier
@@ -49,7 +49,7 @@ def store_decision_card(
         EncryptedPayload ready for database storage
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
 
     Example:
         >>> payload = store_decision_card(
@@ -60,12 +60,12 @@ def store_decision_card(
         ...     consent_token="HCT:..."
         ... )
     """
-    # Validate TrustLink (PKM write covers attr.financial.analysis.decisions.*)
+    # Validate consent token (PKM write covers attr.financial.analysis.decisions.*)
     valid, reason, token = validate_token(consent_token, ConsentScope.PKM_WRITE)
 
     if not valid:
-        logger.error("[Storage Operon] trust_link_check_failed")
-        raise PermissionError(f"TrustLink validation failed: {reason}")
+        logger.error("[Storage Operon] consent_token_check_failed")
+        raise PermissionError(f"Consent token validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError(f"Token user mismatch: expected {user_id}, got {token.user_id}")
@@ -97,7 +97,7 @@ def retrieve_decision_card(
     """
     Operon: Retrieve and decrypt decision card from vault.
 
-    TrustLink Required: pkm.write (covers attr.financial.analysis.decisions.*)
+    Consent token scope: pkm.write (covers attr.financial.analysis.decisions.*)
 
     Args:
         encrypted_payload: Encrypted decision data from database
@@ -109,15 +109,15 @@ def retrieve_decision_card(
         Decrypted decision card dict
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
         ValueError: If decryption fails
     """
-    # Validate TrustLink (pkm.read covers attr.financial.analysis.decisions.*)
+    # Validate consent token (pkm.read covers attr.financial.analysis.decisions.*)
     valid, reason, token = validate_token(consent_token, ConsentScope.PKM_READ)
 
     if not valid:
-        logger.error("[Storage Operon] trust_link_check_failed")
-        raise PermissionError(f"TrustLink validation failed: {reason}")
+        logger.error("[Storage Operon] consent_token_check_failed")
+        raise PermissionError(f"Consent token validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
@@ -147,7 +147,7 @@ def retrieve_decision_history(
     """
     Operon: Retrieve decision history metadata (without full decryption).
 
-    TrustLink Required: pkm.read (covers attr.financial.analysis.decisions.*)
+    Consent token scope: pkm.read (covers attr.financial.analysis.decisions.*)
 
     This returns only metadata (ticker, decision, confidence, timestamp).
     Full decision cards must be retrieved individually with vault keys.
@@ -161,14 +161,14 @@ def retrieve_decision_history(
         List of decision metadata dicts
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
-    # Validate TrustLink (pkm.read covers attr.financial.analysis.decisions.*)
+    # Validate consent token (pkm.read covers attr.financial.analysis.decisions.*)
     valid, reason, token = validate_token(consent_token, ConsentScope.PKM_READ)
 
     if not valid:
-        logger.error("[Storage Operon] trust_link_check_failed")
-        raise PermissionError(f"TrustLink validation failed: {reason}")
+        logger.error("[Storage Operon] consent_token_check_failed")
+        raise PermissionError(f"Consent token validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")

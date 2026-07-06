@@ -26,6 +26,7 @@
     "docs/reference/iam/README.md",
     "docs/reference/iam/architecture.md",
     "docs/reference/iam/consent-scope-catalog.md",
+    "docs/reference/iam/agent-delegation-boundary.md",
     "docs/reference/iam/validation-checklist.md"
   ],
   "required_commands": [

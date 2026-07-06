@@ -123,6 +123,7 @@ vi.mock("lucide-react", () => ({
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
     PROFILE: "/profile",
+    PROFILE_GMAIL: "/profile/gmail",
     GMAIL: "/gmail",
     PROFILE_RECEIPTS: "/profile/receipts",
   },
@@ -723,6 +724,6 @@ describe("ProfileReceiptsPage", () => {
     ).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
-    expect(mocks.routerPush).toHaveBeenCalledWith("/profile?panel=gmail");
+    expect(mocks.routerPush).toHaveBeenCalledWith("/profile/gmail");
   });
 });

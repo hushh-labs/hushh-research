@@ -390,7 +390,7 @@ function taskIdForRun(runId: string, kind: GmailConnectorTaskKind): string {
 
 function syncTaskRouteHref(routeHref?: string | null): string {
   if (routeHref && routeHref.trim()) return routeHref.trim();
-  return `${ROUTES.PROFILE}?panel=gmail`;
+  return ROUTES.PROFILE_GMAIL;
 }
 
 function seedTaskFromRun(
@@ -932,7 +932,7 @@ export function useGmailConnectorStatus(
     () => getConnectorView(normalizedUserId),
   );
   const idTokenProvider = options.idTokenProvider || null;
-  const routeHref = options.routeHref || `${ROUTES.PROFILE}?panel=gmail`;
+  const routeHref = options.routeHref || ROUTES.PROFILE_GMAIL;
   const enabled = options.enabled !== false && Boolean(normalizedUserId);
   const refreshKey = options.refreshKey || "";
 

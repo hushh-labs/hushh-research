@@ -51,7 +51,8 @@ Non-owned surfaces:
 1. `docs/reference/iam/README.md`
 2. `docs/reference/streaming/README.md`
 3. `docs/project_context_map.md`
-4. `consent-protocol/docs/reference/consent-protocol.md`
+4. `docs/reference/iam/agent-delegation-boundary.md`
+5. `consent-protocol/docs/reference/consent-protocol.md`
 
 ## Workflow
 

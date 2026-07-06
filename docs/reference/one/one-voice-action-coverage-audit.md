@@ -124,9 +124,9 @@ Action inventory:
 | `analysis.cancel_active` | wired voice tool `cancel_active_analysis` | Manual/confirmation-gated cancellation of active analysis. |
 | `analysis.open_transcript_tab_legacy` | dead | Contract says transcript tab no longer exists in the analysis page. |
 | `route.profile` | wired Kai command `profile` | Can open `/profile`. |
-| `route.profile_gmail_panel` | wired route `/profile?panel=gmail` | Can open the Gmail profile panel. |
-| `route.profile_support_panel` | wired route `/profile?tab=account&panel=support` | Can open support panel. |
-| `route.profile_security_panel` | wired route `/profile?tab=privacy&panel=security` | Can open security panel. |
+| `route.profile_gmail_panel` | wired route `/one/gmail` with `/profile/gmail` compatibility reachability | Can open Gmail receipts/settings. |
+| `route.profile_support_panel` | wired route `/profile/support` | Can open support panel. |
+| `route.profile_security_panel` | wired route `/profile/security` | Can open security panel. |
 | `route.profile_pkm_agent_lab` | wired route `/profile/pkm-agent-lab` | Can open PKM Agent Lab. |
 | `profile.support.submit_message` | unwired | Local ProfilePage handler only; no global voice/action adapter. |
 | `profile.marketplace_visibility.toggle` | unwired | Local ProfilePage switch only; manual-only. |

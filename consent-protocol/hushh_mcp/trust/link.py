@@ -16,11 +16,12 @@ def create_trust_link(
     scope: ConsentScope,
     signed_by_user: UserID,
     expires_in_ms: int = DEFAULT_TRUST_LINK_EXPIRY_MS,
+    session_id: str = "",
 ) -> TrustLink:
     created_at = int(time.time() * 1000)
     expires_at = created_at + expires_in_ms
 
-    raw = f"{from_agent}|{to_agent}|{scope}|{created_at}|{expires_at}|{signed_by_user}"
+    raw = f"{from_agent}|{to_agent}|{scope}|{created_at}|{expires_at}|{signed_by_user}|{session_id}"
     signature = _sign(raw)
 
     return TrustLink(
@@ -31,18 +32,23 @@ def create_trust_link(
         expires_at=expires_at,
         signed_by_user=signed_by_user,
         signature=signature,
+        session_id=session_id,
     )
 
 
 # ========== TrustLink Verifier ==========
 
 
-def verify_trust_link(link: TrustLink) -> bool:
+def verify_trust_link(link: TrustLink, expected_session_id: str | None = None) -> bool:
+    """Verify a TrustLink HMAC and optionally enforce active-session binding."""
     now = int(time.time() * 1000)
     if now > link.expires_at:
         return False
 
-    raw = f"{link.from_agent}|{link.to_agent}|{link.scope}|{link.created_at}|{link.expires_at}|{link.signed_by_user}"
+    if expected_session_id is not None and link.session_id != expected_session_id:
+        return False
+
+    raw = f"{link.from_agent}|{link.to_agent}|{link.scope}|{link.created_at}|{link.expires_at}|{link.signed_by_user}|{link.session_id}"
     expected_sig = _sign(raw)
 
     return hmac.compare_digest(link.signature, expected_sig)
@@ -51,8 +57,15 @@ def verify_trust_link(link: TrustLink) -> bool:
 # ========== Scope Validator ==========
 
 
-def is_trusted_for_scope(link: TrustLink, required_scope: ConsentScope) -> bool:
-    return link.scope == required_scope and verify_trust_link(link)
+def is_trusted_for_scope(
+    link: TrustLink,
+    required_scope: ConsentScope,
+    expected_session_id: str | None = None,
+) -> bool:
+    return link.scope == required_scope and verify_trust_link(
+        link,
+        expected_session_id=expected_session_id,
+    )
 
 
 # ========== Internal Signer ==========

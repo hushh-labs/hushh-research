@@ -35,6 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
@@ -724,7 +725,7 @@ export default function PkmAgentLabPageClient() {
     setDetailOpen(true);
   }, []);
   const openPrivacySecurity = useCallback(() => {
-    router.push("/profile?panel=security");
+    router.push(ROUTES.PROFILE_SECURITY);
   }, [router]);
   const handleVaultAccessRequired = useCallback(
     (message: string) => {

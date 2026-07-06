@@ -109,7 +109,7 @@ describe("OneLocationCircleInvitePageClient", () => {
 
     const vaultLink = await screen.findByRole("link", { name: /Continue to Vault/i });
     expect(vaultLink.getAttribute("href")).toBe(
-      "/profile?panel=security&unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Finvite_token_123",
+      "/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Finvite_token_123",
     );
 
     expect(mockRouterPush).not.toHaveBeenCalledWith(

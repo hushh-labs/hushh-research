@@ -349,6 +349,14 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "type": "string",
                         "description": "User authorizing the delegation (Firebase UID, registered email, or registered E.164 phone number)",
                     },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional session identifier for the current connection. "
+                            "When provided, the TrustLink HMAC is bound to this session, "
+                            "preventing replay across different streams."
+                        ),
+                    },
                     "country_iso2": {
                         "type": "string",
                         "description": (

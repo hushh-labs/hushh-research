@@ -126,26 +126,39 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     }
     const originalPushState = window.history.pushState;
     const originalReplaceState = window.history.replaceState;
-    const sync = () => {
+    let syncTimer: number | null = null;
+    const syncNow = () => {
       const search = window.location.search;
       setRouteQuery(search.startsWith("?") ? search.slice(1) : search);
     };
+    const scheduleSync = () => {
+      if (syncTimer !== null) {
+        window.clearTimeout(syncTimer);
+      }
+      syncTimer = window.setTimeout(() => {
+        syncTimer = null;
+        syncNow();
+      }, 0);
+    };
     window.history.pushState = ((...args) => {
       const result = originalPushState.apply(window.history, args);
-      sync();
+      scheduleSync();
       return result;
     }) as History["pushState"];
     window.history.replaceState = ((...args) => {
       const result = originalReplaceState.apply(window.history, args);
-      sync();
+      scheduleSync();
       return result;
     }) as History["replaceState"];
-    sync();
-    window.addEventListener("popstate", sync);
+    syncNow();
+    window.addEventListener("popstate", scheduleSync);
     return () => {
+      if (syncTimer !== null) {
+        window.clearTimeout(syncTimer);
+      }
       window.history.pushState = originalPushState;
       window.history.replaceState = originalReplaceState;
-      window.removeEventListener("popstate", sync);
+      window.removeEventListener("popstate", scheduleSync);
     };
   }, [pathname]);
   const { user } = useAuth();

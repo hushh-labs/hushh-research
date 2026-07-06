@@ -78,6 +78,33 @@ long-lived integration branch like `kai-voice-level3`).
 5. For `.codex/`, docs, config, scripts, or governance surfaces, rerun the
    governance orchestrator after final local edits.
 
+## Direct Main Admin Push Preflight
+
+Use this only when the user explicitly requests a direct push to `main`.
+Maintainer bypass is an authority path, not a validation bypass; the normal
+preferred path remains a PR into `main` with green CI/queue.
+
+Before `git push origin HEAD:main`, prove all of these in the parent session:
+
+1. active GitHub login is the intended governed maintainer (`gh auth status` and
+   `gh api user --jq '.login'`)
+2. repo-local commit author name/email map to that account without exposing
+   private emails (`git config --get user.name`, `git config --get user.email`)
+3. the actor is present in `config/ci-governance.json` `main.review_bypass_users` and `main.merge_queue_bypass_users`
+4. live branch protection still matches policy
+   (`./scripts/ci/verify-main-branch-protection.sh`)
+5. latest `origin/main` is fetched and the branch is rebased or merged on top of
+   it with no unresolved conflicts
+6. every local commit in `origin/main..HEAD` has DCO signoff
+   (`bash scripts/ci/check-dco-signoff.sh origin/main HEAD`)
+7. secret hygiene is clean (`bash scripts/ci/secret-scan.sh`)
+8. changed-surface verification requested by the owning skills has passed or is
+   reported as a concrete blocker
+9. `git diff --check` passes and `git status --short` has no uncommitted files
+
+If any item fails, do not push directly to `main`; fix it, route through the PR
+path, or report the blocker.
+
 ## Runtime Terminals
 
 Telemetry-first default: when a coding agent is driving the work, run the server

@@ -146,8 +146,12 @@ replace specialist scopes or PKM/data scopes.
 | `agent.kyc.process` | Invoke KYC for identity workflow state and approval-gated KYC processing |
 
 Specialist execution remains scoped at the specialist boundary. A caller using
-Agent One over A2A presents `agent.one.orchestrate`; any delegated specialist
-entrypoint validates its own required scope before doing specialist work.
+Agent One over external A2A presents `agent.one.orchestrate`; any delegated
+specialist entrypoint validates its own required scope before doing specialist
+work. First-party in-app compatibility paths may still carry `vault.owner`
+through the token hierarchy; do not use that pattern for external, vendor,
+network, or cross-process specialist boundaries. See
+[Agent Delegation Boundary](./agent-delegation-boundary.md).
 
 ## Duration Policy
 

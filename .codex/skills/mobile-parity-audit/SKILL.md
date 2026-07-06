@@ -54,6 +54,7 @@ Non-owned surfaces:
 3. Route implementation work back into plugin-contract or owner skills after the audit isolates the issue.
 4. For generated native route audit reports, treat `ok: true` as advisory until the observed status also proves `ready=1`, `found=1`, and the observed marker equals the expected marker. A passed report with a missing marker is a blocker, not release evidence.
 5. Before physical voice or route smoke, run the static native parity gate so missing microphone permission metadata, missing route-inventory entries, or unclassified legacy aliases fail before device work.
+6. Any route added to `ROUTES` must be classified in `native-route-inventory.json` in the same change. Nested route families that share one workspace may share a marker, but each canonical route still needs an explicit inventory row and static-export-safe fixture.
 
 ## Handoff Rules
 
