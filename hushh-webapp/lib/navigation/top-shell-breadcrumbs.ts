@@ -309,18 +309,18 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.ONE_KYC) {
-    // Origin-aware back: opened from the /one dashboard (?from=/one) → back to
-    // the dashboard; opened from Profile (no marker) → back to Profile.
+    // Origin-aware back: explicit safe origins retrace exactly; direct/cold
+    // One capability entry falls back to the Agents dashboard.
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-    const fromOne = originHref === ROUTES.ONE_HOME;
+    const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: originHref || ROUTES.PROFILE,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
-        fromOne
-          ? { label: "One", href: ROUTES.ONE_HOME }
-          : { label: "Profile", href: ROUTES.PROFILE },
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Email" },
       ],
     };
@@ -328,15 +328,15 @@ export function resolveTopShellBreadcrumb(
 
   if (pathname === ROUTES.ONE_LOCATION) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-    const fromOne = originHref === ROUTES.ONE_HOME;
+    const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: originHref || ROUTES.PROFILE,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
-        fromOne
-          ? { label: "One", href: ROUTES.ONE_HOME }
-          : { label: "Profile", href: ROUTES.PROFILE },
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Location" },
       ],
     };
@@ -344,15 +344,15 @@ export function resolveTopShellBreadcrumb(
 
   if (pathname === ROUTES.ONE_MARKETPLACE) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-    const fromOne = originHref === ROUTES.ONE_HOME;
+    const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: originHref || ROUTES.PROFILE,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
-        fromOne
-          ? { label: "One", href: ROUTES.ONE_HOME }
-          : { label: "Profile", href: ROUTES.PROFILE },
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Marketplace" },
       ],
     };

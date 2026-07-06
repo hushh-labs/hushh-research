@@ -174,9 +174,15 @@ jobs:
             frontend:
               - 'hushh-webapp/**'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/queue-validation.yml'
+              - '.github/workflows/main-post-merge-smoke.yml'
+              - 'scripts/ci/**'
             backend:
               - 'consent-protocol/**'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/queue-validation.yml'
+              - '.github/workflows/main-post-merge-smoke.yml'
+              - 'scripts/ci/**'
 
       - id: override
         if: github.event_name == 'workflow_dispatch'
@@ -202,12 +208,12 @@ jobs:
   # ============================================================================
   # Frontend (Next.js + Capacitor)
   # ============================================================================
-  web-check:
-    name: "Web (Next.js)"
+  web-core-check:
+    name: "Web Core (Next.js)"
     needs: [paths]
     if: needs.paths.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
 
@@ -217,11 +223,20 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - name: Run web check script (single source of truth)
-        run: bash scripts/ci/orchestrate.sh web
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: hushh-webapp/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
+
+      - name: Run core web check script
+        run: bash scripts/ci/orchestrate.sh web-core
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+          NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
           NEXT_PUBLIC_FIREBASE_API_KEY: "test-api-key"
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "dummy-project.firebaseapp.com"
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: "dummy-project"
@@ -233,7 +248,39 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: web-npm-audit-report
+          name: web-core-npm-audit-report
+          path: hushh-webapp/npm-audit-report.json
+          if-no-files-found: ignore
+
+  web-targeted-check:
+    name: "Web Targeted Contracts"
+    needs: [paths]
+    if: needs.paths.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Run targeted web contract checks
+        run: bash scripts/ci/orchestrate.sh web-targeted
+        env:
+          WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
+
+      - name: Upload security audit artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: web-targeted-npm-audit-report
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
@@ -340,7 +387,8 @@ jobs:
       - pr-base-policy
       - repo-governance
       - paths
-      - web-check
+      - web-core-check
+      - web-targeted-check
       - protocol-check
       - integration-check
       - main-freshness-gate
@@ -356,7 +404,8 @@ jobs:
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
           REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
-          WEB="${{ needs['web-check'].result }}"
+          WEB_CORE="${{ needs['web-core-check'].result }}"
+          WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
@@ -366,13 +415,14 @@ jobs:
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
           printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
-          printf 'web-check=%s\n' "$WEB"
+          printf 'web-core-check=%s\n' "$WEB_CORE"
+          printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$WEB_CORE" "$WEB_TARGETED" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

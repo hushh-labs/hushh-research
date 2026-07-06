@@ -280,7 +280,7 @@ describe("ApiService voice planning contract", () => {
 
     const relayUrl = await ApiService.getGeminiLiveRelayUrl({
       voice: "Sulafat",
-      screen: "one_home",
+      screen: "one_agents",
       persona: "investor",
       routeFamily: "/one",
       voiceState: "listening",

@@ -81,6 +81,8 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
+import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
+import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { ConsentInboxDropdown } from "@/components/consent/consent-inbox-dropdown";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
@@ -88,7 +90,10 @@ import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
-import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  resolveTopShellBreadcrumb,
+  type TopShellBreadcrumbConfig,
+} from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   ShellActionSurface,
   SHELL_ICON_BUTTON_CLASSNAME,
@@ -212,6 +217,41 @@ function roleSwitcherIcon(activePersona: Persona): LucideIcon {
   return activePersona === "ria" ? BriefcaseBusiness : UserRound;
 }
 
+function resolveCommonRouteBreadcrumb(
+  pathname: string,
+  lastAgentSectionId: string | null,
+): TopShellBreadcrumbConfig | null {
+  const section = getAgentSection(lastAgentSectionId);
+  const backHref = section?.href ?? ROUTES.ONE_HOME;
+  const parentLabel = section?.label ?? "Agents";
+
+  if (pathname === ROUTES.PROFILE) {
+    return {
+      backHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: parentLabel, href: backHref },
+        { label: "Profile" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.MARKETPLACE) {
+    return {
+      backHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: parentLabel, href: backHref },
+        { label: "Connect" },
+      ],
+    };
+  }
+
+  return null;
+}
+
 function getScrolledRouteTitle(pathname: string): {
   label: string;
   icon?: LucideIcon;
@@ -222,7 +262,7 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) {
     return {
-      label: "One dashboard",
+      label: "Agents",
       icon: LayoutDashboard,
       interactive: false as const,
     };
@@ -316,6 +356,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
     () => normalizeTopBarPathname(pathname),
     [pathname],
   );
+  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const topShellMetrics = useMemo(
@@ -323,8 +364,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
     [normalizedPathname],
   );
   const topShellBreadcrumb = useMemo(
-    () => resolveTopShellBreadcrumb(normalizedPathname, searchParams),
-    [normalizedPathname, searchParams],
+    () =>
+      resolveTopShellBreadcrumb(normalizedPathname, searchParams) ??
+      resolveCommonRouteBreadcrumb(normalizedPathname, lastAgentSectionId),
+    [lastAgentSectionId, normalizedPathname, searchParams],
   );
   const chromeState = useMemo(
     () => getKaiChromeState(normalizedPathname),
@@ -449,6 +492,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
   );
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked;
+  const showAgentSectionDropdown =
+    isAuthenticated &&
+    !showOnboardingActions &&
+    normalizedPathname !== ROUTES.HOME &&
+    normalizedPathname !== ROUTES.ONE_HOME;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -681,7 +729,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   showOnboardingActions ? "justify-start" : "justify-center",
                 )}
               >
-                {centerTitle ? (
+                {showAgentSectionDropdown ? (
+                  <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
+                    <AgentSectionDropdown pathname={normalizedPathname} />
+                  </div>
+                ) : centerTitle ? (
                   centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                       <DropdownMenu>

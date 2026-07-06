@@ -252,10 +252,8 @@ describe("top shell breadcrumbs", () => {
 
   it("routes dashboard-opened capability surfaces back to /one (origin-aware)", () => {
     // Email / Location / Marketplace were reachable from BOTH the Profile panels
-    // and the /one dashboard tiles, but their back button hardcoded Profile — so
-    // dashboard → surface → back wrongly landed on Profile. They now honor a
-    // `?from=/one` origin marker (set by the dashboard tiles), falling back to
-    // Profile when opened without a marker.
+    // and the /one dashboard tiles. Direct/cold One capability entry now falls
+    // back to the Agents dashboard, while explicit safe origins still retrace.
     const surfaces: Array<{ path: string; label: string }> = [
       { path: "/one/kyc", label: "Email" },
       { path: "/one/location", label: "Location" },
@@ -263,12 +261,12 @@ describe("top shell breadcrumbs", () => {
     ];
 
     for (const { path, label } of surfaces) {
-      // No origin → Profile (unchanged behaviour, e.g. opened from a Profile panel).
+      // No origin → Agents dashboard.
       expect(resolveTopShellBreadcrumb(path)).toEqual({
-        backHref: "/profile",
+        backHref: "/one",
         width: "profile",
         align: "center",
-        items: [{ label: "Profile", href: "/profile" }, { label }],
+        items: [{ label: "One", href: "/one" }, { label }],
       });
 
       // Opened from the dashboard (?from=/one) → back to the dashboard, and the
@@ -282,10 +280,10 @@ describe("top shell breadcrumbs", () => {
         items: [{ label: "One", href: "/one" }, { label }],
       });
 
-      // Unsafe / protocol-relative origins are rejected → Profile fallback.
+      // Unsafe / protocol-relative origins are rejected → Agents fallback.
       const unsafe = new URLSearchParams();
       unsafe.set("from", "//evil.example/path");
-      expect(resolveTopShellBreadcrumb(path, unsafe)?.backHref).toBe("/profile");
+      expect(resolveTopShellBreadcrumb(path, unsafe)?.backHref).toBe("/one");
     }
 
     // Consent center already honored `?from`; confirm the dashboard origin flows
@@ -344,9 +342,7 @@ describe("top shell breadcrumbs", () => {
     // Unsafe origins are still rejected → the route's own default fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "https://evil.example/path");
-    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe(
-      "/profile",
-    );
+    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe("/one");
     expect(resolveTopShellBreadcrumb("/one/pkm", unsafe)?.backHref).toBe("/one");
   });
 

@@ -68,7 +68,7 @@ describe("runOneGoal", () => {
       label: "Open Profile",
       routeBefore: "/one",
       routeAfter: "/profile",
-      screenBefore: "one_home",
+      screenBefore: "one_agents",
       screenAfter: "profile",
       resultSummary: "Profile opened in One.",
       data: {

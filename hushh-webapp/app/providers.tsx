@@ -505,12 +505,15 @@ export function Providers({ children }: ProvidersProps) {
   // iOS ships in forced LIGHT ("daylight") mode: the native side is pinned via
   // Info.plist UIUserInterfaceStyle=Light, and next-themes is pinned here so no
   // persisted/system "dark" can re-apply the .dark class.
+  const forceNativeDaylight =
+    Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+
   return (
     <ThemeProvider
       attribute="class"
       defaultTheme="light"
-      forcedTheme="light"
-      enableSystem={false}
+      forcedTheme={forceNativeDaylight ? "light" : undefined}
+      enableSystem={!forceNativeDaylight}
     >
       <ObservabilityRouteObserver />
       <StepProgressProvider>

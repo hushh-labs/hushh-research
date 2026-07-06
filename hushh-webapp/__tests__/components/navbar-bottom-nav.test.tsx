@@ -21,10 +21,19 @@ const agentPopoverMock = vi.hoisted(() => ({
 const kaiSessionMock = vi.hoisted(() => {
   const setLastKaiPath = vi.fn();
   const setLastRiaPath = vi.fn();
+  const setAgentNavigationContext = vi.fn(
+    (context: { scope: "one" | "investor" | "ria"; sectionId?: string | null }) => {
+      state.lastAgentNavScope = context.scope;
+      state.lastAgentSectionId = context.sectionId ?? null;
+    },
+  );
   const state = {
     busyOperations: {},
+    lastAgentNavScope: "one" as "one" | "investor" | "ria" | null,
+    lastAgentSectionId: null as string | null,
     setLastKaiPath,
     setLastRiaPath,
+    setAgentNavigationContext,
   };
   const useKaiSession = Object.assign(
     vi.fn((selector?: (value: typeof state) => unknown) =>
@@ -34,7 +43,7 @@ const kaiSessionMock = vi.hoisted(() => {
       getState: vi.fn(() => state),
     },
   );
-  return { useKaiSession, setLastKaiPath, setLastRiaPath };
+  return { useKaiSession, setLastKaiPath, setLastRiaPath, setAgentNavigationContext, state };
 });
 
 vi.mock("next/navigation", () => ({
@@ -89,24 +98,43 @@ describe("Navbar bottom navigation", () => {
     navigationMock.pathname = ROUTES.CONNECTED_SYSTEMS;
     navigationMock.push.mockReset();
     personaMock.activePersona = "investor";
+    kaiSessionMock.state.lastAgentNavScope = "one";
+    kaiSessionMock.state.lastAgentSectionId = null;
     kaiSessionMock.setLastKaiPath.mockReset();
     kaiSessionMock.setLastRiaPath.mockReset();
+    kaiSessionMock.setAgentNavigationContext.mockClear();
     agentPopoverMock.expanded = false;
     agentPopoverMock.openAgent.mockReset();
   });
 
-  it("keeps the fixed One/Connect/Profile set on One subroutes without injecting a subroute tab", () => {
-    // On a One subroute (connected systems) the bottom nav stays the fixed
-    // top-level set. The subroute does not surface its own tab (finance-style).
+  it("uses the active One agent app as the first bottom tab on One subroutes", () => {
     render(<Navbar />);
 
-    expect(screen.getByRole("radio", { name: "One" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Systems" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Connect" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Profile" })).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: "Systems" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Consent" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "One" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Search" })).toBeNull();
     expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
+  });
+
+  it("uses Gmail as the app tab on the Gmail agent route", () => {
+    navigationMock.pathname = ROUTES.GMAIL;
+
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Route navigation" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["Gmail", "Connect", "Profile"]);
+    expect(
+      screen
+        .getByRole("radio", { name: "Gmail" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.queryByRole("radio", { name: "One" })).toBeNull();
   });
 
   it("shows the root One/Connect/Profile switch without empty pill slots on the One dashboard", () => {
@@ -155,6 +183,83 @@ describe("Navbar bottom navigation", () => {
     expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
   });
 
+  it("keeps the last One agent app on Profile when the user came from Gmail", () => {
+    navigationMock.pathname = ROUTES.PROFILE;
+    kaiSessionMock.state.lastAgentNavScope = "one";
+    kaiSessionMock.state.lastAgentSectionId = "gmail";
+
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Route navigation" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["Gmail", "Connect", "Profile"]);
+    expect(
+      screen
+        .getByRole("radio", { name: "Profile" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("keeps the finance tab set on Profile when the user came from Finance", () => {
+    navigationMock.pathname = ROUTES.PROFILE;
+    kaiSessionMock.state.lastAgentNavScope = "investor";
+
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Route navigation" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["Market", "Portfolio", "Analysis", "Connect", "Profile"]);
+    expect(
+      screen
+        .getByRole("radio", { name: "Profile" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.queryByRole("radio", { name: "One" })).toBeNull();
+  });
+
+  it("keeps the finance tab set with Connect active on Marketplace after Finance", () => {
+    navigationMock.pathname = ROUTES.MARKETPLACE;
+    kaiSessionMock.state.lastAgentNavScope = "investor";
+
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Route navigation" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["Market", "Portfolio", "Analysis", "Connect", "Profile"]);
+    expect(
+      screen
+        .getByRole("radio", { name: "Connect" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.queryByRole("radio", { name: "One" })).toBeNull();
+  });
+
+  it("keeps the RIA tab set on Profile when the user came from RIA", () => {
+    navigationMock.pathname = ROUTES.PROFILE;
+    personaMock.activePersona = "ria";
+    kaiSessionMock.state.lastAgentNavScope = "ria";
+
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Route navigation" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["RIA", "Clients", "Picks", "Connect", "Profile"]);
+    expect(
+      screen
+        .getByRole("radio", { name: "Profile" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.queryByRole("radio", { name: "One" })).toBeNull();
+  });
+
   it("shows One, Connect, and Profile with Connect active on the marketplace route", () => {
     navigationMock.pathname = ROUTES.MARKETPLACE;
     personaMock.activePersona = "ria";
@@ -176,6 +281,25 @@ describe("Navbar bottom navigation", () => {
     ).toBe("true");
     expect(screen.queryByRole("radio", { name: "RIA" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Market" })).toBeNull();
+  });
+
+  it("keeps the last One agent app on Connect when the user came from Gmail", () => {
+    navigationMock.pathname = ROUTES.MARKETPLACE;
+    kaiSessionMock.state.lastAgentNavScope = "one";
+    kaiSessionMock.state.lastAgentSectionId = "gmail";
+
+    render(<Navbar />);
+
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Route navigation" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["Gmail", "Connect", "Profile"]);
+    expect(
+      screen
+        .getByRole("radio", { name: "Connect" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
   });
 
   it("uses five-slot finance context inside Investor routes", () => {

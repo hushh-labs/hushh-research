@@ -51,9 +51,10 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 21 source contracts, 21 surfaces, and 82 actions. Source contracts:
+Current generated coverage includes 22 source contracts, 22 surfaces, and 85 actions. Source contracts:
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/one/page.voice-action-contract.json)
 - [page-client.voice-action-contract.json](../../../hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kyc/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/marketplace/page.voice-action-contract.json)
