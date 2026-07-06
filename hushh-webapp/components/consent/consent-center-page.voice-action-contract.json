@@ -44,7 +44,9 @@
         "path": "kai_command",
         "target": "consent"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_consent"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"

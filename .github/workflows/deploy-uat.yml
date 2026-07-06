@@ -511,18 +511,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          smoke_user_id="$(gcloud secrets versions access latest \
+            --secret=UAT_SMOKE_USER_ID \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          smoke_passphrase="$(gcloud secrets versions access latest \
+            --secret=UAT_SMOKE_PASSPHRASE \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::$smoke_user_id"
+          echo "::add-mask::$smoke_passphrase"
           {
             echo "UAT_SMOKE_USER_ID<<EOF"
-            gcloud secrets versions access latest \
-              --secret=UAT_SMOKE_USER_ID \
-              --project="${{ env.GCP_PROJECT_ID }}"
-            echo
+            printf '%s\n' "$smoke_user_id"
             echo "EOF"
             echo "UAT_SMOKE_PASSPHRASE<<EOF"
-            gcloud secrets versions access latest \
-              --secret=UAT_SMOKE_PASSPHRASE \
-              --project="${{ env.GCP_PROJECT_ID }}"
-            echo
+            printf '%s\n' "$smoke_passphrase"
             echo "EOF"
           } >> "$GITHUB_ENV"
 

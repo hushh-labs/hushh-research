@@ -46,7 +46,9 @@
         "path": "route",
         "target": "/one/gmail"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_gmail"
+      ],
       "state_exposure": [],
       "docs_references": [
         "app/gmail/page.tsx"

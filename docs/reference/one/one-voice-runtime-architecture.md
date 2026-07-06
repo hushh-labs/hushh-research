@@ -87,6 +87,7 @@ Vault-backed planning may still send the richer structured screen context throug
 One Voice route awareness follows the same route contract cascade as the app shell:
 
 - `deriveVoiceRouteScreen` must understand canonical nested routes and legacy compatibility inputs.
+- `/one` is the One Agents dashboard screen (`one_agents`), and `/one/marketplace` is the One Information Marketplace screen (`one_marketplace`) rather than a generic app fallback.
 - Canonical `/one/kai/*` routes are One-owned finance surfaces. Voice-triggered navigation to `/one/kai/analysis` must not be blocked by the page-level active-role mismatch guard; generated action contracts and One Goal guard evaluation own finance action authority.
 - Profile panels are canonical nested routes, for example `/profile/security`, `/profile/gmail/actions`, and `/profile/support/compose?kind=<support_kind>`.
 - Legacy `/profile?panel=...&detail=...` URLs are accepted for compatibility, but generated route actions should target nested profile routes unless they intentionally target canonical One capability routes such as `/one/gmail`, `/one/pkm`, or `/one/connected-systems`.

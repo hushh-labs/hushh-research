@@ -91,8 +91,8 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
 
-  web-check:
-    name: "Web (Next.js)"
+  web-full-check:
+    name: "Web Full (Next.js)"
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -104,8 +104,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: hushh-webapp/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
+
       - name: Run full web check
-        run: bash scripts/ci/orchestrate.sh web
+        run: bash scripts/ci/orchestrate.sh web-full
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           NEXT_PUBLIC_BACKEND_URL: https://api.example.com
@@ -211,7 +219,7 @@ jobs:
     needs:
       - secret-scan
       - repo-governance
-      - web-check
+      - web-full-check
       - protocol-check
       - integration-check
       - main-freshness-gate
@@ -224,14 +232,14 @@ jobs:
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
-          WEB="${{ needs['web-check'].result }}"
+          WEB="${{ needs['web-full-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
-          printf 'web-check=%s\n' "$WEB"
+          printf 'web-full-check=%s\n' "$WEB"
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"

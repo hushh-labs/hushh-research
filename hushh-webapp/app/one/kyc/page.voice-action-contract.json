@@ -40,7 +40,7 @@
         "path": "route",
         "target": "/one/kyc"
       },
-      "control_ids": ["one-kyc-open"],
+      "control_ids": ["one-kyc-open", "top_agent_section_email"],
       "state_exposure": ["workflow list metadata only"]
     },
     {

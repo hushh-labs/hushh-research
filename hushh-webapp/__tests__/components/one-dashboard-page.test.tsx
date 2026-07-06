@@ -48,8 +48,14 @@ describe("OneDashboardPage", () => {
 
     expect(screen.getByTestId("page-header")).toBeTruthy();
     expect(screen.getByText("Good to see you, Kushal.")).toBeTruthy();
-    expect(screen.getByTestId("one-launcher-section")).toBeTruthy();
-    expect(screen.getByText("Launcher")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-section")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-grid").className).toContain(
+      "grid-cols-[repeat(auto-fill,minmax(5.75rem,5.75rem))]",
+    );
+    expect(screen.getByTestId("one-agents-grid").className).toContain(
+      "justify-start",
+    );
+    expect(screen.getByText("Agents")).toBeTruthy();
 
     // Dashboard tiles tag their destination with `?from=/one` (or `&from=/one`
     // when the href already has a query) so the surface's top-bar back button
@@ -58,7 +64,10 @@ describe("OneDashboardPage", () => {
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
-    // Launcher model: the route link is a normal app-icon tile, not a large
+    expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
+      "w-[5.75rem]",
+    );
+    // Agents model: the route link is a normal app-icon tile, not a large
     // colored workflow card.
     expect(financeLink.className).not.toContain("border-emerald-500");
     expect(financeLink.getAttribute("style") ?? "").not.toContain("background");

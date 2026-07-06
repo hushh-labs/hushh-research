@@ -12,6 +12,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { Badge } from "@/components/ui/badge";
 import {
   ONE_CAPABILITIES,
@@ -29,7 +30,7 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
-type OneLauncherMode = {
+type OneAgentMode = {
   id: string;
   title: string;
   description: string;
@@ -42,51 +43,14 @@ type OneLauncherMode = {
   isExploreOnly: boolean;
 };
 
-const ICON_SURFACE_BY_TONE: Record<OneCapabilityTone, string> = {
-  finance: "bg-[#1f1f1f] text-white dark:bg-white dark:text-[#111]",
-  connected: "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white",
-  email: "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white",
-  gmail: "bg-white text-[#1d1d1f] dark:bg-white",
-  location: "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white",
-  pkm: "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white",
-  consent: "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white",
-};
-
-function GmailBrandIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 256 193"
-      className={className}
-      aria-hidden
-      focusable="false"
-    >
-      <path
-        fill="#4285F4"
-        d="M58.182 192.05V93.14L27.507 65.077 0 49.504v125.091c0 9.658 7.826 17.455 17.455 17.455h40.727z"
-      />
-      <path
-        fill="#34A853"
-        d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837-27.026 25.798v98.91z"
-      />
-      <path
-        fill="#EA4335"
-        d="m58.182 93.14-4.174-38.647 4.174-36.989L128 69.868l69.818-52.364 4.669 34.992-4.669 40.644L128 145.504 58.182 93.14z"
-      />
-      <path
-        fill="#FBBC04"
-        d="M197.818 17.504V93.14L256 49.505V26.231c0-21.585-24.64-33.89-41.89-20.945l-16.292 12.218z"
-      />
-      <path
-        fill="#C5221F"
-        d="m0 49.505 26.759 20.065 31.423 23.57V17.504L41.89 5.286C24.61-7.66 0 4.646 0 26.231v23.274z"
-      />
-    </svg>
-  );
-}
+const ONE_DASHBOARD_INSET_CLASSNAME = "px-4 sm:px-6";
+const ONE_AGENT_TILE_WIDTH_CLASSNAME = "w-[5.75rem]";
+const ONE_AGENT_GRID_CLASSNAME =
+  "grid grid-cols-[repeat(auto-fill,minmax(5.75rem,5.75rem))] justify-start gap-x-6 gap-y-5 sm:gap-x-8 md:gap-x-10";
 
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
-): OneLauncherMode[] {
+): OneAgentMode[] {
   return ONE_CAPABILITIES.map((cap) => {
     const status = statusById[cap.id];
     const display = status
@@ -113,7 +77,7 @@ function buildModes(
   });
 }
 
-function statusClassName(mode: OneLauncherMode): string {
+function statusClassName(mode: OneAgentMode): string {
   if (mode.locked) return "text-muted-foreground";
   if (mode.statusTone === "ready") return "text-[#138a3d] dark:text-[#5ee283]";
   if (mode.statusTone === "attention") return "text-accent-strong";
@@ -121,7 +85,7 @@ function statusClassName(mode: OneLauncherMode): string {
   return "text-muted-foreground";
 }
 
-function LauncherIndicator({ mode }: { mode: OneLauncherMode }) {
+function AgentIndicator({ mode }: { mode: OneAgentMode }) {
   if (mode.locked) {
     return (
       <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-background bg-muted text-muted-foreground shadow-[0_1px_6px_rgba(0,0,0,0.16)]">
@@ -153,35 +117,23 @@ function LauncherIndicator({ mode }: { mode: OneLauncherMode }) {
   return null;
 }
 
-function LauncherTile({ mode }: { mode: OneLauncherMode }) {
-  const Icon = mode.icon;
-  const iconNode =
-    mode.id === "gmail" ? (
-      <GmailBrandIcon className="h-8 w-8" />
-    ) : (
-      <Icon className="h-7 w-7" aria-hidden />
-    );
+function AgentTile({ mode }: { mode: OneAgentMode }) {
   return (
     <Link
       href={mode.href}
       aria-label={`Open ${mode.title}`}
+      data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group flex min-w-0 flex-col items-center gap-2 rounded-[22px] px-1.5 py-2 text-center",
+        "group flex flex-col items-center gap-2 rounded-[22px] px-1.5 py-2 text-center",
+        ONE_AGENT_TILE_WIDTH_CLASSNAME,
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-black/[0.04] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.06] motion-reduce:transition-none motion-reduce:active:scale-100",
       )}
     >
       <span className="relative">
-        <span
-          className={cn(
-            "flex h-16 w-16 items-center justify-center rounded-[20px] shadow-[0_10px_24px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
-            ICON_SURFACE_BY_TONE[mode.tone],
-          )}
-        >
-          {iconNode}
-        </span>
-        <LauncherIndicator mode={mode} />
+        <AgentSectionIcon id={mode.id} icon={mode.icon} tone={mode.tone} />
+        <AgentIndicator mode={mode} />
       </span>
       <span className="min-w-0 space-y-0.5">
         <span className="block max-w-[5.75rem] truncate text-[12.5px] font-semibold leading-tight text-foreground">
@@ -205,7 +157,7 @@ function FinishSetupStrip({ percent }: { percent: number }) {
     <Link
       href={ROUTES.ONE_SETUP}
       aria-label="Finish setting up One"
-      className="flex items-center gap-3 rounded-[22px] border border-border/55 bg-black/[0.035] px-4 py-3 transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:bg-black/[0.055] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.06] dark:hover:bg-white/[0.09] motion-reduce:transition-none motion-reduce:active:scale-100"
+      className="flex w-full items-center gap-3 overflow-hidden rounded-[22px] border border-border/55 bg-black/[0.035] px-4 py-3 transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:bg-black/[0.055] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.06] dark:hover:bg-white/[0.09] motion-reduce:transition-none motion-reduce:active:scale-100"
     >
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-2">
@@ -299,24 +251,32 @@ export function OneDashboardPage({
         <div className="space-y-5">
           {hasSetupRemaining ? <FinishSetupStrip percent={percent} /> : null}
           <section
-            aria-labelledby="one-launcher-heading"
-            data-testid="one-launcher-section"
-            className="rounded-[30px] border border-border/45 bg-background/55 px-3 py-5 shadow-[0_1px_0_rgba(255,255,255,0.35)_inset] dark:bg-white/[0.025] sm:px-5"
+            aria-labelledby="one-agents-heading"
+            data-testid="one-agents-section"
+            className="overflow-hidden rounded-[30px] border border-border/45 bg-background/55 py-5 shadow-[0_1px_0_rgba(255,255,255,0.35)_inset] dark:bg-white/[0.025]"
           >
-            <div className="mb-4 flex items-center justify-between gap-3 px-1">
+            <div
+              className={cn(
+                "mb-4 flex items-center justify-between gap-3",
+                ONE_DASHBOARD_INSET_CLASSNAME,
+              )}
+            >
               <h2
-                id="one-launcher-heading"
+                id="one-agents-heading"
                 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
               >
-                Launcher
+                Agents
               </h2>
               <span className="text-[12px] font-medium text-muted-foreground">
                 {doneCount} of {setupable.length} ready
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+            <div
+              data-testid="one-agents-grid"
+              className={cn(ONE_AGENT_GRID_CLASSNAME, ONE_DASHBOARD_INSET_CLASSNAME)}
+            >
               {modes.map((mode) => (
-                <LauncherTile key={mode.id} mode={mode} />
+                <AgentTile key={mode.id} mode={mode} />
               ))}
             </div>
           </section>

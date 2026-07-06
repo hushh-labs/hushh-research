@@ -124,9 +124,16 @@ The watcher logs to `tmp/devops-watch/`.
 To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by default:
 
 1. `scripts/ci/secret-scan.sh`
-2. `scripts/ci/web-check.sh`
+2. web validation through `scripts/ci/web-core-check.sh`, `scripts/ci/web-targeted-check.sh`, and `scripts/ci/web-full-check.sh`
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
+
+Web validation is intentionally split:
+
+1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
+2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity.
+3. Merge queue runs `web-full`, which includes `web-core`, full Vitest, voice gateway generation check, surface-map parity, and Capacitor static parity.
+4. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
 The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
@@ -181,8 +188,8 @@ The canonical blocker for that broader surface is:
 
 **Path filters:** `PR Validation` runs jobs only when relevant paths change (or when run manually with a scope). `Queue Validation` runs both stacks for deterministic gating, and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
-- **Frontend job** runs when `hushh-webapp/**` changes.
-- **Backend job** runs when `consent-protocol/**` changes.
+- **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, or `scripts/ci/**` change.
+- **Backend job** runs when `consent-protocol/**`, protected CI workflow files, or `scripts/ci/**` change.
 - **Integration job** runs when either frontend or backend paths change.
 
 ### Duplicate-Run Policy

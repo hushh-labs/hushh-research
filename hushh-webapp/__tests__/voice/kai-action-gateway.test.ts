@@ -99,6 +99,18 @@ describe("kai-action-gateway", () => {
     expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
     expect(getKaiActionById("route.consents")?.speaker_persona).toBe("nav");
     expect(getKaiActionById("route.profile")?.speaker_persona).toBe("one");
+    expect(getKaiActionById("route.one_agents")).toMatchObject({
+      surface_id: "one_agents",
+      execution_target: {
+        status: "wired",
+        path: "route",
+        target: "/one",
+      },
+      control_ids: ["top_agent_section_dropdown"],
+    });
+    expect(getKaiActionsForControlId("top_agent_section_finance")[0]?.action_id).toBe(
+      "route.kai_home"
+    );
   });
 
   it("keeps analysis.start as the reference multi-step goal contract", () => {

@@ -7,6 +7,7 @@
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
+    "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
@@ -112,6 +113,24 @@
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_agents",
+      "surface_title": "Agents",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/page.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -973,7 +992,9 @@
         "path": "route",
         "target": "/one/gmail"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_gmail"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2257,7 +2278,8 @@
         "target": "/one/kyc"
       },
       "control_ids": [
-        "one-kyc-open"
+        "one-kyc-open",
+        "top_agent_section_email"
       ],
       "state_exposure": [
         "workflow list metadata only"
@@ -3002,7 +3024,9 @@
         "path": "route",
         "target": "/one/marketplace"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_marketplace"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -3038,6 +3062,316 @@
             "settlement_target": {
               "route": "/one/marketplace",
               "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_agents",
+      "surface_id": "one_agents",
+      "label": "Open Agents",
+      "aliases": [
+        "open agents",
+        "open one agents",
+        "go to agents",
+        "show agents",
+        "open the one dashboard",
+        "open one"
+      ],
+      "search_keywords": [
+        "agents",
+        "one",
+        "dashboard",
+        "apps"
+      ],
+      "meaning": "Navigates to the One Agents dashboard.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one"
+        ],
+        "screens": [
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one"
+      },
+      "control_ids": [
+        "top_agent_section_dropdown"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_agents",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_agents",
+            "label": "Open Agents",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one",
+              "screen": "one_agents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_location",
+      "surface_id": "one_agents",
+      "label": "Open Location",
+      "aliases": [
+        "open location",
+        "open location agent",
+        "go to location",
+        "show location"
+      ],
+      "search_keywords": [
+        "location",
+        "live sharing",
+        "local context"
+      ],
+      "meaning": "Navigates to the One Location agent route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location"
+      },
+      "control_ids": [
+        "top_agent_section_location"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_location",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_location",
+            "label": "Open Location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_pkm",
+      "surface_id": "one_agents",
+      "label": "Open Personal Data",
+      "aliases": [
+        "open personal data",
+        "open my personal data",
+        "go to personal data",
+        "show personal data",
+        "open saved knowledge"
+      ],
+      "search_keywords": [
+        "personal data",
+        "saved knowledge",
+        "memory"
+      ],
+      "meaning": "Navigates to the One Personal Data route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm"
+      },
+      "control_ids": [
+        "top_agent_section_pkm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_pkm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_pkm",
+            "label": "Open Personal Data",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
             }
           }
         ],
@@ -3305,7 +3639,8 @@
         "target": "/one/connected-systems"
       },
       "control_ids": [
-        "connected_systems"
+        "connected_systems",
+        "top_agent_section_connected-systems"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -7102,7 +7437,9 @@
         "path": "kai_command",
         "target": "consent"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_consent"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -7701,7 +8038,9 @@
         "path": "kai_command",
         "target": "home"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_finance"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

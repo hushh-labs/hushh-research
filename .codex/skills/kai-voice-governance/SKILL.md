@@ -74,6 +74,7 @@ Non-owned surfaces:
 10. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
 11. Route changes that affect any voice-reachable screen must update `deriveVoiceRouteScreen`, local `.voice-action-contract.json` reachability/targets, generated gateway artifacts, typed-search parity, and One Voice context snapshot expectations in the same change.
 12. Keep legacy query route inputs as compatibility only. Generated `route.*` actions should target canonical nested routes unless the action intentionally opens a canonical One capability route.
+13. Do not expose broken or unrelated route actions in realtime context. Published voice surface metadata may describe local controls and unavailable state, but it must omit executable `actionId` values unless that id exists in the generated gateway and is compatible with the active route, vault/persona/cache state, and UI affordance.
 
 ## Handoff Rules
 

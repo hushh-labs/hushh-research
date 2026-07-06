@@ -102,6 +102,19 @@ Rules:
 23. Signed-in route verification is contract-driven. `hushh-webapp/lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth for `npm run verify:routes`.
 24. Signed-in route work is not complete until the route-contract Playwright sweep passes with the reviewer login and vault-unlock path.
 
+## Pixel Grid And Symmetry Contract
+
+Repeated visual systems must sit on explicit gridlines. Treat broken symmetry as a correctness defect, not a style preference.
+
+Rules:
+
+1. Section headings, progress strips, app-icon launchers, repeated tabs, and their first visible item must share the same horizontal inset inside a route section.
+2. App-icon launcher cells use fixed tracks and `justify-start`; do not stretch a small number of app icons across a wide card with `grid-cols-3 sm:grid-cols-4 ...` when that causes uneven starts.
+3. The tile cell owns a stable width; the icon well, label, and status text align within that cell. Status badges may protrude from the icon well, but the base tile geometry must remain equal across rows.
+4. Content-aware tabs and dropdowns should appear only where they add navigation value. If the route body already shows the same launcher choices, hide the duplicate top selector.
+5. Progress and setup strips must be full-width within the same content column and use `overflow-hidden` only on the strip itself when needed to prevent visual bleed.
+6. When changing a shared visual pattern, update the owning component test to lock the layout primitive that prevents drift, such as fixed cell width, shared inset, or selector visibility.
+
 ## Page Header Contract
 
 Use `PageHeader` and `SectionHeader` for all top-level and section-level headings.
@@ -164,7 +177,7 @@ Rules:
 1. Each navigation scope (`one`, `investor`, `ria`) owns a FIXED top-level set. The set does not change as the user moves through subroutes. Do not inject a per-subroute tab into the bar.
 2. The bottom bar uses fixed per-scope sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch narrow bars wider.
 3. Subroutes collapse onto their parent top-level tab (finance is the reference pattern). A subroute keeps its parent tab highlighted and never surfaces its own bottom-nav entry. The One scope collapses `/one/gmail`, `/one/pkm`, `/one/connected-systems`, `/one/location`, and `/consents` onto the `One` (dashboard) tab; profile subroutes keep the `Profile` tab.
-4. The One scope is the fixed set `One / Connect / Profile` on every One route. Consent/PKM/Gmail/Location/Systems are subroutes of the One dashboard, not their own tabs.
+4. The One scope is the fixed set `One / Connect / Profile` on direct One routes. Consent/Personal Data/Gmail/Location/Systems are subroutes of the One Agents dashboard, not their own tabs. Common routes such as Connect and Profile may preserve the prior app-family scope for same-session navigation, so entering them from Finance keeps the Finance tab set and entering them from RIA keeps the RIA tab set.
 5. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
 6. Investor finance routes own the fixed finance-family set `Market`, `Portfolio`, `Analysis`, `Connect`, and `Profile`. All finance subroutes collapse onto one of these via `activeKaiRouteTabFromPath`.
 7. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
@@ -408,6 +421,7 @@ Use the `Subtle Apple` depth model:
 8. Responsive composition is not width-only responsiveness. Recompose boards for tablet and desktop instead of stretching mobile stacks.
 9. Persona-facing surfaces should bias toward shorter, clearer, more descriptive copy over decorative narrative.
 10. The design system should challenge poor UX proactively; weak hierarchy, vague detail, or obvious asymmetry should be treated as design defects, not stylistic preferences.
+11. Voice or agent-aware controls must not advertise executable action ids unless the generated gateway can execute or route them. If a control is local-only, coming soon, incompatible on the route, or not wired to the gateway, show it as state/context only and omit the executable action id.
 
 ### Ripple Ownership and Clipping
 

@@ -20,6 +20,7 @@ import {
   MapPin,
   Search as SearchIcon,
   ShieldCheck,
+  Store,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import {
   type AppBottomNavScope,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
+import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import {
   openKaiCommandBar,
   toggleKaiCommandBar,
@@ -143,9 +145,15 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   pkm: {
     value: "pkm",
-    label: "PKM",
+    label: "Data",
     icon: FolderSearch,
     dataTourId: "nav-one-pkm",
+  },
+  marketplace: {
+    value: "marketplace",
+    label: "Market",
+    icon: Store,
+    dataTourId: "nav-one-marketplace",
   },
   connected: {
     value: "connected",
@@ -173,7 +181,7 @@ function navOptionForKey(
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
   // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
-  // now lives as a subroute of the One dashboard.
+  // now lives as a subroute of the One Agents dashboard.
   return {
     ...option,
     badge:
@@ -208,13 +216,25 @@ export const Navbar = () => {
     useKaiBottomChromeVisibility(allowScrollHide);
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
+  const lastAgentNavScope = useKaiSession((s) => s.lastAgentNavScope);
+  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
+  const setAgentNavigationContext = useKaiSession(
+    (s) => s.setAgentNavigationContext,
+  );
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const navigationScope = useMemo<AppBottomNavScope>(() => {
-    return resolveBottomNavigationScope(normalizedPathname, activePersona);
-  }, [activePersona, normalizedPathname]);
+    return resolveBottomNavigationScope(normalizedPathname, activePersona, {
+      lastAgentNavScope,
+      lastAgentSectionId,
+    });
+  }, [activePersona, lastAgentNavScope, lastAgentSectionId, normalizedPathname]);
 
   useEffect(() => {
     if (!pathname) return;
+    const agentContext = resolveAgentNavigationContextForPath(pathname);
+    if (agentContext) {
+      setAgentNavigationContext(agentContext);
+    }
     if (
       pathname.startsWith(ROUTES.KAI_HOME) ||
       pathname.startsWith(ROUTES.LEGACY_KAI_HOME)
@@ -225,7 +245,7 @@ export const Navbar = () => {
     if (pathname.startsWith("/ria")) {
       useKaiSession.getState().setLastRiaPath(pathname);
     }
-  }, [pathname]);
+  }, [pathname, setAgentNavigationContext]);
   const agentWindowOpen =
     agentPopover?.expanded || agentPopover?.motionState === "opening";
   const portfolioImportSurfaceActive = Boolean(
@@ -242,9 +262,10 @@ export const Navbar = () => {
     const keys = resolveBottomNavOptionKeys(
       normalizedPathname,
       navigationScope,
+      { lastAgentSectionId },
     );
     return keys.map((key) => navOptionForKey(key, pendingConsents));
-  }, [navigationScope, normalizedPathname, pendingConsents]);
+  }, [lastAgentSectionId, navigationScope, normalizedPathname, pendingConsents]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -377,7 +398,13 @@ export const Navbar = () => {
       openKaiCommandBar();
       return;
     }
-    if (action.type === "route") router.push(action.href);
+    if (action.type === "route") {
+      const nextAgentContext = resolveAgentNavigationContextForPath(action.href);
+      if (nextAgentContext) {
+        setAgentNavigationContext(nextAgentContext);
+      }
+      router.push(action.href);
+    }
   };
 
   return (

@@ -1339,8 +1339,12 @@
         "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.one_agents",
+        "route.one_location",
+        "route.one_pkm"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
