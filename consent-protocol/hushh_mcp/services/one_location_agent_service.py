@@ -3349,8 +3349,6 @@ class OneLocationAgentService:
                 status_code=422,
             )
         invite_id = str(invite_row.get("id") or "")
-        invite_message = str(invite_row.get("message") or "").strip()
-        message_value = (message or "").strip()[:500] or None
         claimant_identity = self._identity_row(claimant_user_id)
         if not claimant_identity or not bool(claimant_identity.get("phone_verified")):
             raise OneLocationAgentError(
@@ -3359,50 +3357,30 @@ class OneLocationAgentService:
                 status_code=409,
             )
         owner_identity = self._identity_row(owner_user_id)
-        user_a_id, user_b_id = self._network_pair(owner_user_id, claimant_user_id)
         connection_row = self._execute_one(
             """
-            INSERT INTO one_location_network_connections (
-              user_a_id, user_b_id, inviter_user_id, invitee_user_id,
-              invite_id, status, connected_at, created_at, updated_at, metadata
+            INSERT INTO trusted_connections (
+              owner_user_id, trusted_user_id, status, source, resolved_via,
+              created_at, updated_at, metadata
             )
             VALUES (
-              LEAST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
-              GREATEST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
-              :inviter_user_id, :invitee_user_id,
-              CAST(:invite_id AS UUID), 'active', NOW(), NOW(), NOW(),
-              CAST(:metadata_json AS JSONB)
+              :owner_user_id, :trusted_user_id, 'active', 'circle_invite', 'user_id',
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
-            ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-              inviter_user_id = EXCLUDED.inviter_user_id,
-              invitee_user_id = EXCLUDED.invitee_user_id,
-              invite_id = EXCLUDED.invite_id,
+            ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
               status = 'active',
-              connected_at = CASE
-                WHEN one_location_network_connections.status = 'active'
-                  THEN one_location_network_connections.connected_at
-                ELSE NOW()
-              END,
               updated_at = NOW(),
               revoked_at = NULL,
-              metadata = EXCLUDED.metadata
-            RETURNING *
+              source = 'circle_invite'
+            RETURNING id, owner_user_id, trusted_user_id, status
             """,
             {
-                "user_a_id": user_a_id,
-                "user_b_id": user_b_id,
-                "inviter_user_id": owner_user_id,
-                "invitee_user_id": claimant_user_id,
-                "invite_id": invite_id,
-                "metadata_json": _json_param(
-                    {
-                        "source": "invite_to_one",
-                        "message_present": bool(message_value or invite_message),
-                    }
-                ),
+                "owner_user_id": claimant_user_id,
+                "trusted_user_id": owner_user_id,
+                "metadata_json": _json_param({"source": "invite_to_one", "invite_id": invite_id}),
             },
         )
-        connection = self._one_network_connection_payload(connection_row)
+        connection = self._trusted_connection_as_network_payload(connection_row)
         if not connection:
             raise OneLocationAgentError(
                 "LOCATION_NETWORK_CONNECTION_FAILED",
