@@ -112,11 +112,9 @@ steps:
         append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
         append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
         append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
-        append_optional_env "SOS_SEED_DEV_USER_IDS" "${_SOS_SEED_DEV_USER_IDS}"
 
-        # Join with '|' (not ',') so env VALUES may themselves contain commas
-        # (e.g. SOS_SEED_DEV_USER_IDS is a comma-separated id list). Paired with
-        # gcloud's alternate-delimiter syntax on --set-env-vars below.
+        # Join with '|' (not ',') so env VALUES may themselves contain commas.
+        # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
 
@@ -198,7 +196,6 @@ substitutions:
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _APP_REVIEW_MODE: ""
-  _SOS_SEED_DEV_USER_IDS: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual

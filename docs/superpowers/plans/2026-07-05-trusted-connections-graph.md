@@ -1142,9 +1142,9 @@ git commit -m "feat(trusted-connections): route trusted-connection turns to agen
 ### Task 6: Seed endpoint (mirror topology, SOS untouched)
 
 **Files:**
-- Create: `consent-protocol/api/routes/one/connections.py`
+- Create: consent-protocol/api/routes/one/connections.py
 - Modify: `consent-protocol/api/routes/one/__init__.py`
-- Test: `consent-protocol/tests/test_connections_seed_route.py`
+- Test: consent-protocol/tests/test_connections_seed_route.py
 
 **Interfaces:**
 - Consumes: `require_vault_owner_token` (dependency), `TrustedConnectionsService.seed_new_user`, env `SOS_SEED_DEV_USER_IDS`.
@@ -1152,7 +1152,7 @@ git commit -m "feat(trusted-connections): route trusted-connection turns to agen
 
 - [ ] **Step 1: Write the failing test**
 
-Create `consent-protocol/tests/test_connections_seed_route.py`:
+Create consent-protocol/tests/test_connections_seed_route.py:
 
 ```python
 import importlib
@@ -1183,7 +1183,7 @@ Expected: FAIL — `ModuleNotFoundError: api.routes.one.connections`.
 
 - [ ] **Step 3: Write the route**
 
-Create `consent-protocol/api/routes/one/connections.py`:
+Create consent-protocol/api/routes/one/connections.py:
 
 ```python
 """Trusted Connections routes.
@@ -1284,9 +1284,9 @@ git commit -m "feat(trusted-connections): add seed-trusted endpoint for the shar
 ### Task 7: Frontend — seed the shared graph after vault unlock
 
 **Files:**
-- Create: `hushh-webapp/lib/one-connections/service.ts`
+- Create: hushh-webapp/lib/one-connections/service.ts
 - Modify: `hushh-webapp/lib/services/post-unlock-sync-service.ts`
-- Test: `hushh-webapp/lib/one-connections/__tests__/service.test.ts`
+- Test: hushh-webapp/lib/one-connections/__tests__/service.test.ts
 
 **Interfaces:**
 - Consumes: `apiJson` from `@/lib/services/api-client`.
@@ -1294,7 +1294,7 @@ git commit -m "feat(trusted-connections): add seed-trusted endpoint for the shar
 
 - [ ] **Step 1: Write the failing test**
 
-Create `hushh-webapp/lib/one-connections/__tests__/service.test.ts`:
+Create hushh-webapp/lib/one-connections/__tests__/service.test.ts:
 
 ```typescript
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -1333,7 +1333,7 @@ Expected: FAIL — cannot resolve `@/lib/one-connections/service`.
 
 - [ ] **Step 3: Write the service**
 
-Create `hushh-webapp/lib/one-connections/service.ts`:
+Create hushh-webapp/lib/one-connections/service.ts:
 
 ```typescript
 import { apiJson } from "@/lib/services/api-client";

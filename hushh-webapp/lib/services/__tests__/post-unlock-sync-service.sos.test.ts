@@ -6,54 +6,30 @@ vi.mock("@/lib/services/kai-profile-sync-service", () => ({
   },
 }));
 
-vi.mock("@/lib/one-location/service", () => ({
-  OneLocationService: {
-    seedTrustedContacts: vi.fn(async () => ({
-      seeded: 3,
-      existingCount: 0,
-      skippedSelf: 0,
-    })),
-  },
-}));
-
-vi.mock("@/lib/one-connections/service", () => ({
-  OneConnectionsService: {
-    seedTrustedConnections: vi.fn(async () => ({
-      seeded: 0,
-      existingCount: 0,
-      skippedSelf: 0,
-    })),
-  },
-}));
-
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
-import { OneLocationService } from "@/lib/one-location/service";
-import { OneConnectionsService } from "@/lib/one-connections/service";
 
 const params = { userId: "u1", vaultKey: "vk", vaultOwnerToken: "tok" };
 
 beforeEach(() => vi.clearAllMocks());
 
-describe("PostUnlockSyncService SOS seed", () => {
-  it("calls seedTrustedContacts and reports sosSeeded", async () => {
+describe("PostUnlockSyncService", () => {
+  it("still syncs onboarding to vault", async () => {
     const result = await PostUnlockSyncService.run(params);
-    expect(OneLocationService.seedTrustedContacts).toHaveBeenCalledWith({
-      vaultOwnerToken: "tok",
-    });
-    expect(OneConnectionsService.seedTrustedConnections).toHaveBeenCalledWith({
-      vaultOwnerToken: "tok",
-    });
-    expect(result.sosSeeded).toBe(true);
     expect(result.onboardingSynced).toBe(true);
-    expect(result.trustedSeeded).toBe(false);
   });
 
-  it("does not throw when seeding fails", async () => {
-    (OneLocationService.seedTrustedContacts as unknown as vi.Mock).mockRejectedValueOnce(
-      new Error("boom"),
-    );
+  it("does not seed trusted contacts or connections — return shape is { onboardingSynced } only", async () => {
     const result = await PostUnlockSyncService.run(params);
-    expect(result.sosSeeded).toBe(false);
-    expect(result.onboardingSynced).toBe(true);
+    // Task 6: seeding removed; return type narrows to { onboardingSynced }.
+    expect(Object.keys(result)).toEqual(["onboardingSynced"]);
+  });
+
+  it("onboardingSynced is false when vault sync fails", async () => {
+    const { KaiProfileSyncService } = await import("@/lib/services/kai-profile-sync-service");
+    (
+      KaiProfileSyncService.syncPendingToVault as unknown as ReturnType<typeof vi.fn>
+    ).mockRejectedValueOnce(new Error("vault boom"));
+    const result = await PostUnlockSyncService.run(params);
+    expect(result.onboardingSynced).toBe(false);
   });
 });

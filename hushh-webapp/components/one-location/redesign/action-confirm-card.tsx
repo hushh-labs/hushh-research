@@ -10,6 +10,7 @@ const CONFIRM_LABEL: Record<ClientAction["type"], string> = {
   view_envelope: "View",
   create_public_link: "Create link",
   sos_panic: "Send SOS",
+  check_in: "Check in",
 };
 
 const ACTION_ICON: Record<ClientAction["type"], typeof MapPin> = {
@@ -17,6 +18,7 @@ const ACTION_ICON: Record<ClientAction["type"], typeof MapPin> = {
   view_envelope: Eye,
   create_public_link: LinkIcon,
   sos_panic: AlertTriangle,
+  check_in: MapPin,
 };
 
 export function ActionConfirmCard({

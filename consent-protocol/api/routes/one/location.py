@@ -114,15 +114,6 @@ def _handle_error(exc: Exception) -> HTTPException:
     )
 
 
-def _sos_seed_dev_user_ids() -> list[str]:
-    """Configured developer accounts to seed as SOS trusted contacts.
-
-    Comma-separated env list, e.g. SOS_SEED_DEV_USER_IDS="uid1,uid2,uid3".
-    """
-    raw = str(os.getenv("SOS_SEED_DEV_USER_IDS", "") or "")
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
-
 def _retention_auth_enabled() -> bool:
     raw = os.getenv("ONE_LOCATION_RETENTION_AUTH_ENABLED")
     environment = (
@@ -329,26 +320,6 @@ async def register_location_recipient_key(
                 key_id=payload.key_id,
                 public_key_jwk=payload.public_key_jwk,
                 algorithm=payload.algorithm,
-            )
-        }
-    except Exception as exc:
-        raise _handle_error(exc) from exc
-
-
-@router.post("/location/seed-trusted")
-async def seed_trusted_contacts(
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    """Seed the current user's trusted network with configured dev accounts.
-
-    Idempotent and gated on the user having zero active connections. Used by the
-    post-unlock bridge so a fresh user has SOS recipients.
-    """
-    try:
-        return {
-            "result": _service().seed_trusted_connections(
-                owner_user_id=_user_id(token_data),
-                dev_user_ids=_sos_seed_dev_user_ids(),
             )
         }
     except Exception as exc:

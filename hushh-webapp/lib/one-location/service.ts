@@ -338,18 +338,6 @@ export class OneLocationService {
     return response.grant;
   }
 
-  static async seedTrustedContacts(params: {
-    vaultOwnerToken: string;
-  }): Promise<{ seeded: number; existingCount: number; skippedSelf: number }> {
-    const response = await apiJson<{
-      result: { seeded: number; existingCount: number; skippedSelf: number };
-    }>("/api/one/location/seed-trusted", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-    });
-    return response.result;
-  }
-
   static async storeEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;
