@@ -17,11 +17,11 @@ const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://hushh.ai"),
-  title: "hussh One | Your Personal Agent",
+  title: "Hussh One | Your Personal Agent",
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
-  keywords: ["AI agents", "personal AI", "hussh One", "consent-first", "privacy"],
-  authors: [{ name: "hussh Labs" }],
+  keywords: ["AI agents", "personal AI", "Hussh One", "consent-first", "privacy"],
+  authors: [{ name: "Hussh Labs" }],
   icons: {
     icon: [
       { url: "/quiet-emoji-icon.svg", type: "image/svg+xml" },
@@ -34,13 +34,13 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "hussh One",
+    title: "Hussh One",
   },
   manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "hussh One | Your Personal Agent",
+    title: "Hussh One | Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
-    siteName: "hussh",
+    siteName: "Hussh",
     url: "https://hushh.ai",
     type: "website",
     images: [
@@ -48,13 +48,13 @@ export const metadata: Metadata = {
         url: "/quiet-emoji-icon.png",
         width: 512,
         height: 512,
-        alt: "hussh One",
+        alt: "Hussh One",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "hussh One | Your Personal Agent",
+    title: "Hussh One | Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
     images: ["/quiet-emoji-icon.png"],
   },
