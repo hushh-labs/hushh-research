@@ -1,5 +1,6 @@
 import { apiJson } from "@/lib/services/api-client";
 import { type PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
+import { type MarketplaceEncryptedEnvelope } from "@/lib/one-marketplace/encryption";
 
 /** A durable Information Marketplace access request (migration 075). */
 export interface MarketplaceRequest {
@@ -17,6 +18,8 @@ export interface MarketplaceRequest {
   status: "pending" | "approved" | "denied" | "expired";
   createdAt?: string;
   resolvedAt?: string | null;
+  /** Set once a sealed slice envelope has been delivered (migration 079). */
+  latestEnvelopeId?: string | null;
 }
 
 /**
@@ -136,13 +139,48 @@ export class OneMarketplaceService {
   static async listRequests(params: {
     vaultOwnerToken: string;
     status?: string;
+    /** `owner` (default) is the seller's inbox; `buyer` is the caller's own requests. */
+    role?: "owner" | "buyer";
   }): Promise<MarketplaceRequest[]> {
-    const qs = params.status ? `?status=${encodeURIComponent(params.status)}` : "";
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.role) query.set("role", params.role);
+    const qs = query.toString() ? `?${query.toString()}` : "";
     const res = await apiJson<{ requests: MarketplaceRequest[] }>(
       `/api/one/marketplace/requests${qs}`,
       { headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
     return res.requests ?? [];
+  }
+
+  /**
+   * Owner-scoped: fetch the buyer's active recipient "lock" for one of the
+   * owner's pending requests, so the seller can seal a slice envelope for them
+   * at approve time. `recipientKey` is null when the buyer has not published one.
+   */
+  static async getRequestRecipientKey(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<{ request: MarketplaceRequest; recipientKey: MarketplaceRecipient | null }> {
+    return apiJson<{ request: MarketplaceRequest; recipientKey: MarketplaceRecipient | null }>(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/recipient-key`,
+      { headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
+  }
+
+  /**
+   * Buyer-scoped: fetch the latest sealed envelope delivered for one of the
+   * caller's own requests. Ciphertext only — decrypt on-device with the
+   * IndexedDB private key. `envelope` is null when nothing has been delivered.
+   */
+  static async getDelivery(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }> {
+    return apiJson<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }>(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/delivery`,
+      { headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
   }
 
   /** Anonymized directory of other users' published slices (Buyer tab). */
@@ -199,13 +237,23 @@ export class OneMarketplaceService {
     return res.request;
   }
 
+  /**
+   * Approve a request. When `envelope` is supplied the seller has already sealed
+   * the slice against the buyer's recipient key on-device, so only ciphertext is
+   * posted (blind relay) and the server stores it for buyer pickup.
+   */
   static async approveRequest(params: {
     vaultOwnerToken: string;
     requestId: string;
+    envelope?: MarketplaceEncryptedEnvelope | null;
   }): Promise<void> {
     await apiJson(
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/approve`,
-      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ envelope: params.envelope ?? null }),
+      },
     );
   }
 
