@@ -1,0 +1,244 @@
+# Trusted Connections — Generalized Social Graph — Design Spec
+
+**Date:** 2026-07-05
+**Branch:** `feat/trusted-connections-graph` (cut from `main`)
+**Status:** Approved design → ready for implementation plan
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  user["User"] --> one["Hussh One (agent_chat)"]
+  one -->|"add/remove/list intent"| conn["agent_connections (A2A)"]
+  conn --> svc["TrustedConnectionsService"]
+  svc -->|"write (One only)"| tbl["trusted_connections table"]
+  svc -->|"resolve people (read-only)"| dir["list_verified_recipients (platform directory)"]
+  loc["Location / Email agents"] -->|"read is_trusted / list"| tbl
+  sos["SOS one_location_network_connections"] -.->|"untouched"| tbl
+```
+
+## Goal
+
+Promote "trusted connections" from an SOS/location-only concept into a **first-class,
+app-wide, directional social graph** that any Hussh agent can read, and that only the
+central **Hussh One** agent can write.
+
+Concretely: when a user tells **One** "add Alice to my trusted connections," One resolves
+Alice to a real `user_id` by looking her up in the **platform people directory** — the same
+directory Location already shows as its recipient list — and writes a **directional** trust
+edge (`owner → trusted`). Any backend agent (Location, Email, …) can then **read** that
+graph in-process to make trust-aware decisions.
+
+## Non-goals (YAGNI)
+
+- **No request/accept flow.** The model is directional ("I designate you as trusted"),
+  like emergency contacts — no approval by the trusted party is required.
+- **No changes to SOS / One Location code.** The existing
+  `one_location_network_connections` graph, its seed, and all its reads stay exactly as
+  they are. Converging SOS onto the shared graph is explicit future work.
+- **No UI, no invite links, no bidirectional mesh.** (Names are disambiguated by
+  selecting from the directory, so no free-text name → user_id guessing is needed.)
+
+## Guiding principles
+
+1. **One is central and owns writes.** Its system instruction already says it "holds the
+   relationship layer." Trusted connections are One's native domain. Writes happen *only*
+   through One's delegation path.
+2. **Reads are agent-agnostic.** The graph is a shared DB table exposed by a pure,
+   in-process service any agent imports. No HTTP hop between agents.
+3. **Additive, zero-regression.** New table, new service, new One lane. Nothing existing is
+   modified except the classifier keyword map and the post-unlock seed bridge (a new,
+   separate call — the SOS seed is untouched).
+
+## Locked decisions
+
+| Decision | Choice |
+|---|---|
+| Connection model | **Directional (follow / designate)** — `owner_user_id → trusted_user_id`, one directed edge per pair |
+| Write authority | **Hussh One agent only**, via a new `agent_connections` delegation lane |
+| Read access | **Any backend agent**, via in-process `TrustedConnectionsService` (no HTTP) |
+| Storage | **New dedicated table** `trusted_connections` — separate from `one_location_network_connections` |
+| SOS / location code | **Untouched** — no reads/writes/seed of `one_location_network_connections` change |
+| Identity resolution | **Platform people directory** — resolve via the same directory Location's recipient list uses (`list_verified_recipients`, backed by `actor_identity_cache`), returning the directory `user_id`; ambiguous/absent → One shows matches or asks to clarify. Raw `user_id` allowed for seed/testing. **Not** phone-typed. |
+| Seed topology | **New user → seed set** — mirror the existing SOS topology into the new table, reusing `SOS_SEED_DEV_USER_IDS`, as a *separate* seed call |
+| Branch | `feat/trusted-connections-graph` from `main` |
+
+## Architecture
+
+### Visual map
+
+```text
+WRITE (only via One)
+  user → One (agent_chat) → classifier matches "trusted connection" keywords
+    → adk_bridge dispatch → agent_connections lane
+      → TrustedConnectionsService.add_connection / remove_connection
+        → resolve person via platform people directory (list_verified_recipients → user_id)
+          → upsert trusted_connections row
+
+SEED (post vault-unlock, mirror — SOS seed untouched)
+  PostUnlockSyncService → (new) seed_new_user(owner, SOS_SEED_DEV_USER_IDS)
+    → if owner has 0 active rows, insert owner→seed edges (source='seed')
+
+READ (any agent, in-process)
+  Location / Email / … → import TrustedConnectionsService
+    → list_connections(owner) | is_trusted(owner, target)
+```
+
+### Component 1 — Data model: `trusted_connections` (new migration, next number after 076)
+
+```sql
+CREATE TABLE trusted_connections (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id   TEXT NOT NULL,        -- the user who trusts
+  trusted_user_id TEXT NOT NULL,        -- the person being trusted
+  status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','revoked')),
+  source          TEXT NOT NULL DEFAULT 'agent_one' CHECK (source IN ('agent_one','seed','import')),
+  resolved_via    TEXT CHECK (resolved_via IN ('directory','user_id')),
+  label           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at      TIMESTAMPTZ,
+  metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT trusted_connections_no_self CHECK (owner_user_id <> trusted_user_id)
+);
+
+CREATE UNIQUE INDEX ux_trusted_connections_edge
+  ON trusted_connections (owner_user_id, trusted_user_id);
+CREATE INDEX idx_trusted_connections_owner
+  ON trusted_connections (owner_user_id, status, created_at DESC);
+CREATE INDEX idx_trusted_connections_trusted
+  ON trusted_connections (trusted_user_id, status);
+```
+
+**Per-user connection mapping.** Every user is the `owner` of an *outbound* trust list —
+exactly one directed edge per person they trust:
+
+- "My trusted connections" = `SELECT ... WHERE owner_user_id = :me AND status = 'active'
+  ORDER BY created_at DESC`.
+- "Who trusts me" (future consumers) = `SELECT ... WHERE trusted_user_id = :me AND
+  status = 'active'` (served by `idx_trusted_connections_trusted`).
+- Re-adding a previously revoked edge flips it back to `active` (upsert on the unique
+  index), rather than creating a duplicate.
+
+This is intentionally *not* order-normalized (unlike `one_location_network_connections`,
+which uses `user_a_id < user_b_id`): direction carries meaning here.
+
+### Component 2 — `TrustedConnectionsService` (agent-agnostic, pure)
+
+New service module (sibling to `one_location_agent_service.py`). No agent-specific
+coupling; any backend caller can import it.
+
+- **Write (invoked only from One's lane):**
+  - `add_connection(owner_user_id, *, trusted_user_id=None, query=None, label=None) -> row`
+    — accepts either a directory-selected `trusted_user_id` (the normal path — the person
+    was already resolved from the directory) or a free-text `query` (name fragment) that the
+    service matches against the platform directory. On a unique match it records
+    `resolved_via='directory'` and upserts an `active` edge; on multiple/zero matches it
+    raises `IdentityUnresolvedError` carrying the candidate list so One can disambiguate.
+  - `remove_connection(owner_user_id, trusted_user_id) -> row` — soft revoke
+    (`status='revoked'`, `revoked_at=now()`).
+- **Read (any agent):**
+  - `list_connections(owner_user_id) -> list[row]` — active outbound edges.
+  - `is_trusted(owner_user_id, trusted_user_id) -> bool` — single directed-edge check.
+- **Seed:**
+  - `seed_new_user(owner_user_id, seed_user_ids) -> {seeded, existingCount, skippedSelf}`
+    — idempotent, gated on zero active edges for `owner`, skips self/blanks, writes
+    `source='seed'`. Mirrors the shape/guarantees of the existing
+    `seed_trusted_connections` (so its tests translate directly).
+
+**Identity resolution via the platform directory.** Resolution reuses the **same directory
+Location shows** — `OneLocationAgentService.list_verified_recipients(owner_user_id=...)`
+(backed by `actor_identity_cache`), called **read-only** (no location code changes). Two
+paths:
+
+- **Directory-selected (primary):** One presents the directory to the user (or matches the
+  named person against it) and passes the chosen `trusted_user_id` straight through — the
+  `user_id` is authoritative, no fuzzy matching.
+- **Name query (fallback):** the service filters the directory by `display_name`
+  fragment. Exactly one match → resolve; multiple/zero → `IdentityUnresolvedError` with the
+  candidates so One asks the user to pick.
+
+Because the trusted person must be someone the owner can already see in their directory,
+this inherits the directory's privacy/eligibility rules for free. The plan may extract a
+lighter `list_platform_people` reader if `list_verified_recipients`' extra joins (recipient
+keys, Kai recommendations) prove unnecessary for resolution — but the source of truth is
+the same directory. **No phone-typed and no free-text guessing** beyond directory matches.
+
+### Component 3 — One's write path (`agent_connections` lane)
+
+Following the specialist-delegation pattern mapped in the codebase:
+
+- Register a lightweight specialist lane in `hushh_mcp/adk_bridge/__init__.py`
+  (`register_specialist("agent_connections", ...)`) whose handler parses add/remove/list
+  intent and calls `TrustedConnectionsService`. Start with a deterministic intent parser
+  (matching the repo's existing "deterministic regex planner" style) rather than a full
+  Gemini tool loop; a tool-loop upgrade is future work.
+- Add a classifier domain in `hushh_mcp/agents/orchestrator/tools.py`
+  (`classify_specialist_domain`) with keywords such as *"add … to (my) trusted
+  connections"*, *"remove … from (my) trusted connections"*, *"who do I trust"*, *"my
+  trusted connections"*, so `resolve_delegate_target` routes these turns from One to the
+  new lane.
+- Writes are reachable **only** through this lane — no other agent calls the write methods.
+
+### Component 4 — Reads by other agents
+
+Location and Email import `TrustedConnectionsService` directly and call
+`list_connections` / `is_trusted` where they need trust signals. This spec adds the
+service and its reads; wiring specific Location/Email read *call-sites* is deferred to
+those agents' own work (out of scope here) — but the read surface they will use is
+defined and tested now. **No existing SOS/location read path is modified.**
+
+### Component 5 — Seeding (mirror, SOS untouched)
+
+Extend the post-unlock bridge (`PostUnlockSyncService`) with a **separate** call to
+`seed_new_user(owner, SOS_SEED_DEV_USER_IDS)` writing the new table. The existing SOS seed
+(`/api/one/location/seed-trusted` → `seed_trusted_connections` →
+`one_location_network_connections`) is left exactly as-is; the two seeds run
+independently.
+
+## Data flow — "add Alice from the directory"
+
+1. User → One: "add Alice to my trusted connections."
+2. One's classifier matches → delegate to `agent_connections`.
+3. Lane calls `TrustedConnectionsService.add_connection(owner, query="Alice")`, which filters
+   the platform directory (`list_verified_recipients`) by name.
+   - **Unique match** → resolve to that `user_id`.
+   - **Multiple matches** → `IdentityUnresolvedError` with candidates → One asks "I see two
+     Alices — Alice R. or Alice T.?" and re-calls with the chosen `trusted_user_id`.
+   - **No match** → One tells the user Alice isn't in their directory yet.
+4. On success, upsert `trusted_connections (owner, trusted_user_id, source='agent_one',
+   resolved_via='directory')`; One confirms.
+
+## Error handling
+
+- **Unresolved identity** → typed `IdentityUnresolvedError` (carries directory candidates on
+  a multi-match); One shows matches / asks for clarification, never writes a guessed edge.
+- **Person not in directory** → One tells the user they aren't a visible platform user yet;
+  no edge written.
+- **Self-add** → rejected by `trusted_connections_no_self` and pre-checked in the service.
+- **Duplicate / re-add** → idempotent upsert; revoked edges are reactivated.
+- **Remove of a non-existent edge** → no-op success (idempotent).
+- **Seed when already populated** → gated no-op (`existingCount` reported).
+
+## Testing
+
+Mirror the existing `test_one_location_sos_seed.py` style (stubbed DB, no real Postgres):
+
+- Service: `add_connection` (directory-selected `user_id` passthrough, name query unique
+  match, name query multi-match → `IdentityUnresolvedError` with candidates, no match →
+  error), `remove_connection` (revoke + idempotent no-op), `list_connections` (active only),
+  `is_trusted` (directional true/false), `seed_new_user` (idempotency, skip-self,
+  skip-blank, zero-gate). Directory reads are stubbed (no real Postgres), same as the
+  existing SOS-seed tests.
+- Migration applies cleanly (up).
+- Classifier: the new keywords route to `agent_connections`; unrelated messages do not.
+- `no_self` constraint rejects self-edges.
+
+## Open items for the implementation plan
+
+- Exact migration number (next after `076_marketplace_access_requests.sql`).
+- Whether the `agent_connections` handler lives in `adk_bridge/` alone or gets a thin
+  `agents/connections/` manifest for symmetry with other specialists.
+- Whether resolution calls `list_verified_recipients` directly or the plan extracts a
+  lighter `list_platform_people` reader over the same `actor_identity_cache` directory
+  (dropping the recipient-key + Kai-recommendation joins that resolution doesn't need).
