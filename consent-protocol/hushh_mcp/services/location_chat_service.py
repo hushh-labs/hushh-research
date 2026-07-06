@@ -767,7 +767,9 @@ class LocationChatService:
                 "type": "check_in",
                 "durationHours": hours,
                 "note": check_in.get("note"),
-                "summary": f"Check in with your trusted contacts for {hours}h",
+                "summary": f"Check in with your trusted contacts for {hours}h"
+                if hours is not None
+                else "Check in with your trusted contacts",
             }
         return None
 

@@ -17,6 +17,7 @@ vi.mock("@/lib/one-location/service", () => ({
     viewEnvelope: vi.fn(),
     createPublicInvite: vi.fn(),
     revokeGrant: vi.fn(),
+    createGrant: vi.fn(),
   },
 }));
 vi.mock("@/lib/capacitor", () => ({
@@ -155,6 +156,7 @@ describe("useLocationChat", () => {
 describe("useLocationChat — action dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(OneLocationService.createGrant).mockReset();
   });
 
   it("publish_share: confirm captures, encrypts per recipient, uploads, reports completed", async () => {
@@ -597,6 +599,206 @@ describe("useLocationChat — action dispatcher", () => {
     act(() => result.current.clear());
     expect(result.current.pendingAction).toBeNull();
     expect(result.current.viewedPoint).toBeNull();
+  });
+
+  it("check_in: confirm selects connected+ready recipients, calls createGrant with durationHours+note, stores envelope per recipient, reports completed", async () => {
+    const mockPoint = {
+      latitude: 37.77,
+      longitude: -122.41,
+      capturedAt: "2026-07-06T10:00:00.000Z",
+      sourcePlatform: "web" as const,
+    };
+    const mockEnvelope = {
+      algorithm: "ECDH-P256-AES256-GCM" as const,
+      recipientKeyId: "key-userA",
+      ciphertext: "cipher",
+      iv: "iv",
+      senderEphemeralPublicKeyJwk: {} as JsonWebKey,
+      capturedAt: "2026-07-06T10:00:00.000Z",
+      sourcePlatform: "web" as const,
+    };
+
+    // First chat call returns a check_in clientAction; second (report) returns confirmation.
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c-ci",
+        response: "Checking in with your trusted contacts.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-ci-1",
+          type: "check_in" as const,
+          durationHours: 4,
+          note: "heading home",
+          summary: "Check in with your trusted contacts for 4h",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c-ci",
+        response: "Done — your trusted contacts can see your check-in.",
+        isComplete: true,
+        stateChanged: true,
+      });
+
+    vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+
+    // userA is a connected, share-ready recipient; userB is not a network connection.
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      recipients: [
+        {
+          userId: "userA",
+          displayName: "User A",
+          phoneVerified: true,
+          keyId: "key-userA",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "aa", y: "bb" } as JsonWebKey,
+          keyAlgorithm: "ECDH-P256",
+          canReceiveLocation: true,
+        },
+        {
+          userId: "userB",
+          displayName: "User B",
+          phoneVerified: true,
+          keyId: "key-userB",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "cc", y: "dd" } as JsonWebKey,
+          keyAlgorithm: "ECDH-P256",
+          canReceiveLocation: true,
+        },
+      ],
+      networkConnections: [
+        // Only userA is connected to "u1"
+        { id: "conn-1", userAId: "u1", userBId: "userA", status: "active", inviterUserId: "u1", inviteeUserId: "userA" },
+      ],
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [],
+      referrals: [],
+      publicInvites: [],
+      publicInviteSubmissions: [],
+      capabilityScopes: [],
+    });
+
+    vi.mocked(OneLocationService.createGrant).mockResolvedValue({
+      id: "grant-ci-1",
+      ownerUserId: "u1",
+      recipientUserId: "userA",
+      recipientKeyId: "key-userA",
+      status: "active",
+      consentScope: "location",
+      capabilityScopes: [],
+      durationHours: 4,
+    });
+
+    vi.mocked(encryption.encryptLocationForRecipient).mockResolvedValue(mockEnvelope);
+    vi.mocked(OneLocationService.storeEnvelope).mockResolvedValue(mockEnvelope);
+
+    const onStateChanged = vi.fn();
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1", onStateChanged }),
+    );
+
+    await act(async () => {
+      await result.current.send("check in");
+    });
+    expect(result.current.pendingAction?.type).toBe("check_in");
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    // createGrant called once for userA (not userB — no connection)
+    expect(vi.mocked(OneLocationService.createGrant)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(OneLocationService.createGrant)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vaultOwnerToken: "tok",
+        recipientUserId: "userA",
+        recipientKeyId: "key-userA",
+        durationHours: 4,
+        reason: "heading home",
+      }),
+    );
+
+    // One encrypt + one store for userA
+    expect(vi.mocked(encryption.encryptLocationForRecipient)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(OneLocationService.storeEnvelope)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(OneLocationService.storeEnvelope)).toHaveBeenCalledWith(
+      expect.objectContaining({ vaultOwnerToken: "tok", grantId: "grant-ci-1" }),
+    );
+
+    // Report completed action result back to the backend
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({ type: "check_in", status: "completed" }),
+      }),
+    );
+
+    await waitFor(() => expect(onStateChanged).toHaveBeenCalled());
+    expect(result.current.pendingAction).toBeNull();
+  });
+
+  it("check_in: reports cancelled and does not call createGrant when no connected ready recipients", async () => {
+    mockChat
+      .mockResolvedValueOnce({
+        conversationId: "c-ci-empty",
+        response: "No trusted contacts available.",
+        isComplete: true,
+        stateChanged: false,
+        clientAction: {
+          id: "act-ci-empty",
+          type: "check_in" as const,
+          durationHours: 1,
+          summary: "Check in with your trusted contacts for 1h",
+        },
+      })
+      .mockResolvedValueOnce({
+        conversationId: "c-ci-empty",
+        response: "No trusted contacts available to check in with.",
+        isComplete: true,
+        stateChanged: false,
+      });
+
+    vi.mocked(OneLocationService.getState).mockResolvedValue({
+      recipients: [
+        {
+          userId: "userA",
+          displayName: "User A",
+          phoneVerified: true,
+          keyId: "key-userA",
+          publicKeyJwk: { kty: "EC" } as JsonWebKey,
+          keyAlgorithm: "ECDH-P256",
+          canReceiveLocation: true,
+        },
+      ],
+      networkConnections: [], // no connections → empty ready list
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [],
+      referrals: [],
+      publicInvites: [],
+      publicInviteSubmissions: [],
+      capabilityScopes: [],
+    });
+
+    const { result } = renderHook(() =>
+      useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+    );
+
+    await act(async () => {
+      await result.current.send("check in");
+    });
+    expect(result.current.pendingAction?.type).toBe("check_in");
+
+    await act(async () => {
+      await result.current.confirmAction();
+    });
+
+    expect(vi.mocked(OneLocationService.createGrant)).not.toHaveBeenCalled();
+    expect(vi.mocked(encryption.encryptLocationForRecipient)).not.toHaveBeenCalled();
+    expect(mockChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        actionResult: expect.objectContaining({ type: "check_in", status: "cancelled" }),
+      }),
+    );
+    expect(result.current.pendingAction).toBeNull();
   });
 });
 

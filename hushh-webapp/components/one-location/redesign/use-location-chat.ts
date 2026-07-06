@@ -20,6 +20,7 @@ import {
   runSosPanic,
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
+import { runCheckIn } from "@/lib/one-location/check-in-trigger";
 
 export interface ChatMessage {
   id: string;
@@ -291,6 +292,39 @@ export function useLocationChat(params: {
           vaultOwnerToken,
           recipients: ready,
           point,
+          publish: async (grant, recipient, pt) => {
+            const envelope = await encryptLocationForRecipient({
+              point: pt,
+              recipientPublicKeyJwk: recipient.publicKeyJwk,
+              recipientKeyId: recipient.keyId,
+            });
+            await OneLocationService.storeEnvelope({
+              vaultOwnerToken,
+              grantId: grant.id,
+              envelope,
+            });
+          },
+        });
+        await report({ id: action.id, type: action.type, status: "completed" });
+      } else if (action.type === "check_in") {
+        const state = await OneLocationService.getState(vaultOwnerToken);
+        const connected = selectSosConnectedRecipients(
+          state.recipients ?? [],
+          state.networkConnections,
+          userId || null,
+        );
+        const ready = connected.filter(isSosShareReadyRecipient);
+        if (!ready.length) {
+          await report({ id: action.id, type: action.type, status: "cancelled" });
+          return;
+        }
+        const point = await OneLocationService.captureCurrentPosition();
+        await runCheckIn({
+          vaultOwnerToken,
+          recipients: ready,
+          point,
+          durationHours: Number(action.durationHours) || 1,
+          note: action.note ?? null,
           publish: async (grant, recipient, pt) => {
             const envelope = await encryptLocationForRecipient({
               point: pt,
