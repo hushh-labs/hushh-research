@@ -19,6 +19,19 @@ export interface MarketplaceRequest {
   resolvedAt?: string | null;
 }
 
+/**
+ * A buyer's published recipient "lock" (ECDH P-256 public key). The private half
+ * never leaves the buyer's device; the seller fetches this at approve time to
+ * seal a slice envelope for the buyer.
+ */
+export interface MarketplaceRecipient {
+  userId: string;
+  keyId: string;
+  publicKeyJwk: JsonWebKey;
+  algorithm: string;
+  createdAt?: string | null;
+}
+
 /** One publishable slice suggested in a publish card. */
 export interface PublishableSlice {
   label: string;
@@ -79,6 +92,32 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
  * `stateChanged` tells the page to refetch the inbox.
  */
 export class OneMarketplaceService {
+  /**
+   * Publish this device's marketplace recipient public key so sellers can seal
+   * delivered slices for this buyer. Idempotent: the server upserts on
+   * (user_id, key_id). Only the public JWK is ever sent.
+   */
+  static async registerRecipientKey(params: {
+    vaultOwnerToken: string;
+    keyId: string;
+    publicKeyJwk: JsonWebKey;
+    algorithm: string;
+  }): Promise<MarketplaceRecipient> {
+    const res = await apiJson<{ recipientKey: MarketplaceRecipient }>(
+      "/api/one/marketplace/recipient-keys",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          keyId: params.keyId,
+          publicKeyJwk: params.publicKeyJwk,
+          algorithm: params.algorithm,
+        }),
+      },
+    );
+    return res.recipientKey;
+  }
+
   static async chat(params: {
     vaultOwnerToken: string;
     message: string;

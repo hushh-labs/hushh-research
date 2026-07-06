@@ -21,8 +21,12 @@ class _FakeQuery:
         self._result = result
         self.inserted = None
         self.updated = None
+        self.upserted = None
+        self.on_conflict = None
         self.eqs: list[tuple] = []
+        self.neqs: list[tuple] = []
         self.order_called = False
+        self.limit_value = None
 
     def insert(self, payload):
         self.inserted = payload
@@ -35,12 +39,25 @@ class _FakeQuery:
         self.updated = payload
         return self
 
+    def upsert(self, payload, on_conflict=None):
+        self.upserted = payload
+        self.on_conflict = on_conflict
+        return self
+
     def eq(self, key, value):
         self.eqs.append((key, value))
         return self
 
+    def neq(self, key, value):
+        self.neqs.append((key, value))
+        return self
+
     def order(self, *_a, **_k):
         self.order_called = True
+        return self
+
+    def limit(self, value):
+        self.limit_value = value
         return self
 
     def execute(self):
@@ -59,6 +76,9 @@ class _FakeTable:
 
     def update(self, payload):
         return self._query.update(payload)
+
+    def upsert(self, payload, on_conflict=None):
+        return self._query.upsert(payload, on_conflict=on_conflict)
 
 
 class _FakeDB:
@@ -160,3 +180,82 @@ async def test_deny_request_marks_denied():
 
     assert result["ok"] is True
     assert fake.query.updated["status"] == "denied"
+
+
+_SAMPLE_JWK = {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+    "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+}
+
+
+async def test_register_recipient_key_rotates_and_upserts_active_key():
+    stored = {
+        "user_id": "buyer",
+        "key_id": "buyer-key-1",
+        "public_key_jwk": _SAMPLE_JWK,
+        "algorithm": "ECDH-P256-AES256-GCM",
+        "created_at": "2026-07-06T00:00:00Z",
+    }
+    svc, fake = _service_with([stored])
+
+    out = await svc.register_recipient_key(
+        user_id="buyer", public_key_jwk=_SAMPLE_JWK, key_id="buyer-key-1"
+    )
+
+    assert out["userId"] == "buyer"
+    assert out["keyId"] == "buyer-key-1"
+    assert out["publicKeyJwk"] == _SAMPLE_JWK
+    assert out["algorithm"] == "ECDH-P256-AES256-GCM"
+    # Older active keys are rotated (scoped to this user, excluding the new key).
+    assert fake.query.updated == {
+        "status": "rotated",
+        "updated_at": fake.query.updated["updated_at"],
+    }
+    assert ("user_id", "buyer") in fake.query.eqs
+    assert ("status", "active") in fake.query.eqs
+    assert ("key_id", "buyer-key-1") in fake.query.neqs
+    # The new key is upserted active on the (user_id, key_id) conflict target.
+    assert fake.query.on_conflict == "user_id,key_id"
+    assert fake.query.upserted["status"] == "active"
+    assert fake.query.upserted["revoked_at"] is None
+
+
+async def test_register_recipient_key_defaults_key_id_to_fingerprint():
+    svc, fake = _service_with([])
+
+    await svc.register_recipient_key(user_id="buyer", public_key_jwk=_SAMPLE_JWK)
+
+    # A stable SHA-256 fingerprint stands in when the client omits keyId.
+    assert fake.query.upserted["key_id"] == fake.query.upserted["public_key_fingerprint"]
+    assert len(fake.query.upserted["key_id"]) == 64
+
+
+async def test_register_recipient_key_rejects_invalid_jwk():
+    svc, _ = _service_with([])
+
+    for bad in (None, {}, {"crv": "P-256"}):
+        try:
+            await svc.register_recipient_key(user_id="buyer", public_key_jwk=bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
+
+
+async def test_get_recipient_key_returns_active_or_none():
+    stored = {
+        "user_id": "buyer",
+        "key_id": "buyer-key-1",
+        "public_key_jwk": _SAMPLE_JWK,
+        "algorithm": "ECDH-P256-AES256-GCM",
+    }
+    svc, fake = _service_with([stored])
+
+    out = await svc.get_recipient_key(user_id="buyer")
+    assert out["keyId"] == "buyer-key-1"
+    assert ("status", "active") in fake.query.eqs
+    assert fake.query.limit_value == 1
+
+    svc_none, _ = _service_with([])
+    assert await svc_none.get_recipient_key(user_id="buyer") is None

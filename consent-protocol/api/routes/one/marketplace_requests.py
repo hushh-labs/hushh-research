@@ -38,6 +38,37 @@ class CreateRequestBody(BaseModel):
     message: str | None = Field(default=None, max_length=2000)
 
 
+class RegisterRecipientKeyBody(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    key_id: str | None = Field(default=None, alias="keyId", max_length=160)
+    public_key_jwk: dict[str, Any] = Field(alias="publicKeyJwk")
+    algorithm: str = Field(default="ECDH-P256-AES256-GCM", max_length=80)
+
+
+@router.post("/recipient-keys")
+async def register_marketplace_recipient_key(
+    body: RegisterRecipientKeyBody,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Publish this buyer's marketplace recipient public key (idempotent)."""
+    if not body.public_key_jwk.get("kty"):
+        raise HTTPException(status_code=422, detail="Recipient public key material is required")
+    try:
+        recipient = await _service().register_recipient_key(
+            user_id=token_data["user_id"],
+            public_key_jwk=body.public_key_jwk,
+            key_id=body.key_id,
+            algorithm=body.algorithm,
+        )
+        return {"recipientKey": recipient}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("marketplace.register_recipient_key_failed")
+        raise HTTPException(status_code=500, detail="Could not register recipient key")
+
+
 @router.post("/requests")
 async def create_marketplace_request(
     body: CreateRequestBody,

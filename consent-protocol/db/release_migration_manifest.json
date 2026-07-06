@@ -55,7 +55,8 @@
     "074_pkm_scope_registry_owner_consent_override.sql",
     "075_agent_chat_message_metadata.sql",
     "076_marketplace_access_requests.sql",
-    "077_marketplace_opportunity_signals.sql"
+    "077_marketplace_opportunity_signals.sql",
+    "078_marketplace_recipient_keys.sql"
   ],
   "groups": {
     "iam": [
