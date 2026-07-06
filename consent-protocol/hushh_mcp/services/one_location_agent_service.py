@@ -1634,6 +1634,29 @@ class OneLocationAgentService:
         }
 
     @staticmethod
+    def _trusted_connection_as_network_payload(
+        row: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Map a trusted_connections edge (owner -> trusted) into the legacy
+        networkConnections payload shape the frontend SOS/check-in selectors read.
+        userAId is always the owner, userBId the trusted person."""
+        if not row:
+            return None
+        return {
+            "id": str(row.get("id") or ""),
+            "userAId": str(row.get("owner_user_id") or ""),
+            "userBId": str(row.get("trusted_user_id") or ""),
+            "inviterUserId": str(row.get("owner_user_id") or ""),
+            "inviteeUserId": str(row.get("trusted_user_id") or ""),
+            "inviteId": None,
+            "status": str(row.get("status") or "active"),
+            "connectedAt": _iso(row.get("created_at")),
+            "createdAt": _iso(row.get("created_at")),
+            "updatedAt": _iso(row.get("updated_at")),
+            "revokedAt": _iso(row.get("revoked_at")),
+        }
+
+    @staticmethod
     def _public_location_snapshot_payload(value: Any) -> dict[str, Any] | None:
         if value is None:
             return None
@@ -3682,11 +3705,11 @@ class OneLocationAgentService:
         network_connections = _safe_many(
             "network_connections",
             """
-            SELECT *
-            FROM one_location_network_connections
+            SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
+            FROM trusted_connections
             WHERE status = 'active'
-              AND (user_a_id = :user_id OR user_b_id = :user_id)
-            ORDER BY connected_at DESC
+              AND owner_user_id = :user_id
+            ORDER BY created_at DESC
             LIMIT 50
             """,
             {"user_id": user_id},
@@ -3729,7 +3752,7 @@ class OneLocationAgentService:
             "networkConnections": [
                 payload
                 for row in network_connections
-                if (payload := self._one_network_connection_payload(row))
+                if (payload := self._trusted_connection_as_network_payload(row))
             ],
             "publicInviteSubmissions": [
                 payload
