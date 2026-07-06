@@ -289,6 +289,7 @@
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
+        "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
         "one_location_recipient_keys",

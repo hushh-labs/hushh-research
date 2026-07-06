@@ -10,6 +10,16 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-06-location-unify-trusted-connections-design.md`
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  share[Share location] --> dir[list_verified_recipients: broad directory]
+  checkin[Check-in / SOS] --> tc[(trusted_connections)]
+  claim[Circle-invite claim] --> tc
+  seed[Dev-account seeding] -.removed.-> x[gone]
+```
+
 ## Global Constraints
 
 - Coordinate-safety invariant: the server/agent NEVER sees raw coordinates. `propose_*` tools return coordinate-free descriptors; the browser captures/encrypts/publishes. New check-in code MUST follow this.
@@ -166,7 +176,7 @@ git commit -s -m "feat(location): migration to unify network connections into tr
 ## Task 2: Repoint `list_verified_recipients` eligibility rule #1 to `trusted_connections`
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py:2376-2384` (rule #1 EXISTS clause inside `list_verified_recipients`)
+- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py` (lines 2376-2384, rule #1 EXISTS clause inside `list_verified_recipients`)
 - Test: `consent-protocol/tests/services/test_one_location_agent_service.py` (add case near existing recipient-directory tests ~L113/425/992)
 
 **Interfaces:**
@@ -235,7 +245,7 @@ with:
 Also update the docstring comment at 2345-2348 to say "an active trusted_connections edge (owner → this person)" instead of "One Network connection".
 
 > IMPORTANT — do not narrow the share directory. This repoint changes ONLY rule #1;
-> rule #2 (`phone_verified = TRUE`, i.e. all Hushh One users) and rule #3
+> rule #2 (`phone_verified = TRUE`, i.e. all phone-verified users) and rule #3
 > (marketplace) stay OR'd in, so `list_verified_recipients` remains broad for the
 > Share feature (`trusted ∪ all-phone-verified ∪ marketplace`). The repoint exists
 > because the old table is being dropped (Task 9) and to guarantee trusted
@@ -259,7 +269,7 @@ git commit -s -m "feat(location): recipient directory rule #1 reads trusted_conn
 ## Task 3: Source `list_state.networkConnections` from `trusted_connections`
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py:3684-3695` (the `network_connections` query in `list_state`) and `:3731-3735` (the `networkConnections` payload list)
+- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py` (lines 3684-3695, the `network_connections` query in `list_state`) and lines 3731-3735 (the `networkConnections` payload list)
 - Add: a mapper `_trusted_connection_as_network_payload` next to `_one_network_connection_payload` (~L1618)
 - Test: `consent-protocol/tests/test_one_location_list_state_resilience.py` (has a `networkConnections` assertion at :62)
 
@@ -370,7 +380,7 @@ git commit -s -m "feat(location): list_state networkConnections sourced from tru
 ## Task 4: Circle-invite claim writes a one-way `trusted_connections` edge (claimer → inviter)
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py:3341-3384` (the INSERT in `claim_circle_invite`)
+- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py` (lines 3341-3384, the INSERT in `claim_circle_invite`)
 - Test: `consent-protocol/tests/services/test_one_location_agent_service.py`
 
 **Interfaces:**
@@ -461,9 +471,9 @@ git commit -s -m "feat(location): circle-invite claim writes one-way trusted_con
 - Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py` — delete `seed_trusted_connections` (3462-3537)
 - Modify: `consent-protocol/hushh_mcp/services/trusted_connections_service.py` — delete `seed_new_user` (216-265)
 - Modify: `consent-protocol/api/routes/one/location.py` — delete `_sos_seed_dev_user_ids` (117-123) and the `POST /location/seed-trusted` handler (338-355)
-- Delete: `consent-protocol/api/routes/one/connections.py` (entire file — only contained the seed route)
+- Delete: consent-protocol/api/routes/one/connections.py (entire file — only contained the seed route)
 - Modify: `consent-protocol/api/routes/one/__init__.py` — remove `connections_router` import + include (lines 7, 21)
-- Delete tests: `consent-protocol/tests/test_one_location_sos_seed.py`, `consent-protocol/tests/test_connections_seed_route.py`, `consent-protocol/tests/test_one_location_seed_route.py`, and the `seed_new_user` cases in `consent-protocol/tests/test_trusted_connections_service.py:137-156`
+- Delete tests: consent-protocol/tests/test_one_location_sos_seed.py, consent-protocol/tests/test_connections_seed_route.py, `consent-protocol/tests/test_one_location_seed_route.py`, and the `seed_new_user` cases in `consent-protocol/tests/test_trusted_connections_service.py` (lines 137-156)
 
 **Interfaces:**
 - Produces: no seed endpoints exist; `POST /api/one/location/seed-trusted` and `POST /api/one/connections/seed-trusted` return 404.
@@ -513,7 +523,7 @@ git commit -s -m "feat(location): remove dev-account seeding of trusted connecti
 **Files:**
 - Modify: `hushh-webapp/lib/services/post-unlock-sync-service.ts` — remove both seed blocks (29-47), the `OneConnectionsService` import (line 5), and the `sosSeeded`/`trustedSeeded` return fields (19, 49-53)
 - Modify: `hushh-webapp/lib/one-location/service.ts` — delete `seedTrustedContacts` (341-351)
-- Delete: `hushh-webapp/lib/one-connections/service.ts` (only held `seedTrustedConnections`) and its test `hushh-webapp/lib/one-connections/__tests__/service.test.ts`
+- Delete: hushh-webapp/lib/one-connections/service.ts (only held `seedTrustedConnections`) and its test hushh-webapp/lib/one-connections/__tests__/service.test.ts
 - Modify tests: `hushh-webapp/lib/services/__tests__/post-unlock-sync-service.sos.test.ts` (remove seed mocks/assertions at 11,21,38,40,43,52), `hushh-webapp/lib/one-location/__tests__/service-sos.test.ts` (remove `seedTrustedContacts` cases 98-101)
 
 **Interfaces:**
@@ -890,10 +900,10 @@ git commit -s -m "feat(location): agent check-in browser runtime + runCheckIn"
 ## Task 9: Drop `one_location_network_connections` + sweep remaining references
 
 **Files:**
-- Create: `consent-protocol/db/migrations/080_drop_one_location_network_connections.sql`
+- Create: consent-protocol/db/migrations/080_drop_one_location_network_connections.sql
 - Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py` — remove the `_optional_signal_rows` query against the table (~955-959), and remove `_network_pair` (1607-1616) + `_one_network_connection_payload` (1618-1634) if grep shows they are now unused
 - Modify: account-deletion cleanup that `DELETE`s from the table (find via grep) to target `trusted_connections` instead
-- Modify tests: `consent-protocol/tests/services/test_account_service_cleanup_tables.py:107`, `consent-protocol/tests/test_one_location_public_invite_migration.py:71,73,79`, and `tests/services/test_one_location_agent_service.py:113,425,992`
+- Modify tests: `consent-protocol/tests/services/test_account_service_cleanup_tables.py` (line 107), `consent-protocol/tests/test_one_location_public_invite_migration.py` (lines 71, 73, 79), and `tests/services/test_one_location_agent_service.py:113,425,992`
 
 **Interfaces:**
 - Produces: `one_location_network_connections` no longer exists; no code references it.
@@ -905,7 +915,7 @@ List every hit; each must be removed or repointed before the drop.
 
 - [ ] **Step 2: Write the migration**
 
-Create `consent-protocol/db/migrations/080_drop_one_location_network_connections.sql`:
+Create consent-protocol/db/migrations/080_drop_one_location_network_connections.sql:
 
 ```sql
 BEGIN;
@@ -941,9 +951,9 @@ git commit -s -m "feat(location): drop legacy one_location_network_connections t
 ## Task 10: Docs + full governance/test sweep
 
 **Files:**
-- Modify: `docs/reference/architecture/api-contracts.md:184` (remove the `/api/one/location/seed-trusted` seed entry; note SOS/check-in now use `trusted_connections`)
+- Modify: `docs/reference/architecture/api-contracts.md` (line 184, remove the `/api/one/location/seed-trusted` seed entry; note SOS/check-in now use `trusted_connections`)
 - Modify: any doc referencing the seed endpoints or the two-graph split (grep `docs/` for `seed-trusted`, `one_location_network_connections`, `SOS_SEED_DEV_USER_IDS`)
-- Modify: deploy configs referencing `SOS_SEED_DEV_USER_IDS` (`deploy/backend.cloudbuild.yaml:201`, `.github/workflows/deploy-uat.yml:283`) — remove the now-unused variable plumbing
+- Modify: deploy configs referencing `SOS_SEED_DEV_USER_IDS` (`deploy/backend.cloudbuild.yaml` line 201, `.github/workflows/deploy-uat.yml:283`) — remove the now-unused variable plumbing
 
 **Interfaces:** none (docs/config only).
 

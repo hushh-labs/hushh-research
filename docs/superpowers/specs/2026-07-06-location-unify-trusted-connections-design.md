@@ -4,6 +4,16 @@
 **Branch:** `feat/location-unify-trusted-connections`
 **Status:** Approved (design) — pending implementation plan
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  share[Share location] --> dir[list_verified_recipients: broad directory]
+  checkin[Check-in / SOS] --> tc[(trusted_connections)]
+  claim[Circle-invite claim] --> tc
+  seed[Dev-account seeding] -.removed.-> x[gone]
+```
+
 ## Problem
 
 One Location's **Check-in** and **SOS/panic** features work today, but the "trusted
@@ -32,7 +42,7 @@ Key current-state references:
 - Check-in reuses the SOS recipient set: `hushh-webapp/components/one-location/redesign/check-in-flow.tsx` (`vm.sosRecipients` L138); handler `handleCheckIn` in `page.tsx` (~L4047).
 - Agent SOS: `propose_sos_panic` in `consent-protocol/hushh_mcp/agents/location/tools.py` (~L227); browser executor in `hushh-webapp/lib/agent/specialist-directive-runtime.ts` (~L143).
 - Seed writers: `one_location_agent_service.seed_trusted_connections` (~L3462, `metadata.source="sos_seed"`); `trusted_connections_service.seed_new_user` (~L217).
-- Seed endpoints: `consent-protocol/api/routes/one/location.py` `POST /location/seed-trusted` (~L338); `consent-protocol/api/routes/one/connections.py` `POST /connections/seed-trusted` (~L39).
+- Seed endpoints: `consent-protocol/api/routes/one/location.py` `POST /location/seed-trusted` (~L338); consent-protocol/api/routes/one/connections.py `POST /connections/seed-trusted` (~L39).
 - Seed trigger (frontend): `hushh-webapp/lib/services/post-unlock-sync-service.ts` (~L32–45).
 - Circle invite claim (writes SOS graph): `one_location_agent_service.claim_circle_invite` (INSERT ~L3342–3369).
 - Trusted graph service: `consent-protocol/hushh_mcp/services/trusted_connections_service.py` (`add_connection`, `remove_connection`, `list_connections`, `is_trusted`, `_resolve_query`).
@@ -81,7 +91,7 @@ metadata) — no schema change required.
 
 **Two distinct surfaces — do not conflate them:**
 - **Share location** uses the **broad** `list_verified_recipients` directory (all
-  Hushh One users). It stays broad and is NOT restricted to trusted connections.
+  phone-verified users). It stays broad and is NOT restricted to trusted connections.
 - **Check-in and SOS** (the quick actions) use only trusted connections — enforced
   by the `networkConnections` filter (`selectSosConnectedRecipients`), NOT by the
   directory.
@@ -98,7 +108,7 @@ metadata) — no schema change required.
   ```
   This repoint is required because the old table is being dropped (Task 9). It does
   **NOT** narrow the share directory: rule #2 (`phone_verified = TRUE`, i.e. all
-  Hushh One users) and rule #3 (marketplace advisor/investor) are still OR'd in, so
+  phone-verified users) and rule #3 (marketplace advisor/investor) are still OR'd in, so
   the directory remains `trusted ∪ all-phone-verified ∪ marketplace`. Its only
   effect is to guarantee a user's trusted connections are always shareable and
   present in the pool that Check-in/SOS then filter down.
