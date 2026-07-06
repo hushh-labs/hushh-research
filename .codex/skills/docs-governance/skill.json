@@ -26,19 +26,25 @@
   "required_reads": [
     "docs/reference/operations/documentation-architecture-map.md",
     "docs/reference/operations/docs-governance.md",
+    "docs/reference/README.md",
+    "docs/reference/operations/documentation-recursive-knowledge-model.md",
     "docs/reference/operations/brand-and-compatibility-contract.md",
     ".codex/skills/docs-governance/references/documentation-homes.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",
-    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders"
   ],
   "verification_bundles": [
     {
       "id": "docs-governance",
       "commands": [
         "./bin/hushh docs verify",
-        "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+        "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a",
+        "python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
+        "python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders"
       ],
       "tests": [
         "./bin/hushh docs verify"

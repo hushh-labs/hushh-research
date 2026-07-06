@@ -33,7 +33,7 @@ The architecture should scale into enterprise and private compute without losing
 | Area | Current Truth |
 | --- | --- |
 | Platform | Hussh already has trust, consent, API, MCP, frontend, PKM, and governance surfaces. |
-| Agent experience | Runtime is still partially Kai-first. One is the approved top-level direction, not uniformly shipped everywhere. |
+| Agent experience | One Voice is direct, but runtime remains partially Kai-era compatibility. One is the approved top-level direction, not uniformly shipped everywhere. |
 | Trust boundary | PCHP, consent, scoped export, audit, and vault/PKM rules remain the durable authority. |
 | Partner integrations | Salesforce, MuleSoft, Agentforce, and Flex Gateway are planning lanes, not implemented repo surfaces. |
 | Private compute | Mac Mini, OpenClaw, local MCP, MLX, and App Intents are future lanes unless checked runtime proof exists. |

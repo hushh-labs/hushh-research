@@ -334,6 +334,21 @@
       "expected_row_growth": "medium_per_user_connection"
     },
     {
+      "id": "information_marketplace_opportunity_signals",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "marketplace_opportunity_signals"
+      ],
+      "primary_access_path": "One Information Marketplace proactive opportunity nudges: the server derives dateless intent signals from the owner's publishable-slice metadata (and the client may post dated expiry signals), surfaced as flashcards on Agent One where the owner publishes, snoozes, or dismisses them; state is read and mutated server-side per owner.",
+      "retention_policy": "One durable row per owner+dedupe_key; snoozed rows reappear the next day, published/dismissed/expired rows are retained for lifecycle idempotency and bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is the owner (user_id); no cross-account references exist.",
+      "trust_boundary": "Backend stores only safe signal metadata (title, body, domain, scope handle, suggested price, nudge lifecycle state, timestamps) derived from summary projections. It never stores raw PKM values; dated expiry details are client-derived and posted as safe summaries only.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user_signal"
+    },
+    {
       "id": "market_reference_and_cache",
       "owner": "backend-runtime-governance",
       "data_class": "reference",

@@ -189,6 +189,15 @@ Use these internal observability events for the contract:
 
 The events are metadata-only. They are for UX and reliability decisions; they are not a reason to retain decrypted PKM longer or broaden warmup.
 
+## Route Family Coherence
+
+Nested routes that render one workspace must share one cache contract and still appear as distinct route IDs in the generated screen manifest. Profile settings are the current reference case:
+
+- `/profile/account`, `/profile/preferences`, `/profile/security`, `/profile/my-data`, `/profile/access`, `/profile/connected-systems`, `/profile/gmail`, and `/profile/support` render through the shared profile workspace.
+- Identifier-bearing detail routes stay static-export-safe with query-backed detail keys, for example `/profile/my-data/domain?key=<domain_key>` and `/profile/access/connection?id=<connection_id>`.
+- All profile nested routes inherit the profile cache posture: vault and PKM readiness gate sensitive panels; stale safe metadata may render while background refresh runs; decrypted PKM and raw cache keys never enter analytics or realtime voice context.
+- Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
+
 ## Verification
 
 Run:

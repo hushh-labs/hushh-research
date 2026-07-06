@@ -160,6 +160,7 @@ class _FakeAgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
         screen_context: dict | None = None,
+        deterministic_crm_first: bool = True,
     ):
         assert user_message == "Hello Agent"
         assert history == []

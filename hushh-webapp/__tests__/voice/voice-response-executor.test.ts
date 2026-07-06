@@ -209,6 +209,18 @@ describe("executeVoiceResponse", () => {
       ...baseInput(),
       needsConfirmation: true,
       setPendingConfirmation,
+      groundedPlan: {
+        status: "resolved",
+        actionId: "analysis.cancel_active",
+        actionLabel: "Cancel active analysis",
+        destructive: true,
+        message: "Do you want me to cancel the active analysis?",
+        resolutionSource: "canonical",
+        execution: {
+          mode: "direct_tool",
+          steps: [],
+        },
+      },
       response: {
         kind: "execute",
         message: "Do you want me to cancel the active analysis?",
@@ -227,6 +239,7 @@ describe("executeVoiceResponse", () => {
       expect.objectContaining({
         kind: "cancel_active_analysis",
         prompt: "Do you want me to cancel the active analysis?",
+        actionId: "analysis.cancel_active",
       })
     );
     expect(result).toEqual({
@@ -475,7 +488,7 @@ describe("executeVoiceResponse", () => {
           steps: [
             {
               type: "navigate",
-              href: "/profile?panel=gmail",
+              href: "/profile/gmail",
               reason: "route_bound_action",
             },
           ],
@@ -483,7 +496,7 @@ describe("executeVoiceResponse", () => {
       },
     });
 
-    expect(input.router.push).toHaveBeenCalledWith("/profile?panel=gmail");
+    expect(input.router.push).toHaveBeenCalledWith("/profile/gmail");
     expect(dispatchVoiceToolCallMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       shortTermMemoryWrite: true,
@@ -494,10 +507,10 @@ describe("executeVoiceResponse", () => {
         status: "succeeded",
         actionId: "route.profile_gmail_panel",
         routeBefore: "/kai/dashboard",
-        routeAfter: "/profile?panel=gmail",
+        routeAfter: "/profile/gmail",
         screenBefore: "dashboard",
         screenAfter: null,
-        resultSummary: "Navigated to /profile?panel=gmail.",
+        resultSummary: "Navigated to /profile/gmail.",
         data: {
           executionMode: "navigate_only",
           navigated: true,
@@ -530,7 +543,7 @@ describe("executeVoiceResponse", () => {
           steps: [
             {
               type: "navigate",
-              href: "/profile?panel=gmail",
+              href: "/profile/gmail",
               reason: "route_bound_action",
             },
           ],
@@ -559,7 +572,7 @@ describe("executeVoiceResponse", () => {
         routeAfter: null,
         screenBefore: "dashboard",
         screenAfter: null,
-        resultSummary: "I couldn't complete that action from the current Kai voice plan.",
+        resultSummary: "I couldn't complete that action from the current One Voice plan.",
         data: {
           executionMode: "navigate_only",
           resolutionSource: "transcript",
@@ -593,7 +606,7 @@ describe("executeVoiceResponse", () => {
           steps: [
             {
               type: "navigate",
-              href: "/profile?panel=gmail",
+              href: "/profile/gmail",
               reason: "route_bound_action",
             },
           ],
@@ -601,7 +614,7 @@ describe("executeVoiceResponse", () => {
       },
     });
 
-    expect(input.router.push).toHaveBeenCalledWith("/profile?panel=gmail");
+    expect(input.router.push).toHaveBeenCalledWith("/profile/gmail");
     expect(emitTelemetry).toHaveBeenCalledWith(
       "speak_only_execution_compatibility_fallback_used",
       expect.objectContaining({
@@ -610,7 +623,7 @@ describe("executeVoiceResponse", () => {
       })
     );
     expect(result.actionResult.status).toBe("succeeded");
-    expect(result.actionResult.routeAfter).toBe("/profile?panel=gmail");
+    expect(result.actionResult.routeAfter).toBe("/profile/gmail");
   });
 
   it("falls back to legacy execute path when grounded execution rollout flag is disabled", async () => {

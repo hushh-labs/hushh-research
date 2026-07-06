@@ -17,6 +17,9 @@ governed maintainer, a direct PR to `main` from ANY branch passes the
 `PR Base Policy` gate. The `CI Status Gate`, merge queue, and
 `Main Post-Merge Smoke Gate` still run, so direct-to-main removes the train
 detour, not the safety gates. Non-maintainer PRs must still target the train.
+The repository-level `allow_auto_merge` setting is part of this contract because
+GitHub CLI relies on it to place eligible PRs into the merge queue; disabling it
+can turn otherwise eligible queue placement into a manual admin-bypass path.
 
 The single rule that keeps this clean: **a maintainer who intends to ship to
 `main` branches from `origin/main` at the START**, so the branch carries only its
@@ -247,15 +250,17 @@ at workflow runtime.
 3. Require strict/up-to-date checks.
 4. Require conversation resolution before merge.
 5. Enable merge queue for `main`.
-6. Block force-pushes.
-7. Block branch deletion.
-8. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
-9. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
-10. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes.
+6. Enable repository auto-merge so `gh pr merge` can hand eligible PRs to merge queue.
+7. Block force-pushes.
+8. Block branch deletion.
+9. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
+10. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
+11. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes.
 
 Current operating note:
 
 - `enforce_admins` should stay enabled
+- repository `allow_auto_merge` should stay enabled; it allows queue placement and does not waive checks
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`

@@ -43,6 +43,7 @@ import {
 import { MarketplaceChatPanel } from "@/components/one-marketplace/marketplace-chat-panel";
 import {
   OneMarketplaceService,
+  type AvailableListing,
   type MarketplaceRequest,
   type PublishableSlice,
 } from "@/lib/one-marketplace/service";
@@ -378,6 +379,24 @@ function PriceLine({
   );
 }
 
+/** Expander for an anonymized listing's published safe-summary preview. Renders
+ * the owner's own published presentation payload — no owner identity, no raw data. */
+function ListingPreviewToggle({ presentation }: { presentation: PkmSectionPreviewPresentation }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3">
+      <Button type="button" size="sm" variant="none" effect="fade" onClick={() => setOpen((v) => !v)}>
+        {open ? "Hide preview" : "Preview safe summary"}
+      </Button>
+      {open ? (
+        <div className="mt-2">
+          <PkmSectionPreview presentation={presentation} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function OneMarketplacePage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -387,7 +406,11 @@ export default function OneMarketplacePage() {
   const [view, setView] = useState<MarketplaceView>("owner");
   const [power, setPower] = useState<PricingPower>("affluent");
   const [mood, setMood] = useState<PricingMood>("affinity");
-  const [purchaseSection, setPurchaseSection] = useState<Section | null>(null);
+  // Buyer directory — the anonymized cross-user catalog of published slices. The
+  // listing the buyer is about to request (consent-first confirm), or null.
+  const [listings, setListings] = useState<AvailableListing[]>([]);
+  const [listingsLoading, setListingsLoading] = useState(false);
+  const [requestListing, setRequestListing] = useState<AvailableListing | null>(null);
   // Owner is about to publish this section to the marketplace and must explicitly
   // consent first (consent-first). Null when no confirmation is pending.
   const [confirmPublish, setConfirmPublish] = useState<Section | null>(null);
@@ -414,6 +437,24 @@ export default function OneMarketplacePage() {
   useEffect(() => {
     void loadRequests();
   }, [loadRequests, refreshToken]);
+
+  // Load the anonymized cross-user Buyer directory (other users' published slices).
+  const loadListings = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setListingsLoading(true);
+    try {
+      const rows = await OneMarketplaceService.listAvailable({ vaultOwnerToken });
+      setListings(rows);
+    } catch {
+      // Non-fatal: keep the current directory until the next refresh.
+    } finally {
+      setListingsLoading(false);
+    }
+  }, [vaultOwnerToken]);
+
+  useEffect(() => {
+    if (view === "buyer") void loadListings();
+  }, [view, loadListings, refreshToken]);
 
   // Load the owner's real PKM domains + manifests. The scope registry on each
   // manifest is the source of shareable sections and their consent posture.
@@ -663,10 +704,6 @@ export default function OneMarketplacePage() {
     [runPosture]
   );
 
-  const availableSections = sections.filter(
-    (s) => s.permission.visibilityPosture === "default_available"
-  );
-
   const pendingRequestCount = requests.filter((r) => r.status === "pending").length;
 
   // Identity keys of slices already published — the chat publish card filters
@@ -696,46 +733,30 @@ export default function OneMarketplacePage() {
     [sections, onTogglePosture]
   );
 
-  // File a real, durable access request (server-side). The buyer is simulated by
-  // the owner in this tab; the record persists and survives refresh.
-  const confirmPurchase = useCallback(() => {
-    const current = purchaseSection;
-    if (!current || !vaultOwnerToken) {
-      setPurchaseSection(null);
+  // File a REAL cross-account access request against the listing's true owner
+  // (resolved server-side from the opaque listingId). The record lands in the
+  // owner's inbox — this is a two-account request, not a simulated one.
+  const confirmRequestListing = useCallback(() => {
+    const listing = requestListing;
+    if (!listing || !vaultOwnerToken) {
+      setRequestListing(null);
       return;
     }
-    setPurchaseSection(null);
+    setRequestListing(null);
     void (async () => {
-      let priceCents = 0;
-      let currency = "USD";
       try {
-        const price = await SlicePricingService.getSuggestedPrice(
-          priceInput(current),
-          vaultOwnerToken
-        );
-        priceCents = price.suggestedPriceCents;
-        currency = price.currency;
-      } catch {
-        // Price is best-effort; the request still files at the floor.
-      }
-      try {
-        await OneMarketplaceService.createRequest({
+        await OneMarketplaceService.requestListing({
           vaultOwnerToken,
-          sliceName: current.permission.label,
-          domain: current.domainKey,
-          scopeHandle: current.permission.scopeHandle,
-          buyerLabel: "Buyer",
-          priceCents,
-          currency,
+          listingId: listing.listingId,
         });
         await loadRequests();
         setView("flow");
-        toast.success("Request filed — see Flow & requests.");
+        toast.success("Request filed — the owner will approve or deny it.");
       } catch {
         toast.error("Couldn't file the request. Try again.");
       }
     })();
-  }, [purchaseSection, vaultOwnerToken, priceInput, loadRequests]);
+  }, [requestListing, vaultOwnerToken, loadRequests]);
 
   const approveRequest = useCallback(
     async (id: string) => {
@@ -963,38 +984,46 @@ export default function OneMarketplacePage() {
             </div>
           ) : null}
 
-          {/* BUYER — available slices, purchasable */}
+          {/* BUYER — the anonymized cross-user directory of published slices */}
           {view === "buyer" ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Slices available to buy — only the safe summary, never raw data. Purchase grants 30-day
-                scoped access, and it is only ever delivered after the owner approves your request.
+                Slices other people have published — only the safe summary, never raw data, and the
+                seller stays anonymous. Requesting access files a request the owner must approve;
+                nothing is delivered until they say yes.
               </p>
-              {availableSections.length === 0 ? (
+              {listingsLoading && listings.length === 0 ? (
+                <div className="rounded-2xl border p-6 text-center text-sm text-muted-foreground">
+                  Loading the marketplace directory…
+                </div>
+              ) : listings.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  Nothing on the market yet. In the <span className="font-medium text-foreground">Owner</span>{" "}
-                  tab, set a section to <span className="font-medium text-foreground">Available</span> and it
-                  will list here to buy.
+                  Nothing on the market yet. When other people set a section to{" "}
+                  <span className="font-medium text-foreground">Available</span>, their anonymized slice
+                  lists here to request.
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {availableSections.map((section) => (
-                    <div key={section.key} className="flex flex-col rounded-2xl border p-5">
+                  {listings.map((listing) => (
+                    <div key={listing.listingId} className="flex flex-col rounded-2xl border p-5">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                           available
                         </span>
-                        <span className="text-xs text-muted-foreground">{section.domainTitle}</span>
+                        <span className="text-xs text-muted-foreground">{listing.domainTitle}</span>
                       </div>
-                      <div className="mt-2 text-lg font-semibold">{section.permission.label}</div>
+                      <div className="mt-2 text-lg font-semibold">{listing.label}</div>
                       <div className="mt-0.5 text-sm text-muted-foreground">
-                        {attributeCountFor(section.manifest, section.permission.scopeHandle)} attribute
-                        {attributeCountFor(section.manifest, section.permission.scopeHandle) === 1 ? "" : "s"}{" "}
-                        · safe summary
+                        {listing.attributeCount} attribute{listing.attributeCount === 1 ? "" : "s"} · safe
+                        summary · seller{" "}
+                        <span className="font-mono text-xs">{listing.ownerRef}</span>
                       </div>
-                      <div className="mt-4 border-t pt-4">
-                        <PriceLine input={priceInput(section)} token={token} showMath />
+                      <div className="mt-4 flex items-center justify-between gap-3 border-t pt-4">
+                        <div className="text-2xl font-semibold tracking-tight">
+                          {formatCents(listing.suggestedPriceCents, listing.currency)}{" "}
+                          <span className="text-sm font-medium text-muted-foreground">/ 30 days</span>
+                        </div>
                       </div>
                       <Button
                         type="button"
@@ -1002,21 +1031,13 @@ export default function OneMarketplacePage() {
                         variant="none"
                         effect="fade"
                         className="mt-4 self-start"
-                        onClick={() => setPurchaseSection(section)}
+                        onClick={() => setRequestListing(listing)}
                       >
-                        Purchase 30-day access
+                        Request 30-day access
                       </Button>
-                      <PreviewToggle
-                        columnsOnly
-                        userId={user?.uid}
-                        vaultKey={vaultKey}
-                        token={token}
-                        domainKey={section.domainKey}
-                        domainTitle={section.domainTitle}
-                        topLevelScopePath={section.permission.topLevelScopePath}
-                        label={section.permission.label}
-                        description={section.permission.description}
-                      />
+                      {listing.preview ? (
+                        <ListingPreviewToggle presentation={listing.preview} />
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -1154,28 +1175,28 @@ export default function OneMarketplacePage() {
         </>
       )}
 
-      {/* PURCHASE CONFIRM MODAL */}
-      {purchaseSection ? (
+      {/* REQUEST ACCESS CONFIRM MODAL — real cross-account request */}
+      {requestListing ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setPurchaseSection(null);
+            if (e.target === e.currentTarget) setRequestListing(null);
           }}
         >
           <div className="w-full max-w-md rounded-2xl border bg-background p-6 shadow-xl">
             <div className="text-lg font-semibold">
-              Purchase — {purchaseSection.permission.label}
+              Request access — {requestListing.label}
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              You’re buying <span className="font-medium text-foreground">30-day scoped access</span> to the
-              safe summary of{" "}
-              <span className="font-medium text-foreground">{purchaseSection.permission.label}</span>. This
-              files a request the owner must approve — nothing is shared until they say yes.
+              You’re requesting <span className="font-medium text-foreground">30-day scoped access</span> to
+              the safe summary of{" "}
+              <span className="font-medium text-foreground">{requestListing.label}</span> from seller{" "}
+              <span className="font-mono text-xs">{requestListing.ownerRef}</span>. This files a request the
+              owner must approve — nothing is shared until they say yes.
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              Consent-first by design. The request appears under{" "}
-              <span className="font-medium text-foreground">Flow &amp; requests</span>. No money moves —
-              payment settlement is a later phase.
+              Consent-first by design. The request lands in the owner’s inbox. No money moves — payment
+              settlement is a later phase.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <Button
@@ -1183,11 +1204,17 @@ export default function OneMarketplacePage() {
                 size="sm"
                 variant="none"
                 effect="fade"
-                onClick={() => setPurchaseSection(null)}
+                onClick={() => setRequestListing(null)}
               >
                 Cancel
               </Button>
-              <Button type="button" size="sm" variant="none" effect="fade" onClick={confirmPurchase}>
+              <Button
+                type="button"
+                size="sm"
+                variant="none"
+                effect="fade"
+                onClick={confirmRequestListing}
+              >
                 Confirm request
               </Button>
             </div>

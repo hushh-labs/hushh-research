@@ -150,8 +150,38 @@ Codex supports project-scoped custom agents under `.codex/agents/`. In this repo
 7. Repo-level fan-out stays capped in `.codex/config.toml`:
    - `max_threads = 6`
    - `max_depth = 1`
-8. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
-9. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+8. The effective-spawn budget is lower than the hard cap: count known open child threads, reserve one thread for recovery or synthesis, and spawn only the remaining safe lanes.
+9. Default to two read-only evidence lanes per wave. Use more only after stale child threads are closed and the task is genuinely cross-domain.
+10. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
+11. Apply the close freeze circuit breaker: if `close_agent` hangs, freezes, or is interrupted in the current turn, stop all further close/spawn attempts, treat live child state as saturated, continue locally, and report the host-management gap.
+12. If a child result is truncated or too large, ask that child for a compact handoff instead of waiting again.
+13. Compute the static guardrail with:
+
+```bash
+python3 .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py --requested-lanes 2
+```
+
+14. After a close freeze, prove the local fallback with:
+
+```bash
+python3 .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py --open-agents 6 --requested-lanes 2 --close-hung
+```
+
+15. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
+16. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+17. Repo custom agents inherit the Principal Craft Kernel from `AGENTS.md`; TOML prompts should add role-specific taste and evidence focus without duplicating the full personalization block.
+
+### Subagent close freeze RCA
+
+Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.codex/config.toml` correctly caps threads at six with depth one, and local validation passes.
+
+Operational conclusion:
+
+1. Do not retry `close_agent` after one hang in the same turn.
+2. Do not attempt bulk close or repeated wait/close loops to free capacity.
+3. Treat the session as saturated and perform the evidence pass locally.
+4. Use `subagent_budget.py --close-hung` to record that no further spawning is safe.
+5. If read-only specialist evidence is still needed, resume in a fresh Codex host session or after the platform exposes reliable close/timeouts.
 
 ## How to verify the servers are working
 
@@ -227,6 +257,15 @@ Run the audit only after `HUSHH_FOUNDER_WIKI_MCP_TOKEN` is already present in th
 ## Developer instructions
 
 When working in this repo:
+
+Operator precedence:
+
+1. `AGENTS.md` defines repo-wide policy and hard gates.
+2. `./bin/hushh codex route-task <workflow-id>` is the executable route for recurring workflows.
+3. `workflow.json` defines required reads, checks, handoff chain, and deliverables.
+4. `SKILL.md` defines the lane procedure and ownership boundary.
+5. Architecture docs define domain truth when they match current code, generated contracts, and tests.
+6. Historical, migration, and planning docs are context only unless they explicitly say they are current canonical references.
 
 1. Use `shadcn` MCP before adding or modifying registry-backed UI components.
 2. Use `plaid` MCP before guessing on Plaid flows, sandbox behavior, webhooks, or OAuth.

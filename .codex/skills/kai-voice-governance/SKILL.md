@@ -1,14 +1,14 @@
 ---
 name: kai-voice-governance
-description: Use when changing Kai voice capability authoring, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.
+description: Use when changing One Voice capability authoring, Kai compatibility runtime contracts, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.
 ---
 
-# Kai Voice Governance Skill
+# One Voice Governance Skill
 
 ## Purpose and Trigger
 
 - Primary scope: `kai-voice-governance`
-- Trigger on Kai voice capability authoring, generated gateway changes, typed-search and voice parity, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
+- Trigger on One Voice capability authoring, Kai compatibility runtime changes, generated gateway changes, typed-search and voice parity, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
 - Avoid overlap with `frontend`, `backend-api-contracts`, and `vault-pkm-governance`.
 
 ## Coverage and Ownership
@@ -20,15 +20,17 @@ Owned repo surfaces:
 
 1. `contracts/kai`
 2. `consent-protocol/hushh_mcp/services/voice_action_manifest.py`
-3. `docs/reference/kai`
-4. `hushh-webapp/lib/voice`
-5. `hushh-webapp/scripts/voice`
-6. `hushh-webapp/components/kai`
-7. `hushh-webapp/components/consent`
-8. `hushh-webapp/app/kai`
-9. `hushh-webapp/app/profile`
-10. `hushh-webapp/app/ria`
-11. `.codex/skills/kai-voice-governance`
+3. `docs/reference/one/one-voice-runtime-architecture.md`
+4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
+5. `docs/reference/kai`
+6. `hushh-webapp/lib/voice`
+7. `hushh-webapp/scripts/voice`
+8. `hushh-webapp/components/kai`
+9. `hushh-webapp/components/consent`
+10. `hushh-webapp/app/kai`
+11. `hushh-webapp/app/profile`
+12. `hushh-webapp/app/ria`
+13. `.codex/skills/kai-voice-governance`
 
 Non-owned surfaces:
 
@@ -47,14 +49,16 @@ Non-owned surfaces:
 ## Do Not Use
 
 1. Generic frontend layout or backend route work without voice/search/action impact.
-2. Generic docs cleanup without Kai voice ownership implications.
+2. Generic docs cleanup without voice/action ownership implications.
 3. Security intake where IAM or consent policy is primary.
 
 ## Read First
 
 1. `docs/reference/kai/kai-action-gateway-vnext.md`
-2. `docs/reference/kai/kai-voice-runtime-architecture.md`
-3. `.codex/skills/kai-voice-governance/references/voice-review-checklist.md`
+2. `docs/reference/one/one-voice-runtime-architecture.md`
+3. `docs/reference/one/one-agent-hierarchy.md`
+4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
+5. `.codex/skills/kai-voice-governance/references/voice-review-checklist.md`
 
 ## Workflow
 
@@ -62,11 +66,14 @@ Non-owned surfaces:
 2. Keep the generated gateway as semantic authority and the manifest as compatibility artifact.
 3. Reuse stable `action_id` values across voice, search, UI actionables, analytics, and docs.
 4. Do not add capabilities through runtime heuristics, ad hoc DOM discovery, or parallel voice systems.
-5. Author workflows only when the UI can move through the same prerequisite chain with settlement between steps.
-6. Treat persona, workspace, vault, consent, onboarding, rollout, and kill-switch gates as hard preconditions.
-7. Keep short-term memory in-memory only and durable memory vault-gated, client-side encrypted, and out of plaintext storage.
-8. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
-9. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
+5. Treat One Voice as the product-facing voice contract; keep Kai-era voice routes as compatibility/runtime identifiers until explicitly migrated.
+6. Author workflows only when the UI can move through the same prerequisite chain with settlement between steps.
+7. Treat persona, workspace, vault, consent, onboarding, rollout, and kill-switch gates as hard preconditions.
+8. Keep short-term memory in-memory only and durable memory vault-gated, client-side encrypted, and out of plaintext storage.
+9. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
+10. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
+11. Route changes that affect any voice-reachable screen must update `deriveVoiceRouteScreen`, local `.voice-action-contract.json` reachability/targets, generated gateway artifacts, typed-search parity, and One Voice context snapshot expectations in the same change.
+12. Keep legacy query route inputs as compatibility only. Generated `route.*` actions should target canonical nested routes unless the action intentionally opens a canonical One capability route.
 
 ## Handoff Rules
 

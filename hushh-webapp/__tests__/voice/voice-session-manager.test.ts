@@ -9,6 +9,7 @@ let clientConnected = false;
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     createKaiRealtimeSession: (...args: unknown[]) => createKaiRealtimeSessionMock(...args),
+    createOneVoiceSession: (...args: unknown[]) => createKaiRealtimeSessionMock(...args),
   },
 }));
 

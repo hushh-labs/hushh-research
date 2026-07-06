@@ -9,6 +9,8 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     planKaiVoiceIntent: (...args: unknown[]) => planKaiVoiceIntentMock(...args),
     composeKaiVoiceReply: (...args: unknown[]) => composeKaiVoiceReplyMock(...args),
+    planOneVoiceIntent: (...args: unknown[]) => planKaiVoiceIntentMock(...args),
+    composeOneVoiceReply: (...args: unknown[]) => composeKaiVoiceReplyMock(...args),
   },
 }));
 

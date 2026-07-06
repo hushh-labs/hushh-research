@@ -92,7 +92,7 @@ This spec is grounded in the checked-in docs and runtime contracts, especially:
 - [../architecture/architecture.md](../architecture/architecture.md)
 - [../iam/architecture.md](../iam/architecture.md)
 - [./kai-interconnection-map.md](./kai-interconnection-map.md)
-- [./kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md)
+- [../one/one-voice-kai-compatibility-runtime.md](../one/one-voice-kai-compatibility-runtime.md)
 - [./kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md)
 - [./kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md)
 - [./kai-accuracy-contract.md](./kai-accuracy-contract.md)
@@ -185,7 +185,7 @@ Plaid tokens do not live in the PKM, and the active portfolio source determines 
 
 ## Voice, Search, And Action Architecture
 
-Kai voice is an in-app assistant runtime, not a separate external assistant. Until the One/Nav migration lands, it remains the current checked-in assistant runtime for finance and adjacent app actions.
+One Voice is the product-facing voice surface. The checked-in implementation still uses the Kai-era compatibility runtime for finance and adjacent app actions until the One-owned migration is complete.
 
 The current actionability model is contract-first:
 
@@ -208,7 +208,7 @@ Current runtime loop:
 
 Important current constraints:
 
-- Kai voice is English-only: STT/realtime transcription are pinned to `en`, planner/composer prompts require English-only responses, and TTS receives English-only speech instructions.
+- The compatibility runtime is English-only: STT/realtime transcription are pinned to `en`, planner/composer prompts require English-only responses, and TTS receives English-only speech instructions.
 - runtime metadata describes current screen state, not capability existence
 - transcript heuristics are compatibility fallback, not the desired authority plane
 - durable voice memory remains encrypted and vault-gated
@@ -292,7 +292,7 @@ What the repo does implement today is narrower but real:
 
 - [README.md](./README.md)
 - [kai-interconnection-map.md](./kai-interconnection-map.md)
-- [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md)
+- [one-voice-kai-compatibility-runtime.md](../one/one-voice-kai-compatibility-runtime.md)
 - [kai-action-gateway-vnext.md](./kai-action-gateway-vnext.md)
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md)
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md)

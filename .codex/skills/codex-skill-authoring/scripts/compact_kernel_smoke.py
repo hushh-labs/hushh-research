@@ -33,22 +33,22 @@ def main() -> int:
             lint.compact_kernel_budget_errors(
                 origin="fixture-owner",
                 role="owner",
-                skill_lines=lint.MASTER_SKILL_MAX_LINES,
+                skill_lines=lint.OWNER_SKILL_MAX_LINES,
                 read_first_count=lint.READ_FIRST_MAX_ITEMS,
                 required_check_count=lint.REQUIRED_CHECKS_MAX_COMMANDS,
             ),
             None,
         ),
         (
-            "master line budget fail",
+            "owner line budget fail",
             lint.compact_kernel_budget_errors(
                 origin="fixture-owner",
                 role="owner",
-                skill_lines=lint.MASTER_SKILL_MAX_LINES + 1,
+                skill_lines=lint.OWNER_SKILL_MAX_LINES + 1,
                 read_first_count=1,
                 required_check_count=1,
             ),
-            "master compact-kernel budget exceeded",
+            "owner compact-kernel budget exceeded",
         ),
         (
             "spoke line budget fail",

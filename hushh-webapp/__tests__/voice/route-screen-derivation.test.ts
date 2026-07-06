@@ -83,9 +83,21 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_gmail_panel",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/profile/gmail/actions")).toEqual({
+      screen: "profile_gmail_panel",
+      subview: "actions",
+    });
     expect(deriveVoiceRouteScreen("/profile?tab=account&panel=support")).toEqual({
       screen: "profile_support_panel",
       subview: "account",
+    });
+    expect(deriveVoiceRouteScreen("/profile/support/routing")).toEqual({
+      screen: "profile_support_panel",
+      subview: "routing",
+    });
+    expect(deriveVoiceRouteScreen("/profile/security/vault")).toEqual({
+      screen: "profile_security_panel",
+      subview: "vault",
     });
     expect(deriveVoiceRouteScreen("/one/kai/investments")).toEqual({
       screen: "kai_investments",

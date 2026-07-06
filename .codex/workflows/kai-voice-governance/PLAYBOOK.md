@@ -1,10 +1,10 @@
-# Kai Voice Governance
+# One Voice Governance
 
 Use this workflow pack when the task matches `kai-voice-governance`.
 
 ## Goal
 
-Keep Kai voice, typed search, UI actionables, persona/workspace gating, and durable memory boundaries aligned through one generated action gateway.
+Keep One Voice, Kai runtime compatibility, typed search, UI actionables, persona/workspace gating, and durable memory boundaries aligned through one generated action gateway.
 
 ## Steps
 

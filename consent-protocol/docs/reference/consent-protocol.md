@@ -97,6 +97,17 @@ Hussh Approach  ✅  if (validateToken(VAULT_OWNER)) { allow(); }
 
 **Key Principle**: VAULT_OWNER token proves both identity AND consent. Firebase is ONLY used to bootstrap the VAULT_OWNER token issuance.
 
+### Delegated-Agent Boundary
+
+The consent protocol has multiple delegated-agent mechanisms. They are related, but not interchangeable:
+
+1. External MCP agents use scoped consent plus encrypted scoped exports. Hosted MCP returns ciphertext and wrapped key metadata, not plaintext user data.
+2. Agent One A2A uses `X-Consent-Token` scoped `agent.one.orchestrate` and developer-principal checks before routing intent.
+3. Specialist A2A gates validate their own specialist scopes.
+4. TrustLinks are signed A2A delegation proofs. They do not replace consent tokens or encrypted exports; session-bound TrustLinks should be verified with the server-derived session id when replay protection is required.
+
+Cross-cutting contract: [docs/reference/iam/agent-delegation-boundary.md](../../../docs/reference/iam/agent-delegation-boundary.md).
+
 ### Automated Test Token Policy
 
 - Automated test suites must use fixture-issued tokens from `consent-protocol/tests/conftest.py`.
@@ -341,10 +352,13 @@ fun chat(call: PluginCall) {
 | **PKM** | `pkm.read` | Read PKM attributes |
 | | `pkm.write` | Write PKM attributes |
 | | `pkm.metadata` | Access PKM metadata |
+| **Agent One** | `agent.one.orchestrate` | Coordinate user intent and specialist handoff framing |
 | **Agent Kai** | `agent.kai.analyze` | Run Kai analysis pipelines |
 | | `agent.kai.debate` | Run Kai debate/reasoning |
 | | `agent.kai.infer` | Run Kai inference |
 | | `agent.kai.chat` | Kai chat interactions |
+| **Agent Nav** | `agent.nav.review` | Review consent, privacy, vault, and scope decisions |
+| **Agent KYC** | `agent.kyc.process` | Process identity workflow requirements inside the granted scope |
 | **External** | `external.sec.filings` | Access SEC filing data |
 | | `external.news.api` | Access news API data |
 | | `external.market.data` | Access market data feeds |

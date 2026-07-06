@@ -61,7 +61,7 @@ __all__ = [
     "handle_list_marketplace_investors",
     "handle_get_ria_verification_status",
     "handle_get_ria_client_access_summary",
-    # Kai voice actions
+    # Kai compatibility voice actions
     "handle_kai_analyze_stock",
     "handle_kai_open_dashboard",
     "handle_kai_open_import",

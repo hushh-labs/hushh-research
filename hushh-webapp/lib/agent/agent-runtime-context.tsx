@@ -35,6 +35,10 @@ import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import {
+  buildOneVoiceContextSnapshot,
+  type OneVoiceContextSnapshot,
+} from "@/lib/voice/screen-context-builder";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -71,6 +75,8 @@ export type AgentRuntimeState = {
   activePersona: Persona;
   /** Normalized current screen id derived from the route. */
   screen: string;
+  /** Redacted One Voice snapshot safe for realtime prompt shaping. */
+  oneVoiceContextSnapshot: OneVoiceContextSnapshot;
 };
 
 const AgentRuntimeStateContext = createContext<AgentRuntimeState | null>(null);
@@ -118,14 +124,41 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     if (typeof window === "undefined") {
       return;
     }
-    const sync = () => {
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    let syncTimer: number | null = null;
+    const syncNow = () => {
       const search = window.location.search;
       setRouteQuery(search.startsWith("?") ? search.slice(1) : search);
     };
-    sync();
-    window.addEventListener("popstate", sync);
+    const scheduleSync = () => {
+      if (syncTimer !== null) {
+        window.clearTimeout(syncTimer);
+      }
+      syncTimer = window.setTimeout(() => {
+        syncTimer = null;
+        syncNow();
+      }, 0);
+    };
+    window.history.pushState = ((...args) => {
+      const result = originalPushState.apply(window.history, args);
+      scheduleSync();
+      return result;
+    }) as History["pushState"];
+    window.history.replaceState = ((...args) => {
+      const result = originalReplaceState.apply(window.history, args);
+      scheduleSync();
+      return result;
+    }) as History["replaceState"];
+    syncNow();
+    window.addEventListener("popstate", scheduleSync);
     return () => {
-      window.removeEventListener("popstate", sync);
+      if (syncTimer !== null) {
+        window.clearTimeout(syncTimer);
+      }
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      window.removeEventListener("popstate", scheduleSync);
     };
   }, [pathname]);
   const { user } = useAuth();
@@ -146,6 +179,8 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
 
   const voiceActive = useAgentVoiceState((state) => state.active);
   const voiceStatus = useAgentVoiceState((state) => state.status);
+  const oneVoiceState = useAgentVoiceState((state) => state.oneVoiceState);
+  const lastVoiceTransition = useAgentVoiceState((state) => state.lastTransition);
 
   const uid = user?.uid ?? null;
   const signedIn = Boolean(uid);
@@ -281,15 +316,23 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   );
 
   const value = useMemo<AgentRuntimeState>(
-    () => ({
-      appRuntimeState,
-      tier,
-      onboardingActive,
-      isHomeRoute,
-      hasVaultAccess,
-      activePersona,
-      screen: routeInfo.screen,
-    }),
+    () => {
+      const oneVoiceContextSnapshot = buildOneVoiceContextSnapshot({
+        appRuntimeState,
+        state: oneVoiceState,
+        lastTransition: lastVoiceTransition,
+      });
+      return {
+        appRuntimeState,
+        tier,
+        onboardingActive,
+        isHomeRoute,
+        hasVaultAccess,
+        activePersona,
+        screen: routeInfo.screen,
+        oneVoiceContextSnapshot,
+      };
+    },
     [
       appRuntimeState,
       tier,
@@ -297,6 +340,8 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       isHomeRoute,
       hasVaultAccess,
       activePersona,
+      lastVoiceTransition,
+      oneVoiceState,
       routeInfo.screen,
     ]
   );

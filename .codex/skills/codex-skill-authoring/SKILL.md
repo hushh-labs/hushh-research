@@ -55,11 +55,13 @@ Non-owned surfaces:
 7. Keep blocking versus advisory skill drift explicit. Only owner/workflow drift that weakens runtime, deploy, release, or test authority should block the core loop; metadata-only drift should stay advisory.
 8. When PR governance comment templates change, enforce them through `skill_lint.py` so stale public-comment headings such as `Acknowledgment`, `Verification`, or maintainer-only `Next` do not re-enter generated templates.
 9. Keep recurring SOPs short in skills and route durable detail to canonical docs or workflow packs. Skills should point to `runtime-db-fact-sheet.md`, the data-plane contract, or a workflow playbook rather than duplicating long table inventories.
-10. Treat compact-kernel lint findings as blocking; report owner lanes as `master <skill-id>` while keeping manifest role `owner`.
+10. Treat compact-kernel lint findings as blocking; report owner lanes as `owner <skill-id>` so the human-facing label matches the manifest role.
 11. Enforce the truth-first operating kernel through deterministic smoke fixtures so skills, workflows, and agents do not slide back into blind premise acceptance.
 12. For industry-grade skills, prefer a compact operating kernel in `SKILL.md` plus focused `references/` files for detailed gates, templates, and calibration rules. Do not let incident-specific fixes accumulate as repeated inline SOP unless they belong in deterministic scripts or a focused reference.
 13. When retrofitting a skill, scan the full skill body for duplicated rules, stale historical examples, and oversized decision trees. Keep the main skill procedural; move reusable detail into references and executable logic into scripts.
 14. When a skill asks planning or operator questions, require research-backed question shape from the truth-first kernel: current truth, recommended path, risk if accepted blindly, decision needed, and recommended option first.
+15. When skill or workflow changes alter docs homes, route through `docs-governance` and the `docs/reference/README.md` classification model instead of inventing a parallel docs taxonomy.
+16. When route governance changes alter required reads or checks, update the owning frontend, cache, voice, mobile, docs, and surface-map skills together so future agents see the same route contract cascade.
 
 ## Handoff Rules
 

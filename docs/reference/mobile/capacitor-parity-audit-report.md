@@ -38,7 +38,7 @@ Current tracked evidence blockers:
 The repo now hard-fails when:
 
 - the canonical app route contract in `hushh-webapp/lib/navigation/routes.ts` drifts from the docs/runtime contract
-- native microphone permission metadata is missing while Kai voice uses `getUserMedia({ audio: true })`
+- native microphone permission metadata is missing while One Voice/Kai compatibility uses `getUserMedia({ audio: true })`
 - native route inventory omits a `ROUTES` entry or leaves a legacy route unclassified
 - iOS or Android route reports are stale against the current native-required route inventory
 - an `ok: true` route report result lacks `ready=1`, `found=1`, expected marker, route match, auth match, or allowed data state

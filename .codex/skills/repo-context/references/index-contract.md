@@ -29,8 +29,9 @@ Use the repo context index as a progressive-disclosure router, workflow engine, 
 Returns:
 
 1. docs homes
-2. root and domain indexes
-3. owner/spoke routing for documentation work
+2. the `docs/reference/README.md` current-truth hub and classification model
+3. root, future, Superpowers, and package-local indexes
+4. owner/spoke routing for documentation work
 
 ### `section frontend`
 

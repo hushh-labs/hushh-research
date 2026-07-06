@@ -136,7 +136,7 @@ The Profile page is the canonical settings implementation for the app.
 Reference:
 
 1. `hushh-webapp/components/app-ui/settings-ui.tsx`
-2. `hushh-webapp/app/profile/page.tsx`
+2. `hushh-webapp/app/profile/profile-workspace-page.tsx`
 3. [Profile Settings Design System](./profile-settings-design-system.md)
 4. [App Surface Design System](./app-surface-design-system.md)
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)

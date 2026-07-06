@@ -1,6 +1,6 @@
 # Kai Action Gateway vNext
 
-Status: canonical capability-authoring reference for Kai voice, typed search, UI actionables, and planner grounding.
+Status: canonical capability-authoring reference for One Voice/Kai compatibility, typed search, UI actionables, and planner grounding.
 
 ## Visual Map
 
@@ -25,11 +25,11 @@ flowchart TD
 
 ## Purpose
 
-Kai now uses one generated action plane instead of hand-maintained voice maps spread across multiple files.
+One Voice and Kai compatibility now use one generated action plane instead of hand-maintained voice maps spread across multiple files.
 
 This document defines:
 
-- how a Kai capability becomes discoverable
+- how a One Voice or Kai-specialist capability becomes discoverable
 - where contributors author the capability contract
 - how voice, search, UI actionables, analytics, and docs share the same action identity
 - how persona, workspace, vault, consent, and onboarding constraints are enforced centrally
@@ -50,11 +50,12 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 20 source contracts and 79 actions. Source contracts:
+Current generated coverage includes 21 source contracts, 21 surfaces, and 82 actions. Source contracts:
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json)
 - [page-client.voice-action-contract.json](../../../hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kyc/page.voice-action-contract.json)
+- [page.voice-action-contract.json](../../../hushh-webapp/app/one/marketplace/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/profile/page.voice-action-contract.json)
 - [page-client.voice-action-contract.json](../../../hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/gmail/page.voice-action-contract.json)
@@ -265,7 +266,7 @@ Contributors should wire UI controls with stable `control_ids` so both screen co
 
 ## Durable Memory Policy
 
-Kai voice memory follows the Cryptographic Primitives north star:
+One Voice/Kai compatibility memory follows the Cryptographic Primitives north star:
 
 - short-term turn memory stays in-memory only
 - durable voice memory is accessible only when the vault is unlocked
@@ -283,7 +284,7 @@ Secrets, identifiers, documents, statements, tokens, and vault material are reje
 
 ## Contributor Workflow
 
-When adding a new Kai capability that should be discoverable:
+When adding a new One Voice or Kai-specialist capability that should be discoverable:
 
 1. Add or update the local `.voice-action-contract.json` next to the surface.
 2. Reuse or mint one stable `action_id`.
@@ -334,5 +335,5 @@ cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q
 
 ## Related References
 
-- [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md)
-- [kai-voice-assistant-architecture.md](./kai-voice-assistant-architecture.md)
+- [one-voice-kai-compatibility-runtime.md](../one/one-voice-kai-compatibility-runtime.md)
+- [../one/one-voice-runtime-architecture.md](../one/one-voice-runtime-architecture.md)

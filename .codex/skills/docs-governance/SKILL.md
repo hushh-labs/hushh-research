@@ -30,7 +30,7 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Deciding where maintained docs belong across the three canonical docs homes.
+1. Deciding where maintained docs belong across the canonical docs homes and the `docs/superpowers/` planning archive.
 2. Merging, deleting, or downgrading redundant docs and updating inbound links in the same change.
 3. Updating docs maps, diagram ownership, or docs verification/governance rules.
 
@@ -44,30 +44,34 @@ Non-owned surfaces:
 
 1. `docs/reference/operations/documentation-architecture-map.md`
 2. `docs/reference/operations/docs-governance.md`
-3. `docs/reference/operations/brand-and-compatibility-contract.md`
-4. `.codex/skills/docs-governance/references/documentation-homes.md`
+3. `docs/reference/README.md`
+4. `docs/reference/operations/documentation-recursive-knowledge-model.md`
+5. `docs/reference/operations/brand-and-compatibility-contract.md`
+6. `.codex/skills/docs-governance/references/documentation-homes.md`
 
 ## Workflow
 
-1. Classify each touched doc as canonical, pointer/index, merge into canonical, or delete.
+1. Classify each touched doc as `canonical`, `pointer/index`, `future-plan`, `planning-archive`, `historical-provenance`, `merge-then-delete`, or `delete`.
 2. Choose the correct docs home before editing content.
-3. Keep root docs thin and package-specific docs package-local.
-4. Update diagrams, inbound links, and verification references in the same change when a canonical doc changes.
-5. For contributor and setup docs, keep one blessed monorepo path and one aligned standalone upstream path; do not let legacy bootstrap instructions coexist.
-6. For command docs, verify the documented command against the real CLI or script surface after editing, then rerun docs verification once more from the canonical repo entrypoint.
-7. For founder-facing artifacts, route to `founder-brief-curation` and use its cadence reference instead of loading founder-only rules for ordinary docs sync.
-8. Route founder or board-facing shared briefs, architecture PDFs, and paper-style founder artifacts to `founder-brief-curation` after docs-home scope is clear.
-9. Keep public prose on the Hussh brand while preserving exact compatibility identifiers such as `./bin/hushh`, `hushh-webapp`, and `@hushh/mcp`.
-10. Treat diagram quality and shareable-link hygiene as blocking issues for shared artifacts, not optional polish.
-11. Enforce current-state versus future-state wording for the Hussh / One / Kai / Nav / KYC ontology:
+3. For recursive restructures, run the folder inventory and split only when a bounded subtopic has its own owner, lifecycle, or workflow.
+4. Keep root docs thin and package-specific docs package-local.
+5. Update diagrams, inbound links, and verification references in the same change when a canonical doc changes.
+6. Keep `docs/superpowers/` limited to active scoped agentic plans and design snapshots; promote durable implementation truth into `docs/reference/`, `consent-protocol/docs/`, or `hushh-webapp/docs/`, then delete superseded date-stamped artifacts.
+6. For contributor and setup docs, keep one blessed monorepo path and one aligned standalone upstream path; do not let legacy bootstrap instructions coexist.
+7. For command docs, verify the documented command against the real CLI or script surface after editing, then rerun docs verification once more from the canonical repo entrypoint.
+8. For founder-facing artifacts, route to `founder-brief-curation` and use its cadence reference instead of loading founder-only rules for ordinary docs sync.
+9. Route founder or board-facing shared briefs, architecture PDFs, and paper-style founder artifacts to `founder-brief-curation` after docs-home scope is clear.
+10. Keep public prose on the Hussh brand while preserving exact compatibility identifiers such as `./bin/hushh`, `hushh-webapp`, and `@hushh/mcp`.
+11. Treat diagram quality and shareable-link hygiene as blocking issues for shared artifacts, not optional polish.
+12. Enforce current-state versus future-state wording for the Hussh / One / Kai / Nav / KYC ontology:
     - Hussh is platform, trust model, and infrastructure.
     - One is approved top personal-agent direction unless a checked-in runtime surface proves current implementation.
     - Kai is the current finance specialist, not the platform-level identity.
     - Nav is reserved for privacy, consent, vault, deletion, and scope-review language, not ordinary navigation.
     - KYC is a bounded identity/KYC workflow specialist under One, not a second top-level app or broad email agent.
-12. Keep navigation action ids under `route.*` in docs. Treat `nav.*` as valid only for true Nav guardian capabilities or clearly marked future-roadmap prose.
-13. Do not introduce celebrity voice references or personal numeric preferences into canonical docs.
-14. Normalize founder draft language before promoting it into canonical docs:
+13. Keep navigation action ids under `route.*` in docs. Treat `nav.*` as valid only for true Nav guardian capabilities or clearly marked future-roadmap prose.
+14. Do not introduce celebrity voice references or personal numeric preferences into canonical docs.
+15. Normalize founder draft language before promoting it into canonical docs:
     - approved: `Hussh is the platform and trust infrastructure. One is the personal agent.`
     - approved: `One listens, remembers, decides, and acts under consent.`
     - approved: `Kai is the finance specialist One summons.`
@@ -76,10 +80,11 @@ Non-owned surfaces:
     - retired: `Hussh is your personal MCP server and AI agent.`
     - retired: `One has two faces.`
     - retired: `Kai is the One who remembers.`
-15. Treat `hu_ssh` and `SSH for humans` as secondary founder metaphors only. Keep `Human Secure Socket Host` as the canonical architecture expansion.
-16. Keep strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private action receipts in `docs/future/` until implementation docs and tests prove them.
-17. For data-model docs, distinguish encrypted PKM memory from provider caches, workflow state, audit metadata, reference data, and analytics warehouse truth. Provider/cache tables are not durable user memory unless a consented encrypted PKM write makes them so.
-18. Treat long-doc findings as navigation prompts, not automatic split orders. Add subfolders or child docs only when a bounded subtopic has its own owner, lifecycle, or reusable entrypoint.
+16. Treat `hu_ssh` and `SSH for humans` as secondary founder metaphors only. Keep `Human Secure Socket Host` as the canonical architecture expansion.
+17. Keep strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private action receipts in `docs/future/` until implementation docs and tests prove them.
+18. For data-model docs, distinguish encrypted PKM memory from provider caches, workflow state, audit metadata, reference data, and analytics warehouse truth. Provider/cache tables are not durable user memory unless a consented encrypted PKM write makes them so.
+19. Treat long-doc findings as navigation prompts, not automatic split orders. Add subfolders or child docs only when a bounded subtopic has its own owner, lifecycle, or reusable entrypoint.
+20. Route documentation updates must follow the route contract cascade: route contracts, frontend/native surface map docs, cache coherence, One Voice, mobile parity, and owning skill reads/checks must agree before calling a route change documented.
 
 ## Handoff Rules
 
@@ -95,4 +100,6 @@ Non-owned surfaces:
 ```bash
 ./bin/hushh docs verify
 python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a
+python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates
+python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders
 ```

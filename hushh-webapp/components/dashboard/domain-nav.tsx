@@ -1,4 +1,4 @@
-// Domain nav: Kai-first; additional domains can be driven by PersonalKnowledgeModelService.listDomains() when needed.
+// Domain nav: finance-domain first; additional domains can be driven by PersonalKnowledgeModelService.listDomains() when needed.
 
 "use client";
 

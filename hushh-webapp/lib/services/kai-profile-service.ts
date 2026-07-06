@@ -522,9 +522,9 @@ export function resolveKaiOnboardingCompletion(
   profile: KaiProfileV2 | null | undefined
 ): KaiSetupCompletion {
   return {
-    completed: profile?.setup.completed === true,
-    completedAt: profile?.setup.completed_at ?? null,
-    skippedPreferences: profile?.setup.skipped_preferences === true,
+    completed: profile?.setup?.completed === true,
+    completedAt: profile?.setup?.completed_at ?? null,
+    skippedPreferences: profile?.setup?.skipped_preferences === true,
   };
 }
 

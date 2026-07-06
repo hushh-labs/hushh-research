@@ -166,13 +166,13 @@ describe("composeVoiceSpeechAfterExecution", () => {
         route_after: null,
         screen_before: "profile",
         screen_after: null,
-        result_summary: "Unlock the vault before using this Kai voice action.",
+        result_summary: "Unlock the vault before using this One Voice action.",
       },
       plannerFinalText: "Opening Gmail.",
     });
 
     expect(speech).toEqual({
-      text: "Unlock the vault before using this Kai voice action.",
+      text: "Unlock the vault before using this One Voice action.",
       segmentType: "final",
     });
   });

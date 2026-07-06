@@ -58,9 +58,11 @@ Current policy keeps the full visible app surface in scope, including:
 
 Current inventory policy:
 
-- 36 routes are native-required and must pass on iOS and Android.
+- 76 routes are native-required and must pass on iOS and Android.
 - 3 routes are explicit web-only exclusions: `/developers`, `/labs/profile-appearance`, `/profile/pkm-agent-lab`.
 - New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
+
+Nested route families are classified explicitly even when they render through a shared web workspace. The profile family uses `/profile/<panel>` routes with the shared `native-route-profile` marker; dynamic detail identifiers remain query-backed fixtures in `native-route-inventory.json` so Capacitor static export does not require unbounded dynamic paths.
 
 ## Browser API Policy
 
@@ -105,9 +107,19 @@ Parity is also not complete until the native reports are fresh against the curre
 
 - `cd hushh-webapp && npm run ios:test`
 - `cd hushh-webapp && npm run android:test`
+- `cd hushh-webapp && npm run ios:voice:test`
+- `cd hushh-webapp && npm run android:voice:test`
 - `cd hushh-webapp && npm run verify:capacitor:reports`
 
 `verify:capacitor:reports` fails when either platform audits fewer native-required routes than the current inventory, or when an `ok: true` result lacks `ready=1`, `found=1`, the expected marker, route match, auth match, or allowed data state.
+
+`ios:voice:test` and `android:voice:test` run the shared
+`native-one-voice-control-smoke` flow. The flow signs in with the native test
+bridge, opens `/one/kai`, verifies the stable One Voice control hook, starts the
+realtime voice surface, waits for a recognized voice state or simulator-safe
+permission/provider fallback, and ends the active session when possible. These
+tests verify control wiring and recovery; live microphone quality, latency, and
+provider ranking still require device/provider benchmark artifacts.
 
 ## Authentication Provider Parity
 
@@ -115,7 +127,7 @@ Native parity for authenticated flows now includes the verified phone mandate af
 
 - `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
 - `/register-phone` is a contract route even though it bypasses the standard shell.
-- Kai voice surfaces require native microphone permission metadata:
+- One Voice/Kai compatibility surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
 - One Location Agent requires foreground-only location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,

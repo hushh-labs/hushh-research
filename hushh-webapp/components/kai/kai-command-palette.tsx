@@ -413,8 +413,10 @@ export function KaiCommandPalette({
           {!voiceHidden ? (
             <button
               type="button"
-              aria-label={voiceActive ? "End Kai voice" : "Start Kai voice"}
+              aria-label={voiceActive ? "End One Voice" : "Start One Voice"}
               aria-disabled={voiceDisabled}
+              data-native-voice-control-id="one_voice_command_palette_toggle"
+              data-testid="one-voice-command-palette-toggle"
               onClick={onVoiceClick}
               className={cn(
                 "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10",

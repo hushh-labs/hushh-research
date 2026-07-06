@@ -72,7 +72,7 @@ describe("investor-kai-action-registry", () => {
         direct_save: true,
       },
     });
-    expect(pkmCaptureAction?.id).toBe("profile.pkm.preview_capture");
+    expect(pkmCaptureAction?.id).toBe("profile.pkm.save_capture");
     expect(pkmCaptureAction?.wiring.status).toBe("wired");
   });
 
@@ -159,8 +159,8 @@ describe("investor-kai-action-registry", () => {
   it("lists surface-specific actions for Gmail and PKM routes", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
       screen: "profile_gmail_panel",
-      href: "/profile?panel=gmail",
-      pathname: "/profile?panel=gmail",
+      href: "/profile/gmail",
+      pathname: "/profile/gmail",
     }).map((action) => action.id);
 
     expect(gmailActions).toEqual(

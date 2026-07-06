@@ -121,6 +121,7 @@ hushh-webapp/.next-prod/
 hushh-webapp/ios/build/
 hushh-webapp/ios/DerivedData/
 hushh-webapp/ios/App/DerivedData*/
+**/*.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 hushh-webapp/android/.gradle/
 hushh-webapp/android/build/
 hushh-webapp/android/app/build/

@@ -5,12 +5,12 @@ import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumb
 describe("top shell breadcrumbs", () => {
   it("treats consents as the profile privacy workspace by default", () => {
     expect(resolveTopShellBreadcrumb("/consents")).toEqual({
-      backHref: "/profile?panel=access",
+      backHref: "/profile/access",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?panel=access" },
-        { label: "Privacy", href: "/profile?panel=access" },
+        { label: "Profile", href: "/profile/access" },
+        { label: "Privacy", href: "/profile/access" },
         { label: "Consent center" },
       ],
     });
@@ -25,8 +25,8 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?panel=access" },
-        { label: "Privacy", href: "/profile?panel=access" },
+        { label: "Profile", href: "/profile/access" },
+        { label: "Privacy", href: "/profile/access" },
         { label: "Consent center" },
       ],
     });
@@ -111,18 +111,18 @@ describe("top shell breadcrumbs", () => {
 
   it("treats the PKM agent lab as a profile privacy surface", () => {
     expect(resolveTopShellBreadcrumb("/profile/pkm-agent-lab")).toEqual({
-      backHref: "/profile?panel=access",
+      backHref: "/profile/access",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?panel=access" },
-        { label: "Privacy", href: "/profile?panel=access" },
+        { label: "Profile", href: "/profile/access" },
+        { label: "Privacy", href: "/profile/access" },
         { label: "PKM Agent" },
       ],
     });
   });
 
-  it("owns profile query-state panels from the shared top bar", () => {
+  it("owns profile nested and legacy panels from the shared top bar", () => {
     const panelParams = new URLSearchParams();
     panelParams.set("panel", "my-data");
 
@@ -154,12 +154,12 @@ describe("top shell breadcrumbs", () => {
     detailParams.set("detail", "vault");
 
     expect(resolveTopShellBreadcrumb("/profile", detailParams)).toEqual({
-      backHref: "/profile?panel=security",
+      backHref: "/profile/security",
       width: "profile",
       align: "center",
       items: [
         { label: "Profile", href: "/profile" },
-        { label: "Security", href: "/profile?panel=security" },
+        { label: "Security", href: "/profile/security" },
         { label: "Vault methods" },
       ],
     });

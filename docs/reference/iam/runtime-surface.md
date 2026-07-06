@@ -20,7 +20,7 @@ Founder-language note:
 
 - this file documents the runtime side of `Separation of Duties`
 - `Capability Tokens` remain explicit as route-level requirements because the reader needs exact runtime labels
-- `TrustLink / A2A delegation` should be understood as inherited-scope delegation over this same runtime surface, not a second authority system
+- `TrustLink / A2A delegation` should be understood through [Agent Delegation Boundary](./agent-delegation-boundary.md): delegated proof and scoped access share the same IAM model, not a second authority system
 
 ## Runtime Contract
 

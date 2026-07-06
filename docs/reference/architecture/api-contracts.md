@@ -33,7 +33,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | Firebase ID Token     | Identity verification only       | 1 hour   | `Bearer <firebase-id-token>`   |
 | VAULT_OWNER Token     | Consent + identity for all data  | 24 hours | `Bearer <vault-owner-token>`   |
 | Agent Scoped Token    | Delegated MCP agent access       | 7 days   | `Bearer <consent-token>`       |
-| Developer Token       | External API and remote MCP access | N/A    | `?token=<developer-token>`     |
+| Developer Token       | External API and remote MCP access | N/A    | `Bearer <developer-token>` preferred; `?token=` legacy-compatible |
 
 ---
 
@@ -76,7 +76,7 @@ Client surfaces
 | GET | `/api/v1/tool-catalog` | Public-beta or app-filtered tool visibility |
 | GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
-| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered scope (requires `?token=<developer-token>`) |
+| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved static scope such as `agent.one.orchestrate` (requires `?token=<developer-token>`) |
 | POST | `/api/v1/default-available-export` | Read a user-published safe projection for a `default_available` scope; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
@@ -192,6 +192,32 @@ not the product owner for live location.
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, and related events after the retention window |
 
+### Agent One A2A
+
+Agent One exposes a scoped A2A coordination surface. The standard A2A discovery
+endpoint is `/.well-known/agent-card.json`; `/api/one/a2a/card` remains a Hussh
+compatibility alias. Both return manifest-backed metadata. The message endpoint
+has two paths:
+
+1. With `X-Consent-Token`, the caller must also authenticate as the developer
+   app with `Authorization: Bearer <developer-token>`; the consent token is
+   DB-validated for `agent.one.orchestrate`, must belong to that same app, and
+   the route derives `userId` from the signed token. Any mismatched body
+   `userId`, `email`, or `phoneNumber` is rejected before Agent One runs.
+2. Without `X-Consent-Token`, an authenticated developer caller can create or
+   check a pending `agent.one.orchestrate` consent request for a resolved
+   `userId`, `email`, or `phoneNumber`. This path does not execute Agent One
+   and does not return a consent token.
+
+Specialist work still validates at the specialist boundary.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/.well-known/agent-card.json` | Public metadata | Standard A2A Agent Card discovery endpoint for Agent One |
+| GET | `/api/one/a2a/card` | Public metadata | Return Agent One manifest, required scope, specialists, and endpoint metadata |
+| POST | `/api/one/a2a/message` | Developer bearer token plus `X-Consent-Token` scoped `agent.one.orchestrate` | Invoke Agent One as the coordinator for a user request; returns either a direct One response or a specialist delegation payload |
+| POST | `/api/one/a2a/message` | Developer `Authorization: Bearer <token>` or legacy `?token=` | Create or report pending Agent One orchestration consent for a resolved user; returns consent request metadata only |
+
 ### VAULT_OWNER (Consent-Gated)
 
 #### Consent Management
@@ -298,10 +324,25 @@ binding rows store no raw email, phone, or CRM field values.
 | DELETE | `/api/kai/agent/chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages |
 | GET | `/api/kai/agent/chat/history/{conversation_id}` | Read decrypted Agent chat history for the authenticated conversation owner |
 | POST | `/api/kai/agent/realtime/session` | Create an OpenAI Realtime WebRTC client secret for the vault-unlocked Agent chat and voice surface |
+| POST | `/api/kai/agent/realtime/gemini/relay-session` | Mint a short-lived opaque Gemini Live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs |
 | GET | `/api/kai/chat/history/{conversation_id}` | Conversation history |
 | GET | `/api/kai/chat/conversations/{user_id}` | List all conversations |
 | GET | `/api/kai/chat/initial-state/{user_id}` | Initial chat state |
 | POST | `/api/kai/chat/analyze-loser` | Analyze a specific loser |
+
+#### One Voice
+
+One Voice is the product-facing voice wrapper over the current Kai-era compatibility runtime.
+These routes preserve the same VAULT_OWNER, request user match, rollout,
+canary, kill-switch, planner, composer, and settlement behavior while the
+frontend migrates to the provider-neutral One Voice transport contract.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/one/voice/session` | Product-facing wrapper for realtime voice session creation |
+| POST | `/api/one/voice/plan` | Product-facing wrapper for voice planning; accepts the shared One Voice context snapshot alongside existing structured screen context |
+| POST | `/api/one/voice/compose` | Product-facing wrapper for post-action spoken response composition |
+| POST | `/api/one/voice/benchmark` | Disabled status route until live provider benchmark adapters and versioned artifacts exist |
 
 #### Kai Portfolio
 
@@ -433,6 +474,7 @@ Security invariant:
 | ------ | ---- | ----------- |
 | GET | `/api/consent/events/{user_id}` | Disabled in production unless `CONSENT_SSE_ENABLED=true` |
 | GET | `/api/consent/events/{user_id}/poll/{request_id}` | Deprecated and disabled (`410`, `CONSENT_POLL_DEPRECATED`) |
+| GET | `/api/v1/consent-events?user_id={user_id}&request_id={request_id}` | Developer-authenticated SSE for the outside agent; prefer `Authorization: Bearer <developer-token>`; emits `snapshot`, `consent_update`, and `heartbeat`; scoped to the developer app that owns the consent request |
 
 ### Deprecated (410 Gone)
 
@@ -562,9 +604,24 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
      { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }.
    → If the scope is already default-available, returns { status: "already_available", coverage_kind: "default_available_projection" }.
 
-4. User receives FCM notification → approves in app
+4. Optional realtime wait: GET /api/v1/consent-events
+   Header: Authorization: Bearer <developer-token>
+   Query: ?user_id=<user_id>&request_id=<request_id>
+   → SSE events:
+     - `snapshot`: current request state
+     - `consent_update`: request state change, including `consent_token` only when `status="granted"`
+     - `heartbeat`: keepalive while waiting
+   → The stream is bound to the authenticated developer app and closes on terminal consent states.
+   → Query-token auth remains legacy-compatible, but bearer auth is preferred
+     because URLs are commonly logged by proxies and developer tools.
 
-5. POST /api/validate-token
+5. User receives FCM notification → approves in app
+
+6. Poll fallback: GET /api/v1/consent-status
+   Query: ?token=<developer-token>&user_id=<user_id>&request_id=<request_id>
+   → Returns pending/granted/denied/expired status. `consent_token` is null until granted.
+
+7. POST /api/validate-token
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 

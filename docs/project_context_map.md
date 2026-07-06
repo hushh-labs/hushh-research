@@ -42,7 +42,7 @@ flowchart TB
 
 This repo is the platform.
 
-The current checked-in user-facing intelligence runtime is Kai-first, while the product direction is One as the personal agent with Kai as its finance specialist. The architecture also includes the trust plane, the data plane, the developer lane, the agent plane, the mobile lane, and the operational governance surface that keep the platform coherent at scale.
+The current checked-in user-facing intelligence runtime is in transition: One Voice is the direct voice surface, while many action, planner, and generated-gateway identifiers remain Kai-era compatibility surfaces. One is the personal agent and relationship layer, Kai is its finance specialist, and the architecture also includes the trust plane, data plane, developer lane, agent plane, mobile lane, and operational governance surface that keep the platform coherent at scale.
 
 Start with:
 
@@ -95,7 +95,7 @@ These are invariants. If a change violates one, it is the wrong change.
 
 ### 5. Intelligence And Agent
 
-- Kai and agent runtime docs: `docs/reference/kai/`, `consent-protocol/docs/reference/agent-development.md`
+- One/Kai and agent runtime docs: `docs/reference/one/`, `docs/reference/kai/`, `consent-protocol/docs/reference/agent-development.md`
 - operons and ADK surfaces: `consent-protocol/hushh_mcp/agents/`, `consent-protocol/hushh_mcp/operons/`, `consent-protocol/hushh_mcp/hushh_adk/`
 
 ### 6. Experience And Interaction
@@ -106,7 +106,7 @@ These are invariants. If a change violates one, it is the wrong change.
 ### 7. Channels, Ecosystem, And Distribution
 
 - Developer API and MCP: `consent-protocol/docs/reference/developer-api.md`, `packages/hushh-mcp/README.md`
-- channel-facing product docs: `docs/reference/kai/`, `docs/reference/iam/`, `docs/vision/`
+- channel-facing product docs: `docs/reference/one/`, `docs/reference/kai/`, `docs/reference/iam/`, `docs/vision/`
 
 ## Repo Map
 

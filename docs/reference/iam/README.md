@@ -22,6 +22,8 @@ flowchart TD
   root --> n7
   n8["Validation Checklist"]
   root --> n8
+  n9["Agent Delegation Boundary"]
+  root --> n9
 ```
 
 This directory is the **source of truth** for Investor + RIA identity, consent IAM policy, and marketplace access contracts.
@@ -57,6 +59,7 @@ Use this section for production-grade rules and contracts that govern:
 6. [Rollout and Environments](./rollout-and-environments.md)
 7. [Validation Checklist](./validation-checklist.md)
 8. [External Dependencies](./external-dependencies.md)
+9. [Agent Delegation Boundary](./agent-delegation-boundary.md)
 
 ## Canonical-Only Policy
 

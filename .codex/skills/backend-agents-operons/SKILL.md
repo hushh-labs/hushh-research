@@ -45,8 +45,9 @@ Non-owned surfaces:
 ## Read First
 
 1. `consent-protocol/docs/reference/agent-development.md`
-2. `consent-protocol/docs/reference/kai-agents.md`
-3. `docs/reference/ai/README.md`
+2. `docs/reference/one/one-agent-hierarchy.md`
+3. `consent-protocol/docs/reference/kai-agents.md`
+4. `docs/reference/ai/README.md`
 
 ## Workflow
 
@@ -65,4 +66,5 @@ Non-owned surfaces:
 ```bash
 cd consent-protocol && python3 -m pytest tests/agents -q
 cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q
+cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py
 ```

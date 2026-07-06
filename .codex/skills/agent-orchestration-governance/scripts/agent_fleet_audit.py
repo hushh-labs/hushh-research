@@ -18,13 +18,34 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
 AGENTS_DIR = Path(".codex/agents")
+CONFIG_PATH = Path(".codex/config.toml")
 SKILLS_DIR = Path(".codex/skills")
 WORKFLOWS_DIR = Path(".codex/workflows")
 MIN_AGENT_COUNT = 8
 MAX_AGENT_COUNT = 12
+EXPECTED_MAX_THREADS = 6
+EXPECTED_MAX_DEPTH = 1
+DEFAULT_RECOVERY_SLOT = 1
+DEFAULT_MAX_NEW_LANES = 2
 ALLOWED_REASONING_EFFORTS = {"high", "xhigh"}
+DEVELOPER_INSTRUCTIONS_MAX_LINES = 48
+DEVELOPER_INSTRUCTIONS_MAX_CHARS = 3000
 SKILL_BLOCK_HEADER = "Use these repo-local skills when they fit the lane:"
 ADVISORY_RULE = "You are advisory-only. Do not self-authorize merge, deploy, release, or governance decisions."
+PRINCIPAL_CRAFT_RULE = "Apply the repo-wide Principal Craft Kernel from AGENTS.md"
+DISALLOWED_CRAFT_DUPLICATION_TOKENS = [
+    "Project-Wide Principal Craft Kernel",
+    "Operate as a principal-level software engineer",
+    "Optimize in this order:",
+    "Engineering style:",
+    "Calibration standards:",
+    "Margaret Hamilton",
+    "Grace Hopper",
+    "Barbara Liskov",
+    "Leslie Lamport",
+    "John Carmack",
+    "Steve Jobs",
+]
 TRUTH_FIRST_HEADER = "Truth-first protocol:"
 TRUTH_FIRST_TOKENS = [
     "already_exists",
@@ -76,7 +97,7 @@ def _load_skills(root: Path) -> dict[str, dict[str, Any]]:
                 "path": str(path.relative_to(root)),
                 "owner_family": data.get("owner_family") or data.get("role") or "",
                 "role": data.get("role") or "",
-                "lane_label": "master" if data.get("role") == "owner" else "spoke",
+                "lane_label": "owner" if data.get("role") == "owner" else "spoke",
                 "task_types": data.get("task_types") or [],
             }
     return skills
@@ -88,17 +109,48 @@ def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
         data = _read_toml(path)
         name = str(data.get("name") or path.stem)
         instructions = str(data.get("developer_instructions") or "")
+        craft_duplication_tokens = [
+            token for token in DISALLOWED_CRAFT_DUPLICATION_TOKENS if token in instructions
+        ]
         agents[name] = {
             "path": str(path.relative_to(root)),
             "description": data.get("description") or "",
             "sandbox_mode": data.get("sandbox_mode") or "",
             "default_reasoning_effort": data.get("default_reasoning_effort") or "",
+            "developer_instruction_lines": len(instructions.splitlines()),
+            "developer_instruction_chars": len(instructions),
             "skills": _parse_skill_block(instructions),
             "has_advisory_rule": name == "governor" or ADVISORY_RULE in instructions,
+            "has_principal_craft_kernel": PRINCIPAL_CRAFT_RULE in instructions,
+            "craft_duplication_tokens": craft_duplication_tokens,
             "has_truth_first_protocol": TRUTH_FIRST_HEADER in instructions
             and all(token in instructions for token in TRUTH_FIRST_TOKENS),
         }
     return agents
+
+
+def _load_agent_runtime_budget(root: Path) -> dict[str, Any]:
+    path = root / CONFIG_PATH
+    payload: dict[str, Any] = {
+        "path": str(path.relative_to(root)),
+        "max_threads": None,
+        "max_depth": None,
+        "recovery_slot": DEFAULT_RECOVERY_SLOT,
+        "default_max_new_lanes": DEFAULT_MAX_NEW_LANES,
+        "static_effective_budget": None,
+    }
+    if not path.exists():
+        return payload
+    data = _read_toml(path)
+    agents = data.get("agents")
+    if isinstance(agents, dict):
+        payload["max_threads"] = agents.get("max_threads")
+        payload["max_depth"] = agents.get("max_depth")
+        if isinstance(payload["max_threads"], int):
+            payload["static_effective_budget"] = max(
+                0, payload["max_threads"] - DEFAULT_RECOVERY_SLOT
+            )
+    return payload
 
 
 def _load_workflows(root: Path) -> dict[str, dict[str, Any]]:
@@ -139,6 +191,7 @@ def _load_workflows(root: Path) -> dict[str, dict[str, Any]]:
 def audit(root: Path) -> OrderedDict[str, Any]:
     skills = _load_skills(root)
     agents = _load_agents(root)
+    runtime_budget = _load_agent_runtime_budget(root)
     workflows = _load_workflows(root)
     hard_findings: list[str] = []
     watchlist: list[str] = []
@@ -151,6 +204,14 @@ def audit(root: Path) -> OrderedDict[str, Any]:
         hard_findings.append(
             f"agent count {len(agents)} exceeds the curated maximum {MAX_AGENT_COUNT}"
         )
+    if runtime_budget["max_threads"] != EXPECTED_MAX_THREADS:
+        hard_findings.append(
+            f"{runtime_budget['path']}: agents.max_threads must stay {EXPECTED_MAX_THREADS}"
+        )
+    if runtime_budget["max_depth"] != EXPECTED_MAX_DEPTH:
+        hard_findings.append(
+            f"{runtime_budget['path']}: agents.max_depth must stay {EXPECTED_MAX_DEPTH}"
+        )
 
     agent_skill_matrix: dict[str, list[str]] = OrderedDict()
     covered_skill_ids: set[str] = set()
@@ -161,6 +222,20 @@ def audit(root: Path) -> OrderedDict[str, Any]:
             hard_findings.append(f"{agent['path']}: reasoning effort must be high or xhigh")
         if not agent["has_advisory_rule"]:
             hard_findings.append(f"{agent['path']}: missing advisory-only authority rule")
+        if not agent["has_principal_craft_kernel"]:
+            hard_findings.append(f"{agent['path']}: missing Principal Craft Kernel inheritance hook")
+        if agent["developer_instruction_lines"] > DEVELOPER_INSTRUCTIONS_MAX_LINES:
+            hard_findings.append(
+                f"{agent['path']}: developer_instructions too long: {agent['developer_instruction_lines']} lines > {DEVELOPER_INSTRUCTIONS_MAX_LINES}"
+            )
+        if agent["developer_instruction_chars"] > DEVELOPER_INSTRUCTIONS_MAX_CHARS:
+            hard_findings.append(
+                f"{agent['path']}: developer_instructions too long: {agent['developer_instruction_chars']} chars > {DEVELOPER_INSTRUCTIONS_MAX_CHARS}"
+            )
+        if agent["craft_duplication_tokens"]:
+            hard_findings.append(
+                f"{agent['path']}: duplicates Principal Craft Kernel text: {', '.join(agent['craft_duplication_tokens'])}"
+            )
         if not agent["has_truth_first_protocol"]:
             hard_findings.append(f"{agent['path']}: missing complete truth-first protocol")
         if not agent["skills"]:
@@ -286,6 +361,7 @@ def audit(root: Path) -> OrderedDict[str, Any]:
         review_recommended=bool(watchlist),
         hard_findings=hard_findings,
         watchlist=watchlist,
+        runtime_budget=runtime_budget,
         agents=agents,
         agent_skill_matrix=agent_skill_matrix,
         workflow_agent_coverage=workflow_agent_coverage,
@@ -302,6 +378,12 @@ def _text(payload: dict[str, Any]) -> str:
     lines = [
         "Agent Fleet Audit",
         f"Agent count: {payload['agent_count']} (curated range {payload['curated_min']}-{payload['curated_max']})",
+        "Runtime budget: "
+        f"max_threads={payload['runtime_budget']['max_threads']}, "
+        f"max_depth={payload['runtime_budget']['max_depth']}, "
+        f"recovery_slot={payload['runtime_budget']['recovery_slot']}, "
+        f"default_new_lanes={payload['runtime_budget']['default_max_new_lanes']}, "
+        f"static_effective_budget={payload['runtime_budget']['static_effective_budget']}",
         f"Update required: {payload['update_required']}",
         f"Review recommended: {payload['review_recommended']}",
         "Hard findings:",
@@ -339,7 +421,7 @@ def _text(payload: dict[str, Any]) -> str:
             f"- {row['lane_label']} {skill_id}: agents={agents}; workflows={workflows}; mechanisms={mechanisms}"
         )
     if payload["parent_skill_only_families"]:
-        lines.append("Parent-skill-only master families:")
+        lines.append("Parent-skill-only owner families:")
         for owner, skills in payload["parent_skill_only_families"].items():
             lines.append(f"- {owner}: {', '.join(skills)}")
     return "\n".join(lines)

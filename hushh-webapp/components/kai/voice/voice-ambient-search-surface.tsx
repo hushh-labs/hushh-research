@@ -124,12 +124,16 @@ function IconButton({
   label,
   disabled,
   active,
+  nativeVoiceControlId,
+  testId,
   onClick,
   children,
 }: {
   label: string;
   disabled?: boolean;
   active?: boolean;
+  nativeVoiceControlId?: string;
+  testId?: string;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
 }) {
@@ -137,7 +141,9 @@ function IconButton({
     <button
       type="button"
       aria-label={label}
+      data-native-voice-control-id={nativeVoiceControlId}
       data-no-route-swipe
+      data-testid={testId}
       title={label}
       disabled={disabled}
       className={cn(
@@ -227,6 +233,7 @@ export function VoiceAmbientSearchSurface({
           <div className="mt-3 flex items-center justify-end gap-2">
             <button
               type="button"
+              data-native-voice-control-id="one_voice_cancel_confirmation"
               className="inline-flex h-8 items-center rounded-full border border-border/70 bg-background px-3 text-[11px] font-semibold text-foreground transition-colors hover:bg-muted"
               onClick={onCancel}
             >
@@ -234,6 +241,7 @@ export function VoiceAmbientSearchSurface({
             </button>
             <button
               type="button"
+              data-native-voice-control-id="one_voice_confirm_action"
               className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
               onClick={onConfirm}
             >
@@ -248,10 +256,11 @@ export function VoiceAmbientSearchSurface({
         <button
           type="button"
           data-tour-id="kai-command-bar"
+          data-testid="one-voice-surface"
           data-voice-mode={mode}
           aria-label={
             active
-              ? `Kai voice ${modeLabel(mode).toLowerCase()}`
+              ? `One Voice ${modeLabel(mode).toLowerCase()}`
               : "Open Kai command search"
           }
           className={cn(
@@ -296,6 +305,7 @@ export function VoiceAmbientSearchSurface({
             <IconButton
               label={debugActive ? "Close voice debug" : "Open voice debug"}
               active={debugActive}
+              nativeVoiceControlId="one_voice_debug_toggle"
               onClick={onDebugToggle}
             >
               <Bug className="h-3.5 w-3.5" />
@@ -306,6 +316,7 @@ export function VoiceAmbientSearchSurface({
             <IconButton
               label="Open Agent"
               disabled={agentDisabled}
+              nativeVoiceControlId="one_voice_open_agent"
               onClick={onAgentOpen}
             >
               <Bot className="h-3.5 w-3.5" />
@@ -316,6 +327,8 @@ export function VoiceAmbientSearchSurface({
             <IconButton
               label="Toggle voice microphone"
               disabled={micDisabled}
+              nativeVoiceControlId="one_voice_toggle_mic"
+              testId="one-voice-toggle-mic"
               onClick={onMicToggle}
             >
               {connecting ? (
@@ -334,6 +347,8 @@ export function VoiceAmbientSearchSurface({
                 }
                 active={mode === "listening"}
                 disabled={mode === "connecting"}
+                nativeVoiceControlId="one_voice_mute_toggle"
+                testId="one-voice-mute-toggle"
                 onClick={mode === "connecting" ? undefined : onMuteToggle}
               >
                 {mode === "muted" ? (
@@ -347,19 +362,29 @@ export function VoiceAmbientSearchSurface({
                   label="Submit voice turn"
                   disabled={!submitEnabled}
                   active={submitEnabled}
+                  nativeVoiceControlId="one_voice_submit_turn"
                   onClick={onSubmit}
                 >
                   <Send className="h-3.5 w-3.5" />
                 </IconButton>
               ) : null}
-              <IconButton label="End voice session" onClick={onEnd}>
+              <IconButton
+                label="End voice session"
+                nativeVoiceControlId="one_voice_end_session"
+                testId="one-voice-end-session"
+                onClick={onEnd}
+              >
                 <X className="h-4 w-4" />
               </IconButton>
             </>
           ) : null}
 
           {mode === "processing" ? (
-            <IconButton label="Cancel voice turn" onClick={onEnd}>
+            <IconButton
+              label="Cancel voice turn"
+              nativeVoiceControlId="one_voice_cancel_turn"
+              onClick={onEnd}
+            >
               <X className="h-4 w-4" />
             </IconButton>
           ) : null}
@@ -369,14 +394,24 @@ export function VoiceAmbientSearchSurface({
               <IconButton
                 label="Stop speaking"
                 disabled={!ttsPlaying}
+                nativeVoiceControlId="one_voice_stop_speaking"
                 onClick={ttsPlaying ? onStopSpeaking : undefined}
               >
                 <VolumeX className="h-4 w-4" />
               </IconButton>
-              <IconButton label="Replay last response" onClick={onReplay}>
+              <IconButton
+                label="Replay last response"
+                nativeVoiceControlId="one_voice_replay_response"
+                onClick={onReplay}
+              >
                 <RotateCcw className="h-3.5 w-3.5" />
               </IconButton>
-              <IconButton label="End voice session" onClick={onEnd}>
+              <IconButton
+                label="End voice session"
+                nativeVoiceControlId="one_voice_end_session"
+                testId="one-voice-end-session"
+                onClick={onEnd}
+              >
                 <X className="h-4 w-4" />
               </IconButton>
             </>
@@ -385,14 +420,28 @@ export function VoiceAmbientSearchSurface({
           {mode === "retry_ready" && !pendingConfirmation ? (
             <>
               {onReplay ? (
-                <IconButton label="Replay last response" onClick={onReplay}>
+                <IconButton
+                  label="Replay last response"
+                  nativeVoiceControlId="one_voice_replay_response"
+                  onClick={onReplay}
+                >
                   <RotateCcw className="h-3.5 w-3.5" />
                 </IconButton>
               ) : null}
-              <IconButton label="Retry voice command" onClick={onRetry} active>
+              <IconButton
+                label="Retry voice command"
+                nativeVoiceControlId="one_voice_retry_command"
+                onClick={onRetry}
+                active
+              >
                 <Volume2 className="h-4 w-4" />
               </IconButton>
-              <IconButton label="End voice session" onClick={onEnd}>
+              <IconButton
+                label="End voice session"
+                nativeVoiceControlId="one_voice_end_session"
+                testId="one-voice-end-session"
+                onClick={onEnd}
+              >
                 <X className="h-4 w-4" />
               </IconButton>
             </>

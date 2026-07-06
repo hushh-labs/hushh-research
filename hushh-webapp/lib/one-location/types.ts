@@ -151,6 +151,17 @@ export type OneLocationGrant = {
   updatedAt?: string | null;
   revokedAt?: string | null;
   latestEnvelopeId?: string | null;
+  /**
+   * Share intent surfaced by the backend so the recipient's notification, bell,
+   * and Consent Manager can distinguish an emergency SOS from a friendly
+   * Check-In from a plain location share. "share" is the neutral default.
+   */
+  shareKind?: "sos" | "check_in" | "share" | string | null;
+  /**
+   * Optional human note attached to the share (e.g. a Check-In message). Already
+   * coordinate-free and bounded by the backend; shown verbatim to the recipient.
+   */
+  shareMessage?: string | null;
 };
 
 export type OneLocationAccessRequest = {

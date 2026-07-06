@@ -8,6 +8,7 @@
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
+ * - open_command_palette: { timeoutMs?: number }
  * - navigate_route: { route: string }
  * - clear_import_background: {}
  * - upload_test_asset: { assetPath: string, fileName: string, mimeType: string }
@@ -15,6 +16,9 @@
  * - assert_text: { value: string, regex?: boolean }
  * - assert_no_text: { value: string, regex?: boolean, timeoutMs?: number }
  * - assert_no_persona_mismatch_prompt: { timeoutMs?: number }
+ * - assert_voice_control_visible: { controlId: string, timeoutMs?: number }
+ * - wait_voice_mode: { modes: string[] | string, timeoutMs?: number, allowPermissionFallback?: boolean }
+ * - end_voice_if_active: { timeoutMs?: number }
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
@@ -45,7 +49,8 @@ export const UI_FLOWS = [
   {
     id: "native-investor-kai-debate-preview-start",
     route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
-    description: "Investor analysis preview: select list source and start debate without active-run loop",
+    description:
+      "Investor analysis preview: select list source and start debate without active-run loop",
     stepTimeoutMs: 60000,
     steps: [
       { type: "ensure_persona", persona: "investor" },
@@ -232,12 +237,16 @@ export const UI_FLOWS = [
 ];
 
 export const KAI_IMPORT_E2E_FLOW_ID = "native-investor-kai-import-e2e";
-export const KAI_IMPORT_E2E_ASSET_PATH = "/native-test-assets/kai-import-e2e.pdf";
+export const KAI_IMPORT_E2E_ASSET_PATH =
+  "/native-test-assets/kai-import-e2e.pdf";
+export const ONE_VOICE_NATIVE_CONTROL_FLOW_ID =
+  "native-one-voice-control-smoke";
 
 export const KAI_IMPORT_E2E_FLOW = {
   id: KAI_IMPORT_E2E_FLOW_ID,
   route: "/one/kai/import",
-  description: "Investor import E2E: upload bundled statement, stream parse, review, save",
+  description:
+    "Investor import E2E: upload bundled statement, stream parse, review, save",
   steps: [
     { type: "ensure_persona", persona: "investor" },
     { type: "assert_no_persona_mismatch_prompt", timeoutMs: 15000 },
@@ -296,11 +305,55 @@ export const KAI_IMPORT_E2E_FLOW = {
   ],
 };
 
+export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
+  id: ONE_VOICE_NATIVE_CONTROL_FLOW_ID,
+  route: "/one/kai",
+  description:
+    "One Voice native control smoke: start realtime voice, observe state, and recover/end",
+  stepTimeoutMs: 90000,
+  steps: [
+    { type: "ensure_persona", persona: "investor" },
+    { type: "assert_no_persona_mismatch_prompt", timeoutMs: 15000 },
+    { type: "navigate_route", route: "/one/kai" },
+    {
+      type: "wait_beacon",
+      routeIds: ["/one/kai"],
+      dataStates: TERMINAL_DATA_STATES,
+      timeoutMs: 60000,
+    },
+    {
+      type: "assert_voice_control_visible",
+      controlId: "one_voice_agent_bar_start",
+      timeoutMs: 30000,
+    },
+    {
+      type: "click_voice_control",
+      controlId: "one_voice_agent_bar_start",
+    },
+    {
+      type: "wait_voice_mode",
+      modes: ["opening", "listening", "understanding", "speaking", "error"],
+      timeoutMs: 90000,
+      allowPermissionFallback: true,
+    },
+    { type: "end_voice_if_active", timeoutMs: 15000 },
+    {
+      type: "wait_voice_mode",
+      modes: ["idle", "error"],
+      timeoutMs: 30000,
+      allowPermissionFallback: true,
+    },
+  ],
+};
+
 export function filterUiFlows({ flowFilter = "", routeFilter = "" } = {}) {
   const normalizedFlow = flowFilter.trim();
   const normalizedRoute = routeFilter.trim();
   if (normalizedFlow === KAI_IMPORT_E2E_FLOW_ID) {
     return [KAI_IMPORT_E2E_FLOW];
+  }
+  if (normalizedFlow === ONE_VOICE_NATIVE_CONTROL_FLOW_ID) {
+    return [ONE_VOICE_NATIVE_CONTROL_FLOW];
   }
   return UI_FLOWS.filter((flow) => {
     if (normalizedFlow && flow.id !== normalizedFlow) return false;

@@ -1293,6 +1293,96 @@ export class ApiService {
     });
   }
 
+  static async planOneVoiceIntent(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    context?: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    plannerV2?: {
+      turnId: string;
+      transcriptFinal: string;
+      structuredContext?: unknown;
+      memoryShort?: unknown[];
+      memoryRetrieved?: unknown[];
+    };
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/voice/plan", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        context: data.context || {},
+        app_state: data.appState,
+        turn_id: data.plannerV2?.turnId,
+        transcript_final: data.plannerV2?.transcriptFinal,
+        context_structured: data.plannerV2?.structuredContext,
+        memory_short: data.plannerV2?.memoryShort || [],
+        memory_retrieved: data.plannerV2?.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async composeOneVoiceReply(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    response: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    context?: Record<string, unknown>;
+    structuredContext?: unknown;
+    turnId?: string;
+    responseId?: string;
+    mode?: string;
+    actionId?: string | null;
+    slots?: Record<string, unknown>;
+    guards?: string[];
+    replyStrategy?: string;
+    clarification?: Record<string, unknown> | null;
+    actionCompletion?: string | null;
+    actionResult?: Record<string, unknown> | null;
+    memoryShort?: unknown[];
+    memoryRetrieved?: unknown[];
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/voice/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        response: data.response,
+        app_state: data.appState,
+        context: data.context || {},
+        context_structured: data.structuredContext || {},
+        turn_id: data.turnId,
+        response_id: data.responseId,
+        mode: data.mode,
+        action_id: data.actionId,
+        slots: data.slots || {},
+        guards: data.guards || [],
+        reply_strategy: data.replyStrategy,
+        clarification: data.clarification ?? null,
+        action_completion: data.actionCompletion ?? null,
+        action_result: data.actionResult ?? null,
+        memory_short: data.memoryShort || [],
+        memory_retrieved: data.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
   static async synthesizeKaiVoice(data: {
     userId: string;
     vaultOwnerToken: string;
@@ -1324,6 +1414,27 @@ export class ApiService {
     signal?: AbortSignal;
   }): Promise<Response> {
     return voiceFetch("/api/kai/voice/realtime/session", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        voice: data.voice,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async createOneVoiceSession(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    voice?: string;
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/voice/session", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${data.vaultOwnerToken}`,
@@ -2680,6 +2791,8 @@ export class ApiService {
     voice?: string | null;
     screen?: string | null;
     persona?: string | null;
+    routeFamily?: string | null;
+    voiceState?: string | null;
     signal?: AbortSignal;
   }): Promise<Response> {
     const firebaseIdToken = await this.getFirebaseToken();
@@ -2693,9 +2806,50 @@ export class ApiService {
         voice: data?.voice || undefined,
         screen: data?.screen || undefined,
         persona: data?.persona || undefined,
+        route_family: data?.routeFamily || undefined,
+        voice_state: data?.voiceState || undefined,
       }),
       signal: data?.signal,
     });
+  }
+
+  static async createGeminiLiveRelaySession(data?: {
+    voice?: string | null;
+    screen?: string | null;
+    persona?: string | null;
+    routeFamily?: string | null;
+    voiceState?: string | null;
+    signal?: AbortSignal;
+  }): Promise<{
+    relay_ticket: string;
+    expires_at: number;
+    model: string;
+    voice: string;
+    tier: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/kai/agent/realtime/gemini/relay-session",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        body: JSON.stringify({
+          voice: data?.voice || undefined,
+          screen: data?.screen || undefined,
+          persona: data?.persona || undefined,
+          route_family: data?.routeFamily || undefined,
+          voice_state: data?.voiceState || undefined,
+        }),
+        signal: data?.signal,
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Gemini Live relay session failed: ${response.status}`);
+    }
+    return response.json();
   }
 
   /**
@@ -2707,24 +2861,28 @@ export class ApiService {
    * WebSocket to our backend; the backend bridges audio to/from Vertex.
    *
    * WebSockets cannot carry an Authorization header from the browser and do not
-   * pass through the Next.js middleware proxy, so we connect directly to the
-   * backend host and ride the Firebase bearer (when present) in a query param.
-   * Anonymous callers omit it and get the navigation-only intro persona.
+   * pass through the Next.js middleware proxy, so the browser first mints a
+   * short-lived opaque relay ticket over HTTPS. The WebSocket URL carries only
+   * that ticket, never the Firebase bearer.
    */
   static async getGeminiLiveRelayUrl(data?: {
     voice?: string | null;
     screen?: string | null;
     persona?: string | null;
+    routeFamily?: string | null;
+    voiceState?: string | null;
   }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
     const wsBase = base.replace(/^http/i, "ws");
     const url = new URL(`${wsBase}/api/kai/agent/realtime/gemini/live`);
-    const firebaseIdToken = await this.getFirebaseToken();
-    if (firebaseIdToken) url.searchParams.set("authorization", firebaseIdToken);
+    const relaySession = await this.createGeminiLiveRelaySession(data);
+    url.searchParams.set("relay_ticket", relaySession.relay_ticket);
     if (data?.voice) url.searchParams.set("voice", data.voice);
     if (data?.screen) url.searchParams.set("screen", data.screen);
     if (data?.persona) url.searchParams.set("persona", data.persona);
+    if (data?.routeFamily) url.searchParams.set("route_family", data.routeFamily);
+    if (data?.voiceState) url.searchParams.set("voice_state", data.voiceState);
     return url.toString();
   }
 

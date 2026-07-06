@@ -38,7 +38,7 @@ Non-owned surfaces:
 1. Adding or tightening repo-scoped custom agents.
 2. Changing subagent concurrency/depth limits or delegation policy.
 3. Defining authority boundaries, parent-only actions, or child handoff shape.
-4. Keeping agents thin and routed through existing master/spoke skills.
+4. Keeping agents thin and routed through existing owner/spoke skills.
 
 ## Do Not Use
 
@@ -60,7 +60,7 @@ Non-owned surfaces:
 1. Verify that a custom agent is justified; prefer skills/workflows when role specialization is not needed.
 2. Keep the fleet at the curated sweet spot: broad read-only evidence lanes, not one agent per skill.
 3. Preserve the repo-wide delegation checkpoint and truth-first handoff shape in `AGENTS.md` and `delegation-contract.md`.
-4. Keep custom-agent TOML files thin: role, sandbox, nicknames, concise instructions, and skill routing.
+4. Keep custom-agent TOML files thin: role, sandbox, nicknames, principal-craft inheritance hook, concise instructions, and skill routing.
 5. Keep wave-1 agents read-only and leave branch switching, writes, approval, merge, deploy, secrets, and final decisions to the parent/governor.
 6. Keep global limits bounded at `max_threads = 6` and `max_depth = 1` unless a later review proves otherwise.
 7. Route product-direction, founder-language, One/Kai/Nav, PKM, voice/action, and PR north-star lanes through the Founder Wiki North-Star Probe when material; repo/wiki divergence is `current_state_vs_north_star_drift`.
@@ -79,7 +79,7 @@ Non-owned surfaces:
 ```bash
 python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
-python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
+python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 ./scripts/ci/repo-governance-check.sh

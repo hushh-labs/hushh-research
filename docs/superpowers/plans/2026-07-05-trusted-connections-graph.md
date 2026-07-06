@@ -28,7 +28,7 @@ flowchart LR
 - **Directional model:** one directed edge per `(owner_user_id, trusted_user_id)` pair. Not order-normalized.
 - **Identity resolution = platform directory only.** Reuse `list_verified_recipients` read-only. No phone-typed input, no free-text name → user_id guessing beyond directory matches. Raw `user_id` allowed for seed/testing.
 - **DB access pattern:** SQL uses named params (`:name`); `get_db().execute_raw(sql, params)` returns an object with `.data` (list of dict rows). Mirror `OneLocationAgentService._execute_one` / `_execute_many`.
-- **Migration numbering:** next sequential number after `076_marketplace_access_requests.sql` → `077`.
+- **Migration numbering:** next sequential number after `077_marketplace_opportunity_signals.sql` → `078` (rebased onto main, which added 077).
 - **Seed env var:** reuse `SOS_SEED_DEV_USER_IDS` (comma-separated).
 - **pytest config:** `testpaths=["tests"]`, `asyncio_mode="auto"`. Run tests from `consent-protocol/`.
 
@@ -37,8 +37,8 @@ flowchart LR
 ### Task 1: Migration — `trusted_connections` table
 
 **Files:**
-- Create: `consent-protocol/db/migrations/077_trusted_connections.sql`
-- Modify: `consent-protocol/db/release_migration_manifest.json` (append `077_trusted_connections.sql` to `ordered_migrations`)
+- Create: `consent-protocol/db/migrations/078_trusted_connections.sql`
+- Modify: `consent-protocol/db/release_migration_manifest.json` (append `078_trusted_connections.sql` to `ordered_migrations`)
 - Test: `consent-protocol/tests/test_trusted_connections_migration.py`
 
 **Interfaces:**
@@ -54,7 +54,7 @@ from pathlib import Path
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "db" / "migrations"
 MANIFEST = Path(__file__).resolve().parent.parent / "db" / "release_migration_manifest.json"
-FILENAME = "077_trusted_connections.sql"
+FILENAME = "078_trusted_connections.sql"
 
 
 def test_migration_file_exists_and_defines_table():
@@ -77,7 +77,7 @@ Expected: FAIL — `FileNotFoundError` (migration file missing).
 
 - [ ] **Step 3: Create the migration file**
 
-Create `consent-protocol/db/migrations/077_trusted_connections.sql`:
+Create `consent-protocol/db/migrations/078_trusted_connections.sql`:
 
 ```sql
 BEGIN;
@@ -128,7 +128,7 @@ COMMIT;
 
 - [ ] **Step 4: Register in the release manifest**
 
-Edit `consent-protocol/db/release_migration_manifest.json`: append the string `"077_trusted_connections.sql"` as the last element of the `ordered_migrations` array (after `"076_marketplace_access_requests.sql"`). Keep valid JSON (comma after the previous entry).
+Edit `consent-protocol/db/release_migration_manifest.json`: append the string `"078_trusted_connections.sql"` as the last element of the `ordered_migrations` array (after `"076_marketplace_access_requests.sql"`). Keep valid JSON (comma after the previous entry).
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -138,7 +138,7 @@ Expected: PASS (2 passed).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add consent-protocol/db/migrations/077_trusted_connections.sql \
+git add consent-protocol/db/migrations/078_trusted_connections.sql \
         consent-protocol/db/release_migration_manifest.json \
         consent-protocol/tests/test_trusted_connections_migration.py
 git commit -m "feat(trusted-connections): add trusted_connections migration"

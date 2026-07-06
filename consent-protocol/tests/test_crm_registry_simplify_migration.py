@@ -12,15 +12,15 @@ def test_simplify_migration_is_registered_at_release_head():
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
     ordered = manifest["ordered_migrations"]
 
-    # 073 is the current release head, unique, ordered immediately after 072.
-    assert ordered[-1] == MIGRATION
+    # 073 is unique and ordered between the CRM PBKDF2 migration and later PKM head.
     assert len(ordered) == len(set(ordered))
     idx = ordered.index(MIGRATION)
     assert ordered[idx - 1] == "072_crm_registry_mulesoft_pbkdf2_cbc.sql"
+    assert ordered[idx + 1] == "074_pkm_scope_registry_owner_consent_override.sql"
     assert MIGRATION in manifest["groups"]["iam"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 73
+    assert contract["expected_migration_version"] == 76
     assert contract["migration_version_policy"] == "exact"
 
 

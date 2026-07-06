@@ -13,6 +13,18 @@ The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-au
 5. The sweet spot is a small fleet of broad evidence lanes. Do not create one agent per skill; add an agent only when a recurring high-risk family crosses multiple skills and cannot be reliably covered by the current baseline.
 6. Premise verification happens before delegation and before synthesis. Agents exist to gather evidence against concrete claims, not to reinforce the prompt's assumption.
 
+## Principal Craft Inheritance
+
+Every parent session and child agent inherits the repo-wide Principal Craft Kernel in `AGENTS.md`.
+
+Rules:
+
+1. Specialist persona adds taste and evidence focus; it never overrides correctness, security, authority boundaries, branch discipline, or truth-first verification.
+2. Custom-agent TOML files should contain a short inheritance hook plus role-specific priorities, not a duplicated personality manifesto.
+3. Child agents must apply the same optimization order as the parent: correctness, security, reliability, maintainability, scalability, simplicity, performance, then speed.
+4. A child handoff should read like a specialist owner reviewed the surface: precise claim, current repo truth, failure modes, smallest safe boundary, validations, and unresolved risk.
+5. If craft and speed conflict, the child reports the safer route and the parent decides.
+
 ## Premise Verification Before Delegation
 
 Before routing to an agent lane, the parent must extract the important claims in the prompt and classify them against repo evidence when feasible:
@@ -57,7 +69,7 @@ The threshold is intentionally low once the parent has classified the work as no
 
 Use subagents when all of these are true:
 
-1. The user has explicitly allowed delegation or the active workflow has an approved delegation step.
+1. The repo-global read-only evidence policy applies, the active workflow has an approved delegation step, or the user explicitly requested delegation.
 2. The work can be split into independent lanes that do not need the next parent action immediately.
 3. Each lane has a concrete evidence target, such as backend contract, frontend caller, CI/deploy, security/consent, tests, or docs.
 4. The parent session can continue useful non-overlapping work while children inspect evidence.
@@ -69,7 +81,7 @@ Keep the work local when any of these are true:
 2. The next parent action is blocked on the result, making delegation slower than direct inspection.
 3. The task requires branch switching, merging, approval, deployment, or credential handling.
 4. The work is tightly coupled enough that parallel agents would duplicate effort or create inconsistent assumptions.
-5. The user asked for information only and did not authorize delegation.
+5. The request is information-only, single-lane, and does not materially benefit from an independent read-only evidence pass.
 
 When the checkpoint chooses not to delegate, record the reason briefly in the parent response or working report for high-stakes workflows.
 
@@ -90,9 +102,15 @@ Use `--phase mid` with the router and record whether the parent spawned a new re
 
 1. Keep `agents.max_threads = 6` unless a later review proves a different cap is necessary.
 2. Keep `agents.max_depth = 1` unless a later review proves recursive delegation is worth the cost and predictability risk.
-3. Keep wave-1 repo-scoped custom agents read-only by default.
-4. Use high reasoning as the minimum for repo-scoped specialist agents. Use extra-high reasoning for governor synthesis, reviewer regression review, security/consent/vault audits, and voice/action-runtime audits.
-5. Leave edits to the parent session or the built-in `worker`.
+3. Treat those values as the hard host cap, not as the normal spawn target. The effective-spawn budget is `max_threads - open_child_threads - 1`.
+4. Always reserve one thread for recovery, synthesis, or governor-style follow-up.
+5. Default to two read-only evidence lanes per wave. Use three or four only for critical cross-domain work after stale child threads are closed.
+6. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
+7. Ask children for compact handoffs. If a wait result is too large or truncated, ask that child for a bounded summary instead of waiting again.
+8. Apply the close freeze circuit breaker: if a `close_agent` call hangs, freezes, or is interrupted in the current turn, stop all further close/spawn attempts, treat open child state as saturated, continue locally, and report the host-management gap.
+9. Keep wave-1 repo-scoped custom agents read-only by default.
+10. Use high reasoning as the minimum for repo-scoped specialist agents. Use extra-high reasoning for governor synthesis, reviewer regression review, security/consent/vault audits, and voice/action-runtime audits.
+11. Leave edits to the parent session or the built-in `worker`.
 
 ## Pre-Authorized Evidence Lanes
 
@@ -126,9 +144,9 @@ Use these sources to detect how a skill can activate agents or subagents:
 2. `.codex/workflows/*/workflow.json`: `owner_skill`, `default_spoke`, `task_type`, and explicit `delegation_policy` lanes.
 3. `.codex/agents/*.toml`: the skill block that says which skills each read-only agent can support.
 4. `delegation_router.py`: repo-global prompt/path lane matches for workflows without explicit delegation policy.
-5. `skill_fleet_audit.py`: compact fleet table that reports each skill as `master <skill-id>` or `spoke <skill-id>` with agents, workflows, and detection mechanisms.
+5. `skill_fleet_audit.py`: compact fleet table that reports each skill as `owner <skill-id>` or `spoke <skill-id>` with agents, workflows, and detection mechanisms.
 
-Report owner skills as master lanes in operator-facing output, but do not rename the manifest role from `owner`.
+Report owner skills as owner lanes in operator-facing output, and keep the manifest role as `owner`.
 
 ## Authority rules
 
@@ -180,6 +198,6 @@ Every delegated result should include:
 9. `analytics_observability_architect`: analytics event contracts, telemetry topology, dashboard proof, and governed smoke review.
 10. `mobile_native_architect`: iOS/Android parity, Capacitor bridge safety, and native release-readiness review.
 11. `security_consent_auditor`: IAM, consent, vault, and PKM trust-boundary review.
-12. `voice_systems_architect`: Kai voice runtime and contract review.
+12. `voice_systems_architect`: One Voice and Kai compatibility runtime contract review.
 
 Treat this as a curated baseline, not a signal to create a large specialist lattice. Keep the default range at 8-12 repo-scoped agents unless the fleet audit and a concrete postmortem justify changing it.

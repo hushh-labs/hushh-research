@@ -3,7 +3,7 @@ from pathlib import Path
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "db" / "migrations"
 MANIFEST = Path(__file__).resolve().parent.parent / "db" / "release_migration_manifest.json"
-FILENAME = "077_trusted_connections.sql"
+FILENAME = "078_trusted_connections.sql"
 
 
 def test_migration_file_exists_and_defines_table():

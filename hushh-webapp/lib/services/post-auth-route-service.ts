@@ -48,7 +48,9 @@ function inviteRedirectTargetFor(path: string): string | null {
   if (isOneLocationInviteRedirect(path)) return path;
   try {
     const url = new URL(path, "https://one.local");
-    if (url.pathname !== ROUTES.PROFILE) return null;
+    if (url.pathname !== ROUTES.PROFILE && url.pathname !== ROUTES.PROFILE_SECURITY) {
+      return null;
+    }
     const returnTo = url.searchParams.get("return_to");
     return returnTo && isOneLocationInviteRedirect(returnTo) ? returnTo : null;
   } catch {

@@ -284,6 +284,48 @@ def _fingerprint_public_key(public_key_jwk: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+# Grant "reason" marker that identifies an SOS panic share. Kept as a constant so
+# classification and message-filtering agree on the same string.
+_SOS_SHARE_REASON = "sos_panic"
+
+# Internal grant "reason" markers used for plain shares, approved access requests,
+# and the SOS panic flow. These are plumbing, never a human message, so they must
+# NOT be surfaced verbatim to the recipient. Anything else (e.g. a Check-In note)
+# is a real message. SOS still gets its own dedicated copy via the share kind.
+_INTERNAL_SHARE_REASONS = {"owner_approved", "request_approved", _SOS_SHARE_REASON}
+
+
+def _classify_share_kind(reason: str | None) -> str:
+    """Classify a grant's share kind from its stored ``reason`` marker.
+
+    Returns one of ``"sos"``, ``"check_in"``, or ``"share"`` so every surface
+    (recipient notification, bell, and Consent Manager) can tell an emergency SOS
+    from a friendly Check-In from a plain location share. Any caller-supplied note
+    that is not an internal marker is treated as a Check-In.
+    """
+    text = " ".join(str(reason or "").split()).lower()
+    if text == _SOS_SHARE_REASON:
+        return "sos"
+    if not text or text in {"owner_approved", "request_approved"}:
+        return "share"
+    return "check_in"
+
+
+def _visible_share_message(reason: str | None) -> str | None:
+    """Return a human-facing share message, or None for internal markers.
+
+    A Check-In (or any future quick action) can pass a short note as the grant
+    reason so the recipient's notification reads "<Owner>: <message>" instead of
+    the generic "<Owner> shared location access with you." Internal defaults
+    (including the ``sos_panic`` marker) are filtered out — SOS gets dedicated
+    copy driven by the share kind instead of a raw message.
+    """
+    text = " ".join(str(reason or "").split())
+    if not text or text.lower() in _INTERNAL_SHARE_REASONS:
+        return None
+    return text[:160]
+
+
 def _loads_json(value: Any) -> Any:
     if value is None:
         return None
@@ -1404,6 +1446,15 @@ class OneLocationAgentService:
     def _grant_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
             return None
+        # Surface the grant's share kind + optional human message so the
+        # recipient's in-app notification, bell, and Consent Manager can tell an
+        # SOS from a Check-In from a plain share. The kind/message come from the
+        # stored grant metadata "reason" marker (never coordinates). When the row
+        # was selected without metadata (some callers), default to a plain share.
+        metadata = _loads_json(row.get("metadata"))
+        reason = metadata.get("reason") if isinstance(metadata, dict) else None
+        share_kind = _classify_share_kind(reason)
+        share_message = _visible_share_message(reason)
         return {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
@@ -1422,6 +1473,8 @@ class OneLocationAgentService:
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
             "latestEnvelopeId": str(row.get("latest_envelope_id") or "") or None,
+            "shareKind": share_kind,
+            "shareMessage": share_message,
         }
 
     @staticmethod
@@ -2558,11 +2611,35 @@ class OneLocationAgentService:
             event_type="location_share_created",
             metadata={"duration_hours": duration},
         )
+        # Kind-aware notification copy so the recipient instantly knows WHAT this
+        # is (emergency SOS vs friendly Check-In vs plain share) and WHY. The
+        # share kind comes from the grant "reason" marker; a Check-In note is
+        # surfaced verbatim ("<Owner>: <message>"), SOS gets urgent dedicated
+        # copy, and a plain share keeps the neutral line. Internal markers
+        # ("owner_approved" / "request_approved" / "sos_panic") are never shown
+        # as a raw message.
+        share_kind = _classify_share_kind(reason)
+        share_message = _visible_share_message(reason)
+        if share_kind == "sos":
+            notification_title = "SOS alert"
+            notification_body = (
+                f"{owner_label} triggered an SOS and is sharing live location with you."
+            )
+        elif share_kind == "check_in":
+            notification_title = "Check-in shared"
+            notification_body = (
+                f"{owner_label}: {share_message}"
+                if share_message
+                else f"{owner_label} checked in and shared their location with you."
+            )
+        else:
+            notification_title = "Location shared"
+            notification_body = f"{owner_label} shared location access with you."
         self._send_metadata_notification(
             user_id=recipient_user_id,
             notification_type="location_share_created",
-            title="Location shared",
-            body=f"{owner_label} shared location access with you.",
+            title=notification_title,
+            body=notification_body,
             notification_tag=f"one-location-share:{grant['id']}",
             request_url=_one_location_url(
                 grantId=grant["id"],
@@ -2578,6 +2655,8 @@ class OneLocationAgentService:
                 else None,
                 "duration_hours": str(duration),
                 "expires_at": grant.get("expiresAt"),
+                "share_kind": share_kind,
+                **({"share_message": share_message} if share_message else {}),
             },
         )
         return grant

@@ -46,6 +46,7 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
+import { OpportunityNudgeStack } from "@/components/agent/opportunity-nudge-card";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import type { PublishableSlice } from "@/lib/one-marketplace/service";
@@ -127,7 +128,7 @@ import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
   id: string;
@@ -2699,8 +2700,10 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
-        screenContext: buildStructuredScreenContext({
+        screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
+          state: useAgentVoiceState.getState().oneVoiceState,
+          lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
@@ -2968,8 +2971,10 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         delegateResult: result,
-        screenContext: buildStructuredScreenContext({
+        screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
+          state: useAgentVoiceState.getState().oneVoiceState,
+          lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         // Handler set is intentionally reduced. A delegate_result turn is
@@ -3186,8 +3191,10 @@ export function AgentChatWorkspace({
     try {
       await streamAgentIntro({
         message: text,
-        screenContext: buildStructuredScreenContext({
+        screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
+          state: useAgentVoiceState.getState().oneVoiceState,
+          lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
@@ -4161,6 +4168,15 @@ export function AgentChatWorkspace({
                 />
               ))}
 
+              {hasChatAccess ? (
+                <OpportunityNudgeStack
+                  userId={user?.uid ?? null}
+                  vaultOwnerToken={vaultOwnerToken}
+                  vaultKey={vaultKey}
+                  onRequireUnlock={() => setVaultDialogOpen(true)}
+                />
+              ) : null}
+
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
                   <SpecialistConsentRequiredCard
@@ -4636,6 +4652,8 @@ export function AgentChatWorkspace({
                       type="button"
                       variant="ghost"
                       size="icon"
+                      data-native-voice-control-id="one_voice_agent_chat_start"
+                      data-testid="one-voice-agent-chat-start"
                       className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
                       disabled={!canToggleVoice}
                       onClick={() => {

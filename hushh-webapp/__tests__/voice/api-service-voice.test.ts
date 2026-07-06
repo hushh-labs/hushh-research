@@ -147,6 +147,50 @@ describe("ApiService voice planning contract", () => {
     expect(body.memory_retrieved).toEqual([{ memory: "m1" }]);
   });
 
+  it("exposes One Voice planner and session aliases over the One route family", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await ApiService.planOneVoiceIntent({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      transcript: "open consent center",
+      plannerV2: {
+        turnId: "vturn_one_1",
+        transcriptFinal: "open consent center",
+        structuredContext: {
+          one_voice_context: {
+            schema_version: "one_voice_context.v1",
+          },
+        },
+      },
+    });
+    await ApiService.createOneVoiceSession({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      voice: "alloy",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/one/voice/plan");
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe("/api/one/voice/session");
+    const planRequest = fetchSpy.mock.calls[0]?.[1];
+    const planBody = JSON.parse(String(planRequest?.body || "{}")) as Record<
+      string,
+      unknown
+    >;
+    expect(planBody.context_structured).toEqual({
+      one_voice_context: {
+        schema_version: "one_voice_context.v1",
+      },
+    });
+  });
+
   it("forwards voice turn id header for TTS requests", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -167,6 +211,45 @@ describe("ApiService voice planning contract", () => {
     const [, ttsRequest] = fetchSpy.mock.calls[0] ?? [];
     const ttsHeaders = ttsRequest?.headers as Record<string, string>;
     expect(ttsHeaders["X-Voice-Turn-Id"]).toBe("vturn_tts_1");
+  });
+
+  it("builds Gemini relay URLs with an opaque ticket instead of Firebase bearer", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          relay_ticket: "relay_ticket_123",
+          expires_at: 123,
+          model: "gemini-live",
+          voice: "Sulafat",
+          tier: "full",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    const relayUrl = await ApiService.getGeminiLiveRelayUrl({
+      voice: "Sulafat",
+      screen: "one_home",
+      persona: "investor",
+      routeFamily: "/one",
+      voiceState: "listening",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "/api/kai/agent/realtime/gemini/relay-session"
+    );
+    const request = fetchSpy.mock.calls[0]?.[1];
+    const headers = request?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer firebase_token");
+    const parsed = new URL(relayUrl);
+    expect(parsed.searchParams.get("relay_ticket")).toBe("relay_ticket_123");
+    expect(parsed.searchParams.has("authorization")).toBe(false);
+    expect(relayUrl).not.toContain("firebase_token");
   });
 
   it("uploads Agent voice audio through the STT route with vault auth", async () => {
