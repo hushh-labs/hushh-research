@@ -9,7 +9,7 @@ settlement are evaluated.
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -126,7 +126,8 @@ def _tokens(value: str) -> list[str]:
 
 
 def _goal(action: dict[str, Any]) -> dict[str, Any]:
-    return action.get("goal") if isinstance(action.get("goal"), dict) else {}
+    raw = action.get("goal")
+    return cast(dict[str, Any], raw) if isinstance(raw, dict) else {}
 
 
 def _required_inputs(action: dict[str, Any]) -> list[dict[str, Any]]:
@@ -262,20 +263,22 @@ def _should_override_candidate(
 
 def _resolve_action(body: OneGoalPlannerRequest) -> dict[str, Any] | None:
     if body.action_id:
-        return get_voice_manifest_action(body.action_id)
+        action = get_voice_manifest_action(body.action_id)
+        return cast(dict[str, Any], action) if isinstance(action, dict) else None
     ranked = _rank_actions(body.transcript or "")
     if body.candidate_action_id:
         candidate = get_voice_manifest_action(body.candidate_action_id)
-        if candidate:
-            candidate_score = _score_action(candidate, body.transcript or "")
+        if isinstance(candidate, dict):
+            candidate_action = cast(dict[str, Any], candidate)
+            candidate_score = _score_action(candidate_action, body.transcript or "")
             if _should_override_candidate(
-                candidate=candidate,
+                candidate=candidate_action,
                 top=ranked[0] if ranked else None,
                 candidate_score=candidate_score,
                 transcript=body.transcript or "",
             ):
                 return ranked[0][1]
-            return candidate
+            return candidate_action
     return ranked[0][1] if ranked else None
 
 
@@ -286,6 +289,7 @@ def _resolve_ticker_symbol(
     slots: dict[str, Any],
     slot: str,
 ) -> None:
+    symbol: str | None
     existing = slots.get(slot) or slots.get("symbol") or slots.get("ticker")
     if isinstance(existing, str) and existing.strip():
         symbol = existing.strip().upper()

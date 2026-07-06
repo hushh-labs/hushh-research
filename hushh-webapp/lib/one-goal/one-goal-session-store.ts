@@ -32,7 +32,7 @@ function nowMs(): number {
   return Date.now();
 }
 
-export const useOneGoalSessionStore = create<OneGoalSessionStore>((set, get) => ({
+export const useOneGoalSessionStore = create<OneGoalSessionStore>((set) => ({
   sessions: [],
   activeSessionId: null,
   startSession: ({ goalId, actionId, slots }) => {
