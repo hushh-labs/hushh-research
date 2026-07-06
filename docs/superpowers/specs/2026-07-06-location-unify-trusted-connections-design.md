@@ -118,6 +118,13 @@ metadata) — no schema change required.
   mutual (both directions copied); only new claims are one-way. This asymmetry is
   intentional per decision #5 and documented for reviewers.
 
+> **Deploy-safety amendment (during implementation):** the physical
+> `DROP TABLE one_location_network_connections` is **deferred to a follow-up PR**
+> (expand/contract). This branch migrates the data (079), retires the table from
+> all code (nothing reads/writes it), and leaves it dormant. A follow-up migration
+> drops it after the new code is fully deployed, avoiding a rolling-deploy window
+> where the old revision would 500 querying a dropped table.
+
 ### 4. Seeding removal
 
 - Delete `POST /api/one/location/seed-trusted` (`location.py`) and
