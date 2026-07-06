@@ -70,6 +70,26 @@ def _row_to_request(row: dict) -> dict[str, Any]:
         "status": row.get("status"),
         "createdAt": _str_or_none(row.get("created_at")),
         "resolvedAt": _str_or_none(row.get("resolved_at")),
+        "latestEnvelopeId": _str_or_none(row.get("latest_envelope_id")),
+    }
+
+
+def _envelope_row(row: dict) -> dict[str, Any]:
+    """Shape a delivery-envelope DB row into the JSON-safe camelCase contract the
+    buyer's device consumes to decrypt the slice. Ciphertext only — no plaintext
+    slice value is ever stored or returned (the server is a blind relay)."""
+    return {
+        "id": _str_or_none(row.get("id")),
+        "requestId": _str_or_none(row.get("request_id")),
+        "ownerUserId": _str_or_none(row.get("owner_user_id")),
+        "buyerUserId": _str_or_none(row.get("buyer_user_id")),
+        "recipientKeyId": row.get("recipient_key_id"),
+        "algorithm": row.get("algorithm") or _DEFAULT_KEY_ALGORITHM,
+        "ciphertext": row.get("ciphertext"),
+        "iv": row.get("iv"),
+        "senderEphemeralPublicKeyJwk": row.get("sender_ephemeral_public_key_jwk"),
+        "createdAt": _str_or_none(row.get("created_at")),
+        "metadata": row.get("metadata") or {},
     }
 
 
@@ -157,10 +177,164 @@ class MarketplaceRequestService:
             return {"ok": False, "reason": "not_found_or_not_pending", "requestId": request_id}
         return {"ok": True, "request": _row_to_request(rows[0])}
 
-    async def approve_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
-        return await self._resolve(
+    async def approve_request(
+        self,
+        *,
+        owner_user_id: str,
+        request_id: str,
+        envelope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Approve a pending request and, when an encrypted envelope is provided,
+        deliver it: the seller has sealed the slice against the buyer's recipient
+        key on-device, so we persist the ciphertext and point the request at it.
+        Without an envelope this is a plain status flip (legacy / no-delivery path).
+
+        The envelope is validated *before* the status flip so a malformed payload
+        cannot leave a request approved-but-undelivered."""
+        if envelope is not None:
+            self._validate_envelope(envelope)
+        resolved = await self._resolve(
             owner_user_id=owner_user_id, request_id=request_id, next_status="approved"
         )
+        if not resolved.get("ok") or envelope is None:
+            return resolved
+        request = resolved["request"]
+        buyer_user_id = request.get("buyerUserId")
+        if not buyer_user_id:
+            # Approved, but there is no buyer account to seal a delivery for
+            # (e.g. a labeled brand/agent request). Nothing to store.
+            return resolved
+        resolved["envelope"] = await self._store_delivery_envelope(
+            request=request,
+            owner_user_id=owner_user_id,
+            buyer_user_id=str(buyer_user_id),
+            envelope=envelope,
+        )
+        return resolved
+
+    @staticmethod
+    def _validate_envelope(envelope: dict[str, Any]) -> None:
+        """Reject anything that is not a well-formed ciphertext envelope. Slice
+        plaintext must never appear here — only sealed material."""
+        if not isinstance(envelope, dict):
+            raise ValueError("Encrypted envelope is required.")
+        for field in ("ciphertext", "iv", "senderEphemeralPublicKeyJwk"):
+            if not envelope.get(field):
+                raise ValueError(f"Encrypted envelope is missing {field}.")
+        sender = envelope.get("senderEphemeralPublicKeyJwk")
+        if not isinstance(sender, dict) or not sender.get("kty"):
+            raise ValueError("Envelope sender public key is invalid.")
+
+    async def _store_delivery_envelope(
+        self,
+        *,
+        request: dict[str, Any],
+        owner_user_id: str,
+        buyer_user_id: str,
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist a sealed slice envelope for an approved request and point the
+        request at it (mirrors one_location_share_grants.latest_envelope_id)."""
+        recipient_key_id = str(envelope.get("recipientKeyId") or "").strip()
+        if not recipient_key_id:
+            active = await self.get_recipient_key(user_id=buyer_user_id)
+            recipient_key_id = str((active or {}).get("keyId") or "").strip()
+        if not recipient_key_id:
+            raise ValueError("A recipient key id is required to deliver this slice.")
+        payload = {
+            "request_id": request["id"],
+            "owner_user_id": owner_user_id,
+            "buyer_user_id": buyer_user_id,
+            "recipient_key_id": recipient_key_id,
+            "algorithm": envelope.get("algorithm") or _DEFAULT_KEY_ALGORITHM,
+            "ciphertext": envelope.get("ciphertext"),
+            "iv": envelope.get("iv"),
+            "sender_ephemeral_public_key_jwk": envelope.get("senderEphemeralPublicKeyJwk"),
+            "metadata": envelope.get("metadata") or {},
+        }
+        result = await self._execute_query(
+            self.supabase.table("marketplace_delivery_envelopes").insert(payload)
+        )
+        rows = getattr(result, "data", None) or []
+        stored = _envelope_row(rows[0]) if rows else _envelope_row(payload)
+        envelope_id = stored.get("id")
+        if envelope_id:
+            await self._execute_query(
+                self.supabase.table("marketplace_access_requests")
+                .update({"latest_envelope_id": envelope_id})
+                .eq("id", request["id"])
+                .eq("owner_user_id", owner_user_id)
+            )
+        return stored
+
+    async def list_buyer_requests(
+        self, *, buyer_user_id: str, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List the buyer's own outgoing requests (their "Received data" tab),
+        newest first. Buyer-scoped mirror of list_requests."""
+        query = (
+            self.supabase.table("marketplace_access_requests")
+            .select("*")
+            .eq("buyer_user_id", buyer_user_id)
+        )
+        if status in _STATUSES:
+            query = query.eq("status", status)
+        query = query.order("created_at", desc=True)
+        result = await self._execute_query(query)
+        return [_row_to_request(r) for r in (getattr(result, "data", None) or [])]
+
+    async def get_delivered_envelope(
+        self, *, buyer_user_id: str, request_id: str
+    ) -> dict[str, Any] | None:
+        """Buyer-scoped fetch of the latest sealed envelope for one of their
+        requests. Returns None if the request is not theirs; returns the request
+        with envelope=None if nothing has been delivered yet."""
+        req_result = await self._execute_query(
+            self.supabase.table("marketplace_access_requests")
+            .select("*")
+            .eq("id", request_id)
+            .eq("buyer_user_id", buyer_user_id)
+            .limit(1)
+        )
+        req_rows = getattr(req_result, "data", None) or []
+        if not req_rows:
+            return None
+        request = _row_to_request(req_rows[0])
+        env_result = await self._execute_query(
+            self.supabase.table("marketplace_delivery_envelopes")
+            .select("*")
+            .eq("request_id", request_id)
+            .eq("buyer_user_id", buyer_user_id)
+            .order("created_at", desc=True)
+            .limit(1)
+        )
+        env_rows = getattr(env_result, "data", None) or []
+        envelope = _envelope_row(env_rows[0]) if env_rows else None
+        return {"request": request, "envelope": envelope}
+
+    async def get_request_recipient_key(
+        self, *, owner_user_id: str, request_id: str
+    ) -> dict[str, Any] | None:
+        """Owner-scoped: resolve the buyer of one of the owner's requests and
+        return that buyer's active recipient key, so the seller can seal a slice
+        for them at approve time. Returns None if the request is not the owner's;
+        recipientKey is None if the buyer has not published a key yet."""
+        result = await self._execute_query(
+            self.supabase.table("marketplace_access_requests")
+            .select("*")
+            .eq("id", request_id)
+            .eq("owner_user_id", owner_user_id)
+            .limit(1)
+        )
+        rows = getattr(result, "data", None) or []
+        if not rows:
+            return None
+        request = _row_to_request(rows[0])
+        buyer_user_id = request.get("buyerUserId")
+        recipient_key = (
+            await self.get_recipient_key(user_id=str(buyer_user_id)) if buyer_user_id else None
+        )
+        return {"request": request, "recipientKey": recipient_key}
 
     async def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
         return await self._resolve(

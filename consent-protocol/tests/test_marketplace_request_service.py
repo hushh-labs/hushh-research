@@ -172,6 +172,149 @@ async def test_approve_request_not_ok_when_no_row_matched():
     assert result["reason"] == "not_found_or_not_pending"
 
 
+_VALID_ENVELOPE = {
+    "ciphertext": "ct",
+    "iv": "iv",
+    "senderEphemeralPublicKeyJwk": {"kty": "EC", "crv": "P-256"},
+    "recipientKeyId": "buyer-key-1",
+    "algorithm": "ECDH-P256-AES256-GCM",
+}
+
+
+async def test_approve_request_with_envelope_stores_delivery():
+    row = {
+        "id": "req-1",
+        "owner_user_id": "owner",
+        "buyer_user_id": "buyer",
+        "slice_label": "Insurance",
+        "status": "approved",
+        # The fake reuses this row as the insert RETURNING result too, so give it
+        # the envelope columns a real INSERT ... RETURNING would echo back.
+        "request_id": "req-1",
+        "recipient_key_id": "buyer-key-1",
+        "ciphertext": "ct",
+        "iv": "iv",
+        "sender_ephemeral_public_key_jwk": {"kty": "EC"},
+    }
+    svc, fake = _service_with([row])
+
+    result = await svc.approve_request(
+        owner_user_id="owner", request_id="req-1", envelope=dict(_VALID_ENVELOPE)
+    )
+
+    assert result["ok"] is True
+    assert result["request"]["status"] == "approved"
+    # A sealed envelope was persisted, ciphertext-only, keyed to the request/buyer.
+    assert result["envelope"]["ciphertext"] == "ct"
+    assert fake.query.inserted["request_id"] == "req-1"
+    assert fake.query.inserted["buyer_user_id"] == "buyer"
+    assert fake.query.inserted["recipient_key_id"] == "buyer-key-1"
+    assert fake.query.inserted["ciphertext"] == "ct"
+    assert "slice_label" not in fake.query.inserted  # no plaintext slice ever stored
+    # The request is pointed at its latest delivered envelope.
+    assert fake.query.updated == {"latest_envelope_id": "req-1"}
+
+
+async def test_approve_request_rejects_malformed_envelope_before_status_flip():
+    svc, fake = _service_with([])
+
+    for bad in (
+        {},
+        {"ciphertext": "x"},
+        {"ciphertext": "x", "iv": "y", "senderEphemeralPublicKeyJwk": {}},
+    ):
+        try:
+            await svc.approve_request(owner_user_id="owner", request_id="req-1", envelope=bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
+    # Validation happens before the resolve, so nothing was ever flipped to approved.
+    assert fake.query.updated is None
+
+
+async def test_approve_request_without_buyer_skips_delivery():
+    row = {
+        "id": "req-1",
+        "owner_user_id": "owner",
+        "slice_label": "Insurance",
+        "status": "approved",
+    }  # no buyer_user_id (e.g. a labeled brand request)
+    svc, fake = _service_with([row])
+
+    result = await svc.approve_request(
+        owner_user_id="owner", request_id="req-1", envelope=dict(_VALID_ENVELOPE)
+    )
+
+    assert result["ok"] is True
+    assert "envelope" not in result
+    assert fake.query.inserted is None
+
+
+async def test_list_buyer_requests_scopes_by_buyer():
+    rows = [{"id": "a", "buyer_user_id": "buyer", "slice_label": "One", "status": "approved"}]
+    svc, fake = _service_with(rows)
+
+    out = await svc.list_buyer_requests(buyer_user_id="buyer", status="approved")
+
+    assert [r["id"] for r in out] == ["a"]
+    assert ("buyer_user_id", "buyer") in fake.query.eqs
+    assert ("status", "approved") in fake.query.eqs
+
+
+async def test_get_delivered_envelope_returns_request_and_envelope():
+    row = {
+        "id": "env-1",
+        "request_id": "req-1",
+        "owner_user_id": "owner",
+        "buyer_user_id": "buyer",
+        "recipient_key_id": "buyer-key-1",
+        "ciphertext": "ct",
+        "iv": "iv",
+        "sender_ephemeral_public_key_jwk": {"kty": "EC"},
+        "slice_label": "Insurance",
+        "status": "approved",
+    }
+    svc, fake = _service_with([row])
+
+    out = await svc.get_delivered_envelope(buyer_user_id="buyer", request_id="req-1")
+
+    assert out is not None
+    assert out["request"]["buyerUserId"] == "buyer"
+    assert out["envelope"]["ciphertext"] == "ct"
+    assert out["envelope"]["requestId"] == "req-1"
+    assert ("buyer_user_id", "buyer") in fake.query.eqs
+
+
+async def test_get_delivered_envelope_none_when_request_not_buyers():
+    svc, _ = _service_with([])
+    assert await svc.get_delivered_envelope(buyer_user_id="buyer", request_id="x") is None
+
+
+async def test_get_request_recipient_key_owner_scoped():
+    row = {
+        "id": "req-1",
+        "owner_user_id": "owner",
+        "buyer_user_id": "buyer",
+        "slice_label": "Insurance",
+        "status": "pending",
+        "user_id": "buyer",
+        "key_id": "buyer-key-1",
+        "public_key_jwk": _SAMPLE_JWK,
+        "algorithm": "ECDH-P256-AES256-GCM",
+    }
+    svc, fake = _service_with([row])
+
+    out = await svc.get_request_recipient_key(owner_user_id="owner", request_id="req-1")
+
+    assert out is not None
+    assert out["request"]["buyerUserId"] == "buyer"
+    assert out["recipientKey"]["keyId"] == "buyer-key-1"
+    assert ("owner_user_id", "owner") in fake.query.eqs
+
+    svc_none, _ = _service_with([])
+    assert await svc_none.get_request_recipient_key(owner_user_id="owner", request_id="x") is None
+
+
 async def test_deny_request_marks_denied():
     row = {"id": "req-1", "owner_user_id": "owner", "slice_label": "Insurance", "status": "denied"}
     svc, fake = _service_with([row])

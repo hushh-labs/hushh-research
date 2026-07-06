@@ -22,7 +22,7 @@ def test_pbkdf2_migration_is_registered_at_release_head():
     assert MIGRATION in manifest["groups"]["iam"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 78
+    assert contract["expected_migration_version"] == 79
     assert contract["migration_version_policy"] == "exact"
 
 
