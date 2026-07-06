@@ -607,7 +607,7 @@ export default function PortfolioHealthPage() {
       width="expanded"
       className="pb-6 sm:pb-8"
       nativeTest={{
-        routeId: "/kai/optimize",
+        routeId: "/one/kai/optimize",
         marker: "native-route-kai-optimize",
         authState: user ? "authenticated" : "pending",
         dataState: loading

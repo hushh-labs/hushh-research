@@ -195,8 +195,22 @@ why it matters, and the new steady state.
 Refresh after merge, close, requested-changes, maintainer patch, or revert:
 
 ```bash
-python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text > tmp/contributor-impact-dashboard.md
+python3 .codex/skills/pr-governance-review/scripts/refresh_contributor_impact_dashboard.py --repo hushh-labs/hushh-research --days 14 --mode fast
 ```
 
-Use north-star weighted impact, not raw PR count. Keep the dashboard historical
-and rolling; it may include merged, closed, reverted, and patched PRs.
+Use Operating Impact for workload visibility and Balanced Impact for
+source-weighted recognition; never use raw PR count as the headline. Keep the
+dashboard historical and rolling; it may include merged, closed, reverted, and
+patched PRs. Use `--mode fast` for the canonical rate-limit-friendly dashboard
+refresh. Fast mode is the default operating report and includes weekly,
+two-week, and month-to-date views while intentionally omitting global top-count
+sections. Use `--mode full` only when an explicit all-time metadata backfill is
+needed. Add `--include-all-time-discussions` only for an expensive forensic
+refresh that needs all-time comment/review enrichment, and add `--include-files`
+only when per-PR file lists are required. The refresh script fetches GitHub data
+once, writes Markdown and JSON from the same in-memory payload, and renders
+exactly two Hussh-branded PDF artifacts:
+`tmp/contributor-impact-dashboard-light.pdf` and
+`tmp/contributor-impact-dashboard-dark.pdf`. Do not maintain a separate
+contributor-impact formatter under `hushh-webapp`; the PR governance skill is
+the canonical source for the report, the formatter, and the artifacts.

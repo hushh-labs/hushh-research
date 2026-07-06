@@ -502,8 +502,16 @@ function AppShellFrame({ children }: ProvidersProps) {
 }
 
 export function Providers({ children }: ProvidersProps) {
+  // iOS ships in forced LIGHT ("daylight") mode: the native side is pinned via
+  // Info.plist UIUserInterfaceStyle=Light, and next-themes is pinned here so no
+  // persisted/system "dark" can re-apply the .dark class.
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="light"
+      forcedTheme="light"
+      enableSystem={false}
+    >
       <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />

@@ -596,6 +596,18 @@ a, button, input, select, textarea {
   --app-top-safe-offset: 2px;
 }
 
+.agent-chat-workspace {
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
+  --agent-chat-composer-bottom: calc(0.75rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-focused-bottom: calc(1.25rem + var(--app-safe-area-bottom-effective));
+}
+
+html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
+  --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
+  --agent-chat-composer-bottom: calc(1rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-focused-bottom: calc(1.75rem + var(--app-safe-area-bottom-effective));
+}
+
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
@@ -1582,6 +1594,7 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [data-segment-indicator] {
   background: rgb(0 0 0 / 0.06) !important;
+  border: 0;
   box-shadow: none !important;
 }
 
@@ -1646,12 +1659,12 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: rgb(0 113 227) !important;
+  color: var(--foundation-gold-deep) !important;
   font-weight: 600;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: rgb(41 171 255) !important;
+  color: var(--foundation-gold-deep) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
@@ -1667,7 +1680,7 @@ md-ripple.morphy-md-ripple {
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
   stroke-width: 1.95;
-  filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.24));
+  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--foundation-gold-deep) 28%, transparent));
   transform: translateY(-0.5px);
 }
 

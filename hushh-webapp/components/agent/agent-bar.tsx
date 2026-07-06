@@ -5,8 +5,8 @@
 // every authenticated screen. It replaces the old draggable floating "Agent"
 // pill so the agent is always present and context-aware: the hint text adapts to
 // the current screen so the bar can guide the user from onboarding to any part
-// of the app. For now it keeps the existing behavior (tap or mic both open the
-// agent); richer per-screen actions are a planned follow-up.
+// of the app. The bar defaults to One Voice conversation; Agent Chat owns its
+// own mic control inside the popover.
 
 "use client";
 
@@ -18,26 +18,46 @@ import React, {
   useState,
   type CSSProperties,
 } from "react";
-import { usePathname } from "next/navigation";
-import { AudioLines, Mic, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { AudioLines, X } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
+import { useAuth } from "@/hooks/use-auth";
+import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { ApiService } from "@/lib/services/api-service";
 import {
   getAgentVoiceStatusLabel,
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
+import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
+import {
+  OneVoiceLiveActionBridge,
+  type OneVoiceLiveActionBridgeConfig,
+} from "@/lib/voice/one-voice-live-action-bridge";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type {
+  OneVoiceActionProposal,
   OneVoiceSessionEvent,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
+import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import type { AgentVoiceEventOptions, AgentVoiceStatus } from "@/lib/agent/agent-voice-state";
+
+type PrewarmedGeminiRelay = {
+  relayUrl: string;
+  expiresAtMs: number;
+  snapshotId: string;
+  accessTier: string;
+};
 
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
@@ -70,11 +90,20 @@ function resolveAgentBarHint(pathname: string | null): string {
 
 export function AgentBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const agentPopover = useOptionalAgentPopover();
   // Shared single source of truth for the agent's active state. The bar uses it
   // for tier-aware presentation and to detect the home/onboarding surfaces
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
+  const { user } = useAuth();
+  const { vaultOwnerToken, vaultKey } = useVault();
+  const { switchPersona } = usePersonaState();
+  const busyOperations = useKaiSession((state) => state.busyOperations);
+  const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
+  const appendMirrorEvent = useOneConversationSession((state) => state.appendMirrorEvent);
+  const createHandoff = useOneConversationSession((state) => state.createHandoff);
+  const mirrorSessionId = useOneConversationSession((state) => state.sessionId);
 
   // In-bar conversation (Gemini Live full-duplex) state. This lives entirely in
   // the bar: tapping conversation mode does NOT open the chat popover. Instead
@@ -88,6 +117,10 @@ export function AgentBar() {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
+  const liveActionBridgeRef = useRef<OneVoiceLiveActionBridge | null>(null);
+  const pendingProposalRef = useRef<OneVoiceActionProposal | null>(null);
+  const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
+  const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -138,20 +171,186 @@ export function AgentBar() {
       setVoiceStatus("error", event.message, eventOptions);
       return;
     }
+    if (event.type === "assistant_text") {
+      appendMirrorEvent({
+        role: "assistant",
+        text: event.text,
+        source: "gemini_live",
+        turnId: event.turnId ?? null,
+      });
+      return;
+    }
+    if (event.type === "action_proposal") {
+      pendingProposalRef.current = event.proposal;
+      liveClientRef.current?.interrupt?.();
+      if (event.transcript) {
+        void liveActionBridgeRef.current?.processTranscript({
+          transcript: event.transcript,
+          candidate: event.proposal,
+        });
+        pendingProposalRef.current = null;
+      }
+      return;
+    }
+    if (event.type === "transcript_final") {
+      const transcript = event.text.trim();
+      const previous = lastTranscriptRef.current;
+      if (
+        previous &&
+        previous.text === transcript &&
+        Date.now() - previous.atMs < 1500
+      ) {
+        return;
+      }
+      lastTranscriptRef.current = { text: transcript, atMs: Date.now() };
+      appendMirrorEvent({
+        role: "user",
+        text: transcript,
+        source: "gemini_live",
+        turnId: event.turnId ?? null,
+      });
+      setVoiceStatus("thinking", "Understanding", eventOptions);
+      const proposal = pendingProposalRef.current;
+      pendingProposalRef.current = null;
+      void liveActionBridgeRef.current?.processTranscript({
+        transcript,
+        candidate: proposal,
+      });
+      return;
+    }
+    if (event.type === "handoff") {
+      const transcript =
+        typeof event.payload?.transcript === "string" ? event.payload.transcript : null;
+      const assistantText =
+        typeof event.payload?.assistantText === "string" ? event.payload.assistantText : null;
+      const actionId =
+        typeof event.payload?.actionId === "string" ? event.payload.actionId : null;
+      const handoff = createHandoff({
+        reason: "action_requires_chat",
+        transcript,
+        assistantText: assistantText || event.reason,
+        actionId,
+      });
+      liveClientRef.current?.interrupt?.();
+      agentPopover?.openAgent({ handoff });
+      return;
+    }
     if (event.type === "closed") {
       liveClientRef.current = null;
       if (erroredRef.current) return;
       setConversationActive(false);
     }
-  }, [setVoiceLevel, setVoiceStatus]);
+  }, [agentPopover, appendMirrorEvent, createHandoff, setVoiceLevel, setVoiceStatus]);
 
   const stopConversation = useCallback(() => {
     erroredRef.current = false;
     liveClientRef.current?.stop();
     liveClientRef.current = null;
+    prewarmedRelayRef.current = null;
     setConversationActive(false);
     resetVoice();
   }, [resetVoice]);
+
+  useEffect(() => {
+    if (!runtime) {
+      liveActionBridgeRef.current?.cancel("agent_bar_runtime_unavailable");
+      liveActionBridgeRef.current = null;
+      return;
+    }
+    const bridgeConfig: OneVoiceLiveActionBridgeConfig = {
+      userId: user?.uid,
+      vaultOwnerToken,
+      vaultKey,
+      getAppRuntimeState: () => runtime.appRuntimeState,
+      getVoiceContext: () =>
+        runtime.oneVoiceContextSnapshot as unknown as Record<string, unknown>,
+      executeAction: (actionId, slots) =>
+        executeAgentGatewayAction({
+          actionId,
+          slots,
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: runtime.appRuntimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          hasPortfolioData:
+            runtime.appRuntimeState.portfolio.has_portfolio_data ||
+            runtime.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+        }),
+      router,
+      setAnalysisParams,
+      speak: async ({ text, turnId, segmentType }) => {
+        appendMirrorEvent({
+          role: "assistant",
+          text,
+          source: "one_voice_orchestrator",
+          turnId,
+        });
+        const spoken = await liveClientRef.current?.speakText?.({
+          text,
+          turnId,
+          segmentType,
+        });
+        if (!spoken) {
+          setVoiceStatus("speaking", text, {
+            sessionId: null,
+            sourceId: "one_voice_orchestrator",
+            sourceSeq: null,
+          });
+        }
+      },
+      mirrorAssistantText: ({ text, turnId }) => {
+        appendMirrorEvent({
+          role: "assistant",
+          text,
+          source: "one_voice_orchestrator",
+          turnId,
+        });
+      },
+      openChatHandoff: (handoffInput) => {
+        const handoff = createHandoff(handoffInput);
+        liveClientRef.current?.interrupt?.();
+        agentPopover?.openAgent({ handoff });
+        stopConversation();
+      },
+      setStage: (stage) => {
+        if (stage === "planning" || stage === "dispatch") {
+          setVoiceStatus("thinking", stage === "planning" ? "Understanding" : "Acting");
+        } else if (stage === "speaking_ack" || stage === "speaking_final") {
+          setVoiceStatus("speaking");
+        } else if (stage === "idle" && conversationActive) {
+          setVoiceStatus("listening");
+        }
+      },
+      onDebug: (event, payload) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[ONE_VOICE_LIVE_BRIDGE]", event, payload || {});
+        }
+      },
+    };
+    if (liveActionBridgeRef.current) {
+      liveActionBridgeRef.current.updateConfig(bridgeConfig);
+      return;
+    }
+    liveActionBridgeRef.current = new OneVoiceLiveActionBridge(bridgeConfig);
+  }, [
+    agentPopover,
+    appendMirrorEvent,
+    busyOperations,
+    conversationActive,
+    createHandoff,
+    router,
+    runtime,
+    setAnalysisParams,
+    setVoiceStatus,
+    stopConversation,
+    switchPersona,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const startConversation = useCallback(() => {
     // Toggle off when a session (live OR an error still on screen) exists.
@@ -161,27 +360,119 @@ export function AgentBar() {
     }
     erroredRef.current = false;
     setConversationActive(true);
+    const context = runtime?.oneVoiceContextSnapshot ?? null;
+    const prewarmedRelay = prewarmedRelayRef.current;
+    const relayUrl =
+      prewarmedRelay &&
+      context &&
+      prewarmedRelay.snapshotId === context.snapshot_id &&
+      prewarmedRelay.accessTier === runtime?.tier &&
+      prewarmedRelay.expiresAtMs > Date.now()
+        ? prewarmedRelay.relayUrl
+        : null;
+    prewarmedRelayRef.current = null;
     const client = createRealtimeVoiceTransport({
       onEvent: handleTransportEvent,
     });
     liveClientRef.current = client;
     void client.start({
-      context: runtime?.oneVoiceContextSnapshot ?? null,
+      context,
+      accessTier: runtime?.tier ?? null,
+      relayUrl,
+      sessionMirrorId: mirrorSessionId,
+      allowedActionIds: context?.available_action_ids ?? null,
     });
   }, [
     conversationActive,
     runtime?.oneVoiceContextSnapshot,
+    runtime?.tier,
+    mirrorSessionId,
     handleTransportEvent,
     stopConversation,
   ]);
+
+  useEffect(() => {
+    const context = runtime?.oneVoiceContextSnapshot ?? null;
+    const accessTier = runtime?.tier ?? null;
+    if (!context || !accessTier || conversationActive || erroredRef.current) {
+      return;
+    }
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
+    if (
+      typeof window !== "undefined" &&
+      window.__HUSHH_NATIVE_TEST__?.enabled === true
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void ApiService.getGeminiLiveRelayUrl({
+        screen: context.route.screen,
+        persona: context.persona.active,
+        routeFamily: context.route.route_family,
+        voiceState: context.voice.state,
+        accessTier,
+        availableActionIds: context.available_action_ids,
+        visibleModules: context.ui.visible_modules,
+        cacheFreshness: context.cache.freshness,
+        vaultReady: context.cache.vault_ready,
+        portfolioReady: context.cache.portfolio_ready,
+        signal: controller.signal,
+      })
+        .then((relayUrl) => {
+          if (controller.signal.aborted) return;
+          prewarmedRelayRef.current = {
+            relayUrl,
+            expiresAtMs: Date.now() + 45_000,
+            snapshotId: context.snapshot_id,
+            accessTier,
+          };
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            prewarmedRelayRef.current = null;
+          }
+        });
+    }, 300);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    conversationActive,
+    runtime?.oneVoiceContextSnapshot,
+    runtime?.tier,
+  ]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") return;
+      prewarmedRelayRef.current = null;
+      if (liveClientRef.current || conversationActive) {
+        stopConversation();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [conversationActive, stopConversation]);
 
   // Tear down the live session if the bar unmounts (route change, sign-out).
   // Also clear the shared voice store so a stale status (e.g. "error",
   // "listening") does not leak to other consumers after the bar is gone.
   useEffect(() => {
     return () => {
+      liveActionBridgeRef.current?.cancel("agent_bar_unmounted");
+      liveActionBridgeRef.current = null;
       liveClientRef.current?.stop();
       liveClientRef.current = null;
+      prewarmedRelayRef.current = null;
       resetVoice();
     };
   }, [resetVoice]);
@@ -218,20 +509,33 @@ export function AgentBar() {
 
   // Hard unmount gates: route/auth contexts where the bar must not exist at all.
   //
-  // The agent is a SINGLE bar that is present everywhere, including the very
-  // first marketing/intro screen ("/"), onboarding, and for anonymous
-  // (pre-sign-in) users on the welcome flow. It degrades gracefully by
-  // auth/vault level: anonymous + locked-vault users get informational/
-  // navigation help and an in-place unlock prompt only when a vault operation
-  // is invoked, while unlocked users get the full agent. So we do NOT unmount
-  // on onboarding chrome, on the root intro screen, or on missing auth. We only
-  // unmount where an agent launcher genuinely must not exist (legacy dedicated
-  // agent route, phone mandate, appearance lab, developers), or on the
-  // transient auth transitions (login, logout) where the app shell is not the
-  // host.
+  // The agent bar rides most surfaces, degrading gracefully by auth/vault level
+  // (locked-vault users get an in-place unlock prompt; unlocked users get the
+  // full agent). EXCEPTION — the LOGGED-OUT welcome ("/"): an agent input has no
+  // meaning before sign-in and read as a confusing "backdoor" pinned under the
+  // CTA, so we unmount it there (signed-in users are redirected off "/", so the
+  // bar still shows on /one and every authed surface). We also unmount where an
+  // agent launcher genuinely must not exist (legacy dedicated agent route, phone
+  // mandate, appearance lab, developers) or on transient auth transitions
+  // (login, logout) where the app shell is not the host.
   const path = pathname ?? "";
+  // The waveform action circle is white only on the 2c dark dashboard (where a
+  // white circle pops); on every other surface (welcome, profile, kai, …) it is
+  // the indigo accent, per design.md §5.5.
+  const onDashboard = path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
   const unmountBar =
     !agentPopover ||
+    // Logged-out welcome ("/"): no agent before sign-in. On "/" an anonymous
+    // user is always the `anon_onboarding` tier; signed-in users are redirected
+    // off "/", so the bar still shows on /one and every authed surface.
+    (isHomeRoute && runtime?.tier === "anon_onboarding") ||
+    // The One setup surface is a focused onboarding flow (like Apple's "Finish
+    // Setting Up" in Settings): a centered translucent agent launcher reads
+    // over the wide grouped-list rows on scroll (they show through it / beside
+    // it), so it is unmounted across the whole setup surface. isOneSetupRoute
+    // (not an exact match) is required because the Capacitor build uses
+    // trailingSlash, so the runtime pathname is "/one/setup/".
+    isOneSetupRoute(path) ||
     path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     path === ROUTES.DEVELOPERS ||
@@ -242,19 +546,6 @@ export function AgentBar() {
   if (unmountBar) {
     return null;
   }
-
-  // The popover window is suppressed on a few entry routes (the root intro
-  // screen), so opening the chat panel there is a no-op. On those routes the
-  // conversational voice piece IS the agent: route the hint/mic taps into
-  // in-bar conversation mode instead of a dead panel-open.
-  const popoverSuppressed = isHomeRoute;
-  const openAgent = () => {
-    if (popoverSuppressed) {
-      startConversation();
-      return;
-    }
-    agentPopover.openAgent();
-  };
 
   // While the agent window is active, keep the bar mounted but visually faded
   // and non-interactive. When the window finishes closing it eases back in over
@@ -326,12 +617,11 @@ export function AgentBar() {
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // Flat surface matching the top app bar controls and bottom nav. While
-          // in conversation mode the bar lifts to a highlighted, primary-tinted
-          // surface so it reads as a live, active listening session.
+          // Match the bottom nav flat translucent shell surface. Active voice
+          // keeps a neutral surface; only the voice icon/status carries accent.
           conversationActive
-            ? "bg-primary/10 text-foreground ring-1 ring-primary/30 dark:bg-primary/15"
-            : "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
+            ? "bg-black/[0.05] text-[#1d1d1f] ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:ring-white/[0.08]"
+            : "bg-black/[0.05] text-[#1d1d1f] ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:ring-white/[0.08]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
@@ -375,9 +665,9 @@ export function AgentBar() {
               title="End conversation"
               className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-primary/15 text-primary",
+                "bg-black/[0.05] text-accent-strong dark:bg-white/[0.07]",
                 "transition-[background-color,transform] duration-200",
-                "hover:bg-primary/25 active:scale-90",
+                "hover:bg-black/[0.08] active:scale-90 dark:hover:bg-white/[0.1]",
               )}
             >
               <X className="h-4 w-4" />
@@ -387,47 +677,40 @@ export function AgentBar() {
           <>
             <button
               type="button"
-              data-native-voice-control-id="one_voice_open_agent"
-              onClick={openAgent}
-              aria-label={hint}
+              data-testid="one-voice-agent-bar-start"
+              onClick={startConversation}
+              aria-label={`Start conversation. ${hint}`}
+              title="Start conversation"
               className={cn(
                 "flex min-w-0 flex-1 items-center gap-2.5 rounded-full pl-1 text-left",
                 "transition-colors duration-200 active:scale-[0.99]",
               )}
             >
-              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground/70">
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-[14px] font-medium",
+                  "text-muted-foreground",
+                )}
+              >
                 {hint}
               </span>
             </button>
             <button
               type="button"
-              data-native-voice-control-id="one_voice_open_agent"
-              onClick={openAgent}
-              aria-label="Talk to your agent"
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
-                "transition-[background-color,transform] duration-200",
-                "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90",
-              )}
-            >
-              <Mic className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
               data-native-voice-control-id="one_voice_agent_bar_start"
-              data-testid="one-voice-agent-bar-start"
+              data-testid="one-voice-agent-bar-start-icon"
               onClick={startConversation}
-              aria-label="Start a conversational session"
-              title="Conversational mode"
+              aria-label="Start conversation"
+              title="Start conversation"
               className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-foreground/70 dark:bg-white/[0.07]",
-                "transition-[background-color,transform] duration-200",
-                "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90",
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                "bg-black/[0.05] text-accent-strong ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
+                onDashboard && "text-accent-strong",
+                "transition-[background-color,transform] duration-200 active:scale-90",
+                "hover:bg-black/[0.08] dark:hover:bg-white/[0.1]",
               )}
             >
-              <AudioLines className="h-4 w-4" />
+              <AudioLines className="h-[18px] w-[18px]" />
             </button>
           </>
         )}

@@ -48,6 +48,58 @@ describe("One Voice realtime transports", () => {
     );
   });
 
+  it("normalizes Gemini relay transcripts and action proposals", async () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveTransport({ onEvent });
+    const testTransport = transport as unknown as {
+      sessionId: string | null;
+      handleSocketMessage: (data: string) => Promise<void>;
+    };
+
+    testTransport.sessionId = "gemini_session_1";
+    await testTransport.handleSocketMessage(
+      JSON.stringify({
+        inputTranscription: {
+          text: "show my portfolio",
+          confidence: 0.9,
+        },
+        outputTranscription: {
+          text: "I can help with that.",
+        },
+        actionProposal: {
+          action_id: "route.kai_portfolio",
+          slots: { tab: "overview" },
+          confidence: 0.8,
+          reason: "User asked for portfolio.",
+        },
+      })
+    );
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "transcript_final",
+        text: "show my portfolio",
+        provider: "gemini_live",
+      })
+    );
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "assistant_text",
+        text: "I can help with that.",
+        provider: "gemini_live",
+      })
+    );
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "action_proposal",
+        proposal: expect.objectContaining({
+          action_id: "route.kai_portfolio",
+          slots: { tab: "overview" },
+        }),
+      })
+    );
+  });
+
   it("keeps OpenAI Realtime behind the same interface until enabled", async () => {
     const onEvent = vi.fn();
     const transport = new OpenAIRealtimeTransport({ onEvent });

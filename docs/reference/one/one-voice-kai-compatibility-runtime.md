@@ -64,7 +64,8 @@ Current One Voice foundation:
 - `/api/one/voice/session`, `/api/one/voice/plan`, and `/api/one/voice/compose` are product-facing wrappers over the existing Kai-era compatibility runtime.
 - The wrappers preserve the same `VAULT_OWNER`, request `user_id`, rollout, canary, kill-switch, planner, composer, and settlement rules.
 - Frontend One Voice state is represented through the shared One Voice FSM and redacted `OneVoiceContextSnapshot`; the snapshot augments existing structured screen context instead of replacing it.
-- Gemini Live is an active realtime provider adapter for tool-less in-bar conversation. It does not execute app actions unless a later change routes proposals through the generated action gateway.
+- Gemini Live is an active realtime provider adapter for in-bar conversation. It receives redacted route/action/cache readiness hints from `OneVoiceContextSnapshot` and may emit proposal-only action ids, but execution stays app-owned through the One planner, generated gateway, guard evaluation, A2A/chat dispatch, and settlement.
+- One Goal is the product execution layer above these compatibility paths. Gemini Live, Agent Chat, typed search, command bar, and UI actions should enter [One Goal](./one-goal-framework.md) before executing generated actions.
 
 See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for the current One Voice contract layer.
 
@@ -98,6 +99,9 @@ The maintained runtime now depends on these canonical surfaces:
   - [hushh-webapp/lib/voice/investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
   - [hushh-webapp/lib/voice/voice-action-manifest.ts](../../../hushh-webapp/lib/voice/voice-action-manifest.ts)
 - Frontend runtime:
+  - [hushh-webapp/lib/one-goal/one-goal-planner.ts](../../../hushh-webapp/lib/one-goal/one-goal-planner.ts)
+  - [hushh-webapp/lib/one-goal/one-goal-runner.ts](../../../hushh-webapp/lib/one-goal/one-goal-runner.ts)
+  - [hushh-webapp/lib/one-goal/one-goal-session-store.ts](../../../hushh-webapp/lib/one-goal/one-goal-session-store.ts)
   - [hushh-webapp/lib/voice/voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts)
   - [hushh-webapp/lib/voice/voice-session-manager.ts](../../../hushh-webapp/lib/voice/voice-session-manager.ts)
   - [hushh-webapp/lib/voice/voice-realtime-client.ts](../../../hushh-webapp/lib/voice/voice-realtime-client.ts)
@@ -115,6 +119,7 @@ The maintained runtime now depends on these canonical surfaces:
   - [hushh-webapp/components/kai/kai-command-bar-global.tsx](../../../hushh-webapp/components/kai/kai-command-bar-global.tsx)
   - [hushh-webapp/components/kai/kai-search-bar.tsx](../../../hushh-webapp/components/kai/kai-search-bar.tsx)
 - Backend runtime:
+  - [consent-protocol/api/routes/one/goal.py](../../../consent-protocol/api/routes/one/goal.py)
   - [consent-protocol/api/routes/kai/voice.py](../../../consent-protocol/api/routes/kai/voice.py)
   - [consent-protocol/hushh_mcp/services/voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py)
   - [consent-protocol/hushh_mcp/services/voice_prompt_builder.py](../../../consent-protocol/hushh_mcp/services/voice_prompt_builder.py)
@@ -438,6 +443,31 @@ Important analysis actions include:
 - `analysis.cancel_active`
 
 The same action plane now also powers typed search suggestions and control-id mapping in the Kai search bar.
+
+## Gemini Live Finance Context
+
+The realtime Gemini relay uses `compose_voice_instructions` in `consent-protocol/hushh_mcp/services/agent_persona.py`.
+
+The frontend sends the redacted One Voice snapshot projection through `ApiService.getGeminiLiveRelayUrl`:
+
+- `screen`
+- `persona`
+- `route_family`
+- `voice_state`
+- `available_action_ids`
+- `visible_modules`
+- `cache_freshness`
+- `vault_ready`
+- `portfolio_ready`
+
+The relay-session ticket binds those hints before the WebSocket opens, and the WebSocket query remains a compatibility fallback. The prompt treats Kai finance routes and action ids such as `route.kai_analysis`, `analysis.start`, `route.kai_dashboard`, `route.kai_investments`, and `route.kai_optimize` as finance-capability evidence.
+
+Expected behavior:
+
+- Do not categorically refuse stock analysis, market analysis, or portfolio-analysis questions when Kai finance contracts are present.
+- Use One as the host voice and Kai as the finance specialist framing when useful.
+- If vault/cache/portfolio readiness is missing, say what is missing and route the user to import, unlock, analysis, portfolio, investments, or optimize surfaces.
+- Do not claim raw holdings, live quotes, saved PKM data, trades, transfers, or completed actions unless a governed app action result confirms that outcome.
 
 ## Memory And Privacy
 

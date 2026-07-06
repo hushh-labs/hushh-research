@@ -125,6 +125,79 @@
           "requires_symbol": true
         }
       },
+      "goal": {
+        "goal_id": "goal.analysis.start_debate",
+        "required_inputs": [
+          {
+            "name": "ticker",
+            "slot": "symbol",
+            "resolver": "ticker_symbol",
+            "prompt": "Which stock should I analyze?"
+          },
+          {
+            "name": "pick_source",
+            "slot": "pickSource",
+            "resolver": "kai_pick_source",
+            "prompt": "Which list should Kai use for this debate?",
+            "default_value": "default",
+            "options": [
+              "default"
+            ]
+          }
+        ],
+        "input_resolvers": [
+          "ticker_symbol",
+          "kai_pick_source"
+        ],
+        "slot_schema": {
+          "symbol": "ticker_symbol",
+          "pickSource": "kai_pick_source"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.start",
+            "label": "Prepare stock analysis",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          },
+          {
+            "type": "service",
+            "service": "kai_debate.ensure_run",
+            "label": "Run Kai debate",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "milestone",
+          "milestone_events": [
+            "started",
+            "agent_complete",
+            "decision"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": true,
+          "cancel_action_id": "analysis.cancel_active"
+        },
+        "result_contract": {
+          "summary_mode": "decision_summary"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [

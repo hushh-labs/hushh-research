@@ -16,15 +16,15 @@ Use this reference for generic Markdown/HTML/PDF report artifacts when no narrow
      --subtitle "Optional subtitle"
    ```
 
-2. Use the contributor-impact renderer only for the contributor dashboard:
+2. Use the PR governance skill refresh command for the contributor dashboard:
 
    ```bash
-   cd hushh-webapp
-   node scripts/reports/export-contributor-impact-pdf.mjs \
-     --input ../tmp/contributor-impact-dashboard.md \
-     --output ../tmp/contributor-impact-dashboard.pdf \
-     --html ../tmp/contributor-impact-dashboard.html
+   python3 .codex/skills/pr-governance-review/scripts/refresh_contributor_impact_dashboard.py --repo hushh-labs/hushh-research --days 14 --mode fast
    ```
+
+   The scoring, report copy, and contributor-dashboard PDF formatter stay
+   canonical in the `pr-governance-review` skill. Do not add a webapp-local
+   contributor-impact exporter.
 
 3. Do not try ad hoc `md-to-pdf`, `wkhtmltopdf`, `cupsfilter`, or browser-specific shell paths until the repo renderer fails. If the repo renderer fails because Playwright browsers are missing, install or use the repo's documented dependency path rather than creating a second renderer.
 

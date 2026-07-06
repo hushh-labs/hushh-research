@@ -25,7 +25,9 @@ describe("Navbar bottom chrome contract", () => {
     expect(searchBar).not.toContain("kai-bottom-agent-action");
     expect(searchBar).not.toContain('aria-label="Open Agent"');
 
-    expect(agentBar).toContain("agentPopover.openAgent()");
-    expect(agentBar).toContain('aria-label="Talk to your agent"');
+    expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
+    expect(agentBar).toContain('aria-label="Start conversation"');
+    expect(agentBar).not.toContain('aria-label="Talk to your agent"');
+    expect(agentBar).not.toContain("<Mic");
   });
 });

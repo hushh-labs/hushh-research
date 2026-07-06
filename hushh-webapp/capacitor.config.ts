@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 import type { CapacitorConfig } from "@capacitor/cli";
+import type { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
 
@@ -46,7 +47,13 @@ const config: CapacitorConfig = {
     // SystemBars immersive mode: let app/CSS safe-area handling own spacing.
     contentInset: "never",
     allowsLinkPreview: true,
-    scrollEnabled: true,
+    // Disable the native UIScrollView. The app is a fixed-overlay SPA: every
+    // scrollable surface uses an inner `overflow-y-auto` container, and
+    // html/body never scroll. Leaving native scroll on lets iOS auto-scroll the
+    // whole WKWebView up to reveal a focused input near the bottom — which drags
+    // the fixed chat overlay (header rises under the status bar, composer slides
+    // under the keyboard). Turning it off removes that drift at its root.
+    scrollEnabled: false,
     backgroundColor: "#0a0a0a",
     scheme: "App",
   },
@@ -61,6 +68,19 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
+    // Keyboard handling: `resize: "native"` (the plugin default) shrinks the
+    // WKWebView frame by the keyboard height, so 100dvh/svh and position:fixed
+    // bottom elements sit above the keyboard on EVERY screen with no per-screen
+    // JS — the standard iOS behavior. `scrollEnabled:false` (ios block) keeps
+    // the native scroll from fighting the frame shrink; all app scrolling is via
+    // inner overflow-y containers. NOTE: the chat popover must NOT also subtract
+    // a manual keyboard-height (that would double-shrink) — its sheet is plain
+    // 100dvh, which now shrinks with the webview.
+    Keyboard: {
+      resize: "native" as KeyboardResize,
+      style: "LIGHT" as KeyboardStyle,
+      resizeOnFullScreen: false,
+    },
     FirebaseAuthentication: {
       // Use native Google Sign-In SDK on iOS/Android
       skipNativeAuth: false,

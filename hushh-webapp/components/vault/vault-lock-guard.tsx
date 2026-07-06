@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -222,18 +223,59 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     }
   }
 
-  // User exists but vault is locked - show unlock dialog
+  // User exists but vault is locked — show the immersive unlock screen: a dark
+  // 14a hero (matching the welcome/front page) behind the white unlock sheet.
   return (
-    <VaultUnlockDialog
-      user={user}
-      open
-      dismissible={false}
-      enableGeneratedDefault={!skipGeneratedDefaultUnlock}
-      title="Unlock Vault"
-      description="Unlock your Vault to continue."
-      onSuccess={() => {
-        markSessionUnlocked();
-      }}
-    />
+    <>
+      <VaultUnlockHero />
+      <VaultUnlockDialog
+        user={user}
+        open
+        dismissible={false}
+        enableGeneratedDefault={!skipGeneratedDefaultUnlock}
+        title="Unlock Vault"
+        description="Unlock your Vault to continue."
+        onSuccess={() => {
+          markSessionUnlocked();
+        }}
+      />
+    </>
+  );
+}
+
+// Dark 14a immersive hero shown behind the vault unlock sheet on the hard gate,
+// matching the welcome/front page. Purely decorative backdrop: the Drawer scrim
+// dims it and the white unlock sheet rises over it.
+function VaultUnlockHero() {
+  return (
+    <div aria-hidden className="fixed inset-0 z-[700] overflow-hidden bg-[#0A0908]">
+      <span
+        className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
+        style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
+      />
+      <span
+        className="absolute -right-16 top-24 h-56 w-56 rounded-full"
+        style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
+      />
+      <div className="absolute inset-x-0 top-[calc(44px+var(--app-safe-area-top-effective,0px))] flex flex-col items-center gap-3">
+        <div className="flex h-[68px] w-[68px] items-center justify-center rounded-[19px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.18] to-white/[0.07] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+          <Image
+            src="/one-quiet-emoji.png"
+            alt=""
+            width={762}
+            height={766}
+            unoptimized
+            aria-hidden
+            draggable={false}
+            className="h-9 w-9 object-contain [filter:drop-shadow(0_4px_10px_rgba(0,0,0,0.35))]"
+          />
+        </div>
+        <div className="whitespace-nowrap font-[family-name:var(--font-app-display)] text-[24px] font-extrabold leading-none tracking-[-0.8px] text-[#FAF6EE]">
+          hu<span style={{ color: "#D4AF6A" }}>sh</span>h{" "}
+          <span className="font-bold">One</span>
+          <span style={{ color: "#D4AF6A" }}>.</span>
+        </div>
+      </div>
+    </div>
   );
 }

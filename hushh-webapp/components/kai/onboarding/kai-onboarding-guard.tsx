@@ -19,27 +19,19 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { ROUTES, isOneSetupWizardRoute } from "@/lib/navigation/routes";
+import {
+  readOneSetupCompletionHint,
+  writeOneSetupCompletionHint,
+} from "@/lib/services/one-setup-exit-service";
+import { isNativePlatform } from "@/lib/utils/session-storage";
+import {
+  ROUTES,
+  isCapabilityHandoffTarget,
+  isOneSetupWizardRoute,
+  normalizeInternalRouteHref,
+} from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
-
-const KAI_ONBOARDING_COMPLETION_SESSION_PREFIX = "hushh_setup_complete";
-
-function onboardingCompletionSessionKey(userId: string): string {
-  return `${KAI_ONBOARDING_COMPLETION_SESSION_PREFIX}:${userId}`;
-}
-
-function readOnboardingCompletionHint(userId: string): boolean | null {
-  const raw = getSessionItem(onboardingCompletionSessionKey(userId));
-  if (raw === "1") return true;
-  if (raw === "0") return false;
-  return null;
-}
-
-function writeOnboardingCompletionHint(userId: string, completed: boolean): void {
-  setSessionItem(onboardingCompletionSessionKey(userId), completed ? "1" : "0");
-}
 
 /**
  * OneOnboardingGuard: the hard gate for the One onboarding surface.
@@ -94,6 +86,26 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
       setRedirectTarget(target);
       router.replace(target);
     };
+    // Setup-originated entry into a hard-gated capability surface: pressing
+    // "Continue" on a `/one/setup/<id>` tile forwards to the real product
+    // surface tagged `?from=/one/setup` (e.g. `/one/gmail?from=/one/setup`). The
+    // setup flow deliberately sends an INCOMPLETE user into that one capability
+    // to finish it; the master gate is resolved only on a genuine finish (hub
+    // Skip/Continue), NOT by entering a capability. Allow these through instead
+    // of bouncing to `/one/setup` — the redirect loop `d83ed1890` fixed, but
+    // now WITHOUT its account-wide side effect of marking ALL setup complete
+    // (which cleared the dashboard's "Finish setup" bar). The marker is the hub
+    // PATH (not a bare "setup") so the top-bar back can also retrace to the hub.
+    // Scoped to known gated handoff targets + `from === /one/setup`, so arbitrary
+    // `/one/*` stays gated.
+    const setupOriginatedCapabilityEntry = (() => {
+      if (typeof window === "undefined") return false;
+      const params = new URLSearchParams(window.location.search);
+      return (
+        normalizeInternalRouteHref(params.get("from")) === ROUTES.ONE_SETUP &&
+        isCapabilityHandoffTarget(pathname)
+      );
+    })();
 
     async function run() {
       if (authLoading) return;
@@ -106,7 +118,28 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
 
       try {
         setGuardError(null);
-        const cachedCompletionHint = readOnboardingCompletionHint(user.uid);
+        const cachedCompletionHint = readOneSetupCompletionHint(user.uid);
+        // NATIVE fast-path: on iOS the async vault/bootstrap check can transiently
+        // report setup "incomplete" and bounce the user back to /one/setup (dead
+        // back button / trapped on setup) even immediately after they resolved it.
+        // The in-session completion hint — written synchronously by
+        // primeOneSetupResolved (the setup back button, Skip, and Continue) and by
+        // this guard after a real check — is the authoritative "already resolved"
+        // signal, and it is purged on a native cold start. So on native, trust it
+        // and let the user onto standard /one/* routes without the async bounce.
+        // Web behavior is unchanged (guarded by isNativePlatform()).
+        if (
+          isNativePlatform() &&
+          !onOnboardingRoute &&
+          cachedCompletionHint === true
+        ) {
+          setOnboardingRequiredCookie(false);
+          if (chromeState.onboardingFlowActive) {
+            setOnboardingFlowActiveCookie(false);
+          }
+          setChecking(false);
+          return;
+        }
         const unlockedOnStandardKaiRoute = isVaultUnlocked && !onOnboardingRoute;
         if (unlockedOnStandardKaiRoute && cachedCompletionHint !== false) {
           setChecking(false);
@@ -159,9 +192,13 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             }
           }
           setOnboardingRequiredCookie(onboardingIncomplete);
-          writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
+          writeOneSetupCompletionHint(user.uid, !onboardingIncomplete);
 
-          if (onboardingIncomplete && !onOnboardingRoute) {
+          if (
+            onboardingIncomplete &&
+            !onOnboardingRoute &&
+            !setupOriginatedCapabilityEntry
+          ) {
             redirectTo(ROUTES.ONE_SETUP);
             return;
           }
@@ -196,9 +233,13 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             remoteState.setupCompleted === false && !onboardingResolved;
 
           setOnboardingRequiredCookie(onboardingExplicitlyIncomplete);
-          writeOnboardingCompletionHint(user.uid, onboardingResolved);
+          writeOneSetupCompletionHint(user.uid, onboardingResolved);
 
-          if (!onOnboardingRoute && onboardingExplicitlyIncomplete) {
+          if (
+            !onOnboardingRoute &&
+            onboardingExplicitlyIncomplete &&
+            !setupOriginatedCapabilityEntry
+          ) {
             redirectTo(ROUTES.ONE_SETUP);
             return;
           }
@@ -264,9 +305,13 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
           }
         }
         setOnboardingRequiredCookie(onboardingIncomplete);
-        writeOnboardingCompletionHint(user.uid, !onboardingIncomplete);
+        writeOneSetupCompletionHint(user.uid, !onboardingIncomplete);
 
-        if (onboardingIncomplete && !onOnboardingRoute) {
+        if (
+          onboardingIncomplete &&
+          !onOnboardingRoute &&
+          !setupOriginatedCapabilityEntry
+        ) {
           redirectTo(ROUTES.ONE_SETUP);
           return;
         }

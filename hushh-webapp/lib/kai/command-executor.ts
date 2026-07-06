@@ -371,7 +371,11 @@ export function executeKaiCommand(
   }
 
   if (command === "consent") {
-    const routeAfter = buildConsentCenterHref("pending");
+    // Tag the origin (route before) so the consent center's back button
+    // retraces here instead of falling to Profile (breadcrumb reads ?from).
+    const routeAfter = buildConsentCenterHref("pending", {
+      from: currentRoute ?? undefined,
+    });
     router.push(routeAfter);
     return buildCommandResult({
       status: "executed",

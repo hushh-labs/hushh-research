@@ -1057,7 +1057,7 @@ export default function OneMarketplacePage() {
                   effect="fade"
                   onClick={() => router.push("/consents?tab=pending")}
                 >
-                  Real Consent Guardian →
+                  Real Consent →
                 </Button>
               </div>
 
@@ -1166,7 +1166,7 @@ export default function OneMarketplacePage() {
                   ))}
                 </div>
                 <div className="mt-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-                  Step 3 is mandatory. Today’s app already enforces steps 2–4 via the Consent Guardian.
+                  Step 3 is mandatory. Today’s app already enforces steps 2–4 via Consent.
                   The storefront only adds step 1 (price + browse).
                 </div>
               </div>

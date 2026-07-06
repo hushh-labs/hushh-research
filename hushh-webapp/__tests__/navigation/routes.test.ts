@@ -6,6 +6,7 @@ import {
   buildRiaClientWorkspaceRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
+  isCapabilityHandoffTarget,
   isOneSetupCapabilityRoute,
   isOneSetupSurfaceRoute,
   isOneSetupWizardRoute,
@@ -20,6 +21,7 @@ import {
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
+import { getRouteScope, routePersonaForScope } from "@/lib/navigation/route-scope";
 
 
 
@@ -117,6 +119,15 @@ describe("navigation routes", () => {
     expect(isRiaRoute("/one/kai")).toBe(false);
   });
 
+  it("keeps canonical One finance routes shared while legacy Kai routes stay investor-scoped", () => {
+    expect(getRouteScope("/one/kai")).toBe("shared");
+    expect(getRouteScope("/one/kai/analysis")).toBe("shared");
+    expect(routePersonaForScope(getRouteScope("/one/kai/analysis"))).toBeNull();
+
+    expect(getRouteScope("/kai")).toBe("investor");
+    expect(routePersonaForScope(getRouteScope("/kai"))).toBe("investor");
+  });
+
   it("builds the kai setup wizard route with query parameters", () => {
     expect(buildOneSetupKaiRoute()).toBe("/one/setup/kai");
     expect(buildOneSetupKaiRoute({ from: "/one" })).toBe("/one/setup/kai?from=%2Fone");
@@ -159,6 +170,7 @@ describe("navigation routes", () => {
     expect(isOneSetupCapabilityRoute("/one/setup/location")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/pkm")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/consent")).toBe(true);
+    expect(isOneSetupCapabilityRoute("/one/setup/marketplace")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/connected-systems")).toBe(true);
 
     // Unknown segments and the bare hub/wizard are NOT capability routes.
@@ -181,5 +193,26 @@ describe("navigation routes", () => {
       ROUTES.CONNECTED_SYSTEMS,
     );
     expect(resolveCapabilityHandoffTarget("nope")).toBe(ROUTES.ONE_SETUP);
+  });
+
+  it("identifies hard-gated capability handoff targets (for the ?from=setup guard allow-through)", () => {
+    // Hard-gated `/one/*` product surfaces: the guard must allow a
+    // setup-originated (`?from=setup`) entry through without the master gate.
+    expect(isCapabilityHandoffTarget(ROUTES.GMAIL)).toBe(true);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_KYC)).toBe(true);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_LOCATION)).toBe(true);
+    expect(isCapabilityHandoffTarget(ROUTES.PKM)).toBe(true);
+    expect(isCapabilityHandoffTarget(ROUTES.CONNECTED_SYSTEMS)).toBe(true);
+    // Excluded: the finance wizard is a setup surface (already allow-listed),
+    // consent lives off `/one/*` (not gated at all), and arbitrary routes and
+    // the hub itself must NOT be treated as gated capability entries.
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_SETUP_KAI)).toBe(false);
+    expect(isCapabilityHandoffTarget(`${ROUTES.CONSENTS}?tab=pending`)).toBe(
+      false,
+    );
+    expect(isCapabilityHandoffTarget(ROUTES.CONSENTS)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_SETUP)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_HOME)).toBe(false);
+    expect(isCapabilityHandoffTarget("/one/marketplace")).toBe(false);
   });
 });
