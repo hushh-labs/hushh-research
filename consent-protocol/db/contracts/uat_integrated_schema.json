@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 78,
+  "expected_migration_version": 79,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -668,6 +668,19 @@
       "http_method",
       "path",
       "description"
+    ],
+    "trusted_connections": [
+      "id",
+      "owner_user_id",
+      "trusted_user_id",
+      "status",
+      "source",
+      "resolved_via",
+      "label",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata"
     ]
   }
 }
