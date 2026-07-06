@@ -5,8 +5,8 @@
 // every authenticated screen. It replaces the old draggable floating "Agent"
 // pill so the agent is always present and context-aware: the hint text adapts to
 // the current screen so the bar can guide the user from onboarding to any part
-// of the app. The bar defaults to One Voice conversation; Agent Chat owns its
-// own mic control inside the popover.
+// of the app. The text surface opens Agent Chat; the voice icon starts One
+// Voice conversation.
 
 "use client";
 
@@ -17,6 +17,7 @@ import React, {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, X } from "lucide-react";
@@ -251,6 +252,11 @@ export function AgentBar() {
     resetVoice();
   }, [resetVoice]);
 
+  const openAgentChat = useCallback(() => {
+    if (conversationActive) return;
+    agentPopover?.openAgent();
+  }, [agentPopover, conversationActive]);
+
   useEffect(() => {
     if (!runtime) {
       liveActionBridgeRef.current?.cancel("agent_bar_runtime_unavailable");
@@ -390,6 +396,14 @@ export function AgentBar() {
     handleTransportEvent,
     stopConversation,
   ]);
+
+  const handleVoiceStartClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      startConversation();
+    },
+    [startConversation],
+  );
 
   useEffect(() => {
     const context = runtime?.oneVoiceContextSnapshot ?? null;
@@ -678,9 +692,9 @@ export function AgentBar() {
             <button
               type="button"
               data-testid="one-voice-agent-bar-start"
-              onClick={startConversation}
-              aria-label={`Start conversation. ${hint}`}
-              title="Start conversation"
+              onClick={openAgentChat}
+              aria-label={`Open Agent Chat. ${hint}`}
+              title="Open Agent Chat"
               className={cn(
                 "flex min-w-0 flex-1 items-center gap-2.5 rounded-full pl-1 text-left",
                 "transition-colors duration-200 active:scale-[0.99]",
@@ -699,7 +713,7 @@ export function AgentBar() {
               type="button"
               data-native-voice-control-id="one_voice_agent_bar_start"
               data-testid="one-voice-agent-bar-start-icon"
-              onClick={startConversation}
+              onClick={handleVoiceStartClick}
               aria-label="Start conversation"
               title="Start conversation"
               className={cn(
