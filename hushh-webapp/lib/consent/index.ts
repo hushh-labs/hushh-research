@@ -18,3 +18,9 @@ export {
   useOneLocationConsentActions,
   type LocationConsentActionEntry,
 } from "./use-one-location-consent-actions";
+
+// Marketplace Actions Hook (E2E slice delivery lifecycle inside /consents)
+export {
+  useMarketplaceConsentActions,
+  type MarketplaceConsentActionEntry,
+} from "./use-marketplace-consent-actions";

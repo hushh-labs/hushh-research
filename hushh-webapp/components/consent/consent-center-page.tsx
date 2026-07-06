@@ -60,6 +60,7 @@ import {
 import {
   useConsentActions,
   useOneLocationConsentActions,
+  useMarketplaceConsentActions,
   type ConsentActionState,
   type ConsentMutationDetail,
   type PendingConsent,
@@ -81,6 +82,7 @@ import {
   locationConsentSummary,
   locationConsentWorkflowHref,
 } from "@/lib/consent/location-consent";
+import { isMarketplaceConsent } from "@/lib/consent/marketplace-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 
 import {
@@ -1317,16 +1319,36 @@ export function ConsentCenterPage() {
     userId: user?.uid,
   });
 
-  const activeAction = genericActiveAction ?? locationActiveAction;
+  // Information Marketplace rows are end-to-end encrypted slice deliveries and
+  // must go through the dedicated marketplace approve endpoint + envelope publish
+  // (build safe-summary export -> seal to the buyer's recipient key -> post
+  // ciphertext only), NOT the generic developer-consent flow. See
+  // lib/consent/use-marketplace-consent-actions.ts.
+  const {
+    handleApprove: handleMarketplaceApprove,
+    handleDeny: handleMarketplaceDeny,
+    activeAction: marketplaceActiveAction,
+    isRequestBusy: isMarketplaceRequestBusy,
+    isScopeBusy: isMarketplaceScopeBusy,
+  } = useMarketplaceConsentActions({
+    userId: user?.uid,
+  });
+
+  const activeAction =
+    genericActiveAction ?? locationActiveAction ?? marketplaceActiveAction;
   const isRequestBusy = useCallback(
     (requestId?: string | null) =>
-      isGenericRequestBusy(requestId) || isLocationRequestBusy(requestId),
-    [isGenericRequestBusy, isLocationRequestBusy],
+      isGenericRequestBusy(requestId) ||
+      isLocationRequestBusy(requestId) ||
+      isMarketplaceRequestBusy(requestId),
+    [isGenericRequestBusy, isLocationRequestBusy, isMarketplaceRequestBusy],
   );
   const isScopeBusy = useCallback(
     (scope?: string | null) =>
-      isGenericScopeBusy(scope) || isLocationScopeBusy(scope),
-    [isGenericScopeBusy, isLocationScopeBusy],
+      isGenericScopeBusy(scope) ||
+      isLocationScopeBusy(scope) ||
+      isMarketplaceScopeBusy(scope),
+    [isGenericScopeBusy, isLocationScopeBusy, isMarketplaceScopeBusy],
   );
 
   // Route a consent entry to the correct backend pipeline. Location rows
@@ -1337,15 +1359,30 @@ export function ConsentCenterPage() {
       isLocationConsent(entry.metadata, entry.scope),
     [],
   );
+  const isMarketplaceEntry = useCallback(
+    (entry: ConsentCenterEntry) =>
+      isMarketplaceConsent(entry.metadata, entry.scope),
+    [],
+  );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
       if (isLocationEntry(entry)) {
         void handleLocationApprove(entry, durationHours);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceApprove(entry);
+        return;
+      }
       void handleApprove(toPendingConsent(entry, durationHours));
     },
-    [handleApprove, handleLocationApprove, isLocationEntry],
+    [
+      handleApprove,
+      handleLocationApprove,
+      handleMarketplaceApprove,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
@@ -1353,9 +1390,19 @@ export function ConsentCenterPage() {
         void handleLocationDeny(entry);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceDeny(entry);
+        return;
+      }
       void handleDeny(entry.request_id || entry.id);
     },
-    [handleDeny, handleLocationDeny, isLocationEntry],
+    [
+      handleDeny,
+      handleLocationDeny,
+      handleMarketplaceDeny,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
