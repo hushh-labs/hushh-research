@@ -21,10 +21,6 @@ vi.mock("@/components/agent/agent-chat-workspace", () => ({
   AgentChatWorkspace: () => <div data-testid="agent-chat-workspace" />,
 }));
 
-vi.mock("@/components/agent/agent-voice-floating-indicator", () => ({
-  AgentVoiceFloatingIndicator: () => null,
-}));
-
 function makeRect(input: {
   left: number;
   top: number;
@@ -45,7 +41,7 @@ function makeRect(input: {
   return rect as DOMRect;
 }
 
-describe("AgentPopoverProvider floating trigger", () => {
+describe("AgentPopoverProvider surface ownership", () => {
   let getBoundingClientRectSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {

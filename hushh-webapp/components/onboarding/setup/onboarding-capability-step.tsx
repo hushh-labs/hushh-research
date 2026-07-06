@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Check, ChevronRight, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Check, type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -9,14 +9,12 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
-import {
-  ONE_CAPABILITY_ICON_CLASS_BY_TONE,
-  getOneCapability,
-} from "@/lib/onboarding/one-capabilities";
+import { getOneCapability } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { cn } from "@/lib/utils";
+import styles from "./one-setup-hub.module.css";
 
 /**
  * OnboardingCapabilityStep — the shared, copy-driven setup screen rendered
@@ -127,9 +125,9 @@ export function OnboardingCapabilityStep({
     <AppPageShell
       as="main"
       width="content"
-      className="space-y-5 px-4 py-5 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:px-6"
+      className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:px-6"
       nativeTest={{
-        routeId: `/one/setup/${capabilityId}`,
+        routeId: "/one/setup/[capability]",
         marker: "native-route-one-setup-capability",
         authState: "authenticated",
         dataState: "loaded",
@@ -142,6 +140,7 @@ export function OnboardingCapabilityStep({
           description={blurb}
           icon={Icon}
           accent="neutral"
+          className={styles.stepHeader}
           actions={
             <Button
               type="button"
@@ -158,53 +157,46 @@ export function OnboardingCapabilityStep({
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div className="rounded-2xl border border-transparent bg-card/78 p-5 shadow-[var(--app-card-shadow-standard)] sm:p-6">
-          <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
-                ONE_CAPABILITY_ICON_CLASS_BY_TONE[capability.tone],
-              )}
-            >
-              <Icon className="h-6 w-6" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <p className="text-base font-semibold leading-5 text-foreground">
-                {capability.title}
-              </p>
-              <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-                {subline}
-              </p>
-            </div>
-          </div>
+        <div className="space-y-4">
+          <SettingsGroup
+            testId="one-setup-capability-details"
+            separatorInset
+            className={styles.stepGroup}
+          >
+            <SettingsRow
+              leading={
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-border bg-accent-surface text-accent-strong">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </span>
+              }
+              title={capability.title}
+              description={subline}
+            />
 
-          {bullets && bullets.length > 0 ? (
-            <ul className="mt-5 space-y-3" aria-label="What this does">
-              {bullets.map((bullet) => (
-                <li key={bullet} className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground/8 text-foreground">
-                    <Check className="h-3.5 w-3.5" aria-hidden />
-                  </span>
-                  <span className="text-sm leading-5 text-foreground">
-                    {bullet}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+            {bullets && bullets.length > 0
+              ? bullets.map((bullet) => (
+                <SettingsRow
+                  key={bullet}
+                  leading={
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.06] text-foreground/70">
+                      <Check className="h-4 w-4" aria-hidden />
+                    </span>
+                  }
+                  title={bullet}
+                />
+              ))
+              : null}
+          </SettingsGroup>
 
           <Button
             type="button"
             size="lg"
-            className="mt-6 w-full"
+            className="h-12 w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handlePrimary}
             disabled={busy || acted}
             data-testid="one-setup-capability-primary"
           >
             {ctaLabel}
-            {!isExploreOnly ? (
-              <ChevronRight className="size-4" aria-hidden />
-            ) : null}
           </Button>
         </div>
       </AppPageContentRegion>

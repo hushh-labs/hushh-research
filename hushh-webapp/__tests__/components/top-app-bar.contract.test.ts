@@ -51,7 +51,9 @@ describe("Top app bar responsive contract", () => {
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref, {");
+    // Profile query-panels close via replace (mirrors the page's popProfileStack).
+    expect(source).toContain("router.replace(topShellBreadcrumb.backHref, {");
     expect(source).not.toContain("router.back();");
   });
 
@@ -94,8 +96,23 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("topShellBreadcrumb.backHref");
-    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref, {");
     expect(source).not.toContain("history.back()");
+  });
+
+  it("makes setup back prime the guard before deterministic navigation", () => {
+    const topBar = read("components/app-ui/top-app-bar.tsx");
+    const setupHub = read("components/onboarding/setup/one-setup-hub.tsx");
+    const exitService = read("lib/services/one-setup-exit-service.ts");
+
+    expect(topBar).toContain("normalizedPathname === ROUTES.ONE_SETUP");
+    expect(topBar).toContain("acknowledgeOneSetupExit({");
+    expect(topBar).toContain("router.push(ROUTES.ONE_HOME);");
+    expect(setupHub).toContain("acknowledgeOneSetupExit({");
+    expect(exitService).toContain("export function acknowledgeOneSetupExit");
+    expect(exitService).toContain("primeOneSetupResolved({");
+    expect(exitService).toContain("writeOneSetupCompletionHint(params.userId, true);");
+    expect(exitService).toContain("PreVaultUserStateService.primeSetupResolved");
   });
 
   it("uses shared mobile-width chrome for top-shell shield and bell dropdowns", () => {

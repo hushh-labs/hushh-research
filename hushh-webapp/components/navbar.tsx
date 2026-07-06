@@ -420,16 +420,12 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              // Lean flat track matching the search button + top app bar
-              // (ShellActionSurface): soft translucent surface, no shadow/blur.
-              "bg-black/[0.05] shadow-none backdrop-blur-none dark:bg-white/[0.07]",
-              // Active segment: Foundation gold "you are here" marker, matching
-              // hushh-search-console's canonical active recipe (gold-tint fill +
-              // gold-deep ink). Active label uses the deep-gold accent token
-              // (auto-brightens in dark); the moving indicator is a warm gold
-              // tint instead of the old neutral black/white wash.
+              // Shared bottom chrome surface: flat translucent track, no
+              // route-local glass or ink override. Active state is Foundation
+              // accent foreground so the nav matches the rest of the app
+              // identity without turning the background yellow.
               "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
-              "[&_[data-segment-indicator]]:bg-accent/20 [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-accent/25",
+              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
         </div>
@@ -442,11 +438,9 @@ export const Navbar = () => {
             // Stretch to the pill height and stay a perfect circle so the search
             // bubble and the bottom-nav pill read as one symmetric row.
             "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
-            // Flat surface matching the top app bar controls (ShellActionSurface):
-            // soft translucent track, no border/shadow/blur, symmetric in light + dark.
-            "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
+            "kai-bottom-search-action",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "hover:bg-black/[0.08] hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {

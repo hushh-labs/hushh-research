@@ -156,7 +156,7 @@ export const UI_FLOWS = [
   {
     id: "shell-consents",
     route: "/consents",
-    description: "One shell: Consent Guardian tab",
+    description: "One shell: Consent tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "One" },

@@ -34,6 +34,7 @@ This document defines:
 - how voice, search, UI actionables, analytics, and docs share the same action identity
 - how persona, workspace, vault, consent, and onboarding constraints are enforced centrally
 - how authored multi-step workflows are executed safely
+- how generated goal metadata feeds One Goal across voice, chat, typed search, command bar, and UI actions
 - how One, Kai, and Nav speaker ownership is declared without changing execution authority
 
 ## Founder Language Mapping
@@ -147,6 +148,35 @@ Optional but recommended action fields:
 - `docs_references`
 - `expected_effects`
 - `workflow`
+- `goal`
+
+## Goal Metadata
+
+Every generated action now receives a `goal` block. Simple actions are auto-wrapped as one-step goals by the generator; multi-step actions should author explicit goal metadata in their local `.voice-action-contract.json`.
+
+Goal fields:
+
+- `goal_id`: stable product goal identity, normally `goal.<action_id>` unless a richer workflow owns the goal
+- `required_inputs`: ordered list of inputs One must collect before running
+- `input_resolvers`: named app-state resolvers such as ticker, list/source, selected entity, vault readiness, or active workspace
+- `slot_schema`: lightweight shape for slots the runner can pass to the generated action
+- `workflow_steps`: generated action steps plus approved app service adapters
+- `progress_contract`: event names and milestone copy for long-running goals
+- `cancellation_contract`: whether cancellation is supported and which generated action cancels it
+- `result_contract`: concise result summary rules
+- `entrypoint_support`: `voice`, `chat`, `typed_search`, `command_bar`, and `ui` support
+
+Rules:
+
+- One Goal may infer a goal from natural language, but the generated contract decides required inputs and execution policy.
+- If all required inputs are present and the action policy is `allow_direct`, One Goal may execute directly after guard evaluation.
+- If an input is missing, One Goal asks for the next blocking input only.
+- If an action is delegated, sensitive, or manual-only, One Goal routes to Agent Chat, consent, or the specialist surface.
+- Providers such as Gemini Live and future OpenAI Realtime can propose a generated `action_id` plus slots; they never execute the action themselves.
+
+Reference explicit goal:
+
+- `analysis.start` owns `goal.analysis.start_debate`, requires `symbol` and `pickSource`, starts through `analysis.start`, then uses `kai_debate.ensure_run` for the long-running debate stream, cancellation, progress milestones, and final decision summary.
 
 ## Speaker Persona And Namespace Rules
 
@@ -209,7 +239,8 @@ Persona and workspace are hard preconditions, not hint text.
 Rules:
 
 - actions unavailable in the active persona are not directly executable
-- if the target persona is already earned, Kai may surface the action but must ask before switching persona when the workflow requires it
+- if the target persona is already earned, One may sync the active workspace and route-settle a direct action only when the generated contract is `allow_direct` and `requires_persona_switch_confirmation` is `false`
+- if the workflow requires persona-switch confirmation, One must ask before switching persona
 - if the capability is not unlocked yet, Kai must block and guide
 - route visibility does not override persona, vault, auth, consent, or onboarding guards
 

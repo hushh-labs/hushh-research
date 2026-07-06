@@ -19,7 +19,6 @@ import { usePathname } from "next/navigation";
 import { Grip, Maximize2, Minimize2, Minus, X } from "lucide-react";
 
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
-import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
 import {
   AGENT_POPOVER_DEFAULT_SIZE_MODE,
@@ -31,6 +30,10 @@ import {
   type AgentPopoverSize,
   type AgentPopoverSizeMode,
 } from "@/lib/agent/agent-popover-layout";
+import {
+  useOneConversationSession,
+  type AgentChatHandoff,
+} from "@/lib/agent/one-conversation-session";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +42,7 @@ type AgentPopoverContextValue = {
   hasOpened: boolean;
   motionState: AgentPopoverMotionState;
   sizeMode: AgentPopoverSizeMode;
-  openAgent: () => void;
+  openAgent: (options?: { handoff?: AgentChatHandoff | null }) => void;
   minimizeAgent: () => void;
   setSizeMode: (mode: AgentPopoverSizeMode) => void;
 };
@@ -115,6 +118,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   );
   const [customSize, setCustomSize] =
     useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
+  const createHandoff = useOneConversationSession((state) => state.createHandoff);
 
   useEffect(() => {
     setSizeModeState(readStoredSizeMode());
@@ -141,7 +145,10 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => clearMotionHandles, [clearMotionHandles]);
 
-  const openAgent = useCallback(() => {
+  const openAgent = useCallback((options?: { handoff?: AgentChatHandoff | null }) => {
+    if (options?.handoff) {
+      createHandoff(options.handoff);
+    }
     if (expanded && motionState !== "closing") return;
 
     clearMotionHandles();
@@ -156,7 +163,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
         setMotionState("idle");
       }, AGENT_POPOVER_TRANSITION_MS);
     });
-  }, [clearMotionHandles, expanded, motionState]);
+  }, [clearMotionHandles, createHandoff, expanded, motionState]);
 
   const minimizeAgent = useCallback(() => {
     if (!expanded && motionState !== "opening") return;
@@ -240,9 +247,9 @@ function AgentPopoverSurface({
     motionState,
     sizeMode,
     setSizeMode,
-    openAgent,
     minimizeAgent,
   } = useAgentPopover();
+  const pendingHandoff = useOneConversationSession((state) => state.pendingHandoff);
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
   // The agent is a SINGLE surface present everywhere, including onboarding and
@@ -283,6 +290,10 @@ function AgentPopoverSurface({
     );
   }, [customSize, sizeMode]);
 
+  // Keyboard avoidance is handled globally by @capacitor/keyboard
+  // `resize: "native"` (capacitor.config.ts): the WKWebView frame shrinks by
+  // the keyboard height, so the sheet's 100dvh shrinks with it and the composer
+  // stays above the keyboard — no per-screen JS, matching every other screen.
   const panelStyle = useMemo<CSSProperties>(
     () =>
       ({
@@ -376,7 +387,7 @@ function AgentPopoverSurface({
                   // edge across the entire dynamic viewport (incl. safe areas),
                   // no rounded corners and no hairline border. On >=sm it is a
                   // floating, rounded, inset card with a hairline border.
-                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg border border-black/10 max-sm:inset-0 max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))] dark:border-white/10",
+                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg border border-black/10 max-sm:inset-x-0 max-sm:top-0 max-sm:bottom-auto max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))] dark:border-white/10",
               expanded
                 ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0"
                 : // Closed/closing motion. On phones the sheet simply slides down
@@ -417,6 +428,7 @@ function AgentPopoverSurface({
             <Suspense fallback={null}>
               <AgentChatWorkspace
                 variant="popover"
+                handoff={pendingHandoff}
                 windowControls={
                   <AgentPopoverWindowControls
                     sizeMode={sizeMode}
@@ -433,7 +445,6 @@ function AgentPopoverSurface({
         </div>
       ) : null}
 
-      <AgentVoiceFloatingIndicator onClick={openAgent} />
     </>
   );
 }

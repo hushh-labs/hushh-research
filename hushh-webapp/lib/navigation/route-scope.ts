@@ -27,7 +27,7 @@ export function getRouteScope(pathname: string): RouteScope {
     return "onboarding";
   }
 
-  if (isRoute(pathname, ROUTES.KAI_HOME) || isRoute(pathname, ROUTES.LEGACY_KAI_HOME)) {
+  if (isRoute(pathname, ROUTES.LEGACY_KAI_HOME)) {
     return "investor";
   }
 
@@ -38,6 +38,7 @@ export function getRouteScope(pathname: string): RouteScope {
   if (
     pathname === ROUTES.HOME ||
     pathname === ROUTES.ONE_HOME ||
+    isRoute(pathname, ROUTES.KAI_HOME) ||
     isRoute(pathname, ROUTES.ONE_SETUP) ||
     isRoute(pathname, ROUTES.AGENT) ||
     isRoute(pathname, ROUTES.CONSENTS) ||

@@ -418,7 +418,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           | Awaited<ReturnType<typeof AuthService.startPhoneLinkVerification>>
           | null = null;
         try {
-          if (!isNative && !useLocalDevPhoneVerification) {
+          // UAT phone-test allowlist path (fixed OTP, no SMS) — attempt on BOTH
+          // web AND native so test numbers work in the iOS app. The backend gates
+          // it to ENVIRONMENT=uat + the configured allowlist, so prod / non-listed
+          // numbers come back ineligible and fall through to real Firebase below.
+          if (!useLocalDevPhoneVerification) {
             const uatPhoneTest =
               await AccountIdentityService.startUatTestPhoneVerification(
                 userRef.current,
@@ -532,7 +536,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const confirmPhoneVerification = useCallback(
     async (otp: string): Promise<User> => {
       return await (async () => {
-        const verifiedUser = Capacitor.isNativePlatform()
+        // A uat-test verification id means the start path used the backend
+        // allowlist flow — confirm it via the UAT-test path on BOTH native + web
+        // (not the real Firebase native link) so iOS test numbers work.
+        const useNativeFirebaseConfirm =
+          Capacitor.isNativePlatform() &&
+          !AuthService.isUatPhoneTestVerificationId(nativeVerificationId);
+        const verifiedUser = useNativeFirebaseConfirm
           ? await AuthService.confirmPhoneLinkVerification({
               verificationCode: otp,
               confirmationResult,

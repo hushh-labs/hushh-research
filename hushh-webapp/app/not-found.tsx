@@ -24,7 +24,7 @@ export default function AppNotFoundPage() {
   return (
     <main className="flex min-h-[100dvh] flex-col items-center justify-center px-6 pb-[var(--app-screen-footer-pad)]">
       <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
-        <BrandMark size="sm" />
+        <BrandMark size="sm" unframed className="text-[54px]" />
         <Card preset="default" effect="glass" glassAccent="soft" className="w-full">
           <div className="flex flex-col items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-card-surface-compact)] text-muted-foreground">
