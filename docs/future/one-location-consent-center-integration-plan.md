@@ -30,8 +30,8 @@ Relationships) renders only what `ConsentCenterService.get_center`,
 **shared consent DB + RIA IAM only**. The One Location agent persists to its own
 tables (`one_location_share_grants`, `one_location_access_requests`,
 `one_location_events`, `one_location_public_invites`,
-`one_location_circle_invites`, `one_location_network_connections`,
-`one_location_referrals`) and sends its own metadata-only FCM pushes. It only
+`one_location_circle_invites`,
+`one_location_referrals`) and sends its own metadata-only FCM pushes. (Network connections have been unified into the shared `trusted_connections` table; `one_location_network_connections` was dropped in migration 080.) It only
 *reads* `consent_audit` as a recommendation signal.
 
 So location data does NOT appear in `/consents` yet. The frontend is ready
