@@ -234,6 +234,14 @@ with:
 
 Also update the docstring comment at 2345-2348 to say "an active trusted_connections edge (owner → this person)" instead of "One Network connection".
 
+> IMPORTANT — do not narrow the share directory. This repoint changes ONLY rule #1;
+> rule #2 (`phone_verified = TRUE`, i.e. all Hushh One users) and rule #3
+> (marketplace) stay OR'd in, so `list_verified_recipients` remains broad for the
+> Share feature (`trusted ∪ all-phone-verified ∪ marketplace`). The repoint exists
+> because the old table is being dropped (Task 9) and to guarantee trusted
+> connections are always in the pool. Check-in/SOS are gated separately by Task 3's
+> `networkConnections` filter — NOT here.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd consent-protocol && uv run --no-project python -m pytest tests/services/test_one_location_agent_service.py::test_list_verified_recipients_rule1_uses_trusted_connections -v`

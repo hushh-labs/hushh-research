@@ -79,6 +79,13 @@ metadata) — no schema change required.
 
 ### 2. Backend reads
 
+**Two distinct surfaces — do not conflate them:**
+- **Share location** uses the **broad** `list_verified_recipients` directory (all
+  Hushh One users). It stays broad and is NOT restricted to trusted connections.
+- **Check-in and SOS** (the quick actions) use only trusted connections — enforced
+  by the `networkConnections` filter (`selectSosConnectedRecipients`), NOT by the
+  directory.
+
 - `one_location_agent_service.list_verified_recipients` — eligibility **rule #1**
   changes from an `one_location_network_connections` EXISTS to:
   ```sql
@@ -89,12 +96,17 @@ metadata) — no schema change required.
       AND tc.trusted_user_id = a.user_id
   )
   ```
-  Directional = "people I (owner) trust receive my location/SOS" — the correct SOS
-  semantic. Rules #2 (phone-verified) and #3 (marketplace advisor/investor) unchanged.
+  This repoint is required because the old table is being dropped (Task 9). It does
+  **NOT** narrow the share directory: rule #2 (`phone_verified = TRUE`, i.e. all
+  Hushh One users) and rule #3 (marketplace advisor/investor) are still OR'd in, so
+  the directory remains `trusted ∪ all-phone-verified ∪ marketplace`. Its only
+  effect is to guarantee a user's trusted connections are always shareable and
+  present in the pool that Check-in/SOS then filter down.
 - `one_location_agent_service.list_state` — keep returning a `networkConnections`
   field (frontend contract preserved) but source it from `trusted_connections`
-  (owner's active trusted edges), so `sosTrustedRecipients`/`sosActionRecipients`
-  selection in `page.tsx` is unchanged.
+  (owner's active trusted edges). **This is the actual gate** that makes Check-in
+  and SOS target trusted connections only; `sosTrustedRecipients`/
+  `sosActionRecipients` selection in `page.tsx` is unchanged.
 
 ### 3. Circle invites (behavior change)
 
