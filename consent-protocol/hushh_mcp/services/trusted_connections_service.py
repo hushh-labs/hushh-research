@@ -40,7 +40,10 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     # of the SAME directory Location shows. No location state is mutated.
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
-    return OneLocationAgentService().list_verified_recipients(owner_user_id=owner_user_id)
+    recipients: list[dict[str, Any]] = OneLocationAgentService().list_verified_recipients(
+        owner_user_id=owner_user_id
+    )
+    return recipients
 
 
 class TrustedConnectionsService:
