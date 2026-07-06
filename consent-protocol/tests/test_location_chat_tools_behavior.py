@@ -155,6 +155,66 @@ async def test_request_recipient_choice_options_carry_real_ids_and_public_link(m
     assert "latitude" not in blob and "longitude" not in blob and "lat" not in blob.split("late")[0]
 
 
+class _DupNameSvc:
+    """Directory with two contacts sharing the same display name."""
+
+    def list_verified_recipients(self, *, owner_user_id, limit=50):
+        return [
+            {
+                "userId": "u-abdul",
+                "displayName": "Abdul Zalil",
+                "keyId": "k1",
+                "canReceiveLocation": True,
+            },
+            {
+                "userId": "u-neel-1",
+                "displayName": "Neelesh Meena",
+                "keyId": "k2",
+                "canReceiveLocation": True,
+            },
+            {
+                "userId": "u-gautam",
+                "displayName": "Gautam Ahuja",
+                "keyId": "k3",
+                "canReceiveLocation": True,
+            },
+            {
+                "userId": "u-neel-2",
+                "displayName": "Neelesh Meena",
+                "keyId": "k4",
+                "canReceiveLocation": True,
+            },
+        ]
+
+
+async def test_request_recipient_choice_filters_to_named_matches(monkeypatch):
+    # Disambiguation bug: when the user named a person that matches >1 contact,
+    # the picker must show ONLY those matches, not the whole directory, and must
+    # not offer a public link (the user named a specific person).
+    monkeypatch.setattr(loc_tools, "_service", lambda: _DupNameSvc())
+    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
+        out = await loc_tools.request_recipient_choice.__wrapped__(name="Neelesh Meena")
+    prompt = out["prompt"]
+    labels = [o["label"] for o in prompt["options"]]
+    assert labels == ["Neelesh Meena", "Neelesh Meena"]
+    refs = [o["ref"] for o in prompt["options"]]
+    assert {"recipientUserId": "u-neel-1", "recipientKeyId": "k2"} in refs
+    assert {"recipientUserId": "u-neel-2", "recipientKeyId": "k4"} in refs
+    assert all("publicLink" not in o["ref"] for o in prompt["options"])
+    assert "Neelesh Meena" in prompt["question"]
+
+
+async def test_request_recipient_choice_falls_back_when_name_unmatched(monkeypatch):
+    # A name that matches nothing must not strand the user with an empty picker:
+    # fall back to the full directory (with the public-link escape hatch).
+    monkeypatch.setattr(loc_tools, "_service", lambda: _DupNameSvc())
+    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
+        out = await loc_tools.request_recipient_choice.__wrapped__(name="Nobody Here")
+    options = out["prompt"]["options"]
+    assert len(options) == 5  # 4 contacts + public link
+    assert options[-1]["ref"] == {"publicLink": True}
+
+
 async def test_request_active_share_choice_includes_stop_all(monkeypatch):
     monkeypatch.setattr(loc_tools, "_service", lambda: _FakeSvc())
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106

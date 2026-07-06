@@ -295,8 +295,26 @@ def _function_declarations_v2(types: Any) -> list:
             ),
             types.FunctionDeclaration(
                 name="request_recipient_choice",
-                description="Ask the user to choose who to share with (returns selectable options). Call when no single recipient was named.",
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+                description=(
+                    "Ask the user to choose who to share with (returns selectable options). "
+                    "Call when no single recipient was named. When the user DID name a person "
+                    "but more than one contact matches that name (e.g. two 'Neelesh Meena'), "
+                    "pass `name` with the name they gave so the options are limited to just "
+                    "those matches instead of the whole directory."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "name": schema(
+                            type=kind.STRING,
+                            description=(
+                                "The name the user gave, used to limit the choices to matching "
+                                "contacts. Omit only when the user named no one."
+                            ),
+                        )
+                    },
+                    required=[],
+                ),
             ),
             types.FunctionDeclaration(
                 name="request_active_share_choice",
