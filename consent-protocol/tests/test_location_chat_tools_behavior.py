@@ -11,6 +11,8 @@ exercised directly.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from google.genai import types
 
@@ -222,6 +224,44 @@ async def test_request_active_share_choice_includes_stop_all(monkeypatch):
     refs = [o["ref"] for o in out["prompt"]["options"]]
     assert {"grantId": "g1"} in refs
     assert {"all": True} in refs
+
+
+_NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("expires_at", "expected"),
+    [
+        # ISO timestamps (what the service actually emits) -> relative time
+        ("2026-07-06T15:00:00+00:00", "expires in 3 hours"),
+        ("2026-07-06T12:45:00+00:00", "expires in 45 minutes"),
+        ("2026-07-06T12:01:00+00:00", "expires in 1 minute"),  # singular
+        ("2026-07-06T13:00:00+00:00", "expires in 1 hour"),  # singular
+        ("2026-07-06T12:00:00+00:00", "expired"),  # boundary / already past
+        ("2026-07-06T11:30:00+00:00", "expired"),
+        # 'Z' suffix is accepted too
+        ("2026-07-06T14:00:00Z", "expires in 2 hours"),
+        # no timestamp -> no hint
+        (None, None),
+        ("", None),
+    ],
+)
+def test_expiry_hint_is_relative_and_human_friendly(expires_at, expected):
+    assert loc_tools._expiry_hint(expires_at, now=_NOW) == expected
+
+
+def test_expiry_hint_accepts_datetime_objects():
+    assert loc_tools._expiry_hint(_NOW + timedelta(hours=6), now=_NOW) == "expires in 6 hours"
+
+
+def test_expiry_hint_hours_round_to_nearest():
+    # 2h30m rounds up to 3 hours; 1h20m rounds down to 1 hour.
+    assert loc_tools._expiry_hint(_NOW + timedelta(hours=2, minutes=30), now=_NOW) == (
+        "expires in 3 hours"
+    )
+    assert loc_tools._expiry_hint(_NOW + timedelta(hours=1, minutes=20), now=_NOW) == (
+        "expires in 1 hour"
+    )
 
 
 async def test_request_confirmation_returns_confirm_prompt():

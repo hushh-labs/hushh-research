@@ -6,6 +6,7 @@ OneLocationAgentService and scope checks inside @hushh_tool.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -251,8 +252,34 @@ async def revoke_public_link(invite_id: str) -> dict[str, Any]:
     return _service().revoke_public_invite(owner_user_id=context.user_id, invite_id=invite_id)
 
 
-def _expiry_hint(expires_at: Any) -> str | None:
-    return f"expires {expires_at}" if expires_at else None
+def _expiry_hint(expires_at: Any, *, now: datetime | None = None) -> str | None:
+    """Human-friendly relative expiry for chat option hints.
+
+    Renders "expires in N hours" (rounded to the nearest hour), or
+    "expires in N minutes" when under an hour, since these hints are shown inline
+    in the chat picker where a raw ISO timestamp is unreadable. Returns None when
+    there is no timestamp, "expired" when it is already past, and preserves the
+    raw value if it can't be parsed.
+    """
+    if not expires_at:
+        return None
+    if isinstance(expires_at, datetime):
+        when = expires_at
+    else:
+        try:
+            when = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        except ValueError:
+            return f"expires {expires_at}"
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    total_minutes = int((when - current).total_seconds() // 60)
+    if total_minutes <= 0:
+        return "expired"
+    if total_minutes < 60:
+        return f"expires in {total_minutes} minute{'s' if total_minutes != 1 else ''}"
+    hours = int(total_minutes / 60 + 0.5)
+    return f"expires in {hours} hour{'s' if hours != 1 else ''}"
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_recipient_choice")
