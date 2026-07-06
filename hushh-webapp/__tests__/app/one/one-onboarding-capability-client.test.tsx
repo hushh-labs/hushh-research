@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *   "Finish setup" bar before the user set anything up (QA-reported).
  *
  * Current contract (the decoupled fix): entering a capability NEVER resolves the
- * account-wide master gate. Instead, hard-gated forwards carry a `?from=setup`
+ * account-wide master gate. Instead, hard-gated forwards carry a `?from=/one/setup`
  * marker so `OneOnboardingGuard` allows the setup-originated entry through. The
  * master gate is resolved only by a genuine finish (hub Skip/Continue).
  */
@@ -96,13 +96,15 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
     mocks.syncSetupCapabilities.mockResolvedValue(undefined);
   });
 
-  it("forwards into a hard-gated surface with ?from=setup and does NOT resolve the master gate (location)", async () => {
+  it("forwards into a hard-gated surface with ?from=/one/setup and does NOT resolve the master gate (location)", async () => {
     render(<OneOnboardingCapabilityClient capabilityId="location" />);
 
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
 
     await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/one/location?from=setup");
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/one/location?from=/one/setup",
+      );
     });
     // The account-wide master gate must NOT be touched by entering a capability.
     expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
@@ -122,7 +124,7 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
 
     await waitFor(() => {
       expect(mocks.replace).toHaveBeenCalledWith(
-        "/one/connected-systems?from=setup",
+        "/one/connected-systems?from=/one/setup",
       );
     });
     expect(mocks.setOnboardingCompleted).not.toHaveBeenCalled();
@@ -139,21 +141,26 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
         expect.stringContaining("/one/setup/kai"),
       );
     });
-    // Finance goes to the wizard with a `from=<setup capability route>` marker,
-    // NOT the `from=setup` gated-surface marker.
+    // Finance goes to the wizard with a `from=<encoded setup capability route>`
+    // marker, NOT the `from=/one/setup` gated-surface marker.
     expect(mocks.replace).not.toHaveBeenCalledWith(
-      expect.stringContaining("from=setup"),
+      expect.stringContaining("from=/one/setup"),
     );
     expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
   });
 
-  it("forwards off /one/* (consent) untouched", async () => {
+  it("forwards off /one/* (consent) with the hub origin so back retraces to the hub", async () => {
     render(<OneOnboardingCapabilityClient capabilityId="consent" />);
 
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
 
     await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/consents?tab=pending");
+      // Consent lives off /one/* (not guarded) but still carries ?from=/one/setup
+      // (appended with & since the href already has ?tab=pending) so its top-bar
+      // back returns to the hub — "jaise aaya waise wapas".
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/consents?tab=pending&from=/one/setup",
+      );
     });
     expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
   });

@@ -378,8 +378,11 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.PKM) {
+    // Origin-aware so a setup-hub-opened surface (?from=/one/setup) retraces to
+    // the hub; no marker → One home (unchanged).
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -390,8 +393,10 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.CONNECTED_SYSTEMS) {
+    // Origin-aware (see PKM above): setup-hub origin retraces to the hub.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [

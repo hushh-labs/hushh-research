@@ -297,6 +297,28 @@ describe("top shell breadcrumbs", () => {
     );
   });
 
+  it("retraces setup-hub-opened capabilities back to the hub (?from=/one/setup)", () => {
+    // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
+    // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise
+    // wapas". Covers the origin-aware gated surfaces incl. PKM/connected-systems.
+    const fromHub = new URLSearchParams();
+    fromHub.set("from", "/one/setup");
+
+    for (const path of [
+      "/one/kyc",
+      "/one/location",
+      "/one/marketplace",
+      "/one/gmail",
+      "/one/pkm",
+      "/one/connected-systems",
+      "/consents",
+    ]) {
+      expect(resolveTopShellBreadcrumb(path, fromHub)?.backHref).toBe(
+        "/one/setup",
+      );
+    }
+  });
+
   it("owns ria client workspace back navigation from the shared top bar", () => {
     expect(resolveTopShellBreadcrumb("/ria/clients/user_123")).toEqual({
       backHref: "/ria/clients",

@@ -13,7 +13,6 @@ import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   buildOneSetupCapabilityRoute,
-  isOneSetupSurfaceRoute,
   resolveCapabilityHandoffTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -37,14 +36,15 @@ import {
  *
  * When the Continue CTA forwards into a hard-gated product surface
  * (`/one/<capability>`, e.g. `/one/gmail`, `/one/location`,
- * `/one/connected-systems`), we tag the URL with `?from=setup` so
- * `OneOnboardingGuard` allows the setup-originated entry through without the
- * master gate (see `isCapabilityHandoffTarget`). An earlier version instead
- * wrote `setupCompleted = true` here to dodge the guard bounce — but that
- * account-wide side effect made the dashboard falsely report finance complete
- * and cleared its "Finish setup" bar before the user had set anything up (the
- * QA-reported bug). The `?from=setup` handoff fixes the redirect loop WITHOUT
- * that side effect.
+ * `/one/connected-systems`), we tag the URL with `?from=/one/setup` (the hub
+ * path) so (1) `OneOnboardingGuard` allows the setup-originated entry through
+ * without the master gate (see `isCapabilityHandoffTarget`), and (2) the top-bar
+ * back button retraces to the hub (the breadcrumb reads `from` as a real path;
+ * a bare `setup` marker was rejected by `normalizeInternalRouteHref` and fell
+ * back to Profile — the QA back-button bug). An even earlier version wrote
+ * `setupCompleted = true` here to dodge the guard bounce — but that account-wide
+ * side effect cleared the dashboard's "Finish setup" bar prematurely. The
+ * `?from=/one/setup` handoff fixes the redirect loop WITHOUT that side effect.
  *
  * Forwards that STAY on the setup surface (finance → the `/one/setup/kai`
  * wizard) or that leave `/one/*` entirely (consent → `/consents`) need no
@@ -70,33 +70,23 @@ export function OneOnboardingCapabilityClient({
   const needsVaultUnlock =
     capability?.requiresVault === true && !isVaultUnlocked;
   const handoffTarget = resolveCapabilityHandoffTarget(capabilityId);
-  // Does Continue forward into a hard-gated `/one/*` product surface? Those
-  // (and only those) are guarded by `OneOnboardingGuard`, which bounces back to
-  // `/one/setup` while the master gate is unresolved. Setup-surface forwards
-  // (finance → `/one/setup/kai`) and off-`/one` forwards (consent → `/consents`)
-  // are not gated, so they keep the per-capability-only scope.
-  const forwardsToGatedSurface =
-    handoffTarget.startsWith(`${ROUTES.ONE_HOME}/`) &&
-    !isOneSetupSurfaceRoute(handoffTarget);
-  // Forward target for this capability.
-  // - Finance → the investor-preferences WIZARD (`/one/setup/kai`): append a
-  //   `from` marker so `OneOnboardingGuard` treats the visit as an intentional
-  //   re-entry (no bounce home for a resolved user); the wizard also reads
-  //   `from` for its back affordance.
-  // - Hard-gated product surfaces (gmail/email/location/pkm/connected-systems):
-  //   tag with `?from=setup` so the guard allows this setup-originated entry
-  //   through WITHOUT resolving the account-wide master gate (see
-  //   `isCapabilityHandoffTarget`). This replaces the old premature
-  //   `setupCompleted = true` write that cleared the dashboard's "Finish setup"
-  //   bar prematurely.
+  // Forward target for this capability, tagged with the setup-hub ORIGIN so:
+  //  (1) the top-bar back retraces to the hub — "jaise aaya waise wapas" — for
+  //      EVERY capability (gmail/email/location/pkm/connected-systems + consent),
+  //      instead of falling back to Profile/dashboard; and
+  //  (2) `OneOnboardingGuard` lets a setup-originated entry into a hard-gated
+  //      `/one/*` surface through WITHOUT resolving the account-wide master gate
+  //      (see `isCapabilityHandoffTarget` — this replaced an earlier premature
+  //      `setupCompleted = true` write that cleared the "Finish setup" bar).
+  // Finance opens the investor-preferences WIZARD and carries the specific
+  // capability route as its `from` (the wizard reads it for re-entry + its own
+  // back affordance); every other capability carries the hub path `/one/setup`.
   const target =
     handoffTarget === ROUTES.ONE_SETUP_KAI
       ? `${handoffTarget}?from=${encodeURIComponent(
           buildOneSetupCapabilityRoute(capabilityId),
         )}`
-      : forwardsToGatedSurface
-        ? `${handoffTarget}${handoffTarget.includes("?") ? "&" : "?"}from=setup`
-        : handoffTarget;
+      : `${handoffTarget}${handoffTarget.includes("?") ? "&" : "?"}from=${ROUTES.ONE_SETUP}`;
 
   // Unknown capability: contain to the hub, never a hard 404.
   useEffect(() => {
