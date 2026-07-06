@@ -2,11 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a directional, app-wide "trusted connections" graph that only the Hushh One agent writes and any backend agent reads, resolving people through the existing platform directory.
+**Goal:** Add a directional, app-wide "trusted connections" graph that only the Hussh One agent writes and any backend agent reads, resolving people through the existing platform directory.
 
 **Architecture:** A new `trusted_connections` table (directed `owner → trusted` edges) is served by a pure `TrustedConnectionsService` (add/remove/list/is_trusted/seed). A deterministic `ConnectionsChatService` parses "add/remove/list" intent and is exposed to One as the `agent_connections` A2A specialist via the existing `adk_bridge` + classifier seam. Identity is resolved read-only through `OneLocationAgentService.list_verified_recipients` (the same platform directory Location shows). The SOS `one_location_network_connections` graph is left untouched.
 
 **Tech Stack:** Python 3.13, FastAPI, PostgreSQL (raw SQL via `get_db().execute_raw`), pytest / pytest-asyncio (auto mode), TypeScript + Vitest (frontend).
+
+## Visual Map
+
+```mermaid
+flowchart LR
+  t1["Task 1: migration 077"] --> t2["Task 2: TrustedConnectionsService"]
+  t2 --> t3["Task 3: ConnectionsChatService"]
+  t3 --> t4["Task 4: agent_connections A2A"]
+  t4 --> t5["Task 5: One→connections routing"]
+  t2 --> t6["Task 6: seed-trusted endpoint"]
+  t6 --> t7["Task 7: frontend post-unlock seed"]
+```
 
 ## Global Constraints
 
@@ -74,7 +86,7 @@ BEGIN;
 --
 -- Directional by design: one edge per (owner_user_id -> trusted_user_id) pair,
 -- meaning "owner designates this person as trusted" (like an emergency contact).
--- Written ONLY through the Hushh One agent; read in-process by any agent.
+-- Written ONLY through the Hussh One agent; read in-process by any agent.
 -- Deliberately SEPARATE from one_location_network_connections (SOS) — that graph
 -- and its code are untouched. Convergence is future work.
 
@@ -327,7 +339,7 @@ Create `consent-protocol/hushh_mcp/services/trusted_connections_service.py`:
 """Generalized, app-wide trusted-connection graph.
 
 Directional edges (owner_user_id -> trusted_user_id). Written ONLY through the
-Hushh One agent path; read in-process by any agent. Identity is resolved through
+Hussh One agent path; read in-process by any agent. Identity is resolved through
 the SAME platform directory Location shows (list_verified_recipients), read-only.
 
 Deliberately separate from one_location_network_connections (SOS) — that graph

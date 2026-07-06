@@ -4,11 +4,24 @@
 **Branch:** `feat/trusted-connections-graph` (cut from `main`)
 **Status:** Approved design → ready for implementation plan
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  user["User"] --> one["Hussh One (agent_chat)"]
+  one -->|"add/remove/list intent"| conn["agent_connections (A2A)"]
+  conn --> svc["TrustedConnectionsService"]
+  svc -->|"write (One only)"| tbl["trusted_connections table"]
+  svc -->|"resolve people (read-only)"| dir["list_verified_recipients (platform directory)"]
+  loc["Location / Email agents"] -->|"read is_trusted / list"| tbl
+  sos["SOS one_location_network_connections"] -.->|"untouched"| tbl
+```
+
 ## Goal
 
 Promote "trusted connections" from an SOS/location-only concept into a **first-class,
-app-wide, directional social graph** that any Hushh agent can read, and that only the
-central **Hushh One** agent can write.
+app-wide, directional social graph** that any Hussh agent can read, and that only the
+central **Hussh One** agent can write.
 
 Concretely: when a user tells **One** "add Alice to my trusted connections," One resolves
 Alice to a real `user_id` by looking her up in the **platform people directory** — the same
@@ -42,7 +55,7 @@ graph in-process to make trust-aware decisions.
 | Decision | Choice |
 |---|---|
 | Connection model | **Directional (follow / designate)** — `owner_user_id → trusted_user_id`, one directed edge per pair |
-| Write authority | **Hushh One agent only**, via a new `agent_connections` delegation lane |
+| Write authority | **Hussh One agent only**, via a new `agent_connections` delegation lane |
 | Read access | **Any backend agent**, via in-process `TrustedConnectionsService` (no HTTP) |
 | Storage | **New dedicated table** `trusted_connections` — separate from `one_location_network_connections` |
 | SOS / location code | **Untouched** — no reads/writes/seed of `one_location_network_connections` change |
