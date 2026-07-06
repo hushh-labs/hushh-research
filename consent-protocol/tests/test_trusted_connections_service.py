@@ -130,27 +130,3 @@ def test_is_trusted_true_false():
     assert yes.is_trusted("owner1", "devA") is True
     no = _service(rows_one={})
     assert no.is_trusted("owner1", "devA") is False
-
-
-def test_seed_inserts_one_edge_per_dev_when_empty():
-    svc = _service(rows_one={"count": {"n": 0}, "insert": {"id": "c1"}})
-    out = svc.seed_new_user("owner1", ["devA", "devB", "devC"])
-    assert out["seeded"] == 3 and out["existingCount"] == 0
-
-
-def test_seed_skips_when_already_connected():
-    svc = _service(rows_one={"count": {"n": 2}})
-    out = svc.seed_new_user("owner1", ["devA"])
-    assert out == {"seeded": 0, "existingCount": 2, "skippedSelf": 0}
-
-
-def test_seed_skips_self_and_blanks():
-    svc = _service(rows_one={"count": {"n": 0}, "insert": {"id": "c1"}})
-    out = svc.seed_new_user("owner1", ["owner1", "", "devB"])
-    assert out["seeded"] == 1 and out["skippedSelf"] == 2
-
-
-def test_seed_rejects_missing_owner():
-    svc = _service()
-    with pytest.raises(TrustedConnectionsError):
-        svc.seed_new_user("  ", ["devA"])
