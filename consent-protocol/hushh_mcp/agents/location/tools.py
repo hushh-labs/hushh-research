@@ -233,6 +233,22 @@ async def propose_sos_panic() -> dict[str, Any]:
     return {"proposed": "sos_panic"}
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_check_in")
+async def propose_check_in(duration_hours: float, note: str | None = None) -> dict[str, Any]:
+    """Propose a check-in: share live location with the user's ready trusted
+    contacts for a bounded time with an optional note. The browser creates the
+    grants per recipient, encrypts, and publishes. Coordinate-free."""
+    _ctx()
+    try:
+        hours = float(duration_hours)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_hours must be a number between 0 and 24") from exc
+    if not (0 < hours <= 24):
+        raise ValueError("duration_hours must be greater than 0 and at most 24")
+    clean_note = (note or "").strip()[:120] or None
+    return {"proposed": "check_in", "durationHours": hours, "note": clean_note}
+
+
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="propose_location_view")
 async def propose_location_view(grant_id: str) -> dict[str, Any]:
     """Propose viewing an incoming share's latest location. The browser fetches the
@@ -526,4 +542,5 @@ V2_LOCATION_TOOLS = [
     request_incoming_choice,
     request_confirmation,
     propose_sos_panic,
+    propose_check_in,
 ]

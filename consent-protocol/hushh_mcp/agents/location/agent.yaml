@@ -41,6 +41,9 @@ system_instruction: |
   request_confirmation before propose_sos_panic and proceed only after the user
   explicitly confirms.
 
+  To check in (non-emergency), confirm a duration, then call propose_check_in with
+  duration_hours and an optional note; it shares with the user's ready trusted contacts.
+
   Never invent or guess ids. To revoke or refer a share, FIRST call
   list_active_location_shares; to view an incoming share, FIRST call
   list_incoming_location_shares; to revoke a public link, FIRST call
@@ -115,4 +118,8 @@ tools:
   - name: propose_sos_panic
     description: Propose an emergency SOS broadcast to all ready trusted contacts; the browser creates grants, encrypts, and publishes.
     py_func: hushh_mcp.agents.location.tools.propose_sos_panic
+    required_scope: cap.location.live.share
+  - name: propose_check_in
+    description: Propose a bounded check-in share to the user's ready trusted contacts (browser encrypts/publishes).
+    py_func: hushh_mcp.agents.location.tools.propose_check_in
     required_scope: cap.location.live.share

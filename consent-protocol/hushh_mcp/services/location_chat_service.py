@@ -70,6 +70,7 @@ _QUERY_TOOL_NAMES = {
     "propose_public_link",
     "propose_location_view",
     "propose_sos_panic",
+    "propose_check_in",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -99,6 +100,8 @@ _ACTION_RESULT_TEMPLATES = {
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
     ("sos_panic", "completed"): "SOS sent — your emergency contacts are being notified.",
     ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
+    ("check_in", "completed"): "Done — your trusted contacts can see your check-in. ✓",
+    ("check_in", "cancelled"): "Okay — I didn't check you in.",
 }
 
 _UNAVAILABLE_MESSAGE = (
@@ -357,6 +360,23 @@ def _function_declarations_v2(types: Any) -> list:
                     "request_confirmation first before proposing this."
                 ),
                 parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="propose_check_in",
+                description=(
+                    "Propose a check-in: share live location with the user's ready "
+                    "trusted contacts for duration_hours (0<h<=24) with an optional note. "
+                    "The browser creates grants per recipient, encrypts, and publishes. "
+                    "Coordinate-free. Ask for the duration first (request_duration_choice)."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                        "note": schema(type=kind.STRING, description="Optional short note"),
+                    },
+                    required=["duration_hours"],
+                ),
             ),
         ]
     )
@@ -673,6 +693,12 @@ class LocationChatService:
             return {"type": "view_envelope", "grantId": result.get("grantId")}
         if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
             return {"type": "sos_panic"}
+        if name == "propose_check_in" and result.get("proposed") == "check_in":
+            return {
+                "type": "check_in",
+                "durationHours": result.get("durationHours"),
+                "note": result.get("note"),
+            }
         return None
 
     @staticmethod
@@ -733,6 +759,16 @@ class LocationChatService:
                 "type": "sos_panic",
                 "summary": "Send an emergency SOS to all your trusted contacts",
             }
+        check_in = next((d for d in directives if d.get("type") == "check_in"), None)
+        if check_in:
+            hours = check_in.get("durationHours")
+            return {
+                "id": action_id,
+                "type": "check_in",
+                "durationHours": hours,
+                "note": check_in.get("note"),
+                "summary": f"Check in with your trusted contacts for {hours}h",
+            }
         return None
 
     async def _handle_action_result(
@@ -767,6 +803,7 @@ class LocationChatService:
             "publish_share",
             "create_public_link",
             "sos_panic",
+            "check_in",
         )
         conv_id = conversation_id or ""
         if conv_id:
