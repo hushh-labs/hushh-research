@@ -46,13 +46,16 @@ export interface PublishableSlice {
 }
 
 /**
- * One anonymized listing in the cross-user Buyer directory. The owner's identity
- * is never sent — only a stable opaque `ownerRef` and an opaque `listingId` the
- * server maps back to the real owner when a request is filed.
+ * One listing in the cross-user Buyer directory. The owner's raw user id is never
+ * sent — only a stable opaque `ownerRef`, the owner's public display name
+ * (`ownerName`, so a buyer sees who published the slice), and an opaque
+ * `listingId` the server maps back to the real owner when a request is filed.
  */
 export interface AvailableListing {
   listingId: string;
   ownerRef: string;
+  /** Public display name of the seller (falls back to `ownerRef` if unavailable). */
+  ownerName?: string;
   domain: string;
   domainTitle: string;
   label: string;

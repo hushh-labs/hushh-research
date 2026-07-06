@@ -1121,8 +1121,10 @@ export default function OneMarketplacePage() {
                       <div className="mt-2 text-lg font-semibold">{listing.label}</div>
                       <div className="mt-0.5 text-sm text-muted-foreground">
                         {listing.attributeCount} attribute{listing.attributeCount === 1 ? "" : "s"} · safe
-                        summary · seller{" "}
-                        <span className="font-mono text-xs">{listing.ownerRef}</span>
+                        summary · published by{" "}
+                        <span className="font-medium text-foreground">
+                          {listing.ownerName || listing.ownerRef}
+                        </span>
                       </div>
                       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-4">
                         <div className="text-2xl font-semibold tracking-tight">
@@ -1263,8 +1265,10 @@ export default function OneMarketplacePage() {
             <p className="mt-2 text-sm text-muted-foreground">
               You’re requesting <span className="font-medium text-foreground">30-day scoped access</span> to
               the safe summary of{" "}
-              <span className="font-medium text-foreground">{requestListing.label}</span> from seller{" "}
-              <span className="font-mono text-xs">{requestListing.ownerRef}</span>. This files a request the
+              <span className="font-medium text-foreground">{requestListing.label}</span>, published by{" "}
+              <span className="font-medium text-foreground">
+                {requestListing.ownerName || requestListing.ownerRef}
+              </span>. This files a request the
               owner must approve — nothing is shared until they say yes.
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
