@@ -107,7 +107,7 @@ import {
   buildOneLocationWorkflowHref,
   isOneLocationGrantOpened,
   isOneLocationGrantUnwatched,
-  locationShareNotificationDescription,
+  locationShareNotificationCopy,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
   markOneLocationGrantUnwatched,
@@ -2121,13 +2121,20 @@ function OneLocationAgentPageContent() {
       if (!auth.userId) return;
       const ownerLabel = receivedGrantOwnerLabel(grant);
       const toastKey = `one-location-share:${grant.id}`;
-      const description = locationShareNotificationDescription(ownerLabel);
+      // Kind-aware popup so the recipient instantly sees WHAT it is (SOS alert /
+      // Check-in shared with the note / Location shared) instead of the same
+      // generic line for every share.
+      const { title, description } = locationShareNotificationCopy({
+        ownerLabel,
+        shareKind: grant.shareKind,
+        shareMessage: grant.shareMessage,
+      });
       playOneLocationNotificationSound();
       toast(
         <div className="flex flex-col gap-2">
           <div className="space-y-0.5">
             <p className="line-clamp-1 text-sm font-semibold">
-              Location shared
+              {title}
             </p>
             <p className="line-clamp-2 text-xs text-muted-foreground">
               {description}
@@ -2695,6 +2702,8 @@ function OneLocationAgentPageContent() {
         ownerLabel: receivedGrantOwnerLabel(grant),
         expiresAt: grant.expiresAt,
         durationHours: grant.durationHours,
+        shareKind: grant.shareKind,
+        shareMessage: grant.shareMessage,
       });
       if (created) {
         showLocationShareToast(grant);

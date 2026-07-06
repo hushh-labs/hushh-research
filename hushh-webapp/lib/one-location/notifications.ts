@@ -378,6 +378,65 @@ export function locationShareNotificationDescription(ownerLabel?: string | null)
   return `${label} shared location access with you. Open this notification to view it.`;
 }
 
+/** The share intents a recipient notification can represent. */
+export type OneLocationShareKind = "sos" | "check_in" | "share";
+
+export function normalizeOneLocationShareKind(
+  value?: string | null,
+): OneLocationShareKind {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "sos") return "sos";
+  if (normalized === "check_in" || normalized === "checkin") return "check_in";
+  return "share";
+}
+
+/** Short, human tag per share kind for badges/labels (SOS / Check-In / Share). */
+export function oneLocationShareKindLabel(kind?: string | null): string {
+  switch (normalizeOneLocationShareKind(kind)) {
+    case "sos":
+      return "SOS";
+    case "check_in":
+      return "Check-In";
+    default:
+      return "Share";
+  }
+}
+
+/**
+ * Kind-aware title + description for a received location share so the recipient
+ * instantly sees WHAT it is (emergency SOS vs friendly Check-In vs plain share)
+ * and WHY. A Check-In note is surfaced verbatim ("<Owner>: <message>"); SOS gets
+ * urgent dedicated copy; a plain share keeps the neutral line.
+ */
+export function locationShareNotificationCopy(params: {
+  ownerLabel?: string | null;
+  shareKind?: string | null;
+  shareMessage?: string | null;
+}): { title: string; description: string } {
+  const label = String(params.ownerLabel || "").trim() || "A trusted person";
+  const message = String(params.shareMessage || "").trim();
+  const kind = normalizeOneLocationShareKind(params.shareKind);
+  if (kind === "sos") {
+    return {
+      title: "SOS alert",
+      description: `${label} triggered an SOS and is sharing live location with you. Open to view it now.`,
+    };
+  }
+  if (kind === "check_in") {
+    return {
+      title: "Check-in shared",
+      description: message
+        ? `${label}: ${message}`
+        : `${label} checked in and shared their location with you.`,
+    };
+  }
+  return {
+    title: "Location shared",
+    description: locationShareNotificationDescription(label),
+  };
+}
+
+
 export function locationWorkflowNotificationCopy(params: {
   type: OneLocationWorkflowNotificationType;
   ownerLabel?: string | null;
@@ -471,6 +530,8 @@ export function recordOneLocationShareNotification(params: {
   ownerLabel?: string | null;
   expiresAt?: string | null;
   durationHours?: string | number | null;
+  shareKind?: string | null;
+  shareMessage?: string | null;
 }): boolean {
   const userId = String(params.userId || "").trim();
   const grantId = String(params.grantId || "").trim();
@@ -486,15 +547,22 @@ export function recordOneLocationShareNotification(params: {
 
   // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
   // "Open" deep-link into the recipient's "Shared with me" section, so the
-  // share is reachable from the bell - not only the transient toast.
+  // share is reachable from the bell - not only the transient toast. The copy is
+  // kind-aware so the bell entry reads "SOS alert" / "Check-in shared" (with the
+  // note) / "Location shared" instead of one generic line for every share.
   const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
-  const description = locationShareNotificationDescription(ownerLabel);
+  const shareKind = normalizeOneLocationShareKind(params.shareKind);
+  const { title, description } = locationShareNotificationCopy({
+    ownerLabel,
+    shareKind: params.shareKind,
+    shareMessage: params.shareMessage,
+  });
   const taskId = oneLocationGrantTaskId(grantId);
   AppBackgroundTaskService.startTask({
     taskId,
     userId,
     kind: LOCATION_SHARE_TASK_KIND,
-    title: "Location shared",
+    title,
     description,
     routeHref: buildOneLocationNotificationHref(grantId),
     visibility: "primary",
@@ -505,6 +573,8 @@ export function recordOneLocationShareNotification(params: {
       ownerLabel,
       expiresAt: params.expiresAt || null,
       durationHours: params.durationHours || null,
+      shareKind,
+      shareMessage: String(params.shareMessage || "").trim() || null,
     },
   });
   AppBackgroundTaskService.completeTask(taskId, description);
