@@ -72,7 +72,7 @@ def test_079_migration_registered_in_manifest():
 
 def test_079_uat_contract_updated():
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-    assert contract["expected_migration_version"] == 80
+    assert contract["expected_migration_version"] == 79
     assert "trusted_connections" in contract["required_tables"]
 
 

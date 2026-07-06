@@ -57,8 +57,7 @@
     "076_marketplace_access_requests.sql",
     "077_marketplace_opportunity_signals.sql",
     "078_trusted_connections.sql",
-    "079_unify_location_connections.sql",
-    "080_drop_one_location_network_connections.sql"
+    "079_unify_location_connections.sql"
   ],
   "groups": {
     "iam": [

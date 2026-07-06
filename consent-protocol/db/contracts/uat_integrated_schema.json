@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 80,
+  "expected_migration_version": 79,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -518,6 +518,20 @@
       "claimed_by_user_id",
       "message",
       "claimed_at",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata"
+    ],
+    "one_location_network_connections": [
+      "id",
+      "user_a_id",
+      "user_b_id",
+      "inviter_user_id",
+      "invitee_user_id",
+      "invite_id",
+      "status",
+      "connected_at",
       "created_at",
       "updated_at",
       "revoked_at",

@@ -37,7 +37,7 @@ def test_one_location_public_invite_migration_sequence_is_current_and_unique() -
         path.name for path in MIGRATIONS_DIR.glob("*one_location_retention_indexes.sql")
     }
     assert len(ordered) == len(set(ordered))
-    assert schema_contract["expected_migration_version"] == 80
+    assert schema_contract["expected_migration_version"] == 79
     assert migration_name in manifest["groups"]["iam"]
     assert retention_name in manifest["groups"]["iam"]
     assert circle_invite_name in manifest["groups"]["iam"]
@@ -68,12 +68,9 @@ def test_one_location_circle_invite_migration_is_hash_only_and_network_gated() -
     required_tables = schema_contract["required_tables"]
 
     assert "one_location_circle_invites" in sql
-    # Migration 068 (immutable) still creates the legacy network table...
     assert "one_location_network_connections" in sql
     assert "one_location_circle_invites" in required_tables
-    # ...but the table was dropped in migration 080, so it is no longer a
-    # contract-required table.
-    assert "one_location_network_connections" not in required_tables
+    assert "one_location_network_connections" in required_tables
     assert "invite_code_hash" in sql
     assert "invite_code TEXT" not in sql
     assert "invite_token" not in sql
