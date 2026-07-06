@@ -758,33 +758,12 @@ export default function OneMarketplacePage() {
     })();
   }, [requestListing, vaultOwnerToken, loadRequests]);
 
-  const approveRequest = useCallback(
-    async (id: string) => {
-      if (!vaultOwnerToken) return;
-      try {
-        await OneMarketplaceService.approveRequest({ vaultOwnerToken, requestId: id });
-        await loadRequests();
-        toast.success("Approved — the safe summary would be delivered to that buyer only.");
-      } catch {
-        toast.error("Couldn't approve. Refresh and try again.");
-      }
-    },
-    [vaultOwnerToken, loadRequests]
-  );
-
-  const denyRequest = useCallback(
-    async (id: string) => {
-      if (!vaultOwnerToken) return;
-      try {
-        await OneMarketplaceService.denyRequest({ vaultOwnerToken, requestId: id });
-        await loadRequests();
-        toast("Denied. Nothing shared.");
-      } catch {
-        toast.error("Couldn't deny. Refresh and try again.");
-      }
-    },
-    [vaultOwnerToken, loadRequests]
-  );
+  // Approve/deny live entirely in the Consent Guardian now — a marketplace
+  // request surfaces there as a normal consent row (see
+  // MarketplaceCenterContributor) where approval runs the real E2E delivery
+  // (seal the slice to the buyer's recipient key -> deliver ciphertext). This
+  // page no longer duplicates that action; it just shows request status and
+  // deep-links to the Guardian.
 
   const bandControls = (
     <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -1098,30 +1077,25 @@ export default function OneMarketplacePage() {
                         </div>
                       </div>
                       {req.status === "pending" ? (
-                        <div className="mt-3 flex gap-2 border-t pt-3">
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                          <span className="text-xs text-muted-foreground">
+                            Approve or deny this in your Consent Guardian — approval delivers the
+                            encrypted slice to this buyer.
+                          </span>
                           <Button
                             type="button"
                             size="sm"
                             variant="none"
                             effect="fade"
-                            onClick={() => void approveRequest(req.id)}
+                            onClick={() => router.push("/consents?tab=pending")}
                           >
-                            Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="none"
-                            effect="fade"
-                            onClick={() => void denyRequest(req.id)}
-                          >
-                            Deny
+                            Review in Consent Guardian →
                           </Button>
                         </div>
                       ) : req.status === "approved" ? (
                         <div className="mt-3 border-t pt-3 text-xs text-emerald-700 dark:text-emerald-300">
-                          Approved — the safe summary would be delivered to this buyer only (never raw
-                          PKM). Encrypted per-buyer delivery and payment settlement are the next phase.
+                          Approved — the encrypted safe summary was delivered to this buyer only (never
+                          raw PKM).
                         </div>
                       ) : req.status === "denied" ? (
                         <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
@@ -1138,19 +1112,19 @@ export default function OneMarketplacePage() {
               )}
 
               <div className="rounded-xl bg-muted/30 px-4 py-3 text-[12.5px] text-muted-foreground">
-                These are real, saved requests — they persist across refresh. You can approve or deny
-                here or by asking the Information Marketplace agent. Encrypted per-buyer delivery and
-                payment settlement are the next phase.
+                These are real, saved requests — they persist across refresh. Approve or deny them in
+                your Consent Guardian, where approval seals the slice for that buyer and delivers it
+                end-to-end encrypted.
               </div>
 
               <div className="rounded-2xl border p-5">
                 <div className="mb-3 text-sm font-medium">How a purchase flows</div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   {[
-                    { t: "1 · Buyer finds slice + price", now: false },
+                    { t: "1 · Buyer finds slice + price", now: true },
                     { t: "2 · Buyer requests access", now: true },
-                    { t: "3 · Owner approves", now: true },
-                    { t: "4 · Encrypted slice delivered to that buyer only", now: false },
+                    { t: "3 · Owner approves in Consent Guardian", now: true },
+                    { t: "4 · Encrypted slice delivered to that buyer only", now: true },
                   ].map((step, i, arr) => (
                     <span key={step.t} className="flex items-center gap-2">
                       <span
@@ -1166,8 +1140,8 @@ export default function OneMarketplacePage() {
                   ))}
                 </div>
                 <div className="mt-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-                  Step 3 is mandatory. Today’s app already enforces steps 2–4 via the Consent Guardian.
-                  The storefront only adds step 1 (price + browse).
+                  Step 3 is mandatory and happens in the Consent Guardian, which runs the end-to-end
+                  encrypted delivery in step 4. The storefront only adds step 1 (price + browse).
                 </div>
               </div>
             </div>
