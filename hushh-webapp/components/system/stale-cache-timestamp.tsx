@@ -1,7 +1,7 @@
 "use client";
 
 import { Clock3 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type StaleCacheTimestampProps = {
   updatedAt?: string | number | Date | null;
@@ -52,10 +52,9 @@ export function StaleCacheTimestamp({
     return () => clearInterval(intervalId);
   }, []);
 
-  const text = useMemo(() => {
-    if (!updatedAt) return label || "Using saved data";
-    return formatRelativeTime(updatedAt);
-  }, [label, updatedAt]);
+  const text = !updatedAt
+    ? label || "Using saved data"
+    : formatRelativeTime(updatedAt);
 
   return (
     <div
