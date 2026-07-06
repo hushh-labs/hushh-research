@@ -1158,6 +1158,9 @@ class FourUserMemoryService(OneLocationAgentService):
                     "owner_user_id": existing["owner_user_id"],
                     "trusted_user_id": existing["trusted_user_id"],
                     "status": existing["status"],
+                    "created_at": existing.get("created_at"),
+                    "updated_at": existing.get("updated_at"),
+                    "revoked_at": existing.get("revoked_at"),
                 }
             tc_id = str(uuid.uuid4())
             row = {
@@ -1177,6 +1180,9 @@ class FourUserMemoryService(OneLocationAgentService):
                 "owner_user_id": row["owner_user_id"],
                 "trusted_user_id": row["trusted_user_id"],
                 "status": row["status"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "revoked_at": row["revoked_at"],
             }
         raise AssertionError(f"unexpected execute_one SQL: {sql}")
 
@@ -1914,13 +1920,7 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
     def fake_execute_one(sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
         writes.append((sql, params))
-        if "INSERT INTO trusted_connections" in sql:
-            return {
-                "id": "edge-1",
-                "owner_user_id": params.get("owner_user_id"),
-                "trusted_user_id": params.get("trusted_user_id"),
-                "status": "active",
-            }
+        # NEW ORDER: invite UPDATE runs first, trusted INSERT runs second.
         if "UPDATE one_location_circle_invites" in sql and "'claimed'" in sql:
             return {
                 "id": "inv1",
@@ -1936,6 +1936,16 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
                 "message": None,
                 "metadata": None,
             }
+        if "INSERT INTO trusted_connections" in sql:
+            return {
+                "id": "edge-1",
+                "owner_user_id": params.get("owner_user_id"),
+                "trusted_user_id": params.get("trusted_user_id"),
+                "status": "active",
+                "created_at": None,
+                "updated_at": None,
+                "revoked_at": None,
+            }
         # _insert_event calls are wrapped in try/except and ignore return value
         return {}
 
@@ -1947,11 +1957,17 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
     assert len(tc_writes) == 1, "Expected exactly one INSERT INTO trusted_connections"
     assert tc_writes[0][1]["owner_user_id"] == "claimant-uid"
     assert tc_writes[0][1]["trusted_user_id"] == "inviter-uid"
+    assert "circle_invite" in tc_writes[0][0], (
+        "INSERT SQL must contain the 'circle_invite' source literal"
+    )
 
     nc_writes = [(sql, p) for sql, p in writes if "one_location_network_connections" in sql]
     assert nc_writes == [], "Expected no writes to one_location_network_connections"
 
     assert result["connection"]["id"] == "edge-1"
+    assert result["connection"]["inviterUserId"] == "inviter-uid"
+    assert result["connection"]["inviteeUserId"] == "claimant-uid"
+    assert result["connection"]["inviteId"] == "inv1"
 
 
 def test_invite_to_one_claim_creates_network_connection_without_location_access() -> None:
@@ -1992,10 +2008,10 @@ def test_invite_to_one_claim_creates_network_connection_without_location_access(
     assert claimed["invite"]["claimedByUserId"] == "user_b"
     assert claimed["connection"]["status"] == "active"
     # One-way edge: owner=claimer (user_b), trusted=inviter (user_a).
-    # _trusted_connection_as_network_payload maps owner→inviterUserId, trusted→inviteeUserId.
-    assert claimed["connection"]["inviterUserId"] == "user_b"
-    assert claimed["connection"]["inviteeUserId"] == "user_a"
-    assert claimed["connection"]["inviteId"] is None
+    # inviterUserId = invite owner (user_a), inviteeUserId = claimant (user_b).
+    assert claimed["connection"]["inviterUserId"] == "user_a"
+    assert claimed["connection"]["inviteeUserId"] == "user_b"
+    assert claimed["connection"]["inviteId"] is not None
     assert service.requests == {}
     assert service.grants == {}
     assert service.network_connections == {}

@@ -3357,36 +3357,9 @@ class OneLocationAgentService:
                 status_code=409,
             )
         owner_identity = self._identity_row(owner_user_id)
-        connection_row = self._execute_one(
-            """
-            INSERT INTO trusted_connections (
-              owner_user_id, trusted_user_id, status, source, resolved_via,
-              created_at, updated_at, metadata
-            )
-            VALUES (
-              :owner_user_id, :trusted_user_id, 'active', 'circle_invite', 'user_id',
-              NOW(), NOW(), CAST(:metadata_json AS JSONB)
-            )
-            ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
-              status = 'active',
-              updated_at = NOW(),
-              revoked_at = NULL,
-              source = 'circle_invite'
-            RETURNING id, owner_user_id, trusted_user_id, status
-            """,
-            {
-                "owner_user_id": claimant_user_id,
-                "trusted_user_id": owner_user_id,
-                "metadata_json": _json_param({"source": "invite_to_one", "invite_id": invite_id}),
-            },
-        )
-        connection = self._trusted_connection_as_network_payload(connection_row)
-        if not connection:
-            raise OneLocationAgentError(
-                "LOCATION_NETWORK_CONNECTION_FAILED",
-                "Could not connect this One Network invite.",
-                status_code=500,
-            )
+        # Claim the invite atomically BEFORE writing the trusted edge so that a
+        # second claimant on an already-claimed invite is rejected without any
+        # spurious trusted_connections row being inserted.
         row = self._execute_one(
             """
             UPDATE one_location_circle_invites
@@ -3412,6 +3385,51 @@ class OneLocationAgentService:
                 status_code=410,
             )
         invite = self._circle_invite_payload(row) or {}
+        connection_row = self._execute_one(
+            """
+            INSERT INTO trusted_connections (
+              owner_user_id, trusted_user_id, status, source, resolved_via,
+              created_at, updated_at, metadata
+            )
+            VALUES (
+              :owner_user_id, :trusted_user_id, 'active', 'circle_invite', 'user_id',
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
+            )
+            ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
+              status = 'active',
+              updated_at = NOW(),
+              revoked_at = NULL,
+              source = 'circle_invite'
+            RETURNING id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
+            """,
+            {
+                "owner_user_id": claimant_user_id,
+                "trusted_user_id": owner_user_id,
+                "metadata_json": _json_param({"source": "invite_to_one", "invite_id": invite_id}),
+            },
+        )
+        if not connection_row:
+            raise OneLocationAgentError(
+                "LOCATION_NETWORK_CONNECTION_FAILED",
+                "Could not connect this One Network invite.",
+                status_code=500,
+            )
+        # Build the response payload with correct inviter/invitee semantics:
+        # inviterUserId = invite owner (who created the invite),
+        # inviteeUserId = claimant (who accepted it).
+        connection: dict[str, Any] = {
+            "id": str(connection_row.get("id") or ""),
+            "userAId": owner_user_id,
+            "userBId": claimant_user_id,
+            "inviterUserId": owner_user_id,
+            "inviteeUserId": claimant_user_id,
+            "inviteId": invite_id,
+            "status": str(connection_row.get("status") or "active"),
+            "connectedAt": _iso(connection_row.get("created_at")),
+            "createdAt": _iso(connection_row.get("created_at")),
+            "updatedAt": _iso(connection_row.get("updated_at")),
+            "revokedAt": _iso(connection_row.get("revoked_at")),
+        }
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=claimant_user_id,
