@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Loader2, Shield } from "lucide-react";
 
@@ -74,17 +75,23 @@ function formatRelative(value?: string | number | null) {
   return `${Math.ceil(totalHours / 24)} days left`;
 }
 
-function entryHref(actor: ConsentCenterActor, entry: ConsentCenterEntry) {
+function entryHref(
+  actor: ConsentCenterActor,
+  entry: ConsentCenterEntry,
+  from?: string,
+) {
   const requestId = entry.request_id || entry.id;
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending", { requestId })
-    : buildConsentCenterHref("pending", { requestId });
+    : // Tag the origin (current route) so the consent center's back button
+      // retraces here instead of falling to Profile (breadcrumb reads ?from).
+      buildConsentCenterHref("pending", { requestId, from });
 }
 
-function managerHref(actor: ConsentCenterActor) {
+function managerHref(actor: ConsentCenterActor, from?: string) {
   return actor === "ria"
     ? buildRiaConsentManagerHref("pending")
-    : buildConsentCenterHref("pending");
+    : buildConsentCenterHref("pending", { from });
 }
 
 export function ConsentInboxDropdown({
@@ -95,6 +102,7 @@ export function ConsentInboxDropdown({
   renderTrigger?: (state: { pendingCount: number }) => ReactElement;
 }) {
   const { user } = useAuth();
+  const pathname = usePathname();
   const { activePersona } = usePersonaState();
   const actor: ConsentCenterActor =
     activePersona === "ria" ? "ria" : "investor";
@@ -211,7 +219,10 @@ export function ConsentInboxDropdown({
   const isInitialSummaryLoad = summaryResource.loading && !summaryData;
   const isInitialPendingListLoad =
     pendingCount > 0 && pendingListResource.loading && items.length === 0;
-  const primaryHref = useMemo(() => managerHref(actor), [actor]);
+  const primaryHref = useMemo(
+    () => managerHref(actor, pathname || undefined),
+    [actor, pathname],
+  );
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
@@ -277,7 +288,7 @@ export function ConsentInboxDropdown({
               {items.map((entry) => (
                 <div key={entry.id} role="listitem">
                   <Link
-                    href={entryHref(actor, entry)}
+                    href={entryHref(actor, entry, pathname || undefined)}
                     prefetch={false}
                     onClick={() => setOpen(false)}
                     className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"

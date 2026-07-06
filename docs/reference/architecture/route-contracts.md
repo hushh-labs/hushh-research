@@ -104,6 +104,8 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 
 Legacy `/kai/*` aliases and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
+Canonical `/one/kai/*` routes are One-owned finance surfaces, not persona shell routes. Page-level role mismatch guards must not block `/one/kai`, `/one/kai/analysis`, `/one/kai/portfolio`, or other canonical One finance routes just because the active persona is RIA; generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases may stay investor-scoped until removed.
+
 Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only. Canonical profile navigation is nested under `/profile/<panel>` and owned by `hushh-webapp/lib/navigation/profile-routes.ts`.
 
 ## Route Contract Cascade

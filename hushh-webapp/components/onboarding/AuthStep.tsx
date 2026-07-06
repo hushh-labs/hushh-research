@@ -16,14 +16,8 @@ import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
-import {
-  kaiAppHeroBodyClassName,
-  kaiAppHeroTitleClassName,
-} from "@/components/kai/shared/kai-typography";
-import { OneLockup } from "@/components/app-ui/gold-period";
 import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
@@ -48,6 +42,15 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/cancelled-popup-request",
   "auth/user-cancelled",
 ]);
+
+// 9a provider-button treatments: Apple black, Google white-with-border,
+// Reviewer indigo-tint (design.md §5.9). Passed to AuthProviderButton className.
+const APPLE_BTN_CLASS =
+  "!bg-[#0A0908] !text-[#FAF6EE] shadow-[0_8px_20px_rgba(0,0,0,0.16)] hover:!bg-black dark:!bg-[#0A0908] dark:ring-1 dark:ring-white/10";
+const GOOGLE_BTN_CLASS =
+  "!bg-white !text-[#17130C] border border-[rgba(214,175,106,0.55)] shadow-sm hover:!bg-black/[0.02]";
+const REVIEWER_BTN_CLASS =
+  "!bg-[rgba(156,116,52,0.12)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.18)] dark:!bg-[rgba(212,175,106,0.16)] dark:!text-[#D4AF6A]";
 
 function isAuthCancel(error: unknown): boolean {
   const code =
@@ -77,7 +80,6 @@ function authErrorMessage(error: unknown): string {
 
 export function AuthStep({
   redirectPath,
-  compact = false,
 }: {
   redirectPath: string;
   compact?: boolean;
@@ -593,9 +595,15 @@ export function AuthStep({
         },
       ];
 
+  const showReviewer =
+    reviewModeConfig.enabled ||
+    nativeReviewerVisible ||
+    localReviewerCredentialsAvailable ||
+    isLocalReviewerSurface;
+
   return (
     <main
-      className="h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-white text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
+      className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]"
       data-testid="auth-step-primary"
     >
       <NativeTestBeacon
@@ -621,53 +629,58 @@ export function AuthStep({
           `cfg_${nativeTestConfig.enabled ? "1" : "0"}_${nativeTestConfig.autoReviewerLogin ? "1" : "0"}`
         }
       />
-      <div
-        className={
-          compact
-            ? "relative mx-auto flex h-full min-h-0 w-full max-w-[27rem] flex-col justify-center px-6 pb-[calc(54px+var(--app-screen-footer-pad))] pt-[calc(24px+var(--app-safe-area-top-effective,0px))]"
-            : "relative mx-auto flex h-full min-h-0 w-full max-w-[27rem] flex-col justify-center px-6 pb-[calc(58px+var(--app-screen-footer-pad))] pt-[calc(32px+var(--app-safe-area-top-effective,0px))]"
-        }
+
+      {/* Immersive hero glows */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[58%]">
+        <span
+          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
+          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(95px)" }}
+        />
+        <span
+          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
+          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={handleBack}
+        aria-label="Go back"
+        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem)+0.5rem)] z-50 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
       >
-        {/* Back button: shares the exact lean ShellActionSurface aesthetic and
-            sits on the same fixed top line as the lean theme pill, mirroring the
-            getting-started screen so both onboarding surfaces are symmetric. */}
-        <ShellActionSurface
-          variant="icon"
-          onClick={handleBack}
-          aria-label="Go back"
-          wrapperClassName="fixed left-0 z-50 px-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))]"
-        >
-          <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
-        </ShellActionSurface>
-        <header className="flex-none text-center">
-          <Image
-            src="/one-quiet-emoji.png"
-            alt="One"
-            width={44}
-            height={44}
-            priority
-            className="mx-auto h-11 w-11 object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.08)]"
-          />
-          <div
+        <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+      </button>
+
+      <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
+        {/* Dark hero */}
+        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
+          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+            <Image
+              src="/one-quiet-emoji.png"
+              alt="One"
+              width={762}
+              height={766}
+              priority
+              unoptimized
+              draggable={false}
+              className="h-11 w-11 object-contain [filter:drop-shadow(0_4px_10px_rgba(0,0,0,0.35))]"
+            />
+          </div>
+          <h1
             role="heading"
             aria-level={1}
             aria-label="Sign in to One"
-            className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
+            className="mt-6 font-[family-name:var(--font-app-display)] text-[36px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#FAF6EE]"
           >
-            Sign in to <OneLockup />
-          </div>
-          <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
+            Sign in to One<span style={{ color: "#D4AF6A" }}>.</span>
+          </h1>
+          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.4] text-[rgba(250,246,238,0.62)]">
             Sign in to open your private vault, only you can.
           </p>
-        </header>
+        </div>
 
-        <section
-          className={
-            compact
-              ? "flex-none pt-11"
-              : "flex-none pt-12"
-          }
-        >
+        {/* White action sheet */}
+        <div className="relative rounded-t-[34px] bg-white px-6 pt-7 pb-[calc(28px+var(--app-safe-area-bottom-effective,0px))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
           <div className="mx-auto w-full max-w-[21.5rem] space-y-3">
             {authOptions.map((option) => (
               <AuthProviderButton
@@ -676,47 +689,44 @@ export function AuthStep({
                 icon={option.icon}
                 onClick={option.onClick}
                 disabled={pendingProvider !== null}
+                className={option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS}
               />
             ))}
 
-              {(reviewModeConfig.enabled ||
-                nativeReviewerVisible ||
-                localReviewerCredentialsAvailable ||
-                isLocalReviewerSurface) && (
-                <AuthProviderButton
-                  label="Continue as Reviewer"
-                  icon={<Icon icon={Shield} size="md" />}
-                  onClick={handleReviewerLogin}
-                />
-              )}
+            {showReviewer ? (
+              <AuthProviderButton
+                label="Continue as Reviewer"
+                icon={<Icon icon={Shield} size="md" />}
+                onClick={handleReviewerLogin}
+                className={REVIEWER_BTN_CLASS}
+              />
+            ) : null}
 
-            <p className="type-footnote mx-auto max-w-[18.75rem] pt-2 text-center text-[#86868b] dark:text-[#8e8e93]">
+            <p className="type-footnote mx-auto max-w-[18.75rem] pt-1 text-center text-[#86868b] dark:text-white/45">
               A verified phone number is required before you continue.
             </p>
-            </div>
-          </section>
 
-        <footer className="absolute inset-x-6 bottom-[calc(20px+var(--app-screen-footer-pad))] flex-none">
-          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-[#8e8e93]">
-            By continuing, you agree to One&apos;s{" "}
-            <button
-              type="button"
-              onClick={() => openLegalDoc("terms")}
-              className="font-semibold text-[#b8894d] transition-opacity hover:opacity-70 dark:text-[#d4a574]"
-            >
-              Terms
-            </button>{" "}
-            and{" "}
-            <button
-              type="button"
-              onClick={() => openLegalDoc("privacy")}
-              className="font-semibold text-[#b8894d] transition-opacity hover:opacity-70 dark:text-[#d4a574]"
-            >
-              Privacy Policy
-            </button>
-            .
-          </p>
-        </footer>
+            <p className="type-footnote mx-auto max-w-[19.5rem] pt-2 text-center text-[#86868b] dark:text-white/45">
+              By continuing, you agree to One&apos;s{" "}
+              <button
+                type="button"
+                onClick={() => openLegalDoc("terms")}
+                className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+              >
+                Terms
+              </button>{" "}
+              and{" "}
+              <button
+                type="button"
+                onClick={() => openLegalDoc("privacy")}
+                className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+              >
+                Privacy Policy
+              </button>
+              .
+            </p>
+          </div>
+        </div>
       </div>
       <AuthLegalDialog
         docType={activeLegalDoc}

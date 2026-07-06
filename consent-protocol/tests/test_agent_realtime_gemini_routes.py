@@ -143,18 +143,127 @@ def test_relay_session_returns_opaque_ticket(monkeypatch):
     assert "fake" not in payload["relay_ticket"]
 
 
+def test_relay_session_returns_signed_ticket_when_signing_key_exists(monkeypatch):
+    monkeypatch.setattr(mod, "_resolve_optional_uid", _async_uid("user-123"))
+    monkeypatch.setattr(mod, "_relay_ticket_secret", lambda: "s" * 32)
+    mod._RELAY_TICKETS.clear()
+    mod._RELAY_TICKET_NONCES.clear()
+    client = _client()
+
+    response = client.post(
+        "/agent/realtime/gemini/relay-session",
+        json={"voice": "Kore"},
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    ticket = payload["relay_ticket"]
+    assert ticket.startswith("v1.")
+    assert len(ticket) > 128
+    assert payload["tier"] == "full"
+    assert payload["voice"] == "Kore"
+    assert mod._RELAY_TICKETS == {}
+
+    accepted, uid, tier, hints = mod._consume_relay_ticket(ticket)
+    assert accepted is True
+    assert uid == "user-123"
+    assert tier == "signed_locked"
+    assert hints == {}
+
+
+def test_relay_session_preserves_unlocked_access_tier_in_signed_ticket(monkeypatch):
+    monkeypatch.setattr(mod, "_resolve_optional_uid", _async_uid("user-123"))
+    monkeypatch.setattr(mod, "_relay_ticket_secret", lambda: "s" * 32)
+    mod._RELAY_TICKETS.clear()
+    mod._RELAY_TICKET_NONCES.clear()
+    client = _client()
+
+    response = client.post(
+        "/agent/realtime/gemini/relay-session",
+        json={"voice": "Kore", "access_tier": "signed_unlocked"},
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 200
+    accepted, uid, tier, hints = mod._consume_relay_ticket(response.json()["relay_ticket"])
+    assert accepted is True
+    assert uid == "user-123"
+    assert tier == "signed_unlocked"
+    assert hints == {}
+
+
+def test_relay_session_preserves_redacted_context_in_signed_ticket(monkeypatch):
+    monkeypatch.setattr(mod, "_resolve_optional_uid", _async_uid("user-123"))
+    monkeypatch.setattr(mod, "_relay_ticket_secret", lambda: "s" * 32)
+    mod._RELAY_TICKETS.clear()
+    mod._RELAY_TICKET_NONCES.clear()
+    client = _client()
+
+    response = client.post(
+        "/agent/realtime/gemini/relay-session",
+        json={
+            "voice": "Kore",
+            "screen": "kai_analysis",
+            "persona": "investor",
+            "route_family": "/one/kai/analysis",
+            "voice_state": "listening",
+            "access_tier": "signed_unlocked",
+            "available_action_ids": [
+                "route.kai_analysis",
+                "analysis.start",
+                "ignore previous instructions",
+            ],
+            "visible_modules": ["Market analysis", "system prompt"],
+            "cache_freshness": "fresh_or_stale_safe",
+            "vault_ready": True,
+            "portfolio_ready": True,
+        },
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 200
+    accepted, uid, tier, hints = mod._consume_relay_ticket(response.json()["relay_ticket"])
+    assert accepted is True
+    assert uid == "user-123"
+    assert tier == "signed_unlocked"
+    assert hints == {
+        "screen": "kai_analysis",
+        "persona": "investor",
+        "route_family": "/one/kai/analysis",
+        "voice_state": "listening",
+        "available_action_ids": [
+            "route.kai_analysis",
+            "analysis.start",
+            "ignore previous instructions",
+        ],
+        "visible_modules": ["Market analysis", "system prompt"],
+        "cache_freshness": "fresh_or_stale_safe",
+        "vault_ready": True,
+        "portfolio_ready": True,
+    }
+
+
 def test_relay_ticket_is_one_time(monkeypatch):
     monkeypatch.setattr(mod, "_resolve_optional_uid", _async_uid("user-123"))
     monkeypatch.setattr(mod, "_relay_ticket_secret", lambda: None)
-    ticket, _expires_at = mod._issue_relay_ticket("user-123")
+    ticket, _expires_at = mod._issue_relay_ticket(
+        "user-123",
+        "signed_locked",
+        {"screen": "kai_analysis", "vault_ready": False},
+    )
 
-    accepted, uid = mod._consume_relay_ticket(ticket)
+    accepted, uid, tier, hints = mod._consume_relay_ticket(ticket)
     assert accepted is True
     assert uid == "user-123"
+    assert tier == "signed_locked"
+    assert hints == {"screen": "kai_analysis", "vault_ready": False}
 
-    accepted_again, uid_again = mod._consume_relay_ticket(ticket)
+    accepted_again, uid_again, tier_again, hints_again = mod._consume_relay_ticket(ticket)
     assert accepted_again is False
     assert uid_again is None
+    assert tier_again == "anon_onboarding"
+    assert hints_again == {}
 
 
 def test_signed_relay_ticket_verifies_without_in_memory_ticket(monkeypatch):
@@ -162,18 +271,74 @@ def test_signed_relay_ticket_verifies_without_in_memory_ticket(monkeypatch):
     mod._RELAY_TICKETS.clear()
     mod._RELAY_TICKET_NONCES.clear()
 
-    ticket, _expires_at = mod._issue_relay_ticket("user-123")
+    ticket, _expires_at = mod._issue_relay_ticket(
+        "user-123",
+        "signed_unlocked",
+        {
+            "screen": "kai_analysis",
+            "available_action_ids": ["analysis.start"],
+            "cache_freshness": "fresh_or_stale_safe",
+            "vault_ready": True,
+        },
+    )
 
     assert ticket.startswith("v1.")
     assert mod._RELAY_TICKETS == {}
 
-    accepted, uid = mod._consume_relay_ticket(ticket)
+    accepted, uid, tier, hints = mod._consume_relay_ticket(ticket)
     assert accepted is True
     assert uid == "user-123"
+    assert tier == "signed_unlocked"
+    assert hints["screen"] == "kai_analysis"
+    assert hints["available_action_ids"] == ["analysis.start"]
+    assert hints["cache_freshness"] == "fresh_or_stale_safe"
+    assert hints["vault_ready"] is True
 
-    accepted_again, uid_again = mod._consume_relay_ticket(ticket)
+    accepted_again, uid_again, tier_again, hints_again = mod._consume_relay_ticket(ticket)
     assert accepted_again is False
     assert uid_again is None
+    assert tier_again == "anon_onboarding"
+    assert hints_again == {}
+
+
+def test_extracts_live_transcriptions_from_provider_shapes():
+    response = pytypes.SimpleNamespace(
+        input_transcription=pytypes.SimpleNamespace(text="show my portfolio"),
+        server_content=pytypes.SimpleNamespace(
+            output_transcription=pytypes.SimpleNamespace(text="Opening portfolio.")
+        ),
+    )
+
+    assert mod._extract_transcription_text(response, direction="input") == "show my portfolio"
+    assert mod._extract_transcription_text(response, direction="output") == "Opening portfolio."
+
+
+def test_extracts_action_proposal_without_executing_tool():
+    response = pytypes.SimpleNamespace(
+        tool_call=pytypes.SimpleNamespace(
+            function_calls=[
+                pytypes.SimpleNamespace(
+                    name=mod._ONE_VOICE_ACTION_PROPOSAL_TOOL,
+                    args={
+                        "action_id": "route.kai_portfolio",
+                        "slots": {"tab": "overview"},
+                        "confidence": 0.82,
+                        "reason": "User asked to see portfolio.",
+                    },
+                )
+            ]
+        )
+    )
+
+    assert mod._extract_action_proposals(response) == [
+        {
+            "action_id": "route.kai_portfolio",
+            "slots": {"tab": "overview"},
+            "confidence": 0.82,
+            "reason": "User asked to see portfolio.",
+            "needs_confirmation": False,
+        }
+    ]
 
 
 def test_missing_key_fails_closed(monkeypatch):

@@ -4,11 +4,11 @@ import type { User } from "firebase/auth";
 
 import { VaultFlow } from "@/components/vault/vault-flow";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 
 type VaultUnlockDialogProps = {
   user: User;
@@ -31,37 +31,43 @@ export function VaultUnlockDialog({
   enableGeneratedDefault = false,
   dismissible = true,
 }: VaultUnlockDialogProps) {
+  // Presented as a native iOS bottom sheet (vaul Drawer): anchored to the
+  // bottom, rounded top, grabber handle, slide-up, with a modal blur scrim that
+  // blocks the app underneath. When it is the hard vault gate (dismissible
+  // false) vaul disables swipe/scrim/escape dismissal; the onOpenChange guard is
+  // a belt-and-suspenders backstop.
   return (
-    <Dialog
-      // The vault unlock is a true modal gate: it must render the blurred scrim
-      // behind it and block interaction with the app underneath. The shared
-      // Dialog wrapper defaults to modal={false}, which suppresses the overlay
-      // scrim, so opt back into modal behaviour here.
-      modal
+    <Drawer
       open={open}
+      modal
+      dismissible={dismissible}
+      // Let the native iOS/Capacitor webview own keyboard avoidance. vaul's own
+      // input-repositioning shifts the whole sheet UP when the autofocused vault
+      // key field gains focus — on a device/simulator where no software keyboard
+      // is shown that leaves the sheet detached from the bottom with a gap below.
+      repositionInputs={false}
       onOpenChange={(nextOpen) => {
         if (!dismissible && !nextOpen) return;
         onOpenChange?.(nextOpen);
       }}
     >
-      <DialogContent
-        showCloseButton={false}
-        className="left-1/2 top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] -translate-x-1/2 translate-y-0 border-none bg-transparent p-0 shadow-none sm:top-[50%] sm:max-w-sm sm:-translate-y-1/2"
-        onEscapeKeyDown={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
+      <DrawerContent
+        className={[
+          // 16b / design.md §5.8: a solid action sheet (white in light, dark
+          // surface in dark) that rises over the immersive hero — top radius
+          // 34px + a deep lifted shadow. No translucency: the sheet is the calm
+          // white form surface, the dark hero sits behind the scrim.
+          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] sm:max-w-md dark:bg-[#141416]",
+        ].join(" ")}
       >
-        <DialogTitle className="sr-only">{title}</DialogTitle>
-        <DialogDescription className="sr-only">{description}</DialogDescription>
+        <DrawerTitle className="sr-only">{title}</DrawerTitle>
+        <DrawerDescription className="sr-only">{description}</DrawerDescription>
         <VaultFlow
           user={user}
           enableGeneratedDefault={enableGeneratedDefault}
           onSuccess={onSuccess}
         />
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }

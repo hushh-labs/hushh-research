@@ -40,6 +40,42 @@
           "optional_ria_id": true
         }
       },
+      "goal": {
+        "goal_id": "goal.route.marketplace_ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.marketplace_ria_profile",
+            "label": "Open Marketplace RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace/ria",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/marketplace/ria/page-client.tsx",
@@ -85,6 +121,42 @@
         "reason": "Creating an investor-to-RIA consent request must stay user-triggered on the marketplace profile.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.marketplace.ria.request_advisory",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "marketplace.ria.request_advisory",
+            "label": "Request Advisory Access",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace/ria",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/marketplace/ria/page-client.tsx"
@@ -126,6 +198,42 @@
         "path": "route",
         "target": "/ria/settings"
       },
+      "goal": {
+        "goal_id": "goal.marketplace.ria.manage_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "marketplace.ria.manage_profile",
+            "label": "Manage RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/settings",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/marketplace/ria/page-client.tsx"
@@ -160,6 +268,42 @@
         "status": "wired",
         "path": "route",
         "target": "/marketplace"
+      },
+      "goal": {
+        "goal_id": "goal.route.marketplace_browse_from_ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.marketplace_browse_from_ria_profile",
+            "label": "Continue Browsing Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -200,6 +344,42 @@
         "reason": "External disclosure URLs are dynamic profile state and should be opened manually.",
         "intended_handler": "router.push"
       },
+      "goal": {
+        "goal_id": "goal.marketplace.ria.open_public_disclosure",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "marketplace.ria.open_public_disclosure",
+            "label": "Open Public Disclosure",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace/ria",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/marketplace/ria/page-client.tsx"
@@ -234,6 +414,42 @@
         "status": "wired",
         "path": "route",
         "target": "/one/gmail"
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_receipts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_receipts",
+            "label": "Open Receipts Page",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -270,6 +486,42 @@
         "status": "unwired",
         "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
         "intended_handler": "router.push"
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.connect",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_gmail_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -308,6 +560,42 @@
         "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.profile.gmail.sync_now",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.sync_now",
+            "label": "Sync Gmail Receipts Now",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/profile-workspace-page.tsx",
@@ -341,6 +629,42 @@
         "status": "unwired",
         "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.profile.receipts_memory.preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.receipts_memory.preview",
+            "label": "Build receipts memory preview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -380,6 +704,42 @@
         "reason": "Save to PKM is currently implemented only inside the receipts page.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.profile.receipts_memory.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.receipts_memory.save",
+            "label": "Save receipts memory to PKM",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/gmail/page.tsx"
@@ -416,6 +776,42 @@
         "reason": "No global action dispatcher for Gmail disconnect yet.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.profile.gmail.disconnect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.disconnect",
+            "label": "Disconnect Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/gmail",
+              "screen": "profile_gmail_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/profile-workspace-page.tsx"
@@ -448,6 +844,42 @@
         "status": "wired",
         "path": "route",
         "target": "/one/kai/analysis"
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_analysis",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_analysis",
+            "label": "Open Analysis Surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -482,6 +914,42 @@
         "status": "wired",
         "path": "kai_command",
         "target": "history"
+      },
+      "goal": {
+        "goal_id": "goal.route.analysis_history",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.analysis_history",
+            "label": "Open Analysis History",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -522,6 +990,81 @@
           "requires_symbol": true
         }
       },
+      "goal": {
+        "goal_id": "goal.analysis.start_debate",
+        "required_inputs": [
+          {
+            "name": "ticker",
+            "prompt": "Which stock should I analyze?",
+            "required": true,
+            "slot": "symbol",
+            "resolver": "ticker_symbol"
+          },
+          {
+            "name": "pick_source",
+            "prompt": "Which list should Kai use for this debate?",
+            "required": true,
+            "slot": "pickSource",
+            "resolver": "kai_pick_source",
+            "default_value": "default",
+            "options": [
+              "default"
+            ]
+          }
+        ],
+        "input_resolvers": [
+          "ticker_symbol",
+          "kai_pick_source"
+        ],
+        "slot_schema": {
+          "symbol": "ticker_symbol",
+          "pickSource": "kai_pick_source"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Prepare stock analysis",
+            "failure_behavior": "stop",
+            "action_id": "analysis.start",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          },
+          {
+            "type": "service",
+            "label": "Run Kai debate",
+            "failure_behavior": "stop",
+            "service": "kai_debate.ensure_run",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "milestone",
+          "milestone_events": [
+            "started",
+            "agent_complete",
+            "decision"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": true,
+          "cancel_action_id": "analysis.cancel_active"
+        },
+        "result_contract": {
+          "summary_mode": "decision_summary"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
@@ -560,6 +1103,42 @@
         "status": "wired",
         "path": "voice_tool",
         "target": "resume_active_analysis"
+      },
+      "goal": {
+        "goal_id": "goal.analysis.resume_active",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.resume_active",
+            "label": "Resume Active Analysis Run",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -600,6 +1179,42 @@
         "path": "voice_tool",
         "target": "cancel_active_analysis"
       },
+      "goal": {
+        "goal_id": "goal.analysis.cancel_active",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.cancel_active",
+            "label": "Cancel Active Analysis Run",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": true,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
@@ -633,6 +1248,42 @@
       "execution_hint": {
         "status": "dead",
         "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
+      },
+      "goal": {
+        "goal_id": "goal.analysis.open_transcript_tab_legacy",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.open_transcript_tab_legacy",
+            "label": "Legacy Transcript Tab Route",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis?tab=transcript",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -674,6 +1325,42 @@
         "path": "route",
         "target": "/one/kyc"
       },
+      "goal": {
+        "goal_id": "goal.route.one_kyc",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_kyc",
+            "label": "Open Email",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/architecture/one-email-kyc.md",
@@ -712,6 +1399,42 @@
         "status": "unwired",
         "reason": "Requires opening the local verified email panel in /one/kyc."
       },
+      "goal": {
+        "goal_id": "goal.kyc.aliases.manage",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.aliases.manage",
+            "label": "Manage Verified Emails",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/architecture/one-email-kyc.md",
@@ -748,6 +1471,42 @@
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
+      },
+      "goal": {
+        "goal_id": "goal.kyc.workflow.sync_status",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.workflow.sync_status",
+            "label": "Sync Email Status",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -786,6 +1545,42 @@
         "status": "unwired",
         "reason": "Requires selected workflow context and user-visible draft state."
       },
+      "goal": {
+        "goal_id": "goal.kyc.draft.review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.review",
+            "label": "Review Email Draft",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/architecture/one-email-kyc.md",
@@ -822,6 +1617,42 @@
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context and captured redraft instructions."
+      },
+      "goal": {
+        "goal_id": "goal.kyc.draft.request_redraft",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.request_redraft",
+            "label": "Request Email Redraft",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -861,6 +1692,42 @@
         "status": "unwired",
         "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
       },
+      "goal": {
+        "goal_id": "goal.kyc.draft.approve_send",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.approve_send",
+            "label": "Approve Email Send",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/architecture/one-email-kyc.md",
@@ -897,6 +1764,42 @@
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
+      },
+      "goal": {
+        "goal_id": "goal.kyc.draft.reject",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.reject",
+            "label": "Reject Email Draft",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -938,6 +1841,42 @@
         "path": "route",
         "target": "/one/marketplace"
       },
+      "goal": {
+        "goal_id": "goal.route.one_marketplace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_marketplace",
+            "label": "Open Information Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/marketplace",
+              "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
@@ -972,6 +1911,42 @@
         "status": "wired",
         "path": "kai_command",
         "target": "profile"
+      },
+      "goal": {
+        "goal_id": "goal.route.profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile",
+            "label": "Open Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1009,6 +1984,42 @@
         "path": "route",
         "target": "/one/gmail"
       },
+      "goal": {
+        "goal_id": "goal.route.profile_gmail_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_gmail_panel",
+            "label": "Open Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/gmail/page.tsx"
@@ -1044,6 +2055,42 @@
         "status": "wired",
         "path": "route",
         "target": "/one/connected-systems"
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_connected_systems",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_connected_systems",
+            "label": "Open Connected Systems Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/connected-systems",
+              "screen": "connected_systems"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1081,6 +2128,42 @@
         "path": "route",
         "target": "/profile/support"
       },
+      "goal": {
+        "goal_id": "goal.route.profile_support_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_support_panel",
+            "label": "Open Support Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/support",
+              "screen": "profile_support_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/profile-workspace-page.tsx"
@@ -1116,6 +2199,42 @@
         "status": "wired",
         "path": "route",
         "target": "/profile/security"
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_security_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_security_panel",
+            "label": "Open Vault Security Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/security",
+              "screen": "profile_security_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1153,6 +2272,42 @@
         "path": "route",
         "target": "/one/pkm"
       },
+      "goal": {
+        "goal_id": "goal.route.profile_pkm_agent_lab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_pkm_agent_lab",
+            "label": "Open PKM",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/pkm/page.tsx"
@@ -1187,6 +2342,42 @@
         "status": "unwired",
         "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.profile.support.submit_message",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.support.submit_message",
+            "label": "Submit Support Message",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/support",
+              "screen": "profile_support_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1224,6 +2415,42 @@
         "reason": "Only handled by local Switch in ProfilePage.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.profile.marketplace_visibility.toggle",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.marketplace_visibility.toggle",
+            "label": "Toggle Marketplace Visibility",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/access",
+              "screen": "profile_privacy"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/profile-workspace-page.tsx"
@@ -1258,6 +2485,42 @@
         "status": "unwired",
         "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.profile.sign_out",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.sign_out",
+            "label": "Sign Out",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1297,6 +2560,42 @@
         "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.profile.delete_account",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.delete_account",
+            "label": "Delete Account",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/profile-workspace-page.tsx"
@@ -1335,6 +2634,42 @@
           "mode": "preview",
           "direct_save": false
         }
+      },
+      "goal": {
+        "goal_id": "goal.profile.pkm.preview_capture",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.pkm.preview_capture",
+            "label": "Generate PKM capture preview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/pkm-agent-lab",
+              "screen": "profile_pkm_agent_lab"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1378,6 +2713,42 @@
           "direct_save": true
         }
       },
+      "goal": {
+        "goal_id": "goal.profile.pkm.save_capture",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.pkm.save_capture",
+            "label": "Save PKM capture",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/pkm-agent-lab",
+              "screen": "profile_pkm_agent_lab"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/pkm-agent-lab/page-client.tsx"
@@ -1416,6 +2787,42 @@
         "status": "wired",
         "path": "route",
         "target": "/ria/clients"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_clients",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_clients",
+            "label": "Open RIA Clients",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients",
+              "screen": "ria_clients"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1458,6 +2865,42 @@
         "reason": "Client workspace routes require a dynamic investor user id from the clicked row.",
         "intended_handler": "router.push"
       },
+      "goal": {
+        "goal_id": "goal.ria.clients.open_client_workspace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.clients.open_client_workspace",
+            "label": "Open Client Workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients",
+              "screen": "ria_clients"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/clients/page.tsx",
@@ -1495,6 +2938,42 @@
         "status": "wired",
         "path": "route",
         "target": "/marketplace"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_marketplace_connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_marketplace_connect",
+            "label": "Open RIA Connect Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace",
+              "screen": "marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1535,6 +3014,42 @@
         "status": "wired",
         "path": "route",
         "target": "/ria/onboarding"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_onboarding",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_onboarding",
+            "label": "Open RIA Onboarding",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1577,6 +3092,42 @@
         "status": "unwired",
         "reason": "Advisor name verification depends on current form state and must be triggered from the visible onboarding control.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.ria.onboarding.verify_name",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.onboarding.verify_name",
+            "label": "Verify Advisor Name",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1621,6 +3172,42 @@
         "reason": "RIA verification submission changes persona/profile state and must remain user-triggered on the review screen.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.onboarding.submit_verification",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.onboarding.submit_verification",
+            "label": "Submit RIA Verification",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/onboarding/page.tsx"
@@ -1664,6 +3251,42 @@
         "reason": "Development-only RIA activation must be clicked intentionally in the onboarding UI.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.onboarding.dev_bypass_verification",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.onboarding.dev_bypass_verification",
+            "label": "Bypass RIA Verification In Dev",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/onboarding/page.tsx"
@@ -1702,6 +3325,42 @@
         "status": "wired",
         "path": "route",
         "target": "/ria"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_home",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_home",
+            "label": "Open RIA Home",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1744,6 +3403,42 @@
         "reason": "Priority queue item URLs are dynamic screen state and are not safe to execute from the static gateway yet.",
         "intended_handler": "router.push"
       },
+      "goal": {
+        "goal_id": "goal.ria.home.open_priority_item",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.home.open_priority_item",
+            "label": "Open Priority Queue Item",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/page.tsx"
@@ -1783,6 +3478,42 @@
         "path": "route",
         "target": "/ria/picks"
       },
+      "goal": {
+        "goal_id": "goal.route.ria_picks",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_picks",
+            "label": "Open RIA Picks",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx",
@@ -1821,6 +3552,42 @@
         "path": "route",
         "target": "/ria/picks?source=kai"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_source_kai",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_source_kai",
+            "label": "Show Kai Picks Source",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?source=kai",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -1857,6 +3624,42 @@
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?source=my"
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_source_my",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_source_my",
+            "label": "Show My Advisor Picks",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?source=my",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -1895,6 +3698,42 @@
         "path": "route",
         "target": "/ria/picks?category=top-picks"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_category_top_picks",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_category_top_picks",
+            "label": "Show Top Picks",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?category=top-picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -1932,6 +3771,42 @@
         "path": "route",
         "target": "/ria/picks?category=avoid"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_category_avoid",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_category_avoid",
+            "label": "Show Avoid List",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?category=avoid",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -1968,6 +3843,42 @@
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?category=screening"
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_category_screening",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_category_screening",
+            "label": "Show Screening Rules",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?category=screening",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2011,6 +3922,42 @@
         "reason": "The advisor package editor mutates local draft state and is not exposed as a voice tool.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.start_edit_package",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.start_edit_package",
+            "label": "Edit Advisor Package",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -2053,6 +4000,42 @@
         "status": "unwired",
         "reason": "Saving advisor picks writes vault-backed PKM and API state and must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.save_package",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.save_package",
+            "label": "Save Advisor Package",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2098,6 +4081,42 @@
         "reason": "CSV file selection and replacement are browser/file-system interactions and must stay manual.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.upload_csv_replace_top_picks",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.upload_csv_replace_top_picks",
+            "label": "Upload Top Picks CSV",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -2141,6 +4160,42 @@
         "reason": "Copying the Kai package replaces local advisor draft state and must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.copy_from_kai",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.copy_from_kai",
+            "label": "Copy Kai Package Into My List",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -2180,6 +4235,42 @@
         "status": "unwired",
         "reason": "Discarding draft changes must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.discard_package_changes",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.discard_package_changes",
+            "label": "Discard Advisor Package Changes",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2225,6 +4316,42 @@
         "reason": "Row-level editing requires structured manual input inside the picks editor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.picks.edit_rows_manual",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.edit_rows_manual",
+            "label": "Edit Picks Rows Manually",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/picks/page.tsx"
@@ -2261,6 +4388,42 @@
         "status": "wired",
         "path": "route",
         "target": "/templates/ria-picks-template.csv"
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.download_template",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.download_template",
+            "label": "Download Picks CSV Template",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/templates/ria-picks-template.csv",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2303,6 +4466,42 @@
         "path": "route",
         "target": "/ria/requests"
       },
+      "goal": {
+        "goal_id": "goal.route.ria_requests_compat",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_requests_compat",
+            "label": "Open RIA Requests",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/requests",
+              "screen": "ria_requests_compat"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/requests/page.tsx"
@@ -2342,6 +4541,42 @@
         "status": "wired",
         "path": "route",
         "target": "/ria/settings"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_settings_compat",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_settings_compat",
+            "label": "Open RIA Settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/settings",
+              "screen": "ria_settings_compat"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2389,6 +4624,42 @@
           "fallback_target": "/ria/clients"
         }
       },
+      "goal": {
+        "goal_id": "goal.route.ria_workspace_compat",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_workspace_compat",
+            "label": "Open RIA Workspace Compatibility Route",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/workspace",
+              "screen": "ria_workspace_compat"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/app/ria/workspace/page.tsx",
@@ -2422,6 +4693,42 @@
         "status": "wired",
         "path": "kai_command",
         "target": "consent"
+      },
+      "goal": {
+        "goal_id": "goal.route.consents",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.consents",
+            "label": "Open Consent Center",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/consents",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2463,6 +4770,42 @@
         "path": "voice_tool",
         "target": "navigate_back"
       },
+      "goal": {
+        "goal_id": "goal.route.back",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.back",
+            "label": "Go Back",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai",
+              "screen": "kai_market"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/lib/voice/voice-action-dispatcher.ts"
@@ -2497,6 +4840,42 @@
         "path": "kai_command",
         "target": "dashboard"
       },
+      "goal": {
+        "goal_id": "goal.route.kai_dashboard",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_dashboard",
+            "label": "Open Portfolio Dashboard",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio",
+              "screen": "kai_portfolio_dashboard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
@@ -2529,6 +4908,42 @@
         "status": "wired",
         "path": "kai_command",
         "target": "import"
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_import",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_import",
+            "label": "Open Portfolio Import",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/import",
+              "screen": "kai_portfolio_dashboard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2567,6 +4982,42 @@
         "path": "route",
         "target": "/one/kai/investments"
       },
+      "goal": {
+        "goal_id": "goal.route.kai_investments",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_investments",
+            "label": "Open Investments Surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/investments",
+              "screen": "kai_investments"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "components/kai/views/dashboard-master-view.tsx"
@@ -2602,6 +5053,42 @@
         "path": "route",
         "target": "/one/kai/optimize"
       },
+      "goal": {
+        "goal_id": "goal.route.kai_optimize",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_optimize",
+            "label": "Open Optimize Surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/optimize",
+              "screen": "kai_optimize"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/kai/optimize/page.tsx"
@@ -2636,6 +5123,42 @@
         "status": "wired",
         "path": "kai_command",
         "target": "home"
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_home",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_home",
+            "label": "Open Market Home",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai",
+              "screen": "kai_market"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2679,6 +5202,42 @@
         "status": "unwired",
         "reason": "Opening a specific account detail requires a dynamic account id selected from the workspace.",
         "intended_handler": "router.push"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_client_account_detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_client_account_detail",
+            "label": "Open RIA Client Account Detail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]/accounts/[accountId]",
+              "screen": "ria_client_account_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2727,6 +5286,42 @@
           "tab": "explorer"
         }
       },
+      "goal": {
+        "goal_id": "goal.ria.client_account.open_workspace_fallback",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_account.open_workspace_fallback",
+            "label": "Return To Client Data Explorer",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=explorer",
+              "screen": "ria_client_account_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-account-detail.tsx"
@@ -2769,6 +5364,42 @@
         "status": "unwired",
         "reason": "Opening a specific request detail requires a dynamic request id selected from workspace history.",
         "intended_handler": "router.push"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_client_request_detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_client_request_detail",
+            "label": "Open RIA Client Request Detail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]/requests/[requestId]",
+              "screen": "ria_client_request_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2817,6 +5448,42 @@
           "tab": "access"
         }
       },
+      "goal": {
+        "goal_id": "goal.ria.client_request.open_access_fallback",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_request.open_access_fallback",
+            "label": "Return To Client Access",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=access",
+              "screen": "ria_client_request_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-request-detail.tsx"
@@ -2861,6 +5528,42 @@
         "params": {
           "requires_client_id": true
         }
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_client_workspace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_client_workspace",
+            "label": "Open RIA Client Workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2910,6 +5613,42 @@
           "tab": "overview"
         }
       },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_overview_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_overview_tab",
+            "label": "Show Client Overview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=overview",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
@@ -2955,6 +5694,42 @@
           "requires_client_id": true,
           "tab": "access"
         }
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_access_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_access_tab",
+            "label": "Show Client Sharing",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=access",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -3004,6 +5779,42 @@
           "tab": "kai"
         }
       },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_portfolio_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_portfolio_tab",
+            "label": "Show Client Portfolio",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=kai",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
@@ -3051,6 +5862,42 @@
           "requires_client_id": true,
           "tab": "explorer"
         }
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_explorer_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_explorer_tab",
+            "label": "Show Client Data Explorer",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=explorer",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -3101,6 +5948,42 @@
         "reason": "Opening a specific account detail requires the clicked account branch id from visible row state.",
         "intended_handler": "router.push"
       },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_account_detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_account_detail",
+            "label": "Open Client Account Detail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx",
@@ -3143,6 +6026,42 @@
         "status": "wired",
         "path": "route",
         "target": "/consents?tab=pending"
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_access_manager",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_access_manager",
+            "label": "Open Access Manager",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/consents?tab=pending",
+              "screen": "ria_client_workspace_access"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -3193,6 +6112,42 @@
         "reason": "Sending an access request uses selected scopes, account ids, and client-visible note state and must remain user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.request_access",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.request_access",
+            "label": "Send Client Access Request",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=access",
+              "screen": "ria_client_workspace_access"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
@@ -3238,6 +6193,42 @@
         "status": "unwired",
         "reason": "Disconnecting a client relationship is destructive and must remain user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.disconnect_relationship",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.disconnect_relationship",
+            "label": "Disconnect Client Relationship",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

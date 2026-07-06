@@ -687,6 +687,13 @@ function ProfilePageContent() {
   );
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
+  const profileNativeRouteId = useMemo(
+    () =>
+      pathname === ROUTES.PROFILE || pathname.startsWith(`${ROUTES.PROFILE}/`)
+        ? pathname
+        : ROUTES.PROFILE,
+    [pathname],
+  );
   const shouldLoadProfileWorkspaceData =
     profileRouteNeedsWorkspaceData(activePanel);
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
@@ -4255,7 +4262,7 @@ function ProfilePageContent() {
       width="reading"
       className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
-        routeId: "/profile",
+        routeId: profileNativeRouteId,
         marker: "native-route-profile",
         authState: user ? "authenticated" : "pending",
         dataState: authLoading ? "loading" : "loaded",

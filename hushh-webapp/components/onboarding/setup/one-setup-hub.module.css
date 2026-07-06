@@ -1,0 +1,75 @@
+/*
+ * Setup screens borrow the compact rhythm of One home/profile while keeping the
+ * existing setup logic intact. These overrides stay route-scoped.
+ */
+
+.setupHeader :global(h1),
+.stepHeader :global(h1) {
+  font-size: 1.75rem !important;
+  line-height: 1.08 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.setupHeader :global([data-slot="page-header-description"]),
+.stepHeader :global([data-slot="page-header-description"]) {
+  font-size: 0.9375rem !important;
+  line-height: 1.45 !important;
+}
+
+.segmentedProgress {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.segmentedProgress > span {
+  flex: 1 1 0%;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foundation-hairline) 86%, transparent);
+  transition: background-color 200ms ease;
+}
+.segmentedProgress > span[data-filled="true"] {
+  background: var(--foundation-gold-deep);
+}
+
+/* Flat editorial checklist — drop the grouped-card chrome, keep inset hairlines. */
+.flatChecklist [data-slot="settings-group-shell"] {
+  --settings-group-radius: 0px;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+/* Rows read on the page background (no per-row mobile surface fill). */
+.flatChecklist [data-testid="settings-row"] {
+  background: transparent;
+}
+
+.flatChecklist :global([data-slot="settings-row-title"]),
+.stepGroup :global([data-slot="settings-row-title"]) {
+  font-family: var(--font-app-text);
+  font-size: 0.9375rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0 !important;
+}
+
+.flatChecklist :global([data-slot="settings-row-description"]),
+.stepGroup :global([data-slot="settings-row-description"]) {
+  font-size: 0.8125rem !important;
+  line-height: 1.42 !important;
+}
+
+.stepHeader :global([data-slot="page-header-description"]) {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .setupHeader :global(h1),
+  .stepHeader :global(h1) {
+    font-size: 1.95rem !important;
+  }
+}

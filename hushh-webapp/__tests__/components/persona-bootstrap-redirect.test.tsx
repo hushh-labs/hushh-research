@@ -5,11 +5,14 @@ import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-red
 
 const replace = vi.fn();
 const switchPersona = vi.fn();
+const routeState = vi.hoisted(() => ({
+  pathname: "/kai",
+}));
 
 let personaStateValue: Record<string, unknown> = {};
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/kai",
+  usePathname: () => routeState.pathname,
   useRouter: () => ({
     replace,
   }),
@@ -44,6 +47,7 @@ describe("PersonaBootstrapRedirect", () => {
   beforeEach(() => {
     replace.mockReset();
     switchPersona.mockReset();
+    routeState.pathname = "/kai";
     personaStateValue = {
       personaState: {
         active_persona: "ria",
@@ -80,7 +84,8 @@ describe("PersonaBootstrapRedirect", () => {
       screen.queryByText("Your active role and current route are out of sync")
     ).toBeNull();
   });
-    it("keeps mismatch dialog visible when persona transition target is empty", () => {
+
+  it("keeps mismatch dialog visible when persona transition target is empty", () => {
     personaStateValue = {
       ...personaStateValue,
       personaTransitionTarget: "",
@@ -91,5 +96,15 @@ describe("PersonaBootstrapRedirect", () => {
     expect(
       screen.getByText("Your active role and current route are out of sync")
     ).toBeTruthy();
+  });
+
+  it("does not block canonical One finance routes when the active persona is RIA", () => {
+    routeState.pathname = "/one/kai/analysis";
+
+    render(<PersonaBootstrapRedirect />);
+
+    expect(
+      screen.queryByText("Your active role and current route are out of sync")
+    ).toBeNull();
   });
 });

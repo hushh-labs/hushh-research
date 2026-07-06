@@ -227,6 +227,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
 
   const availablePersonas = useMemo(() => {
     const personas = new Set<Persona>([activePersona]);
+    personas.add("investor");
     if (riaSwitchAvailable) personas.add("ria");
     personas.add(primaryNavPersona);
     return Array.from(personas);

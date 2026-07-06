@@ -6,6 +6,7 @@
 flowchart TD
   root["One Index"]
   voice["One Voice Runtime Architecture"]
+  goal["One Goal Framework"]
   coverage["One Voice Action Coverage Audit"]
   hierarchy["One Agent Hierarchy"]
   chain["One Agent Chained Voice Architecture"]
@@ -13,6 +14,7 @@ flowchart TD
   ontology["Agent Ontology"]
 
   root --> voice
+  voice --> goal
   root --> coverage
   root --> hierarchy
   root --> chain
@@ -40,6 +42,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 ## References
 
 - [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice foundation: shared FSM, redacted context snapshot, provider-adapter seam, and `/api/one/voice/*` wrappers over the Kai-era compatibility runtime.
+- [one-goal-framework.md](./one-goal-framework.md): governed goal planning and running across Gemini Live voice, Agent Chat, typed search, command bar, and UI action buttons.
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
 - [one-voice-action-coverage-audit.md](./one-voice-action-coverage-audit.md): current audit of what One Voice can trigger and where screen/button/action coverage is incomplete.
 - [one-agent-chained-voice-architecture.md](./one-agent-chained-voice-architecture.md): One Agent popup voice chain using Gemini STT/TTS around the existing text Agent, including transient audio boundaries, app-wide voice state, settings, and kill switches.

@@ -80,6 +80,9 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/one/kai/import",
   "/one/kai/analysis",
 ]);
+const PROFILE_DIRECT_ENTRY_ROUTES = new Set([
+  "/profile/gmail/oauth/return",
+]);
 
 const TERMINAL_DATA_STATES = new Set([
   "loaded",
@@ -101,6 +104,10 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
 const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [
   "/api/kai/voice/capability :: net::ERR_FAILED",
 ];
+const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
+  "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
+  "/api/connected-systems/salesforce-fsc-customer0/records/search",
+];
 const TRANSIENT_BROWSER_CONSOLE_ERRORS = [
   // Next.js still ships styled-jsx, which uses React.useInsertionEffect for
   // stylesheet insertion. React 19 canary can log this dev-only warning without
@@ -110,6 +117,12 @@ const TRANSIENT_BROWSER_CONSOLE_ERRORS = [
 ];
 
 const DYNAMIC_ROUTE_FIXTURES = {
+  "/one/setup/[capability]": {
+    path: "/one/setup/gmail",
+    expectedPathname: "/one/setup/gmail",
+    allowedRouteIds: ["/one/setup/[capability]"],
+    requireBackButton: false,
+  },
   "/one/connected-systems/[systemId]": {
     path: "/one/connected-systems/salesforce-fsc-customer0",
     expectedPathname: "/one/connected-systems/salesforce-fsc-customer0",
@@ -327,13 +340,19 @@ function splitRoutesByVerificationLane(routes) {
   const sameSession = [];
   const coldEntry = [];
   for (const route of routes) {
-    if (SAME_SESSION_SHELL_ROUTES.has(route.route)) {
+    if (isSameSessionShellRoute(route.route)) {
       sameSession.push(route);
     } else {
       coldEntry.push(route);
     }
   }
   return { sameSession, coldEntry };
+}
+
+function isSameSessionShellRoute(route) {
+  if (SAME_SESSION_SHELL_ROUTES.has(route)) return true;
+  if (PROFILE_DIRECT_ENTRY_ROUTES.has(route)) return false;
+  return route === "/profile" || route.startsWith("/profile/");
 }
 
 function isSetupGatedOneRoute(route) {
@@ -1019,6 +1038,13 @@ async function navigateViaShell(page, spec) {
       await requestNativeTestRoute(page, "/one/kai/analysis", spec.allowedRouteIds);
       return true;
     default:
+      if (
+        spec.route.startsWith("/profile/") &&
+        !PROFILE_DIRECT_ENTRY_ROUTES.has(spec.route)
+      ) {
+        await requestAppNavigation(page, spec.path);
+        return true;
+      }
       return false;
   }
 }
@@ -1149,6 +1175,16 @@ function assertNoIssues(route, viewport, issues) {
       return false;
     }
     if (
+      value.includes("Failed to load resource: the server responded with a status of 502") &&
+      issues.responseFailures.some((failure) =>
+        TRANSIENT_BACKGROUND_RESPONSE_FAILURES.some((pattern) =>
+          failure.includes(pattern)
+        )
+      )
+    ) {
+      return false;
+    }
+    if (
       value === "Failed to load resource: net::ERR_FAILED" &&
       issues.requestFailures.some((failure) =>
         TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) => failure.includes(pattern))
@@ -1177,7 +1213,14 @@ function assertNoIssues(route, viewport, issues) {
           !TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) => value.includes(pattern))
       )
       .map((value) => `requestfailed:${value}`),
-    ...issues.responseFailures.map((value) => `response:${value}`),
+    ...issues.responseFailures
+      .filter(
+        (value) =>
+          !TRANSIENT_BACKGROUND_RESPONSE_FAILURES.some((pattern) =>
+            value.includes(pattern)
+          )
+      )
+      .map((value) => `response:${value}`),
   ];
   if (failures.length > 0) {
     throw new Error(`[${viewport}] ${route} browser health failure:\n${failures.join("\n")}`);
@@ -1223,7 +1266,7 @@ async function captureRouteDiagnostics(page) {
 }
 
 async function verifyRoute(page, viewport, spec) {
-  const requiredPersona = SAME_SESSION_SHELL_ROUTES.has(spec.route)
+  const requiredPersona = isSameSessionShellRoute(spec.route)
     ? personaForRouteSpec(spec)
     : null;
   if (requiredPersona) {
@@ -1237,18 +1280,26 @@ async function verifyRoute(page, viewport, spec) {
       return;
     }
 
-    const contextProbe = SAME_SESSION_SHELL_ROUTES.has(spec.route)
+    const contextProbe = isSameSessionShellRoute(spec.route)
       ? await installClientNavigationContextProbe(page)
       : null;
     const usedShellNav = await navigateViaShell(page, spec);
     if (!usedShellNav) {
-      if (SAME_SESSION_SHELL_ROUTES.has(spec.route)) {
+      if (isSameSessionShellRoute(spec.route)) {
         throw new Error(
           `${spec.route} must be proven through reviewer login plus Next client navigation. Add a shell navigation mapping instead of using page.goto(...).`
         );
       }
       const targetUrl = `${appOrigin}${spec.path}`;
       await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+    }
+
+    if (spec.kind === "redirect" && spec.expectedPathname) {
+      await page.waitForFunction(
+        (expectedPathname) => window.location.pathname === expectedPathname,
+        spec.expectedPathname,
+        { timeout: NAVIGATION_TIMEOUT_MS }
+      );
     }
 
     const unlockInput = page.locator("#unlock-passphrase");

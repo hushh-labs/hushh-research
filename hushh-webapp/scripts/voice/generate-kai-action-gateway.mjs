@@ -159,6 +159,174 @@ function normalizeWorkflow(raw, actionId) {
   };
 }
 
+function normalizeGoalInput(raw, actionId) {
+  if (!isPlainObject(raw)) {
+    throw new Error(`${actionId}: goal required input must be an object`);
+  }
+  const name = cleanString(raw.name);
+  const prompt = cleanString(raw.prompt);
+  if (!name || !prompt) {
+    throw new Error(`${actionId}: goal required input requires name and prompt`);
+  }
+  const normalized = {
+    name,
+    prompt,
+    required: raw.required !== false,
+  };
+  const slot = cleanString(raw.slot);
+  if (slot) normalized.slot = slot;
+  const resolver = cleanString(raw.resolver);
+  if (resolver) normalized.resolver = resolver;
+  const defaultValue = cleanString(raw.default_value);
+  if (defaultValue) normalized.default_value = defaultValue;
+  const options = uniqueStrings(raw.options);
+  if (options.length > 0) normalized.options = options;
+  return normalized;
+}
+
+function normalizeGoalStep(raw, actionId) {
+  if (!isPlainObject(raw)) {
+    throw new Error(`${actionId}: goal workflow step must be an object`);
+  }
+  const type = cleanString(raw.type);
+  if (!type) {
+    throw new Error(`${actionId}: goal workflow step type is required`);
+  }
+  const normalized = {
+    type,
+    label: cleanString(raw.label) || type,
+    failure_behavior: cleanString(raw.failure_behavior) || "stop",
+  };
+  const actionRef = cleanString(raw.action_id);
+  if (actionRef) normalized.action_id = actionRef;
+  const service = cleanString(raw.service);
+  if (service) normalized.service = service;
+  if (isPlainObject(raw.slots)) normalized.slots = raw.slots;
+  const settlementTarget = normalizeSettlementTarget(raw.settlement_target);
+  if (settlementTarget) normalized.settlement_target = settlementTarget;
+  return normalized;
+}
+
+function inferGoalRequiredInputs(action) {
+  if (
+    action.action_id === "analysis.start" ||
+    (action.execution_target.status === "wired" &&
+      action.execution_target.path === "kai_command" &&
+      action.execution_target.target === "analyze")
+  ) {
+    return [
+      {
+        name: "ticker",
+        slot: "symbol",
+        resolver: "ticker_symbol",
+        prompt: "Which stock should I analyze?",
+        required: true,
+      },
+      {
+        name: "pick_source",
+        slot: "pickSource",
+        resolver: "kai_pick_source",
+        prompt: "Which list should Kai use for this debate?",
+        required: true,
+        default_value: "default",
+        options: ["default"],
+      },
+    ];
+  }
+  return [];
+}
+
+function createDefaultGoalWorkflowSteps(action) {
+  if (action.action_id === "analysis.start") {
+    return [
+      {
+        type: "action",
+        action_id: "analysis.start",
+        label: "Prepare stock analysis",
+        failure_behavior: "stop",
+        settlement_target: {
+          route: "/one/kai/analysis",
+          screen: "kai_analysis",
+        },
+      },
+      {
+        type: "service",
+        service: "kai_debate.ensure_run",
+        label: "Run Kai debate",
+        failure_behavior: "stop",
+        settlement_target: {
+          route: "/one/kai/analysis",
+          screen: "kai_analysis_workspace",
+        },
+      },
+    ];
+  }
+  return [
+    {
+      type: "action",
+      action_id: action.action_id,
+      label: action.label,
+      failure_behavior: "stop",
+      settlement_target:
+        action.execution_target.status === "wired" && action.execution_target.path === "route"
+          ? {
+              route: action.execution_target.target,
+              screen: action.reachability.screens[0],
+            }
+          : {
+              route: action.reachability.routes[0],
+              screen: action.reachability.screens[0],
+            },
+    },
+  ];
+}
+
+function normalizeGoal(raw, action) {
+  const explicit = isPlainObject(raw) ? raw : {};
+  const goalId = cleanString(explicit.goal_id) || `goal.${action.action_id}`;
+  const requiredInputs =
+    ensureArray(explicit.required_inputs).length > 0
+      ? ensureArray(explicit.required_inputs).map((input) =>
+          normalizeGoalInput(input, action.action_id)
+        )
+      : inferGoalRequiredInputs(action);
+  const workflowSteps =
+    ensureArray(explicit.workflow_steps).length > 0
+      ? ensureArray(explicit.workflow_steps).map((step) => normalizeGoalStep(step, action.action_id))
+      : createDefaultGoalWorkflowSteps(action);
+  return {
+    goal_id: goalId,
+    required_inputs: requiredInputs,
+    input_resolvers: uniqueStrings(explicit.input_resolvers),
+    slot_schema: isPlainObject(explicit.slot_schema) ? explicit.slot_schema : {},
+    workflow_steps: workflowSteps,
+    progress_contract: isPlainObject(explicit.progress_contract)
+      ? explicit.progress_contract
+      : {
+          mode: action.action_id === "analysis.start" ? "milestone" : "none",
+          milestone_events:
+            action.action_id === "analysis.start"
+              ? ["started", "agent_complete", "decision"]
+              : [],
+        },
+    cancellation_contract: isPlainObject(explicit.cancellation_contract)
+      ? explicit.cancellation_contract
+      : {
+          cancellable: action.action_id === "analysis.start" || action.action_id === "analysis.cancel_active",
+          cancel_action_id:
+            action.action_id === "analysis.start" ? "analysis.cancel_active" : null,
+        },
+    result_contract: isPlainObject(explicit.result_contract)
+      ? explicit.result_contract
+      : {
+          summary_mode: action.action_id === "analysis.start" ? "decision_summary" : "action_result",
+        },
+    entrypoint_support: uniqueStrings(explicit.entrypoint_support).length
+      ? uniqueStrings(explicit.entrypoint_support)
+      : ["voice", "chat", "typed_search", "command_bar", "ui"],
+  };
+}
+
 function normalizeExecutionTarget(raw, actionId) {
   if (!isPlainObject(raw)) {
     throw new Error(`${actionId}: execution_target must be an object`);
@@ -331,6 +499,7 @@ function normalizeAction(surface, action) {
     trigger: DEFAULT_TRIGGER,
   };
 
+  normalized.goal = normalizeGoal(action.goal, normalized);
   normalized.expected_effects.state_changes = deriveDefaultStateChanges(normalized);
   return normalized;
 }
@@ -401,6 +570,7 @@ function toLegacyManifestAction(action) {
     risk_level: action.risk_level,
     execution_policy: action.execution_policy,
     execution_hint: action.execution_target,
+    goal: action.goal,
     map_references: action.docs_references,
   };
 }

@@ -2,6 +2,7 @@ import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
+import type { Persona } from "@/lib/services/ria-service";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
@@ -36,6 +37,7 @@ export type ExecuteAgentGatewayActionInput = {
   hasPortfolioData: boolean;
   busyOperations: Record<string, boolean>;
   setAnalysisParams: (params: AnalysisParams | null) => void;
+  switchPersona?: (target: Persona) => Promise<unknown>;
 };
 
 function readString(value: unknown): string | null {
@@ -73,6 +75,42 @@ function storeConnectedSystemInstruction(actionId: string, slots: Record<string,
   } catch {
     return null;
   }
+}
+
+function patchRuntimePersonaState(
+  state: AppRuntimeState,
+  targetPersona: Persona
+): AppRuntimeState {
+  const available = new Set<Persona>([
+    ...((state.persona.available || []) as Persona[]),
+    targetPersona,
+  ]);
+  return {
+    ...state,
+    persona: {
+      ...state.persona,
+      active: targetPersona,
+      primary_nav: targetPersona,
+      available: Array.from(available),
+      transition_target: null,
+    },
+  };
+}
+
+function canAutoSettlePersonaForAction(input: {
+  targetPersona: Persona | null;
+  actionPolicy: string;
+  actionTargetStatus: string;
+  requiresPersonaConfirmation: boolean;
+  switchPersona?: (target: Persona) => Promise<unknown>;
+}): boolean {
+  return Boolean(
+    input.targetPersona &&
+      input.switchPersona &&
+      input.actionPolicy === "allow_direct" &&
+      input.actionTargetStatus === "wired" &&
+      input.requiresPersonaConfirmation !== true
+  );
 }
 
 function executeConnectedSystemAgentAction(
@@ -143,10 +181,51 @@ export async function executeAgentGatewayAction(
     });
   }
 
-  const availability = evaluateKaiActionAvailability({
+  let effectiveRuntimeState = input.appRuntimeState;
+  const initialAvailability = evaluateKaiActionAvailability({
     action,
     appRuntimeState: input.appRuntimeState,
     surfaceMetadata: input.surfaceMetadata,
+  });
+  if (
+    initialAvailability.status === "requires_persona_switch" &&
+    initialAvailability.target_persona &&
+    input.switchPersona &&
+    canAutoSettlePersonaForAction({
+      targetPersona: initialAvailability.target_persona,
+      actionPolicy: action.execution_policy,
+      actionTargetStatus: action.execution_target.status,
+      requiresPersonaConfirmation: action.reachability.requires_persona_switch_confirmation,
+      switchPersona: input.switchPersona,
+    })
+  ) {
+    try {
+      await input.switchPersona(initialAvailability.target_persona);
+      effectiveRuntimeState = patchRuntimePersonaState(
+        input.appRuntimeState,
+        initialAvailability.target_persona
+      );
+    } catch (error) {
+      return buildResult({
+        status: "blocked",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary:
+          error instanceof Error && error.message
+            ? error.message
+            : "One could not switch workspaces for that action.",
+        reason: "persona_switch_failed",
+      });
+    }
+  }
+
+  const availability = evaluateKaiActionAvailability({
+    action,
+    appRuntimeState: effectiveRuntimeState,
+    surfaceMetadata: input.surfaceMetadata,
+    allowPersonaRouteSettlement: true,
   });
   if (availability.status !== "available") {
     return buildResult({
@@ -185,7 +264,7 @@ export async function executeAgentGatewayAction(
       routeAfter: action.execution_target.target,
       screenBefore: routeBefore.screen,
       resultSummary: `${action.label} opened in Kai.`,
-      data: { target: action.execution_target.target },
+      data: { target: action.execution_target.target, goal_id: action.goal.goal_id },
     });
   }
 
@@ -233,6 +312,9 @@ export async function executeAgentGatewayAction(
     screenAfter: commandResult.actionResult.screenAfter,
     resultSummary: commandResult.actionResult.resultSummary,
     reason: commandResult.reason,
-    data: commandResult.actionResult.data,
+    data: {
+      ...(commandResult.actionResult.data || {}),
+      goal_id: action.goal.goal_id,
+    },
   });
 }

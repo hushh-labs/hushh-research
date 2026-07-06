@@ -330,7 +330,7 @@
             "ok": true
           }
         ],
-        "description": "One shell: Consent Guardian tab",
+        "description": "One shell: Consent tab",
         "route": "/consents"
       },
       {

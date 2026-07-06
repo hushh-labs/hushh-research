@@ -1,3 +1,95 @@
 .profilePageHeaderRegion {
   padding-top: 15px;
 }
+
+/*
+ * 2c/4a "Cinematic" profile settings — scoped to the /profile ROOT list only.
+ * Restyles the shared SettingsGroup/SettingsRow into a flat, editorial list
+ * (big soft icon circles, bold titles, full-width hairlines, red sign-out)
+ * via the additive data-slot / data-tone hooks, WITHOUT changing the shared
+ * component defaults used by the setup hub and profile sub-panels.
+ * (.dark is a global theme class → wrapped in :global(); attribute selectors
+ * are left untouched by CSS Modules, so they need no :global wrapper.)
+ */
+
+/* Flatten the grouped card into a plain list (keep the inner divide-y hairlines). */
+.cinematicSettings [data-slot="settings-group-shell"] {
+  --settings-group-radius: 0px;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* Section label ("SETTINGS" / "SESSION") + trailing flex-1 hairline. */
+.cinematicSettings [data-slot="settings-group-heading"] {
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: rgba(0, 0, 0, 0.35);
+}
+.cinematicSettings [data-slot="settings-group-heading"]::after {
+  content: "";
+  flex: 1 1 0%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.1);
+}
+:global(.dark) .cinematicSettings [data-slot="settings-group-heading"] {
+  color: rgba(255, 255, 255, 0.4);
+}
+:global(.dark) .cinematicSettings [data-slot="settings-group-heading"]::after {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Rows read as a flat list on the page background. */
+.cinematicSettings [data-testid="settings-row"] {
+  background: transparent;
+}
+
+/* Soft neutral icon circle (46px). */
+.cinematicSettings [data-slot="settings-row-icon"] {
+  height: 46px;
+  width: 46px;
+  border-radius: 9999px;
+}
+.cinematicSettings [data-tone="default"] [data-slot="settings-row-icon"] {
+  background: rgba(156, 116, 52, 0.1);
+  color: #9c7434;
+}
+:global(.dark)
+  .cinematicSettings
+  [data-tone="default"]
+  [data-slot="settings-row-icon"] {
+  background: rgba(212, 175, 106, 0.16);
+  color: #d4af6a;
+}
+
+/* Match the One home Email/Location tile title recipe exactly. */
+.cinematicSettings [data-slot="settings-row-title"] {
+  font-family: var(--font-app-display);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.3px;
+  color: #0a0a0a;
+}
+:global(.dark) .cinematicSettings [data-slot="settings-row-title"] {
+  color: #ffffff;
+}
+.cinematicSettings [data-slot="settings-row-description"] {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.42);
+}
+:global(.dark) .cinematicSettings [data-slot="settings-row-description"] {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Sign out (destructive) — red circle + red label. */
+.cinematicSettings [data-tone="destructive"] [data-slot="settings-row-icon"] {
+  background: rgba(201, 79, 68, 0.1);
+  color: #c94f44;
+}
+.cinematicSettings [data-tone="destructive"] [data-slot="settings-row-title"] {
+  color: #c94f44;
+}

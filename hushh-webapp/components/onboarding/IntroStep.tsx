@@ -1,231 +1,172 @@
 "use client";
 
-import Image from "next/image";
-import type { CSSProperties, ComponentType, SVGProps } from "react";
-import { OneLockup } from "@/components/app-ui/gold-period";
-import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
-import { Button } from "@/lib/morphy-ux/button";
-import {
-  kaiAppHeroBodyClassName,
-  kaiAppHeroTitleClassName,
-} from "@/components/kai/shared/kai-typography";
+import type { ComponentType, SVGProps } from "react";
+import { cn } from "@/lib/utils";
 
-// Inner glyph detail is "knocked out" to the icon's tinted background instead
-// of solid white, so the cutout reads as transparent against each tone and
-// matches the page aesthetic. Falls back to white if the var is unavailable.
-const INTRO_ICON_KNOCKOUT = "var(--intro-feature-bg, #ffffff)";
+/* ────────────────────────────────────────────────────────────
+ * 14a — Immersive welcome (design.md §5.7/5.8/5.10)
+ * Dark hero (bare quiet mark + gold-accent wordmark) rising into
+ * a white sheet with a timeline feature list + consent note. A single
+ * primary CTA — "Get Started" — leads into sign-in / sign-up. Content is
+ * OURS; the theme toggle is global chrome. (The agent ask bar is hidden on
+ * this logged-out screen — see agent-bar.tsx unmountBar.)
+ * ──────────────────────────────────────────────────────────── */
 
-// Vault: a private space only you can open (BYOK, encrypted even from us).
+// Gold stroke glyphs (currentColor) — the parent sets the accent color.
 function VaultLockIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <rect x="4.2" y="10.2" width="15.6" height="11" rx="3.2" />
-      <path
-        d="M7.6 10V7.6a4.4 4.4 0 0 1 8.8 0V10"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="2"
-      />
-      <circle cx="12" cy="15" r="1.7" fill={INTRO_ICON_KNOCKOUT} />
-      <path
-        d="M12 15.6v2.1"
-        fill="none"
-        stroke={INTRO_ICON_KNOCKOUT}
-        strokeLinecap="round"
-        strokeWidth="2"
-      />
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
+      <rect x="4.5" y="8.5" width="11" height="8" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M6.8 8.5V6.4a3.2 3.2 0 016.4 0v2.1" stroke="currentColor" strokeWidth="1.7" />
     </svg>
   );
 }
 
-// Finance: One's money capability (Kai). Generic, explains a sub-app.
-// Drawn as a stroked coin + dollar glyph in the tone color (not a solid
-// filled disc) so it reads the same as the lock/mail glyphs and never looks
-// inverted next to them.
 function FinanceCapabilityIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
-      <circle
-        cx="12"
-        cy="12"
-        r="9"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      {/* Correctly-oriented dollar glyph (matches lucide CircleDollarSign). */}
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
+      <circle cx="10" cy="10" r="7.2" stroke="currentColor" strokeWidth="1.7" />
       <path
-        d="M15 9.2H10.6a1.9 1.9 0 0 0 0 3.8h2.8a1.9 1.9 0 0 1 0 3.8H8.8"
-        fill="none"
+        d="M12 7.5c-.5-.9-1.2-1.3-2-1.3-1.2 0-2 .7-2 1.7 0 2.3 4.2 1.2 4.2 3.6 0 1.1-.9 1.8-2.2 1.8-.9 0-1.7-.4-2.2-1.3M10 5v1.2M10 13.6v1.2"
         stroke="currentColor"
+        strokeWidth="1.5"
         strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-      <path
-        d="M12 7.2v9.6"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.7"
       />
     </svg>
   );
 }
 
-// Gmail / inbox: One's email capability. Generic, explains a sub-app.
 function InboxCapabilityIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <rect x="3.2" y="5.4" width="17.6" height="13.2" rx="3" />
-      <path
-        d="m4.6 7.6 7.4 5.3 7.4-5.3"
-        fill="none"
-        stroke={INTRO_ICON_KNOCKOUT}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
+    <svg viewBox="0 0 20 18" fill="none" aria-hidden="true" {...props}>
+      <rect x="2.5" y="2.5" width="15" height="12" rx="2.4" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M3.5 4L10 9l6.5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
+// Content is OURS; presentation is the 14a timeline.
 const INTRO_FEATURES: Array<{
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   title: string;
   subtitle: string;
-  tone: "green" | "blue" | "orange";
 }> = [
   {
     icon: VaultLockIcon,
     title: "Your vault, guarded by consent",
     subtitle: "Encrypted end to end, shared only when you say yes",
-    tone: "blue",
   },
   {
     icon: FinanceCapabilityIcon,
     title: "Finance, made personal",
     subtitle: "Track and act on your money with Kai",
-    tone: "blue",
   },
   {
     icon: InboxCapabilityIcon,
     title: "Connect Gmail and more",
     subtitle: "One works across your apps, with consent",
-    tone: "blue",
   },
 ];
 
-function featureStyle(tone: "green" | "blue" | "orange", index: number): CSSProperties {
-  return {
-    "--intro-feature-tone": `var(--tone-${tone})`,
-    "--intro-feature-bg": `var(--tone-${tone}-bg)`,
-    "--intro-feature-glow": `var(--tone-${tone}-glow)`,
-    "--intro-feature-delay": `${index * 120}ms`,
-  } as CSSProperties;
-}
-
 export function IntroStep({
-  onNext,
   onLogin,
 }: {
-  onNext: () => void;
+  // Kept optional for the parent's call signature; the 14a welcome no longer
+  // renders a "Get started" CTA, so onNext is intentionally unused here.
+  onNext?: () => void;
   onLogin?: () => void;
 }) {
   return (
-    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-[#f5f5f7]">
-      {/* Reserve bottom room for the global agent bar (conversational voice
-          piece) which is anchored above the safe area on this intro screen, so
-          the footer CTAs never collide with it. */}
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(94px+var(--app-safe-area-bottom-effective,0px))]">
-        <div className="flex min-h-0 flex-1 flex-col justify-center py-6">
-          <section className="relative flex flex-none flex-col items-center text-center">
-            <Image
-              src="/one-quiet-emoji.png"
-              alt=""
-              width={762}
-              height={766}
-              priority
-              unoptimized
-              aria-hidden="true"
-              draggable={false}
-              className="relative h-11 w-11 select-none object-contain"
+    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]">
+      {/* Hero glow blobs (decorative) */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[60%]">
+        <span
+          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
+          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
+        />
+        <span
+          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
+          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
+        />
+      </div>
+
+      <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
+        {/* ── Dark hero ── */}
+        <div className="flex flex-col items-center px-6 pt-[calc(78px+var(--app-safe-area-top-effective,0px))] pb-9 text-center">
+          <div className="relative flex h-[88px] items-center justify-center" aria-hidden="true">
+            <span
+              className="pointer-events-none absolute h-24 w-24 rounded-full bg-accent/15 blur-2xl"
             />
+            <span className="relative select-none text-[64px] leading-none drop-shadow-[0_10px_24px_rgba(0,0,0,0.38)]">
+              🤫
+            </span>
+          </div>
 
-            <div
-              role="heading"
-              aria-level={1}
-              aria-label="hushh One, a memory that's only yours"
-              className={`relative mt-2.5 flex items-baseline justify-center gap-2 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
-            >
-              <HushhWordmark className="h-[0.92em] w-auto translate-y-[0.06em]" />
-              <OneLockup />
-            </div>
-            <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
-              A memory that&apos;s only yours.
-            </p>
-          </section>
+          <div
+            role="heading"
+            aria-level={1}
+            aria-label="hussh One, a memory that's only yours"
+            className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-normal text-[#FAF6EE]"
+          >
+            hu<span className="text-accent-strong">ssh</span>{" "}
+            <span className="font-bold">One</span>
+            <span className="text-accent-strong">.</span>
+          </div>
+          <p className="mt-3 text-[16px] tracking-[-0.2px] text-[rgba(250,246,238,0.62)]">
+            A memory that&apos;s only yours.
+          </p>
+        </div>
 
-        <div className="flex-none pt-9 pb-5">
-          <div className="relative w-full">
-            <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-3">
-              <div
-                aria-hidden="true"
-                className="intro-feature-rail absolute left-6 top-6 bottom-6 z-0 w-3 -translate-x-1/2"
-              />
-              {INTRO_FEATURES.map((feature, index) => (
-                <div
-                  key={feature.title}
-                  className="intro-feature-item relative z-10 grid h-[70px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
-                  style={featureStyle(feature.tone, index)}
-                >
-                  <span
-                    className="intro-feature-icon grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10"
-                  >
-                    <feature.icon className="relative z-10 h-[22px] w-[22px]" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[16.5px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+        {/* ── White sheet ── */}
+        <div className="relative mt-auto flex-1 rounded-t-[34px] bg-white px-6 pt-8 pb-[calc(132px+var(--app-safe-area-bottom-effective,0px))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
+          {/* Timeline features */}
+          <div className="relative flex flex-col">
+            {INTRO_FEATURES.map((feature, index) => {
+              const last = index === INTRO_FEATURES.length - 1;
+              return (
+                <div key={feature.title} className="flex gap-4">
+                  <div className="flex flex-col items-center">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[rgba(156,116,52,0.10)] text-[#9C7434] dark:bg-[rgba(212,175,106,0.16)] dark:text-[#D4AF6A]">
+                      <feature.icon className="h-[19px] w-[19px]" />
+                    </span>
+                    {!last ? (
+                      <span
+                        aria-hidden
+                        className="w-[1.5px] flex-1 bg-[rgba(156,116,52,0.18)] dark:bg-[rgba(212,175,106,0.22)]"
+                      />
+                    ) : null}
+                  </div>
+                  <div className={cn("min-w-0", last ? "pb-0" : "pb-4")}>
+                    <p className="text-[16.5px] font-bold leading-tight tracking-[-0.4px] text-[#0A0A0A] dark:text-white [overflow-wrap:anywhere]">
                       {feature.title}
                     </p>
-                    <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
+                    <p className="mt-1 text-[13.5px] leading-[1.35] text-black/45 dark:text-white/55 [overflow-wrap:anywhere]">
                       {feature.subtitle}
                     </p>
                   </div>
                 </div>
-                ))}
-              </div>
-            </div>
+              );
+            })}
           </div>
 
-        <footer className="flex-none pt-3">
-          <div className="space-y-4">
-            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.72)]">
-              One is consent-first. Your knowledge and information are your
-              safewords. Nothing leaves your vault without your approval.
-            </p>
-            <Button
-              size="lg"
-              fullWidth
-              onClick={onNext}
-              showRipple
-              className="h-[50px] rounded-full bg-[#1d1d1f] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-black dark:bg-[#f5f5f7] dark:!text-[#1d1d1f] dark:hover:bg-white"
-            >
-              Get started
-            </Button>
-            {onLogin ? (
-              <button
-                type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#b8894d] transition-colors hover:text-[#9a7038] dark:text-[#d4a574] dark:hover:text-[#e0bb8e]"
-                onClick={onLogin}
-              >
-                Log in
-              </button>
-            ) : null}
+          {/* Consent note (warm tint) */}
+          <div className="mt-6 rounded-2xl bg-[rgba(156,116,52,0.10)] px-4 py-4 text-center text-[13.5px] leading-[1.5] text-black/55 dark:bg-white/[0.05] dark:text-white/60">
+            One is consent-first. Your knowledge and information are your
+            safewords. Nothing leaves your vault without your approval.
           </div>
-        </footer>
-      </div>
+
+          {/* Primary action — "Get Started" leads into sign-in / sign-up
+              (onLogin → /login → AuthStep, which handles both new + returning). */}
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={onLogin}
+              className="flex h-[54px] w-full items-center justify-center rounded-full border border-[rgba(214,175,106,0.55)] bg-[#F4EAD6] text-[17px] font-bold tracking-[-0.3px] text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-transform duration-150 hover:bg-[#F4EAD6] active:scale-[0.99] motion-reduce:active:scale-100 dark:bg-[#F4EAD6] dark:text-[#17130C] dark:hover:bg-[#F4EAD6]"
+            >
+              Get Started
+            </button>
+          </div>
+        </div>
       </div>
     </main>
   );
