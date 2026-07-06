@@ -32,8 +32,8 @@ import base64
 
 import pytest
 
-from hushh_mcp.constants import CONSENT_TOKEN_PREFIX
 from hushh_mcp.consent.token import validate_token
+from hushh_mcp.constants import CONSENT_TOKEN_PREFIX
 
 
 def _b64(raw: str) -> str:
