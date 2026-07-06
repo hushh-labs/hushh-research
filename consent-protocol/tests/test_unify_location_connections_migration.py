@@ -72,7 +72,7 @@ def test_079_migration_registered_in_manifest():
 
 def test_079_uat_contract_updated():
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-    assert contract["expected_migration_version"] == 79
+    assert contract["expected_migration_version"] == 80
     assert "trusted_connections" in contract["required_tables"]
 
 
@@ -128,6 +128,35 @@ async def _run_079_db_test() -> None:
     tr = conn.transaction()
     await tr.start()
     try:
+        # ── 0. Recreate the legacy table inside our rolled-back transaction ───
+        # Migration 080 drops one_location_network_connections, so once the live
+        # DB has advanced past 080 the table no longer exists.  Migration 079 is
+        # about migrating *out of* that table, so we recreate it here (matching
+        # the 068 DDL) to keep this test self-contained regardless of the live
+        # schema version.  IF NOT EXISTS keeps it a no-op when the table is still
+        # present.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS one_location_network_connections (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              user_a_id TEXT NOT NULL,
+              user_b_id TEXT NOT NULL,
+              inviter_user_id TEXT NOT NULL,
+              invitee_user_id TEXT NOT NULL,
+              invite_id UUID,
+              status TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active', 'revoked')),
+              connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              revoked_at TIMESTAMPTZ,
+              metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+              CONSTRAINT one_location_network_connections_ordered_pair
+                CHECK (user_a_id < user_b_id)
+            )
+            """
+        )
+
         # ── 1. Seed: a real invite-claimed pair ──────────────────────────────
         await conn.execute(
             """

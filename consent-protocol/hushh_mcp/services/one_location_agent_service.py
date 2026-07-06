@@ -952,24 +952,19 @@ class OneLocationAgentService:
         signals: dict[str, dict[str, Any]],
     ) -> None:
         rows = self._optional_signal_rows(
-            signal_name="one_location_network_connections",
+            signal_name="trusted_connections",
             sql="""
-            SELECT user_a_id, user_b_id, inviter_user_id, invitee_user_id,
-                   status, connected_at, updated_at
-            FROM one_location_network_connections
+            SELECT owner_user_id, trusted_user_id, status, created_at, updated_at
+            FROM trusted_connections
             WHERE status = 'active'
-              AND (user_a_id = :owner_user_id OR user_b_id = :owner_user_id)
-            ORDER BY connected_at DESC
+              AND owner_user_id = :owner_user_id
+            ORDER BY created_at DESC
             LIMIT 200
             """,
             params={"owner_user_id": owner_user_id},
         )
         for row in rows:
-            other_user_id = (
-                str(row.get("user_b_id") or "")
-                if row.get("user_a_id") == owner_user_id
-                else str(row.get("user_a_id") or "")
-            )
+            other_user_id = str(row.get("trusted_user_id") or "")
             if other_user_id not in recipient_ids:
                 continue
             signal = signals[other_user_id]
@@ -982,7 +977,7 @@ class OneLocationAgentService:
             signal["trusted"] = True
             signal["relationship_type"] = signal.get("relationship_type") or "One Network"
             signal["verification_badge"] = signal.get("verification_badge") or "One Network"
-            self._remember_signal_time(signal, row.get("updated_at"), row.get("connected_at"))
+            self._remember_signal_time(signal, row.get("updated_at"), row.get("created_at"))
 
     def _add_mutual_kai_relationship_signals(
         self,
@@ -1603,35 +1598,6 @@ class OneLocationAgentService:
         if safe_label:
             payload["ownerLabel"] = safe_label
         return payload
-
-    @staticmethod
-    def _network_pair(user_id: str, other_user_id: str) -> tuple[str, str]:
-        if not user_id or not other_user_id or user_id == other_user_id:
-            raise OneLocationAgentError(
-                "LOCATION_NETWORK_CONNECTION_INVALID",
-                "Choose a different One user.",
-                status_code=422,
-            )
-        first, second = sorted((user_id, other_user_id))
-        return first, second
-
-    @staticmethod
-    def _one_network_connection_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not row:
-            return None
-        return {
-            "id": str(row.get("id") or ""),
-            "userAId": str(row.get("user_a_id") or ""),
-            "userBId": str(row.get("user_b_id") or ""),
-            "inviterUserId": str(row.get("inviter_user_id") or ""),
-            "inviteeUserId": str(row.get("invitee_user_id") or ""),
-            "inviteId": str(row.get("invite_id") or "") or None,
-            "status": str(row.get("status") or "active"),
-            "connectedAt": _iso(row.get("connected_at")),
-            "createdAt": _iso(row.get("created_at")),
-            "updatedAt": _iso(row.get("updated_at")),
-            "revokedAt": _iso(row.get("revoked_at")),
-        }
 
     @staticmethod
     def _trusted_connection_as_network_payload(

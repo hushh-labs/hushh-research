@@ -4,8 +4,9 @@ Directional edges (owner_user_id -> trusted_user_id). Written ONLY through the
 Hushh One agent path; read in-process by any agent. Identity is resolved through
 the SAME platform directory Location shows (list_verified_recipients), read-only.
 
-Deliberately separate from one_location_network_connections (SOS) — that graph
-and its code are untouched.
+This is now the single source of truth for the One Location trust graph: the
+legacy one_location_network_connections (SOS) table was migrated in (079) and
+dropped in (080).
 """
 
 from __future__ import annotations

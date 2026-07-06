@@ -458,34 +458,19 @@ class FourUserMemoryService(OneLocationAgentService):
                 if invite["owner_user_id"] == params["user_id"]
                 or invite.get("claimed_by_user_id") == params["user_id"]
             ][:20]
-        if "FROM one_location_network_connections" in sql:
+        if "FROM trusted_connections" in sql:
+            # Serves both list_state (network_connections) and
+            # _add_one_network_signals: active edges owned by the caller.
             owner = params.get("owner_user_id") or params.get("user_id")
-            network_rows = [
-                connection
-                for connection in sorted(
-                    self.network_connections.values(),
-                    key=lambda item: item["connected_at"],
+            return [
+                tc
+                for tc in sorted(
+                    self.trusted_connections.values(),
+                    key=lambda item: item.get("created_at") or "",
                     reverse=True,
                 )
-                if connection["status"] == "active"
-                and (connection["user_a_id"] == owner or connection["user_b_id"] == owner)
-            ]
-            # trusted_connections edges where owner is the edge owner (claimer).
-            # Map to network_connection shape for _add_one_network_signals (one-way semantics).
-            tc_rows = [
-                {
-                    "user_a_id": tc["owner_user_id"],
-                    "user_b_id": tc["trusted_user_id"],
-                    "inviter_user_id": tc["owner_user_id"],
-                    "invitee_user_id": tc["trusted_user_id"],
-                    "status": tc["status"],
-                    "connected_at": tc.get("created_at"),
-                    "updated_at": tc.get("updated_at"),
-                }
-                for tc in self.trusted_connections.values()
                 if tc.get("status") == "active" and tc.get("owner_user_id") == owner
-            ]
-            return (network_rows + tc_rows)[:200]
+            ][:200]
         if "FROM one_location_public_invite_submissions submission" in sql:
             rows = []
             for submission in sorted(
@@ -1040,47 +1025,6 @@ class FourUserMemoryService(OneLocationAgentService):
                 "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.circle_invites[invite_id] = row
-            return row
-        if "INSERT INTO one_location_network_connections" in sql:
-            existing = next(
-                (
-                    connection
-                    for connection in self.network_connections.values()
-                    if connection["user_a_id"] == params["user_a_id"]
-                    and connection["user_b_id"] == params["user_b_id"]
-                ),
-                None,
-            )
-            now = datetime.now(timezone.utc)
-            if existing:
-                existing.update(
-                    {
-                        "inviter_user_id": params["inviter_user_id"],
-                        "invitee_user_id": params["invitee_user_id"],
-                        "invite_id": params["invite_id"],
-                        "status": "active",
-                        "updated_at": now,
-                        "revoked_at": None,
-                        "metadata": json.loads(params.get("metadata_json") or "{}"),
-                    }
-                )
-                return existing
-            connection_id = str(uuid.uuid4())
-            row = {
-                "id": connection_id,
-                "user_a_id": params["user_a_id"],
-                "user_b_id": params["user_b_id"],
-                "inviter_user_id": params["inviter_user_id"],
-                "invitee_user_id": params["invitee_user_id"],
-                "invite_id": params["invite_id"],
-                "status": "active",
-                "connected_at": now,
-                "created_at": now,
-                "updated_at": now,
-                "revoked_at": None,
-                "metadata": json.loads(params.get("metadata_json") or "{}"),
-            }
-            self.network_connections[connection_id] = row
             return row
         if "FROM one_location_circle_invites i" in sql:
             for invite in self.circle_invites.values():
@@ -1902,7 +1846,7 @@ def test_public_invite_submission_without_key_never_creates_access() -> None:
 
 def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.MonkeyPatch) -> None:
     """Claiming a Circle invite must write a directional trusted_connections edge
-    (owner=claimer, trusted=inviter) and must NOT write to one_location_network_connections."""
+    (owner=claimer, trusted=inviter)."""
     svc = OneLocationAgentService()
     writes: list[tuple[str, dict]] = []
 
@@ -1960,9 +1904,6 @@ def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.Mon
     assert "circle_invite" in tc_writes[0][0], (
         "INSERT SQL must contain the 'circle_invite' source literal"
     )
-
-    nc_writes = [(sql, p) for sql, p in writes if "one_location_network_connections" in sql]
-    assert nc_writes == [], "Expected no writes to one_location_network_connections"
 
     assert result["connection"]["id"] == "edge-1"
     assert result["connection"]["inviterUserId"] == "inviter-uid"
