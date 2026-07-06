@@ -567,12 +567,26 @@ class LocationChatService:
         prompts: list[dict] = []
         with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
             for _ in range(_MAX_TOOL_STEPS):
-                response = await self._model_call(contents, config)
-                calls = list(getattr(response, "function_calls", None) or [])
+                try:
+                    calls, reply = await self._model_step(contents, config)
+                except Exception:
+                    # A model/transport failure (e.g. the follow-up summarization
+                    # call times out). If a mutating tool has ALREADY committed a
+                    # change this turn, do NOT report total failure: the grant /
+                    # revoke is real, so surface the accumulated state (state_changed
+                    # + any clientAction) with a deterministic reply. Only a failure
+                    # BEFORE any side effect is a truthful "temporarily unavailable",
+                    # so re-raise in that case for the caller's fallback.
+                    if state_changed or directives or prompts:
+                        logger.warning(
+                            "Location model step failed after side effects; "
+                            "returning partial turn result",
+                            exc_info=True,
+                        )
+                        break
+                    raise
                 if not calls:
-                    reply = (getattr(response, "text", "") or "").strip()
                     break
-                contents.append(response.candidates[0].content)
                 for call in calls:
                     result, mutated, directive, prompt = await self._run_tool(
                         call.name, dict(call.args or {})
@@ -594,6 +608,21 @@ class LocationChatService:
                 reply = _GAVE_UP_MESSAGE
                 errored = True
         return reply, errored, state_changed, directives, prompts
+
+    async def _model_step(self, contents: list, config: Any) -> tuple[list, str]:
+        """Run one model turn. Returns (function_calls, reply_text).
+
+        When the model requests tool calls, its content is appended to ``contents``
+        and reply_text is "". When it answers, calls is empty and reply_text holds
+        the text. Isolating the throwing model interaction here lets the loop treat
+        a post-mutation model failure as recoverable (see _run_tool_loop).
+        """
+        response = await self._model_call(contents, config)
+        calls = list(getattr(response, "function_calls", None) or [])
+        if not calls:
+            return [], (getattr(response, "text", "") or "").strip()
+        contents.append(response.candidates[0].content)
+        return calls, ""
 
     async def _run_tool(self, name: str, args: dict) -> tuple[dict, bool, dict | None, dict | None]:
         """Execute one tool inside the active HushhContext.

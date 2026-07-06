@@ -232,3 +232,142 @@ async def test_first_turn_sends_user_message_to_model():
     assert "earlier answer" in texts
     assert first_contents[-1].role == "user"
     assert first_contents[-1].parts[0].text == "latest message"
+
+
+def _scripted_model_call_with_failures(responses: list, captured: list):
+    """Like _scripted_model_call, but any Exception item in `responses` is raised
+    when that step is reached (simulates a timed-out / transient model call)."""
+    seq = iter(responses)
+
+    async def _call(contents, config):
+        captured.append(list(contents))
+        item = next(seq)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    return _call
+
+
+async def test_mutation_survives_followup_model_failure():
+    # Regression (ll1/ll2): the grant is created, then the follow-up summarization
+    # model call fails (timeout / transient error). The turn must NOT report
+    # "temporarily unavailable" — the mutation already committed, so it must report
+    # success, keep stateChanged=True, and still surface the clientAction so the
+    # browser publishes the encrypted envelope.
+    store = _FakeStore()
+    calls: list[dict] = []
+    tools = [
+        _fake_tool(
+            "create_location_share",
+            calls,
+            result={
+                "id": "grant-1",
+                "recipientUserId": "u-neel-1",
+                "recipientKeyId": "k2",
+                "recipientDisplayName": "Neelesh Meena",
+            },
+        )
+    ]
+    captured: list = []
+    service = LocationChatService(
+        chat_store=store,
+        model_call=_scripted_model_call_with_failures(
+            [
+                _fc_response(
+                    "create_location_share",
+                    {
+                        "recipient_user_id": "u-neel-1",
+                        "recipient_key_id": "k2",
+                        "duration_hours": 2.5,
+                    },
+                ),
+                TimeoutError("gemini summarization timed out"),
+            ],
+            captured,
+        ),
+        genai_types=types,
+        ready=lambda: True,
+        tools=tools,
+        system_prompt="test-system-prompt",
+    )
+
+    out = await service.handle_turn(
+        user_id="u",
+        message="grant to Neelesh Meena for 2.5 hours",
+        consent_token="t",  # noqa: S106
+    )
+
+    # the grant WAS created
+    assert len(calls) == 1
+    assert calls[0]["args"]["duration_hours"] == 2.5
+    # ...so the turn must not claim it failed
+    assert "unavailable" not in out["response"].lower()
+    assert out["isComplete"] is True
+    assert store.added[-1]["status"] == "complete"
+    # and the browser still gets the publish directive, which drives the encrypted
+    # publish + the follow-up action_result that reports "Done" and refreshes the
+    # list — exactly like a normal successful share (hence stateChanged is False
+    # here, deferred to the round-trip, not the false-failure it used to be).
+    assert out["clientAction"]["type"] == "publish_share"
+    assert out["clientAction"]["shares"][0]["grantId"] == "grant-1"
+    assert out["stateChanged"] is False
+
+
+async def test_server_side_mutation_survives_followup_model_failure():
+    # A pure server-side mutation (revoke) has no browser round-trip, so when the
+    # follow-up model call fails the turn must report success AND stateChanged=True
+    # so the UI refreshes — rather than the old false "temporarily unavailable".
+    store = _FakeStore()
+    calls: list[dict] = []
+    tools = [_fake_tool("revoke_location_share", calls, result={"status": "revoked"})]
+    captured: list = []
+    service = LocationChatService(
+        chat_store=store,
+        model_call=_scripted_model_call_with_failures(
+            [
+                _fc_response("revoke_location_share", {"grant_id": "g1"}),
+                TimeoutError("gemini summarization timed out"),
+            ],
+            captured,
+        ),
+        genai_types=types,
+        ready=lambda: True,
+        tools=tools,
+        system_prompt="test-system-prompt",
+    )
+
+    out = await service.handle_turn(
+        user_id="u",
+        message="revoke access from Abdul",
+        consent_token="t",  # noqa: S106
+    )
+
+    assert len(calls) == 1
+    assert "unavailable" not in out["response"].lower()
+    assert out["isComplete"] is True
+    assert out["stateChanged"] is True
+    assert "clientAction" not in out
+    assert store.added[-1]["status"] == "complete"
+
+
+async def test_model_failure_before_any_mutation_still_unavailable():
+    # Contrast: if the model fails BEFORE any tool commits a change, there is no
+    # side effect to preserve, so the truthful answer is still "unavailable".
+    store = _FakeStore()
+    captured: list = []
+    service = LocationChatService(
+        chat_store=store,
+        model_call=_scripted_model_call_with_failures([TimeoutError("down")], captured),
+        genai_types=types,
+        ready=lambda: True,
+        tools=[_fake_tool("create_location_share", [])],
+        system_prompt="test-system-prompt",
+    )
+
+    out = await service.handle_turn(user_id="u", message="grant to Mom", consent_token="t")  # noqa: S106
+
+    assert "unavailable" in out["response"].lower()
+    assert out["isComplete"] is False
+    assert out["stateChanged"] is False
+    assert store.added[-1]["status"] == "error"
