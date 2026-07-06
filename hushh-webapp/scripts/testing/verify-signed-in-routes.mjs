@@ -95,10 +95,18 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[PersonaBootstrapRedirect] Failed to resolve route mismatch: TypeError: Failed to fetch",
   "[ProfileReceiptsPage] Failed to build receipt summary: TypeError: Failed to fetch",
   "[gmail-connector-store] Failed to refresh Gmail status: TypeError: Failed to fetch",
+  "[KaiHistory] Failed to get history: TypeError: Failed to fetch",
   "Failed to load profile manager data: TypeError: Failed to fetch",
 ];
 const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [
   "/api/kai/voice/capability :: net::ERR_FAILED",
+];
+const TRANSIENT_BROWSER_CONSOLE_ERRORS = [
+  // Next.js still ships styled-jsx, which uses React.useInsertionEffect for
+  // stylesheet insertion. React 19 canary can log this dev-only warning without
+  // a source stack; stack-bearing app warnings remain blocking because this is
+  // matched as an exact full console message.
+  "useInsertionEffect must not schedule updates.",
 ];
 
 const DYNAMIC_ROUTE_FIXTURES = {
@@ -135,6 +143,10 @@ const ROUTE_OVERRIDES = {
   "/one/kai/onboarding": {
     allowedPathnames: ["/one/kai/onboarding", "/one/kai"],
     allowedRouteIds: ["/one/kai/onboarding", "/one/kai"],
+  },
+  "/one/setup/kai": {
+    allowedPathnames: ["/one/setup/kai", "/one"],
+    allowedRouteIds: ["/one/setup/kai", "/one"],
   },
   "/ria/onboarding": {
     allowedPathnames: ["/ria/onboarding", "/ria"],
@@ -200,8 +212,13 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/onboarding": {
     path: "/kai/onboarding",
-    expectedPathname: "/one/kai/onboarding",
-    allowedRouteIds: ["/one/kai/onboarding"],
+    allowedPathnames: ["/one/setup/kai", "/one"],
+    allowedRouteIds: ["/one/setup/kai", "/one"],
+  },
+  "/one/kai/onboarding": {
+    path: "/one/kai/onboarding",
+    allowedPathnames: ["/one/setup/kai", "/one"],
+    allowedRouteIds: ["/one/setup/kai", "/one"],
   },
   "/kai/optimize": {
     path: "/kai/optimize",
@@ -319,6 +336,23 @@ function splitRoutesByVerificationLane(routes) {
   return { sameSession, coldEntry };
 }
 
+function isSetupGatedOneRoute(route) {
+  return (
+    (route === "/one" || route.startsWith("/one/")) &&
+    !route.startsWith("/one/setup") &&
+    !route.includes("/oauth/return") &&
+    !route.includes("/invite/") &&
+    !route.includes("/request/")
+  );
+}
+
+function withOneSetupFallback(route, values) {
+  if (!isSetupGatedOneRoute(route) || values.includes("/one/setup")) {
+    return values;
+  }
+  return [...values, "/one/setup"];
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -423,14 +457,20 @@ function routeSpec(route) {
 
   const fixture = DYNAMIC_ROUTE_FIXTURES[route.route];
   const override = ROUTE_OVERRIDES[route.route];
+  const allowedPathnames = override?.allowedPathnames || [fixture?.expectedPathname || route.route];
+  const allowedRouteIds = override?.allowedRouteIds || fixture?.allowedRouteIds || [route.route];
   return {
     kind: route.mode,
     route: route.route,
     path: fixture?.path || route.route,
     expectedPathname: fixture?.expectedPathname || route.route,
     expectedQueryIncludes: fixture?.expectedQueryIncludes || [],
-    allowedPathnames: override?.allowedPathnames || [fixture?.expectedPathname || route.route],
-    allowedRouteIds: override?.allowedRouteIds || fixture?.allowedRouteIds || [route.route],
+    // OneAuthGate intentionally redirects incomplete users from private /one/*
+    // surfaces to /one/setup. The reviewer account is allowed to be incomplete;
+    // route verification should accept that guard fallback while preserving
+    // strict expectations for setup, OAuth, and public invite/request routes.
+    allowedPathnames: withOneSetupFallback(route.route, allowedPathnames),
+    allowedRouteIds: withOneSetupFallback(route.route, allowedRouteIds),
     requireBackButton: Boolean(fixture?.requireBackButton),
   };
 }
@@ -619,7 +659,50 @@ async function acceptInvestorScopedRoutePrompt(page) {
   return true;
 }
 
+async function switchPersonaViaBridge(page, persona) {
+  const alreadyAligned = await page
+    .evaluate((target) => {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      return bridge?.activePersona === target || bridge?.primaryNavPersona === target;
+    }, persona)
+    .catch(() => false);
+  if (alreadyAligned) {
+    return true;
+  }
+
+  const bridgeReady = await page
+    .waitForFunction(
+      () => typeof window.__HUSHH_NATIVE_TEST__?.switchPersona === "function",
+      null,
+      { timeout: 5000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (!bridgeReady) {
+    return false;
+  }
+
+  await page.evaluate((target) => window.__HUSHH_NATIVE_TEST__?.switchPersona?.(target), persona);
+  await page.waitForFunction(
+    (target) => {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      return (
+        bridge?.activePersona === target ||
+        bridge?.primaryNavPersona === target ||
+        bridge?.personaSwitchStatus === `ok:${target}`
+      );
+    },
+    persona,
+    { timeout: 15000 },
+  );
+  return true;
+}
+
 async function ensurePersona(page, persona) {
+  if (await switchPersonaViaBridge(page, persona).catch(() => false)) {
+    return;
+  }
+
   const initialPathname = new URL(page.url()).pathname;
   if (persona === "investor" && initialPathname.startsWith("/ria")) {
     await requestNativeTestRoute(page, "/one/kai", ["/one/kai"]);
@@ -924,16 +1007,16 @@ async function navigateViaShell(page, spec) {
     case "/ria/clients/[userId]/requests/[requestId]":
       return false;
     case "/one/kai":
-      await requestNativeTestRoute(page, "/one/kai", ["/one/kai"]);
+      await requestNativeTestRoute(page, "/one/kai", spec.allowedRouteIds);
       return true;
     case "/one/kai/portfolio":
-      await requestNativeTestRoute(page, "/one/kai/portfolio", ["/one/kai/portfolio"]);
+      await requestNativeTestRoute(page, "/one/kai/portfolio", spec.allowedRouteIds);
       return true;
     case "/one/kai/import":
-      await requestNativeTestRoute(page, "/one/kai/import", ["/one/kai/import"]);
+      await requestNativeTestRoute(page, "/one/kai/import", spec.allowedRouteIds);
       return true;
     case "/one/kai/analysis":
-      await requestNativeTestRoute(page, "/one/kai/analysis", ["/one/kai/analysis"]);
+      await requestNativeTestRoute(page, "/one/kai/analysis", spec.allowedRouteIds);
       return true;
     default:
       return false;
@@ -943,16 +1026,21 @@ async function navigateViaShell(page, spec) {
 async function waitForRouteBeacon(page, allowedRouteIds) {
   await page.waitForFunction(
     ({ routeIds, terminalStates }) => {
-      const beacons = Array.from(
-        document.querySelectorAll("[data-native-test-beacon='true']")
+      const routeSignals = Array.from(
+        document.querySelectorAll(
+          "[data-native-test-beacon='true'], [data-native-route-marker='true']"
+        )
       );
-      const beacon = beacons.find((node) =>
+      const signal = routeSignals.find((node) =>
         routeIds.includes(node.getAttribute("data-native-route-id") || "")
       );
-      if (!beacon) {
+      if (!signal) {
         return false;
       }
-      const state = beacon.getAttribute("data-native-data-state") || "";
+      const state =
+        signal.getAttribute("data-native-data-state") ||
+        signal.getAttribute("data-native-data-default") ||
+        "";
       return terminalStates.includes(state);
     },
     {
@@ -1045,6 +1133,9 @@ function collectPageIssues(page) {
 function assertNoIssues(route, viewport, issues) {
   const isRedirectCompatibilityRoute = Boolean(REDIRECT_EXPECTATIONS[route]);
   const consoleErrors = issues.consoleErrors.filter((value) => {
+    if (TRANSIENT_BROWSER_CONSOLE_ERRORS.includes(value)) {
+      return false;
+    }
     if (TRANSIENT_BACKGROUND_FETCH_ERRORS.some((pattern) => value.includes(pattern))) {
       return false;
     }

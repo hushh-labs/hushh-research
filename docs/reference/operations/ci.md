@@ -85,6 +85,8 @@ If Codex triggers `gh pr merge`, `gh pr merge --auto`, or any action that places
 3. only stop earlier when the user explicitly asked for queue placement rather than landed completion
 4. if Codex triggered the merge path, it owns this monitoring step through terminal completion and should not pause after the queue accepts the PR
 
+The repository-level `allow_auto_merge` setting must stay enabled. On a merge-queue repository, GitHub CLI uses that setting to enqueue PRs whose requirements are still settling; disabling it can make a validated maintainer PR fail with `enablePullRequestAutoMerge` before the queue is reached. This is not a validation bypass: `CI Status Gate`, merge queue validation, and `Main Post-Merge Smoke` remain mandatory.
+
 Codex-first RCA surface:
 
 ```bash
@@ -208,6 +210,8 @@ Operational note:
 
 Protected branches are expected to enforce the same CI contract documented here:
 
+- repository setting
+  - auto-merge enabled so `gh pr merge` can hand green PRs to merge queue instead of failing before queue placement
 - `main`
   - `0` blanket approving reviews
   - required status checks: `CI Status Gate`

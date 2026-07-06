@@ -18,11 +18,13 @@ This reference defines when the `repo-operations` skill should trigger and when 
 3. GitHub board/project management work only
 4. general coding questions with no delivery, CI, or operational surface
 
-## Sub-agent policy
+## Subagent policy
 
-1. Default: no sub-agents.
-2. Spawn sub-agents only when the user explicitly asks for delegation or parallel agent work.
-3. If allowed, split by bounded operational domains, not overlapping edits.
+1. Follow the repo-wide delegation checkpoint in `AGENTS.md` and the bounded budget in `agent-orchestration-governance`.
+2. Use read-only evidence lanes for non-trivial CI, deploy, runtime, RCA, or security-adjacent operations when independent evidence reduces drift.
+3. Split by bounded operational domains, not overlapping edits.
+4. Never delegate branch switching, merge, deploy, push, approval, secrets, or final release authority.
+5. If the host is near the subagent cap, keep the work local or close stale child threads sequentially before spawning more.
 
 ## Good examples
 

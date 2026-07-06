@@ -59,6 +59,7 @@ Non-owned surfaces:
 4. Regenerate the contract from `hushh-webapp` with `node ./scripts/architecture/generate-surface-map.mjs`.
 5. Re-run `cd hushh-webapp && npm run verify:surface-map`.
 6. Hand off to backend, mobile, or voice skills when the map reveals a contract change outside this skill's ownership.
+7. When a finite nested route family renders through one shared workspace, keep every route file represented in the generated surface map and native route inventory instead of relying on only the parent route.
 
 ## Handoff Rules
 

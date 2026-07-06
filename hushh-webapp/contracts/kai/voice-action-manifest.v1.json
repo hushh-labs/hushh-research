@@ -253,7 +253,7 @@
       "scope": {
         "routes": [
           "/profile",
-          "/profile?panel=gmail"
+          "/profile/gmail"
         ],
         "screens": [
           "profile_gmail_panel"
@@ -273,7 +273,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -289,7 +289,7 @@
       "scope": {
         "routes": [
           "/one/gmail",
-          "/profile?panel=gmail"
+          "/profile/gmail"
         ],
         "screens": [
           "gmail",
@@ -310,7 +310,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx",
+        "app/profile/profile-workspace-page.tsx",
         "app/gmail/page.tsx"
       ]
     },
@@ -397,7 +397,7 @@
       ],
       "scope": {
         "routes": [
-          "/profile?panel=gmail"
+          "/profile/gmail"
         ],
         "screens": [
           "profile_gmail_panel"
@@ -418,7 +418,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1047,7 +1047,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1062,7 +1062,7 @@
       ],
       "scope": {
         "routes": [
-          "/profile?tab=account&panel=support"
+          "/profile/support"
         ],
         "screens": [
           "profile_support_panel"
@@ -1079,11 +1079,11 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/profile?tab=account&panel=support"
+        "target": "/profile/support"
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1098,7 +1098,7 @@
       ],
       "scope": {
         "routes": [
-          "/profile?tab=privacy&panel=security"
+          "/profile/security"
         ],
         "screens": [
           "profile_security_panel"
@@ -1115,11 +1115,11 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/profile?tab=privacy&panel=security"
+        "target": "/profile/security"
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1170,7 +1170,7 @@
       ],
       "scope": {
         "routes": [
-          "/profile?tab=account&panel=support"
+          "/profile/support"
         ],
         "screens": [
           "profile_support_panel"
@@ -1190,7 +1190,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1205,7 +1205,7 @@
       ],
       "scope": {
         "routes": [
-          "/profile?tab=privacy"
+          "/profile/access"
         ],
         "screens": [
           "profile_privacy"
@@ -1226,7 +1226,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1261,7 +1261,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {
@@ -1299,7 +1299,7 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ]
     },
     {

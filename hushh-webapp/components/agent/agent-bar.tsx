@@ -267,6 +267,19 @@ export function AgentBar() {
     voiceStatus === "error" && voiceMessage
       ? voiceMessage
       : getAgentVoiceStatusLabel(voiceStatus);
+  const nativeVoiceMode = !conversationActive
+    ? "idle"
+    : voiceStatus === "connecting"
+      ? "opening"
+      : voiceStatus === "listening"
+        ? "listening"
+        : voiceStatus === "thinking"
+          ? "understanding"
+          : voiceStatus === "speaking"
+            ? "speaking"
+            : voiceStatus === "error"
+              ? "error"
+              : "opening";
 
   return (
     <div
@@ -304,6 +317,8 @@ export function AgentBar() {
       aria-hidden={barHidden}
     >
       <div
+        data-testid="one-voice-agent-bar"
+        data-voice-mode={nativeVoiceMode}
         className={cn(
           "pointer-events-auto flex w-full max-w-[min(calc(100vw-2rem),34rem)] items-center gap-2",
           "h-11 rounded-full pl-3 pr-1.5",
@@ -353,6 +368,8 @@ export function AgentBar() {
             </div>
             <button
               type="button"
+              data-native-voice-control-id="one_voice_agent_bar_end"
+              data-testid="one-voice-agent-bar-end"
               onClick={stopConversation}
               aria-label="End conversation"
               title="End conversation"
@@ -370,6 +387,7 @@ export function AgentBar() {
           <>
             <button
               type="button"
+              data-native-voice-control-id="one_voice_open_agent"
               onClick={openAgent}
               aria-label={hint}
               className={cn(
@@ -383,6 +401,7 @@ export function AgentBar() {
             </button>
             <button
               type="button"
+              data-native-voice-control-id="one_voice_open_agent"
               onClick={openAgent}
               aria-label="Talk to your agent"
               className={cn(
@@ -396,6 +415,8 @@ export function AgentBar() {
             </button>
             <button
               type="button"
+              data-native-voice-control-id="one_voice_agent_bar_start"
+              data-testid="one-voice-agent-bar-start"
               onClick={startConversation}
               aria-label="Start a conversational session"
               title="Conversational mode"

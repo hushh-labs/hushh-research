@@ -79,7 +79,7 @@ Non-owned surfaces:
 ```bash
 python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
-python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
+python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .codex/skills/agent-orchestration-governance/scripts/delegation_router.py .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .codex/skills/agent-orchestration-governance/scripts/subagent_budget.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 ./scripts/ci/repo-governance-check.sh

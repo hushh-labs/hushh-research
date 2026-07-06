@@ -84,6 +84,7 @@ Non-owned surfaces:
 17. Keep strong claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private action receipts in `docs/future/` until implementation docs and tests prove them.
 18. For data-model docs, distinguish encrypted PKM memory from provider caches, workflow state, audit metadata, reference data, and analytics warehouse truth. Provider/cache tables are not durable user memory unless a consented encrypted PKM write makes them so.
 19. Treat long-doc findings as navigation prompts, not automatic split orders. Add subfolders or child docs only when a bounded subtopic has its own owner, lifecycle, or reusable entrypoint.
+20. Route documentation updates must follow the route contract cascade: route contracts, frontend/native surface map docs, cache coherence, One Voice, mobile parity, and owning skill reads/checks must agree before calling a route change documented.
 
 ## Handoff Rules
 
