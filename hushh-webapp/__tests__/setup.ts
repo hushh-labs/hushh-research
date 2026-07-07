@@ -37,6 +37,25 @@ if (typeof window !== "undefined") {
   });
 }
 
+// JSDOM has no ResizeObserver. cmdk (used by the Command/CommandList
+// primitives) observes its list element on mount, so any test that renders a
+// cmdk-based component needs this polyfill or React logs an unhandled
+// ReferenceError from the passive effect.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class ResizeObserverMock {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  }
+  globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+}
+
+// JSDOM also has no scrollIntoView. cmdk calls this on the selected item's
+// layout effect to keep it in view, which throws in JSDOM without a stub.
+if (typeof window !== "undefined" && !window.HTMLElement.prototype.scrollIntoView) {
+  window.HTMLElement.prototype.scrollIntoView = vi.fn();
+}
+
 /**
  * Reset all mocks between tests to prevent state leakage.
  * This ensures each test starts with a clean slate.

@@ -4,7 +4,13 @@ import type { OneCapabilityTone } from "@/lib/onboarding/one-capabilities";
 import { cn } from "@/lib/utils";
 
 const AGENT_ICON_SURFACE_CLASSNAME =
-  "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white";
+  // Solid neutral chip in both themes. The `group-data-[selected=true]` variant
+  // keeps this readable when the icon sits on an accent/amber cmdk highlight
+  // row (see components/ui/command.tsx CommandItem): the default translucent
+  // dark tint (white/0.14) is nearly invisible against that highlight, so the
+  // selected state forces the same solid chip used everywhere else instead of
+  // blending into the highlight color.
+  "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white group-data-[selected=true]:bg-white group-data-[selected=true]:text-[#1d1d1f] dark:group-data-[selected=true]:bg-[#2c2c2e] dark:group-data-[selected=true]:text-white";
 
 const ICON_SIZE_CLASS = {
   launcher: {
