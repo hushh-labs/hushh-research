@@ -78,6 +78,64 @@ def _normalize_ticker_or_422(raw_ticker: str) -> str:
     return ticker
 
 
+def _require_known_ticker_or_422(ticker: str) -> str:
+    """Reject debate/analysis requests for symbols the symbol master does not know.
+
+    Format validation alone let misheard STT tokens (e.g. "YOUR") start a full
+    multi-agent debate that produced a score from fallback defaults while every
+    agent reported no data. classify() cannot be used directly as the gate
+    because its ticker_pattern_fallback deliberately treats pattern-valid
+    unknowns as tradable for portfolio flows; a debate run demands a real
+    symbol-master match. When the ticker cache is unavailable (cold start,
+    DB miss) we cannot verify membership and let the request through rather
+    than blocking all analysis on infrastructure state.
+    """
+    from hushh_mcp.services.ticker_cache import ticker_cache
+
+    symbol_master = get_symbol_master_service()
+    classification = symbol_master.classify(ticker)
+    if classification.reason == "symbol_master_match":
+        if not classification.tradable:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "ANALYZE_TICKER_NOT_TRADABLE",
+                    "message": f"'{ticker}' is a known identifier but not a tradable equity.",
+                    "ticker": ticker,
+                },
+            )
+        return ticker
+    if classification.reason in {"trade_action_token", "cash_equivalent"}:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ANALYZE_TICKER_UNKNOWN",
+                "message": f"'{ticker}' is not an analyzable equity symbol.",
+                "ticker": ticker,
+            },
+        )
+    # classify() already attempted ticker_cache.load_from_db(); a loaded cache
+    # with no match means the symbol genuinely does not exist.
+    if ticker_cache.loaded:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ANALYZE_TICKER_UNKNOWN",
+                "message": (
+                    f"'{ticker}' is not a recognized ticker symbol. "
+                    "Check the spelling or say the company name."
+                ),
+                "ticker": ticker,
+            },
+        )
+    logger.warning(
+        "stream.ticker_gate_unverifiable ticker=%s reason=%s (ticker cache empty)",
+        ticker,
+        classification.reason,
+    )
+    return ticker
+
+
 async def _require_vault_owner_token(
     *,
     user_id: str,
@@ -2489,6 +2547,9 @@ async def analyze_stream(
 
     # Auth uses validate_token_with_db inside _require_vault_owner_token().
     consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    # Membership gate runs after auth so unauthenticated callers cannot probe
+    # which symbols exist.
+    ticker = _require_known_ticker_or_422(ticker)
 
     # Log operation for audit trail (shows what vault.owner token was used for)
     consent_service = ConsentDBService()
@@ -2530,6 +2591,12 @@ async def analyze_stream_post(
         user_id=body.user_id,
         authorization=authorization,
     )
+
+    if not body.run_id:
+        # Resume requests attach to an already-validated run; only fresh
+        # analysis starts go through the symbol-master membership gate. Runs
+        # after auth so unauthenticated callers cannot probe symbol existence.
+        ticker = _require_known_ticker_or_422(ticker)
 
     if body.run_id:
         run = await _RUN_MANAGER.get_run(body.run_id)
@@ -2601,6 +2668,9 @@ async def analyze_run_start(
         user_id=body.user_id,
         authorization=authorization,
     )
+    # Membership gate runs after auth so unauthenticated callers cannot probe
+    # which symbols exist.
+    ticker = _require_known_ticker_or_422(ticker)
     consent_service = ConsentDBService()
     next_context = dict(body.context or {})
     if body.pick_source:

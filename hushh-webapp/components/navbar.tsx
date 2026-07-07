@@ -36,7 +36,10 @@ import {
   SegmentedPill,
   type SegmentedPillOption,
 } from "@/lib/morphy-ux/ui";
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  snapKaiBottomChromeVisible,
+  useKaiBottomChromeVisibility,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -432,6 +435,13 @@ export const Navbar = () => {
         )}
         style={{ width: bottomNavGroupWidth }}
         ref={pillRef}
+        // iOS first-tap fix: if the hide/reveal animation is mid-flight when
+        // a finger lands, the buttons translate away before pointerup and the
+        // tap is lost (felt as "need to tap twice"). Snapping the chrome to
+        // its resting position on pointerdown keeps the tap target still.
+        onPointerDownCapture={() => {
+          if (hideBottomChromeProgress > 0) snapKaiBottomChromeVisible();
+        }}
       >
         <div
           className="min-w-0 pointer-events-auto"
@@ -462,12 +472,17 @@ export const Navbar = () => {
           data-native-voice-control-id="one_voice_open_command_search"
           data-testid="one-voice-open-command-search"
           className={cn(
-            // Stretch to the pill height and stay a perfect circle so the search
-            // bubble and the bottom-nav pill read as one symmetric row.
-            "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
+            // A perfect circle matching the stacked pill's 52px min-height.
+            // Explicit equal h/w instead of aspect-square + self-stretch:
+            // WKWebView resolves aspect-ratio against a stretch-derived flex
+            // cross size as indefinite, which rendered this button as an oval
+            // on iOS while web looked fine.
+            "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
             "kai-bottom-search-action",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "hover:bg-black/[0.08] hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            // Hover styles behind (hover:hover) so iOS taps never latch a
+            // sticky hover background on the first touch.
+            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {

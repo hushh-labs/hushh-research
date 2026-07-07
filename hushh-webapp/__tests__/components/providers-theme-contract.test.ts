@@ -10,13 +10,20 @@ function read(relativePath: string) {
 }
 
 describe("Providers theme contract", () => {
-  it("does not force light theme on web while preserving iOS daylight mode", () => {
+  it("never forces a theme on any platform (iOS daylight pin removed)", () => {
     const source = read("app/providers.tsx");
 
-    expect(source).toContain("const forceNativeDaylight");
-    expect(source).toContain("Capacitor.isNativePlatform() && Capacitor.getPlatform() === \"ios\"");
-    expect(source).toContain('forcedTheme={forceNativeDaylight ? "light" : undefined}');
-    expect(source).toContain("enableSystem={!forceNativeDaylight}");
-    expect(source).not.toContain('forcedTheme="light"');
+    // The earlier "daylight" ship pinned iOS to light via forcedTheme +
+    // Info.plist UIUserInterfaceStyle=Light. Both pins are removed: the theme
+    // toggle must work identically on web and native iOS.
+    expect(source).not.toContain("forcedTheme");
+    expect(source).not.toContain("forceNativeDaylight");
+    expect(source).toContain('attribute="class"');
+    expect(source).toContain("enableSystem");
+  });
+
+  it("keeps Info.plist free of a UIUserInterfaceStyle pin", () => {
+    const plist = read("ios/App/App/Info.plist");
+    expect(plist).not.toContain("UIUserInterfaceStyle");
   });
 });
