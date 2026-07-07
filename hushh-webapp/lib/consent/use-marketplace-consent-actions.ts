@@ -33,14 +33,8 @@ import {
   parseMarketplaceConsentEntry,
   type MarketplaceConsentEntryRef,
 } from "@/lib/consent/marketplace-consent";
-import {
-  buildConsentExportForScope,
-  ConsentExportNoDataError,
-} from "@/lib/consent/export-builder";
-import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
 import { OneMarketplaceService } from "@/lib/one-marketplace/service";
-import { defaultAvailableScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { sealSliceForRequest } from "@/lib/one-marketplace/seal-delivery";
 import type {
   ConsentActionKind,
   ConsentActionState,
@@ -67,50 +61,6 @@ interface UseMarketplaceConsentActionsOptions {
 
 function actionError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
-}
-
-/**
- * Resolve the canonical export scope for a requested slice. A published slice's
- * scope is `attr.<domain>.<topLevelScopePath>.*` (see
- * `defaultAvailableScopeForPermission`). The request row carries `domain` +
- * `scope_handle` but not the top-level path, so the seller resolves it from
- * their own DomainManifest scope_registry. Falls back to the domain-wide
- * `attr.<domain>` scope when the handle can't be resolved.
- */
-async function resolveExportScope(params: {
-  userId: string;
-  domain: string;
-  scopeHandle: string;
-  vaultOwnerToken: string;
-}): Promise<string | null> {
-  const domain = params.domain.trim();
-  const scopeHandle = params.scopeHandle.trim();
-  // A scope_handle that is already a full attr scope can be used as-is.
-  if (scopeHandle.startsWith("attr.")) return scopeHandle;
-  if (!domain) return scopeHandle || null;
-
-  const fallback = `attr.${domain}`;
-  if (!scopeHandle) return fallback;
-
-  try {
-    const manifest = await PersonalKnowledgeModelService.getDomainManifest(
-      params.userId,
-      domain,
-      params.vaultOwnerToken,
-    );
-    const entry = manifest?.scope_registry?.find(
-      (candidate) => candidate.scope_handle === scopeHandle,
-    );
-    const topLevelScopePath = String(
-      entry?.summary_projection?.top_level_scope_path || "",
-    ).trim();
-    if (topLevelScopePath) {
-      return defaultAvailableScopeForPermission(domain, topLevelScopePath);
-    }
-  } catch (error) {
-    console.warn("[MarketplaceConsent] scope resolution failed:", error);
-  }
-  return fallback;
 }
 
 export function useMarketplaceConsentActions(
@@ -222,52 +172,15 @@ export function useMarketplaceConsentActions(
           if (!vaultOwnerToken) return;
 
           const promise = (async () => {
-            const { recipientKey } = await OneMarketplaceService.getRequestRecipientKey({
+            const envelope = await sealSliceForRequest({
+              userId,
+              vaultKey,
               vaultOwnerToken,
               requestId,
-            });
-            if (!recipientKey?.keyId || !recipientKey.publicKeyJwk) {
-              throw new Error(
-                "The buyer needs to open the marketplace once before approval can finish.",
-              );
-            }
-
-            const scope = await resolveExportScope({
-              userId,
               domain: ref.domain,
               scopeHandle: ref.scopeHandle,
-              vaultOwnerToken,
+              sliceName: ref.sliceName,
             });
-            if (!scope) {
-              throw new Error("This slice can no longer be resolved for delivery.");
-            }
-
-            let built;
-            try {
-              built = await buildConsentExportForScope({
-                userId,
-                scope,
-                vaultKey,
-                vaultOwnerToken,
-              });
-            } catch (error) {
-              if (error instanceof ConsentExportNoDataError) {
-                throw new Error("There's no shareable data in this slice to deliver.");
-              }
-              throw error;
-            }
-
-            const envelope = await encryptSliceForRecipient({
-              payload: built.payload,
-              recipientPublicKeyJwk: recipientKey.publicKeyJwk,
-              recipientKeyId: recipientKey.keyId,
-              metadata: {
-                request_id: requestId,
-                scope,
-                slice_name: ref.sliceName || undefined,
-              },
-            });
-
             await OneMarketplaceService.approveRequest({
               vaultOwnerToken,
               requestId,

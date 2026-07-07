@@ -260,6 +260,27 @@ export class OneMarketplaceService {
     );
   }
 
+  /**
+   * Deliver a sealed slice for an ALREADY-approved request (agent-approval
+   * fulfilment). The seller's device seals on-device, then posts ciphertext here;
+   * the server attaches it without changing status. Used by the delivery sweep to
+   * complete approvals an agent (A2A / chat) made with no browser to seal.
+   */
+  static async deliverRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+    envelope: MarketplaceEncryptedEnvelope;
+  }): Promise<void> {
+    await apiJson(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/deliver`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ envelope: params.envelope }),
+      },
+    );
+  }
+
   static async denyRequest(params: {
     vaultOwnerToken: string;
     requestId: string;

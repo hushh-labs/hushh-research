@@ -15,6 +15,7 @@ import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator"
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
@@ -214,6 +215,34 @@ export class UnlockWarmOrchestrator {
       this.marketplaceKeyBootstrappedByUser.delete(params.userId);
       console.warn(
         "[UnlockWarmOrchestrator] Marketplace recipient key bootstrap failed:",
+        error
+      );
+    });
+  }
+
+  private static marketplaceDeliverySweptByUser = new Set<string>();
+
+  // Fulfil agent-driven approvals. Agent One (A2A) and the marketplace chat agent
+  // can approve a request but cannot seal the encrypted slice (no browser). On
+  // unlock the seller's device sweeps its approved-but-undelivered requests,
+  // seals each on-device against the buyer's recipient key, and delivers
+  // ciphertext. Best-effort and idempotent; runs once per session.
+  private static queueMarketplaceDeliverySweep(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (this.marketplaceDeliverySweptByUser.has(params.userId)) return;
+    this.marketplaceDeliverySweptByUser.add(params.userId);
+    void runMarketplaceDeliverySweep({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch((error) => {
+      // Never block unlock warming; allow a later retry this session.
+      this.marketplaceDeliverySweptByUser.delete(params.userId);
+      console.warn(
+        "[UnlockWarmOrchestrator] Marketplace delivery sweep failed:",
         error
       );
     });
@@ -611,6 +640,12 @@ export class UnlockWarmOrchestrator {
     // key on unlock so a seller can deliver a slice to them at approve time.
     this.queueMarketplaceRecipientKeyBootstrap({
       userId: params.userId,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
+    // Deliver any slices an agent approved without a browser to seal.
+    this.queueMarketplaceDeliverySweep({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
     });
     if (warmPriority === "consents") {
