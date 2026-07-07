@@ -1,4 +1,4 @@
-import { LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Briefcase, LayoutDashboard, type LucideIcon } from "lucide-react";
 
 import {
   ONE_CAPABILITIES,
@@ -8,7 +8,7 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import type { AppBottomNavScope } from "@/lib/navigation/app-bottom-nav";
 
-export type AgentSectionRouteFamily = "one" | "investor";
+export type AgentSectionRouteFamily = "one" | "investor" | "ria";
 
 export interface AgentSection {
   id: string;
@@ -97,6 +97,23 @@ const AGENTS_ROOT_SECTION: AgentSection = {
   voiceRouteActionId: "route.one_agents",
 };
 
+// Finance ships as two standalone top-level agents in the product: Investor
+// (/one/kai) and RIA (/ria). Kai remains the INTERNAL finance runtime naming
+// (routes, contracts, code identifiers) and is not surfaced as a product
+// agent. /ria self-guards: non-RIA users are redirected to RIA onboarding by
+// app/ria/page.tsx, so exposing the entry here is safe.
+const RIA_WORKSPACE_SECTION: AgentSection = {
+  id: "ria",
+  label: "RIA",
+  href: ROUTES.RIA_HOME,
+  icon: Briefcase,
+  routeFamily: "ria",
+  bottomNavScope: "ria",
+  screenId: "ria_home",
+  controlId: "top_agent_section_ria",
+  voiceRouteActionId: "route.ria_home",
+};
+
 function normalizePathname(value: string | null | undefined): string {
   const raw = String(value ?? "").split(/[?#]/, 1)[0]?.trim() || "/";
   const withSlash = raw.startsWith("/") ? raw : `/${raw}`;
@@ -135,7 +152,16 @@ function toAgentSection(capability: OneCapability): AgentSection {
 }
 
 export function getAgentSections(): readonly AgentSection[] {
-  return ONE_CAPABILITIES.map(toAgentSection);
+  const sections = ONE_CAPABILITIES.map(toAgentSection);
+  // RIA sits directly after Investor so the two finance personas stay
+  // adjacent while remaining standalone top-level agents.
+  const financeIndex = sections.findIndex((section) => section.id === "finance");
+  if (financeIndex >= 0) {
+    sections.splice(financeIndex + 1, 0, RIA_WORKSPACE_SECTION);
+  } else {
+    sections.push(RIA_WORKSPACE_SECTION);
+  }
+  return sections;
 }
 
 export function getAgentSection(id: string | null | undefined): AgentSection | null {

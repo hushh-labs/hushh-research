@@ -150,14 +150,25 @@ def list_voice_manifest_actions() -> list[dict[str, Any]]:
     return list(payload.get("actions") or [])
 
 
+@lru_cache(maxsize=1)
+def _voice_manifest_action_index() -> dict[str, dict[str, Any]]:
+    """O(1) id lookup index; built once per process alongside the manifest.
+
+    Keeps the realtime relay/persona hot path free of repeated linear scans
+    when enriching each available action id with labels and guard hints.
+    """
+    return {
+        str(action.get("action_id") or ""): action
+        for action in list_voice_manifest_actions()
+        if str(action.get("action_id") or "")
+    }
+
+
 def get_voice_manifest_action(action_id: str | None) -> dict[str, Any] | None:
     normalized_action_id = str(action_id or "").strip()
     if not normalized_action_id:
         return None
-    for action in list_voice_manifest_actions():
-        if action.get("action_id") == normalized_action_id:
-            return action
-    return None
+    return _voice_manifest_action_index().get(normalized_action_id)
 
 
 def select_voice_manifest_actions_for_prompt(

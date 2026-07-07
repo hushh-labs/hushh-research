@@ -28,6 +28,8 @@ export type OneGoalPlannerInput = {
   candidateActionId?: string | null;
   slots?: Record<string, unknown> | null;
   appRuntimeState?: AppRuntimeState;
+  /** Current derived voice screen id, used to boost on-screen actions. */
+  currentScreen?: string | null;
   entrypoint: OneGoalEntrypoint;
 };
 

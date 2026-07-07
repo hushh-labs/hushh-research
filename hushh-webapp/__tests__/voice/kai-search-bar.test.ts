@@ -450,7 +450,7 @@ describe("kai-search-bar helpers", () => {
     expect(acquireMock).not.toHaveBeenCalled();
   });
 
-  it("renders the compact RIA action bar instead of the ticker-first voice surface", () => {
+  it("does not render a floating RIA action bar (single bottom-nav launcher everywhere)", () => {
     vi.useRealTimers();
 
     render(
@@ -466,12 +466,13 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    expect(screen.getByTestId("ria-action-bar")).toBeTruthy();
+    // The RIA-specific floating Search/Voice pill was removed: it overlapped
+    // the shared bottom chrome. The collapsed launcher stays mounted (palette
+    // + open-event listener) but is visually hidden; the bottom-nav Search
+    // button is the single visible launcher on every surface, including RIA.
+    expect(screen.queryByTestId("ria-action-bar")).toBeNull();
     expect(screen.queryByTestId("voice-ambient-search-surface")).toBeNull();
-    expect(screen.getByRole("button", { name: "Search RIA workspace" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
-      "true",
-    );
+    expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
 
     // The Kai search chrome no longer renders its own Agent launcher; the
     // persistent AgentBar (components/agent/agent-bar.tsx) is the single agent

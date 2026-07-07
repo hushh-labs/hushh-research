@@ -2,6 +2,7 @@
   "schema_version": "kai.action_gateway.vnext",
   "generator": "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
   "source_contracts": [
+    "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
@@ -27,6 +28,25 @@
     "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json"
   ],
   "surfaces": [
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "onboarding",
+      "surface_title": "Onboarding",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/getting-started/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
+      }
+    },
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "marketplace_ria_profile",
@@ -433,6 +453,430 @@
     }
   ],
   "actions": [
+    {
+      "action_id": "route.getting_started",
+      "surface_id": "onboarding",
+      "label": "Open Welcome",
+      "aliases": [
+        "open welcome",
+        "show the welcome screen",
+        "go to getting started",
+        "start over",
+        "show me what one can do"
+      ],
+      "search_keywords": [
+        "welcome",
+        "getting started",
+        "onboarding",
+        "intro"
+      ],
+      "meaning": "Navigates to the Hussh welcome carousel for new visitors.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/getting-started"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_setup"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "None; the welcome carousel is public."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/getting-started"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /getting-started"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.getting_started",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.getting_started",
+            "label": "Open Welcome",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/getting-started",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "onboarding.continue",
+      "surface_id": "onboarding",
+      "label": "Continue",
+      "aliases": [
+        "continue",
+        "let's go",
+        "get started",
+        "next step",
+        "move on"
+      ],
+      "search_keywords": [
+        "continue",
+        "next",
+        "get started"
+      ],
+      "meaning": "Moves from the welcome carousel to sign in and account setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/getting-started"
+        ],
+        "screens": [
+          "getting_started"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/login"
+      },
+      "control_ids": [
+        "onboarding_continue"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /login"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.onboarding.continue",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "onboarding.continue",
+            "label": "Continue",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "auth.sign_in_open",
+      "surface_id": "onboarding",
+      "label": "Open Sign In",
+      "aliases": [
+        "sign in",
+        "log in",
+        "open sign in",
+        "go to login",
+        "sign me in"
+      ],
+      "search_keywords": [
+        "sign in",
+        "login",
+        "authenticate",
+        "account"
+      ],
+      "meaning": "Navigates to the Hussh sign-in screen so the person can authenticate.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "None; sign-in is reachable from any anonymous screen."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/login"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /login"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.auth.sign_in_open",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_open",
+            "label": "Open Sign In",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "vault.setup_open",
+      "surface_id": "onboarding",
+      "label": "Open Vault Setup",
+      "aliases": [
+        "set up my vault",
+        "unlock my vault",
+        "open vault setup",
+        "finish setting up",
+        "open one setup"
+      ],
+      "search_keywords": [
+        "vault",
+        "setup",
+        "unlock",
+        "capabilities"
+      ],
+      "meaning": "Navigates to One setup so a signed-in person can create or unlock their private vault.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_setup",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Requires a signed-in session before vault setup can begin."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.vault.setup_open",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "vault.setup_open",
+            "label": "Open Vault Setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
     {
       "action_id": "route.marketplace_ria_profile",
       "surface_id": "marketplace_ria_profile",

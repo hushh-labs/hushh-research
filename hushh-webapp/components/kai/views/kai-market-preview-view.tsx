@@ -5,17 +5,12 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
-  Blocks,
-  Bot,
   ChartColumnIncreasing,
-  ChevronRight,
   Cpu,
   LineChart,
   Loader2,
-  Mic,
   Newspaper,
   Percent,
-  Search,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -148,8 +143,13 @@ const oneMarketRootClassName = cn(
   marketSurfaceVariablesClassName,
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
+  // The page background always matches the app shell (--background) so the
+  // route never paints its own lighter panel inside the shell (the "double
+  // layout" partition). Cards/surfaces are background-derived elevations.
   "[--one-bg:var(--background)] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
-  "dark:[--one-bg:rgb(28,28,30)] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
+  "dark:[--one-bg:var(--background)]",
+  "dark:[--one-card:color-mix(in_oklab,var(--background)_88%,white)]",
+  "dark:[--one-surface:color-mix(in_oklab,var(--background)_88%,white)]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
   "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
@@ -165,12 +165,6 @@ const oneMarketRootClassName = cn(
   "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
   "[--one-gutter:clamp(18px,4vw,32px)]"
-);
-
-const oneMarketGlassClassName = cn(
-  "relative bg-[image:var(--one-glass-fill)] backdrop-blur-[20px] backdrop-saturate-[200%]",
-  "shadow-[var(--one-glass-float),inset_0_1px_0_rgba(255,255,255,0.35),inset_0_-1px_1px_rgba(0,0,0,0.06)]",
-  "ring-1 ring-white/55"
 );
 
 type OneMarketDisplayRow = {
@@ -331,24 +325,6 @@ function toIndexStripItems(
       return true;
     })
     .slice(0, 4);
-}
-
-function toKaiStripText(
-  payload: KaiHomeInsightsV2 | null,
-  rows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
-): string {
-  const signal = String(payload?.signals?.[0]?.summary || "").trim();
-  if (signal) return signal;
-  const lowerCount = rows.filter((row) => typeof row.change_pct === "number" && row.change_pct < 0).length;
-  const sectorLeader = Array.isArray(payload?.sector_rotation)
-    ? [...payload.sector_rotation]
-        .filter((row) => typeof row?.change_pct === "number")
-        .sort((left, right) => Number(right.change_pct || 0) - Number(left.change_pct || 0))[0]
-    : null;
-  if (sectorLeader?.sector) {
-    return `${sectorLeader.sector} is leading the current tape. ${lowerCount} tracked names are in the red.`;
-  }
-  return `Markets are live. ${lowerCount} tracked names are in the red.`;
 }
 
 function openOneMarketHref(href: string) {
@@ -548,12 +524,58 @@ function OneMarketSectionHeader({
   );
 }
 
-function IndexSparkline({ tone }: { tone: MarketOverviewMetric["tone"] }) {
-  const negative = tone === "negative";
-  const stroke = negative ? "var(--one-down)" : "var(--one-up)";
-  const path = negative
-    ? "M0 4 L14 7 L28 5 L42 10 L56 9 L70 13 L84 12 L100 17"
-    : "M0 16 L14 13 L28 14 L42 10 L56 11 L70 7 L84 8 L100 4";
+/**
+ * Honest, data-driven sparkline. Renders the REAL series scaled to its own
+ * min/max; when no series exists it renders a flat neutral baseline instead
+ * of inventing a chart shape. Stroke color follows the actual tone, never a
+ * hardcoded "always up" green.
+ */
+function IndexSparkline({
+  tone,
+  series,
+}: {
+  tone: MarketOverviewMetric["tone"];
+  series?: number[];
+}) {
+  const stroke =
+    tone === "negative"
+      ? "var(--one-down)"
+      : tone === "positive"
+        ? "var(--one-up)"
+        : "var(--one-fg3)";
+  if (!series || series.length < 2) {
+    // No real data: flat neutral baseline, clearly "no chart" rather than a
+    // fabricated trend.
+    return (
+      <svg
+        className="mt-2 block h-5 w-full opacity-50"
+        viewBox="0 0 100 20"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M0 10 L100 10"
+          fill="none"
+          stroke="var(--one-fg3)"
+          strokeWidth="1.4"
+          strokeDasharray="3 4"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = max - min;
+  const points = series
+    .map((point, index) => {
+      const x = (index / (series.length - 1)) * 100;
+      // 2..18 vertical padding inside the 20-high viewBox; flat series sits
+      // on the midline.
+      const y = range === 0 ? 10 : 18 - ((point - min) / range) * 16;
+      return `${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" L");
   return (
     <svg
       className="mt-2 block h-5 w-full opacity-90"
@@ -561,7 +583,14 @@ function IndexSparkline({ tone }: { tone: MarketOverviewMetric["tone"] }) {
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <path d={path} fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d={`M${points}`}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -583,8 +612,15 @@ function OneMarketIndexStrip({
           onClick={() => onMetricSelect(metric)}
           className="w-[132px] shrink-0 rounded-2xl bg-[color:var(--one-card)] px-[15px] py-[13px] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)] transition-transform duration-200 active:scale-[0.985] sm:w-full"
         >
-          <div className="truncate text-[12px] font-medium text-[color:var(--one-fg2)]">
-            {metric.label}
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[12px] font-medium text-[color:var(--one-fg2)]">
+              {metric.label}
+            </span>
+            {metric.degraded ? (
+              <span className="shrink-0 rounded-full bg-[color:var(--one-orange-t)] px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.04em] text-[color:var(--one-orange)]">
+                Delayed
+              </span>
+            ) : null}
           </div>
           <div className="mt-1.5 text-[14px] font-semibold tabular-nums text-[color:var(--one-fg)]">
             {metric.value}
@@ -599,41 +635,13 @@ function OneMarketIndexStrip({
           >
             {metric.delta}
           </div>
-          <IndexSparkline tone={metric.tone} />
+          <IndexSparkline
+            tone={metric.degraded ? "neutral" : metric.tone}
+            series={metric.degraded ? undefined : metric.sparkline}
+          />
         </button>
       ))}
     </div>
-  );
-}
-
-function OneMarketStockCard({ row }: { row: OneMarketDisplayRow }) {
-  const tone = oneMarketTone(row.changePct);
-  return (
-    <button
-      type="button"
-      onClick={() => openOneMarketHref(`${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(row.symbol)}`)}
-      className="min-h-[124px] rounded-[18px] bg-[color:var(--one-card)] px-4 py-[15px] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-14px_rgba(0,0,0,0.16)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.22)] active:scale-[0.985]"
-    >
-      <BrandLogo symbol={row.symbol} className="h-8 w-8 rounded-[9px]" />
-      <div className="mt-[9px] truncate text-[13px] font-semibold text-[color:var(--one-fg)]">
-        {row.companyName}
-      </div>
-      <div className="mt-[7px] flex items-baseline gap-[7px]">
-        <span className="text-[14px] font-semibold tabular-nums text-[color:var(--one-fg)]">
-          {formatOneMarketPrice(row.price)}
-        </span>
-        <span
-          className={cn(
-            "text-[12px] font-semibold tabular-nums",
-            tone === "up" && "text-[color:var(--one-up)]",
-            tone === "down" && "text-[color:var(--one-down)]",
-            tone === "neutral" && "text-[color:var(--one-fg3)]"
-          )}
-        >
-          {formatOneMarketPercent(row.changePct)}
-        </span>
-      </div>
-    </button>
   );
 }
 
@@ -831,77 +839,6 @@ function OneMarketNotificationsSheet({
   );
 }
 
-function OneMarketKaiSheet({
-  open,
-  onClose,
-  message,
-}: {
-  open: boolean;
-  onClose: () => void;
-  message: string;
-}) {
-  return (
-    <section
-      className={cn(
-        "fixed inset-x-0 bottom-0 z-[430] mx-auto flex h-[min(92vh,760px)] max-w-[720px] flex-col rounded-t-[28px] bg-white/95 shadow-[0_-18px_50px_-20px_rgba(0,0,0,0.40)] backdrop-blur-[20px] transition-transform duration-300",
-        open ? "translate-y-0" : "translate-y-[105%]"
-      )}
-      aria-label="Kai agent"
-      aria-hidden={!open}
-    >
-      <div className="mx-auto mt-2.5 h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)] opacity-35" />
-      <header className="flex items-center gap-3 border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]">
-          <Bot className="h-4 w-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
-          <span className="block text-[12px] text-[color:var(--one-fg3)]">Personal intelligence · works only for you</span>
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg2)]"
-          aria-label="Close Kai"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="max-w-[84%] rounded-[18px] rounded-bl-md bg-[color:var(--one-surface)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[color:var(--one-fg)]">
-          {message}
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2 px-4 pb-2">
-        {["Review my holdings", "What's moving today?", "Run a risk check"].map((label) => (
-          <button
-            key={label}
-            type="button"
-            className="rounded-full bg-[color:var(--one-surface)] px-3 py-2 text-[12px] font-semibold text-[color:var(--one-fg)]"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-2 border-t border-[color:var(--one-line)] px-3.5 pb-[calc(14px+env(safe-area-inset-bottom))] pt-2.5">
-        <div className="flex h-10 min-w-0 flex-1 items-center rounded-full bg-[color:var(--one-surface)] px-3.5">
-          <input
-            placeholder="Message Kai..."
-            className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
-          />
-        </div>
-        <button
-          type="button"
-          className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white"
-          aria-label="Speak to Kai"
-        >
-          <Mic className="h-4 w-4" />
-        </button>
-      </div>
-    </section>
-  );
-}
-
 function isUnavailableText(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   return (
@@ -961,7 +898,9 @@ function formatOverviewValue(
   if (lowerLabel.includes("volatility") || lowerLabel.includes("vix")) {
     return degraded ? "Volatility delayed" : "Updating volatility";
   }
-  return degraded ? "Data delayed" : "Updating";
+  // The strip renders a "Delayed" chip next to the label for degraded rows,
+  // so the value slot stays factual instead of repeating "Data delayed".
+  return degraded ? "Awaiting data" : "Updating";
 }
 
 function formatOverviewDelta(
@@ -985,7 +924,7 @@ function formatOverviewDelta(
     if (normalizedSource) {
       return degraded ? `${normalizedSource} delayed` : normalizedSource;
     }
-    return degraded ? "Data delayed" : "Live";
+    return degraded ? "Refresh pending" : "Live";
   }
   const sign = deltaPct >= 0 ? "+" : "";
   return `${sign}${deltaPct.toFixed(2)}%`;
@@ -1078,6 +1017,11 @@ function toIndexOverviewMetric(
     source: row?.source,
     degraded,
   });
+  const sparkline = Array.isArray(row?.sparkline)
+    ? row.sparkline.filter((point): point is number =>
+        typeof point === "number" && Number.isFinite(point)
+      )
+    : undefined;
   return {
     id: label.toLowerCase().replace(/\s+/g, "-"),
     label,
@@ -1085,6 +1029,8 @@ function toIndexOverviewMetric(
     delta,
     tone,
     icon: iconForOverview(label, tone),
+    degraded,
+    sparkline: sparkline && sparkline.length >= 2 ? sparkline : undefined,
     detailPanel: buildIndexDetailPanel(row, label, value, delta, tone),
   };
 }
@@ -1795,8 +1741,7 @@ export function KaiMarketPreviewView() {
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<string | null>(null);
   const [moverTab, setMoverTab] = useState<OneMarketMoverTab>("gain");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [kaiSheetOpen, setKaiSheetOpen] = useState(false);
-  const [marketSearchQuery, setMarketSearchQuery] = useState("");
+
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -2047,29 +1992,15 @@ export function KaiMarketPreviewView() {
     () => toMoverGroups(effectivePayload, mostBoughtRows),
     [effectivePayload, mostBoughtRows]
   );
-  const kaiStripText = useMemo(
-    () => toKaiStripText(effectivePayload, pickRows),
-    [effectivePayload, pickRows]
-  );
   const effectiveNewsTape = effectivePayload?.news_tape;
   const marketNewsRows = useMemo(
     () => (Array.isArray(effectiveNewsTape) ? effectiveNewsTape : []),
     [effectiveNewsTape]
   );
-  const shellOverlayOpen = notificationsOpen || kaiSheetOpen;
+  const shellOverlayOpen = notificationsOpen;
   const closeShellOverlays = useCallback(() => {
     setNotificationsOpen(false);
-    setKaiSheetOpen(false);
   }, []);
-
-  const handleMarketSearchSubmit = useCallback(() => {
-    const query = marketSearchQuery.trim();
-    if (!query) {
-      return;
-    }
-    const normalizedQuery = query.length <= 6 ? query.toUpperCase() : query;
-    openOneMarketHref(`${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(normalizedQuery)}`);
-  }, [marketSearchQuery]);
 
   return (
     <AppPageShell
@@ -2098,7 +2029,7 @@ export function KaiMarketPreviewView() {
             html.dark:has([data-one-market-preview="true"]) body main,
             html.dark:has([data-one-market-preview="true"]) body [data-top-content-anchor="true"],
             html.dark:has([data-one-market-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
-              background: rgb(28, 28, 30) !important;
+              background: var(--background) !important;
             }
 
             nextjs-portal,
@@ -2154,44 +2085,12 @@ export function KaiMarketPreviewView() {
               ) : null}
             </div>
           </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              handleMarketSearchSubmit();
-            }}
-            className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
-          >
-            <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
-            <input
-              type="text"
-              placeholder="Search stocks, ETFs, indices"
-              value={marketSearchQuery}
-              onChange={(event) => setMarketSearchQuery(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
-            />
-          </form>
         </header>
 
         <OneMarketIndexStrip
           metrics={indexStripItems}
           onMetricSelect={(metric) => setSelectedOverviewMetricId(metric.id || metric.label)}
         />
-
-          <div className="mx-auto w-full max-w-[1080px] px-[var(--one-gutter)]">
-          <button
-            type="button"
-            onClick={() => setKaiSheetOpen(true)}
-            className={cn(oneMarketGlassClassName, "mt-[22px] flex w-full items-center gap-[11px] rounded-2xl px-4 py-3.5 text-left transition-transform active:scale-[0.99]")}
-          >
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]">
-              <Bot className="h-4 w-4" />
-            </span>
-            <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
-              <b className="font-semibold">Kai:</b> {kaiStripText}
-            </span>
-            <ChevronRight className="h-[15px] w-[15px] shrink-0 text-[color:var(--one-fg3)]" />
-          </button>
-        </div>
 
         {displayLoading && !hasPayload ? (
           <div className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
@@ -2256,15 +2155,6 @@ export function KaiMarketPreviewView() {
             </section>
 
             <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader title="Most bought on One" icon={Blocks} tone="indigo" />
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {mostBoughtRows.map((row) => (
-                  <OneMarketStockCard key={row.symbol} row={row} />
-                ))}
-              </div>
-            </section>
-
-            <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
               <OneMarketSectionHeader title="Top movers" icon={ChartColumnIncreasing} tone="orange" actionLabel="See all" actionHref={`${ROUTES.KAI_ANALYSIS}?view=movers`} />
               <div className="mb-3.5 grid grid-cols-3 rounded-xl bg-[color:var(--one-surface)] p-[3px]">
                 {[
@@ -2321,11 +2211,6 @@ export function KaiMarketPreviewView() {
       <OneMarketNotificationsSheet
         open={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
-      />
-      <OneMarketKaiSheet
-        open={kaiSheetOpen}
-        onClose={() => setKaiSheetOpen(false)}
-        message={kaiStripText}
       />
 
       <KaiControlSurface

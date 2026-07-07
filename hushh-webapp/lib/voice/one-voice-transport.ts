@@ -102,6 +102,12 @@ export interface RealtimeVoiceTransport {
     segmentType?: "ack" | "final";
     signal?: AbortSignal;
   }): Promise<boolean>;
+  /**
+   * Push a redacted app-state refresh (screen change, action availability)
+   * into the active session so voice context stays continuous across
+   * navigation. Returns false when no live session can accept the update.
+   */
+  updateContext?(context: OneVoiceContextSnapshot): boolean;
   interrupt?(): void;
   stop(): void;
 }

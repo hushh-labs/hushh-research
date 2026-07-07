@@ -80,8 +80,10 @@ export interface OneCapability {
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "finance",
-    title: "Finance",
-    description: "Kai market, portfolio, analysis, and RIA handoff.",
+    // Public agent name is "Investor". Kai remains the internal finance
+    // runtime naming: id, routes, contracts, and code identifiers unchanged.
+    title: "Investor",
+    description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
     icon: ChartNoAxesCombined,

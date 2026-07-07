@@ -2,6 +2,7 @@
 
 import {
   KAI_ACTION_GATEWAY,
+  evaluateKaiActionAvailability,
   getKaiActionById,
   type KaiActionDefinition,
 } from "@/lib/voice/kai-action-gateway";
@@ -101,12 +102,59 @@ function scoreActionForTranscript(action: KaiActionDefinition, transcript: strin
   return score;
 }
 
-function rankActionsForTranscript(transcript: string): Array<{
+/**
+ * State-aware availability weighting so the lexical ranker cannot select an
+ * action the current app state blocks (dead/unwired/persona/guards). Blocked
+ * actions are dropped entirely; actions reachable from the current screen get
+ * a small boost so on-screen intent wins ties against far-away surfaces.
+ */
+function availabilityAdjustedScore(input: {
+  action: KaiActionDefinition;
+  baseScore: number;
+  plannerInput: OneGoalPlannerInput;
+}): number {
+  const { action, baseScore, plannerInput } = input;
+  if (baseScore <= 0) return 0;
+  const appRuntimeState = plannerInput.appRuntimeState;
+  if (!appRuntimeState) return baseScore;
+  const availability = evaluateKaiActionAvailability({
+    action,
+    appRuntimeState,
+    allowPersonaRouteSettlement: true,
+  });
+  if (
+    availability.status === "dead" ||
+    availability.status === "blocked" ||
+    availability.status === "manual_only"
+  ) {
+    return 0;
+  }
+  const currentScreen = plannerInput.currentScreen || null;
+  const onCurrentScreen = Boolean(
+    currentScreen && action.reachability.screens.includes(currentScreen)
+  );
+  // Navigation actions are cross-screen by design; in-place actions on the
+  // current screen deserve a mild boost over same-named actions elsewhere.
+  const screenBoost = onCurrentScreen ? 3 : 0;
+  return baseScore + screenBoost;
+}
+
+function rankActionsForTranscript(
+  transcript: string,
+  plannerInput: OneGoalPlannerInput
+): Array<{
   action: KaiActionDefinition;
   score: number;
 }> {
   return KAI_ACTION_GATEWAY.actions
-    .map((action) => ({ action, score: scoreActionForTranscript(action, transcript) }))
+    .map((action) => ({
+      action,
+      score: availabilityAdjustedScore({
+        action,
+        baseScore: scoreActionForTranscript(action, transcript),
+        plannerInput,
+      }),
+    }))
     .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score || left.action.action_id.localeCompare(right.action.action_id));
 }
@@ -136,7 +184,7 @@ function shouldOverrideCandidate(input: {
 function inferAction(input: OneGoalPlannerInput): KaiActionDefinition | null {
   if (input.actionId) return getKaiActionById(input.actionId);
   const transcript = input.transcript || "";
-  const ranked = rankActionsForTranscript(transcript);
+  const ranked = rankActionsForTranscript(transcript, input);
   const candidate = input.candidateActionId ? getKaiActionById(input.candidateActionId) : null;
   if (candidate) {
     const candidateScore = scoreActionForTranscript(candidate, transcript);

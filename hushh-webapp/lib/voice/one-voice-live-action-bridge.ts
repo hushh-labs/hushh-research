@@ -11,7 +11,10 @@ import { planOneGoal } from "@/lib/one-goal/one-goal-planner";
 import { runOneGoal } from "@/lib/one-goal/one-goal-runner";
 import type { OneGoalPlan } from "@/lib/one-goal/one-goal-types";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import {
+  evaluateKaiActionAvailability,
+  getKaiActionById,
+} from "@/lib/voice/kai-action-gateway";
 import type { OneVoiceActionProposal } from "@/lib/voice/one-voice-transport";
 import {
   VoiceTurnOrchestrator,
@@ -291,6 +294,15 @@ export class OneVoiceLiveActionBridge {
       return;
     }
     if (!this.config.userId || !this.config.vaultOwnerToken || !this.orchestrator) {
+      // Pre-vault (onboarding/anon/locked) lane: pure navigation contracts are
+      // still governed app actions and never touch private data, so voice can
+      // move a brand-new person through getting-started, sign-in, and vault
+      // setup instead of dead-ending on "unlock your vault".
+      const handledPreVault = await this.tryProcessPreVaultNavigation({
+        transcript,
+        candidate: getPlannerCandidate(input.candidate),
+      });
+      if (handledPreVault) return;
       this.config.openChatHandoff({
         reason: "action_requires_chat",
         transcript,
@@ -313,6 +325,64 @@ export class OneVoiceLiveActionBridge {
     });
   }
 
+  private currentVoiceScreen(): string | null {
+    const context = this.config.getVoiceContext();
+    const route =
+      context && typeof context.route === "object" && context.route !== null
+        ? (context.route as Record<string, unknown>)
+        : null;
+    const screen = route?.screen;
+    return typeof screen === "string" && screen.trim() ? screen.trim() : null;
+  }
+
+  /**
+   * Pre-vault navigation lane. Only pure route actions that are low-risk,
+   * allow_direct, wired, and pass availability for the CURRENT (locked/anon)
+   * runtime state may execute. Everything else falls back to the chat handoff.
+   * This keeps voice useful from the very first onboarding screen without
+   * widening any data or execution authority.
+   */
+  private async tryProcessPreVaultNavigation(input: {
+    transcript: string;
+    candidate?: OneVoiceActionProposal | null;
+  }): Promise<boolean> {
+    const plan = planOneGoal({
+      transcript: input.transcript,
+      candidateActionId: input.candidate?.action_id ?? null,
+      appRuntimeState: this.config.getAppRuntimeState(),
+      currentScreen: this.currentVoiceScreen(),
+      entrypoint: "voice",
+    });
+    if (plan.status !== "ready") return false;
+    const action = plan.action;
+    const isPureNavigation =
+      action.execution_policy === "allow_direct" &&
+      action.execution_target.status === "wired" &&
+      action.execution_target.path === "route" &&
+      action.risk_level === "low" &&
+      action.goal.required_inputs.length === 0;
+    if (!isPureNavigation) return false;
+    const availability = evaluateKaiActionAvailability({
+      action,
+      appRuntimeState: this.config.getAppRuntimeState(),
+    });
+    if (availability.status !== "available") return false;
+    this.config.setStage?.("dispatch");
+    const result = await this.config.executeAction(action.action_id);
+    const turnId = `prevault_nav_${Date.now()}`;
+    const text =
+      result.status === "started" || result.status === "succeeded"
+        ? `Opening ${action.label.replace(/^Open\s+/i, "")}.`
+        : result.resultSummary || "I could not open that right now.";
+    await this.speakWithStage({
+      text,
+      turnId,
+      responseId: turnId,
+      segmentType: "final",
+    });
+    return result.status === "started" || result.status === "succeeded";
+  }
+
   private async tryProcessGoalTranscript(input: {
     transcript: string;
     candidate?: OneVoiceActionProposal | null;
@@ -325,6 +395,7 @@ export class OneVoiceLiveActionBridge {
       candidateActionId: input.candidate?.action_id ?? null,
       slots: input.candidate?.slots ?? null,
       appRuntimeState: this.config.getAppRuntimeState(),
+      currentScreen: this.currentVoiceScreen(),
       entrypoint: "voice",
     });
     const pendingPlan = this.pendingGoalPlan;
@@ -346,6 +417,7 @@ export class OneVoiceLiveActionBridge {
             actionId: pendingPlan.action.action_id,
             slots: pendingPlan.slots,
             appRuntimeState: this.config.getAppRuntimeState(),
+            currentScreen: this.currentVoiceScreen(),
             entrypoint: "voice",
           })
         : plan;
