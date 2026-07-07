@@ -79,8 +79,21 @@ class _StubPkm:
         return None
 
 
-def _service_with(rows) -> tuple[MarketplaceCatalogService, _FakeDB]:
+class _StubIdentity:
+    """Resolves seller display names from a preset map (no DB)."""
+
+    def __init__(self, names: dict[str, dict] | None = None):
+        self._names = names or {}
+
+    async def get_many(self, user_ids):
+        return {uid: self._names[uid] for uid in user_ids if uid in self._names}
+
+
+def _service_with(
+    rows, identities: dict[str, dict] | None = None
+) -> tuple[MarketplaceCatalogService, _FakeDB]:
     svc = MarketplaceCatalogService(pkm_service=_StubPkm())
+    svc._identity = _StubIdentity(identities)
     fake = _FakeDB(_FakeResult(rows))
     svc._supabase = fake
     return svc, fake
@@ -111,8 +124,8 @@ def _row(**over):
     return row
 
 
-async def test_list_excludes_viewer_via_neq_and_anonymizes():
-    svc, fake = _service_with([_row()])
+async def test_list_excludes_viewer_and_shows_seller_name():
+    svc, fake = _service_with([_row()], identities={"owner-A": {"display_name": "Rohan Sharma"}})
 
     listings = await svc.list_available_listings(viewer_user_id="viewer-B")
 
@@ -120,12 +133,14 @@ async def test_list_excludes_viewer_via_neq_and_anonymizes():
     assert ("user_id", "viewer-B") in fake.query.neqs
     assert len(listings) == 1
     listing = listings[0]
-    # Anonymized: opaque refs only, never the raw owner id or a name.
+    # Opaque ref stays (stable seller grouping); the raw owner id is never exposed.
     assert listing["ownerRef"] == _owner_ref("owner-A")
     assert listing["ownerRef"].startswith("own_")
     assert "owner-A" not in str(listing)
     assert "ownerUserId" not in listing
     assert "userId" not in listing
+    # Buyer-facing seller display name is surfaced from the identity cache.
+    assert listing["ownerName"] == "Rohan Sharma"
     assert listing["listingId"] == "7"
     assert listing["label"] == "Insurance renewal"
     assert listing["preview"]["title"] == "Insurance renewal"

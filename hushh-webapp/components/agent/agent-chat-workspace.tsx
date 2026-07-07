@@ -130,6 +130,7 @@ import {
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -1291,6 +1292,24 @@ export function AgentChatWorkspace({
     }
     clearAgentPkmContext(user?.uid);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
+
+  // After an Agent One turn, seal + deliver any marketplace slice the agent just
+  // approved. A server-side agent approval can only flip a request to `approved`
+  // (no browser/vault key to seal); this runs the on-device delivery sweep from
+  // the seller's unlocked browser so agent approval matches a Guardian approval.
+  // Best-effort and idempotent: a no-op when there is nothing to deliver.
+  const sweepMarketplaceDeliveries = useCallback(() => {
+    if (!user?.uid || !isVaultUnlocked || !vaultKey) return;
+    const ownerToken = getVaultOwnerToken();
+    if (!ownerToken) return;
+    void runMarketplaceDeliverySweep({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken: ownerToken,
+    }).catch((error) => {
+      console.warn("[AgentOne] marketplace delivery sweep failed:", error);
+    });
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
   const routeInfo = useMemo(
@@ -3017,6 +3036,7 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
+            sweepMarketplaceDeliveries();
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
@@ -3242,6 +3262,7 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
+            sweepMarketplaceDeliveries();
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;

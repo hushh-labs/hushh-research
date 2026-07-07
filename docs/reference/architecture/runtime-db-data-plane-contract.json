@@ -319,6 +319,22 @@
       "expected_row_growth": "medium_per_user_request"
     },
     {
+      "id": "information_marketplace_delivery",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "marketplace_recipient_keys",
+        "marketplace_delivery_envelopes"
+      ],
+      "primary_access_path": "One Information Marketplace end-to-end slice delivery: a buyer publishes an ECDH recipient public key (private half stays on the buyer device); on owner approval the seller device seals the requested safe-summary slice against that key and posts a ciphertext envelope, which the buyer fetches and decrypts locally from the Received-data surface.",
+      "retention_policy": "Recipient public keys persist per buyer while active; delivery envelopes are retained for the scoped access duration and are best-effort deleted on revoke, with terminal rows retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is the key owner (buyer) or the envelope owner/recipient; delete delivered ciphertext on revoke where possible.",
+      "trust_boundary": "Backend stores only recipient public keys, sealed ciphertext envelopes, and delivery metadata. It holds no private keys and never stores raw PKM values or plaintext slices; only the safe-summary projection is ever sealed, and the server acts as a blind relay that cannot decrypt.",
+      "plaintext_posture": "ciphertext_and_metadata_only",
+      "expected_row_growth": "medium_per_user_request"
+    },
+    {
       "id": "trusted_connections_graph",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
