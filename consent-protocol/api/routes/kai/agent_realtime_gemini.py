@@ -988,9 +988,33 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
                     except (TypeError, ValueError):
                         continue
                     if message.get("type") == "interrupt" or message.get("interrupt") is True:
-                        # The provider stream owns actual interruption semantics;
-                        # locally we acknowledge the app request and let the next
-                        # realtime audio frame continue the session.
+                        # Signal the provider for real: Live sessions cancel
+                        # in-flight generation when new client content arrives,
+                        # so a non-prompting content update aborts the current
+                        # model turn instead of letting stale audio keep
+                        # streaming after the app-side interrupt. Best-effort;
+                        # the browser also fences late audio locally.
+                        try:
+                            await session.send_client_content(
+                                turns={
+                                    "role": "user",
+                                    "parts": [
+                                        {
+                                            "text": (
+                                                "[App interrupt - not user speech] Stop the "
+                                                "current spoken response immediately and wait "
+                                                "silently for the user's next request."
+                                            )
+                                        }
+                                    ],
+                                },
+                                turn_complete=False,
+                            )
+                        except Exception as error:  # noqa: BLE001 - interrupt is best-effort
+                            logger.debug(
+                                "agent_gemini_live_interrupt_signal_failed error=%s",
+                                error.__class__.__name__,
+                            )
                         await websocket.send_text(
                             json.dumps({"serverContent": {"interrupted": True}})
                         )
