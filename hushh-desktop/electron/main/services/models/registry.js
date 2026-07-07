@@ -21,19 +21,34 @@ const { app } = require("electron");
 // prompt size (it reproduces at small sizes) but about `tools` + this
 // model's forced reasoning trace together.
 //
-// The fix: split by role instead of picking one model for both. The 1B has
-// no such reasoning-trace-driven budget blowup, so it stays on the
-// classifier (`_plan_action_via_bridge`, agent_chat_service.py) which always
-// attaches `tools`. Qwen3.5-2B moves to reply generation
-// (`stream_response`), which never attaches `tools` at all, so it never hits
-// this failure mode, and its better reasoning quality benefits the part of
-// the pipeline that's just conversational text. Math/reasoning guardrail
-// kept regardless (see local_math_guardrail in _build_local_bridge_messages)
-// since neither model is safe to trust blind on arithmetic.
+// Scoped Qwen3.5-2B to just reply generation (tools-free) to dodge that
+// failure mode, but repeated live testing then found a second, separate
+// problem: even scoped to that role, its thinking trace failed to close
+// within any reasonable token budget in ~40-60% of trials, each failure
+// costing 4-5 minutes before falling back to an error message. Reverted
+// again, this time to Qwen3-4B-Instruct-2507 -- the same checkpoint
+// previously served via QAIRT/NPU (see the RAM-curve history further down
+// this file), now run through llama.cpp/GGUF instead. This model has no
+// thinking-mode trace at all (confirmed via its model card and directly via
+// this endpoint -- zero `<think>` tags across every trial), so it needs none
+// of the budget/stripping complexity Qwen3.5-2B required: 100% success
+// across all trials tested, replies in 16-27s, and a measured ~3.2-3.5GB
+// GenieX process footprint -- smaller than the original QAIRT path's ~6GB
+// free-RAM gate, since llama.cpp carries no NPU driver/context overhead.
+//
+// The role split itself stays regardless of which model is in the reply
+// slot: the 1B has no reasoning-trace-driven budget blowup, so it stays on
+// the classifier (`_plan_action_via_bridge`, agent_chat_service.py) which
+// always attaches `tools`. The reply-generation model
+// (`stream_response`) never attaches `tools` at all, so whichever model
+// sits there never hits the tools-attachment failure mode above. Math/
+// reasoning guardrail kept regardless (see local_math_guardrail in
+// _build_local_bridge_messages) since no candidate model tested this session
+// is safe to trust blind on arithmetic.
 // No precision suffix here -- `geniex list`'s cache-check and the REST API's
 // `model` field both accept the bare name when only one precision is cached
 // (see the *_PRECISION constants for the one place a suffix is required).
-const GENIEX_MODEL_ID = "unsloth/Qwen3.5-2B-GGUF"; // reply generation
+const GENIEX_MODEL_ID = "unsloth/Qwen3-4B-Instruct-2507-GGUF"; // reply generation
 const GENIEX_MODEL_PRECISION = "Q4_0";
 const GENIEX_CLASSIFIER_MODEL_ID = "unsloth/Llama-3.2-1B-Instruct-GGUF"; // action-plan classifier
 const GENIEX_CLASSIFIER_MODEL_PRECISION = "Q4_0";
@@ -60,16 +75,18 @@ const RESTART_DELAY_MS = 1500;
 
 // With the hybrid split above, a single conversation turn can load BOTH
 // models into the same GenieX process (1B for the classifier call, then
-// Qwen3.5-2B for the reply) -- so the gate/working-set sizing below accounts
+// Qwen3-4B for the reply) -- so the gate/working-set sizing below accounts
 // for both potentially being resident, not just one. Real weight sizes:
-// ~773MB (1B) + ~2.4GB (Qwen3.5-2B) =~ 3.2GB combined. The Qwen3.5-2B-alone
-// RAM curve measured earlier this session (controlled memory-pressure
-// allocator, real tok/s measurement: flat 23-27 tok/s from 4.27GB down to
-// 0.56GB free, first degradation only at 0.49GB) showed llama.cpp weights of
-// this size are far more resilient to pressure than the old QAIRT model, but
-// that curve was for one model resident, not two -- gate padded up from that
-// measurement's 1GB to account for the second model's footprint, not
-// re-measured for the exact combined case.
+// ~773MB (1B) + ~2.4GB (Qwen3-4B GGUF Q4_0) =~ 3.2GB combined. Directly
+// measured GenieX process footprint with just Qwen3-4B loaded: ~3.2-3.5GB
+// working set/private memory -- smaller than the original QAIRT path's ~6GB
+// free-RAM gate (no NPU driver/context overhead in the llama.cpp runtime).
+// Caveat: this is a process-RSS snapshot, not a full free-RAM/throughput
+// degradation curve like the one run for Qwen3.5-2B earlier this session
+// (controlled memory-pressure allocator + real tok/s measurement) -- that
+// methodology hasn't been repeated for this exact model/combined-resident
+// case, so treat this gate as a reasonable starting point, not a
+// precisely-measured floor.
 const MIN_FREE_RAM_BYTES = 1.5 * 1024 * 1024 * 1024;
 
 // Soft working-set floor/ceiling for the GenieX process itself, distinct from
@@ -78,9 +95,9 @@ const MIN_FREE_RAM_BYTES = 1.5 * 1024 * 1024 * 1024;
 // deprioritize trimming GenieX's resident model weights under memory
 // pressure later in the session -- see _pinGenieXWorkingSet. Sized for both
 // models' combined ~3.2GB weight footprint (min) plus headroom for
-// KV-cache/engine overhead and longer Qwen3.5-2B generations (max). This is
-// a soft hint (Win32 SetProcessWorkingSetSize), not a hard reservation --
-// Windows can still trim below it under severe system-wide memory pressure.
+// KV-cache/engine overhead (max). This is a soft hint (Win32
+// SetProcessWorkingSetSize), not a hard reservation -- Windows can still
+// trim below it under severe system-wide memory pressure.
 const GENIEX_MIN_WORKING_SET_BYTES = 3.5 * 1024 * 1024 * 1024;
 const GENIEX_MAX_WORKING_SET_BYTES = 5 * 1024 * 1024 * 1024;
 
@@ -207,11 +224,13 @@ class ModelRegistry {
         // precision variants on their hub, and `geniex pull` without a
         // ':<precision>' suffix drops into an interactive picker -- which
         // would hang forever against this spawn's non-interactive stdio.
-        // --model-type llm is required too: GenieX auto-detects the
-        // Qwen3.5-2B repo as a "vlm", which crashes `geniex serve` after
-        // exactly one request (see GENIEX_MODEL_TYPE above) -- forcing the
-        // correct type at pull time is what fixes that. Harmless for the 1B,
-        // which is already correctly detected as "llm".
+        // --model-type llm is required too: GenieX has been observed to
+        // auto-detect some text-only repos (Qwen3.5-2B, tried and reverted
+        // earlier this session) as a "vlm", which crashes `geniex serve`
+        // after exactly one request (see GENIEX_MODEL_TYPE above) -- forcing
+        // the correct type at pull time is what fixes that. Passed
+        // unconditionally since it's harmless for models that are already
+        // correctly auto-detected (the 1B, and Qwen3-4B-Instruct-2507).
         const pullProcess = spawn(geniexExe, [
             "pull", modelRef,
             "--model-hub", GENIEX_MODEL_HUB,
@@ -237,9 +256,9 @@ class ModelRegistry {
   /**
    * Pulls both hybrid-role GenieX models into the local cache (idempotent --
    * skips whichever is already present, per `geniex list`). The classifier
-   * (1B) and reply-generation (Qwen3.5-2B) models are split by role -- see
-   * GENIEX_MODEL_ID's comment above for why -- so both must be provisioned
-   * for local mode to work end-to-end, not just one.
+   * (1B) and reply-generation (Qwen3-4B-Instruct-2507) models are split by
+   * role -- see GENIEX_MODEL_ID's comment above for why -- so both must be
+   * provisioned for local mode to work end-to-end, not just one.
    */
   async provisionGenieXModel(modelId = "Llama-3.2-3B-Instruct") {
     const geniexExe = this._getGenieXExePath();

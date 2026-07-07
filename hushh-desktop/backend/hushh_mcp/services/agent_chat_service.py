@@ -1480,24 +1480,28 @@ class AgentChatService:
             )
 
             payload = {
-                # Hybrid split: this reply-generation call uses Qwen3.5-2B
-                # (most internally-coherent reasoner of four candidates
-                # tested this session), while the separate action-plan
-                # classifier call below (_plan_action_via_bridge) stays on
-                # the 1B. Qwen3.5-2B's always-on <think> reasoning trace (no
-                # way to disable it -- a "think" JSON field errors,
-                # "/no_think" isn't honored and can trigger runaway
-                # repetition) breaks GenieX whenever `tools` are attached to
-                # a request -- confirmed down to a single minimal tool with
-                # a 5-token completion ask still hitting
-                # `context_length_exceeded` at ~345 prompt tokens, nowhere
-                # near the assumed 4096 window. This call never attaches
-                # `tools` (the classifier already resolved action_plan
-                # separately -- see below), so it never hits that failure
-                # mode, and gets the benefit of this model's better
-                # reasoning for plain conversational replies. See
-                # registry.js's GENIEX_MODEL_ID for the full history.
-                "model": "unsloth/Qwen3.5-2B-GGUF",
+                # Hybrid split: this reply-generation call uses
+                # Qwen3-4B-Instruct-2507 run through llama.cpp/GGUF (the same
+                # checkpoint previously served via QAIRT/NPU -- see the RAM
+                # curve section below in KNOWN_ISSUES.md), while the separate
+                # action-plan classifier call below (_plan_action_via_bridge)
+                # stays on the 1B. Two prior candidates were tried and
+                # reverted for this role: Qwen3.5-2B broke tool-calling
+                # outright when `tools` were attached, and even scoped to
+                # this tools-free reply role, its always-on <think> reasoning
+                # trace failed to close within budget in ~40-60% of live
+                # trials (confirmed via repeated direct testing), each
+                # failure costing 4-5 minutes before falling back to an
+                # error message -- unacceptably unreliable. Qwen3-4B has no
+                # thinking-mode trace at all (confirmed via the model card
+                # and directly via this endpoint: zero `<think>` tags across
+                # every trial), so it needs none of that complexity: 100%
+                # success across all trials tested, replies in 16-27s (vs.
+                # Qwen3.5-2B's up to several minutes), and a smaller ~3.2-3.5GB
+                # GenieX process footprint than the original QAIRT path (no
+                # NPU driver/context overhead to carry). See registry.js's
+                # GENIEX_MODEL_ID for the full history.
+                "model": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
                 "messages": messages,
                 "stream": True,
                 "temperature": 0.7,
@@ -1506,41 +1510,17 @@ class AgentChatService:
                 # API -- confirmed via direct testing against this exact
                 # endpoint: a request capped at 256 came back with 1,258
                 # completion tokens. `max_completion_tokens` is the field
-                # that's actually honored. Sized at 6000, not 1200: live
-                # testing with the real production message (full
-                # AGENT_SYSTEM_PROMPT plus the turn context, relevance
-                # reminder, math guardrail, and role-scope text all stacked
-                # into the user turn -- see _build_local_bridge_messages)
-                # showed the thinking block alone routinely exceeding both
-                # 1200 and 3000 tokens before ever closing, which meant the
-                # model's raw internal reasoning was shown as the reply
-                # verbatim, cut off mid-thought, with no real answer ever
-                # produced. Verified directly against this exact endpoint,
-                # with this exact message construction, that 6000 is enough
-                # for the model to close its `</think>` block and produce a
-                # complete, coherent answer (used well under budget in that
-                # run). This raises worst-case latency substantially --
-                # accepted tradeoff for a reply that's actually visible at
-                # all; see the </think>-stripping logic below, which is the
-                # other half of this fix.
-                "max_completion_tokens": 6000,
+                # that's actually honored. 1500 comfortably covers this
+                # model's real replies (129-243 completion tokens observed
+                # across plain-chat and math-guardrail trials, with no
+                # reasoning-trace overhead to budget for).
+                "max_completion_tokens": 1500,
             }
 
             # aiohttp.ClientSession defaults to a 300s total timeout if none
             # is given -- disable it so a genuinely slow (but progressing)
             # on-device generation is never cut off mid-stream.
             no_timeout = aiohttp.ClientTimeout(total=None)
-            # Qwen3.5-2B always reasons before answering and closes that
-            # block with a literal `</think>` marker (no opening tag is
-            # emitted -- confirmed via direct probing of this exact
-            # endpoint). Neither GenieX nor the bridge strips this, so
-            # buffer deltas until the marker appears and only start
-            # yielding text after it; otherwise the model's raw internal
-            # reasoning is shown to the user as the reply, which is exactly
-            # what live testing surfaced before this fix.
-            think_close_marker = "</think>"
-            think_buffer = ""
-            seen_think_close = False
             async with aiohttp.ClientSession(timeout=no_timeout) as session:
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
@@ -1562,31 +1542,10 @@ class AgentChatService:
                             # (slow/heavy) completions it emits a single final
                             # frame in the non-streaming "message" shape instead.
                             delta = choice.get("delta", {}).get("content", "") or choice.get("message", {}).get("content", "")
+                            if delta:
+                                yield delta
                         except Exception as exc:
                             logger.warning(f"[LocalChat] Failed to parse GenieX SSE line: {exc!r} line={payload_str[:200]!r}")
-                            continue
-                        if not delta:
-                            continue
-                        if seen_think_close:
-                            yield delta
-                            continue
-                        think_buffer += delta
-                        marker_idx = think_buffer.find(think_close_marker)
-                        if marker_idx != -1:
-                            seen_think_close = True
-                            remainder = think_buffer[marker_idx + len(think_close_marker):].lstrip("\n")
-                            if remainder:
-                                yield remainder
-                            think_buffer = ""
-            if not seen_think_close:
-                # Ran out of budget while still inside the reasoning block --
-                # nothing real was ever produced. Surface a clear message
-                # instead of either silence or the raw partial reasoning.
-                logger.warning(
-                    "[LocalChat] Qwen3.5-2B never closed its </think> block "
-                    "within max_completion_tokens -- no visible reply produced"
-                )
-                yield "Sorry, that took too long to think through -- please try again."
             return
 
         contents = self._build_contents(

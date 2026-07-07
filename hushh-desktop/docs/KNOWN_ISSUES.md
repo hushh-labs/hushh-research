@@ -393,6 +393,48 @@ the bridge endpoint:
   one on the same port are interchangeable) rather than the app's live one
   whenever the app is actively in use.
 
+### Superseded: reply generation moved from Qwen3.5-2B to Qwen3-4B-Instruct-2507 (llama.cpp)
+The `</think>`-buffering fix above worked as designed (no leaked reasoning
+text, ever) but repeated reliability testing found the underlying problem it
+was papering over was worse than it first looked: across 5 trials of the
+exact same simple prompt, only 2 succeeded. The other 3 never closed the
+`</think>` block even at a 6000-token budget, each burning **4.5-5 minutes**
+before falling back to an error message. Raising the budget further would
+not have fixed this -- the failures were non-convergent reasoning, not
+under-sized budgets.
+
+Tried instead: **Qwen3-4B-Instruct-2507**, the same checkpoint this app
+previously served via QAIRT/NPU (see the RAM-sensitivity section below),
+now pulled and run through **llama.cpp/GGUF** instead (`geniex pull
+unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0 --model-hub hf --model-type llm`).
+This model has no thinking-mode trace at all (its model card confirms this,
+and it was directly reconfirmed here -- zero `<think>` tags across every
+trial run). Results, tested both via raw calls to the bridge and via the
+actual `stream_response()` code path:
+- **8/8 trials succeeded** (plain chat x6, math-guardrail question x2) --
+  100%, vs. Qwen3.5-2B's 40%.
+- **Replies in 16-27s**, vs. Qwen3.5-2B's up to several minutes.
+- **Correctly follows the math guardrail** without prompting changes --
+  defers to a rough approximation and points to Kai's cloud tools, matching
+  the intended behavior.
+- **Measured GenieX process footprint with this model loaded: ~3.2-3.5GB**
+  (working set / private memory) -- smaller than the original QAIRT path's
+  ~6GB free-RAM gate, since llama.cpp carries no NPU driver/context
+  overhead. This was the original hypothesis for trying this combination
+  and it held up, though this is a process-RSS snapshot, not the full
+  free-RAM/throughput degradation curve methodology used for Qwen3.5-2B --
+  worth doing properly before treating `MIN_FREE_RAM_BYTES` as precisely
+  tuned rather than a reasonable starting point.
+- **Simplification:** the `</think>`-buffering/stripping logic in
+  `stream_response` was removed entirely (not just made conditional) -- this
+  model never emits the marker, so the buffering logic would have swallowed
+  every real reply while waiting for a marker that never arrives.
+  `max_completion_tokens` for the reply call dropped from 6000 back to 1500
+  (real replies observed at 129-243 completion tokens, no reasoning-trace
+  overhead to budget for).
+- The classifier stays on the 1B, unchanged -- this swap only affects the
+  reply-generation role.
+
 ### Performance: throughput is highly sensitive to free system RAM
 Superseding an earlier (incorrect) conclusion in this file that this was a hard
 hardware floor and that RAM headroom didn't help — a later, apples-to-apples
