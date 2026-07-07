@@ -212,6 +212,21 @@ async def deliver_marketplace_request(
     return result
 
 
+@router.post("/requests/{request_id}/revoke")
+async def revoke_marketplace_request(
+    request_id: str = Path(..., min_length=1, max_length=128),
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Owner-scoped: revoke a previously approved request (withdraw access +
+    purge delivered ciphertext). Works for interactive and agent-approved grants."""
+    result: dict[str, Any] = await _service().revoke_request(
+        owner_user_id=token_data["user_id"], request_id=request_id
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="Request not found or not revocable")
+    return result
+
+
 @router.post("/requests/{request_id}/deny")
 async def deny_marketplace_request(
     request_id: str = Path(..., min_length=1, max_length=128),

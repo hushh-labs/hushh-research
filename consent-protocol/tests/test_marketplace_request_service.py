@@ -20,6 +20,7 @@ class _FakeQuery:
     def __init__(self, result):
         self._result = result
         self.inserted = None
+        self.deleted = False
         self.updated = None
         self.upserted = None
         self.on_conflict = None
@@ -30,6 +31,10 @@ class _FakeQuery:
 
     def insert(self, payload):
         self.inserted = payload
+        return self
+
+    def delete(self):
+        self.deleted = True
         return self
 
     def select(self, *_a):
@@ -70,6 +75,9 @@ class _FakeTable:
 
     def insert(self, payload):
         return self._query.insert(payload)
+
+    def delete(self):
+        return self._query.delete()
 
     def select(self, *a):
         return self._query.select(*a)
@@ -409,6 +417,38 @@ _SAMPLE_JWK = {
     "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
     "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
 }
+
+
+async def test_revoke_request_flips_approved_to_revoked_and_purges_envelope():
+    row = {
+        "id": "req-1",
+        "owner_user_id": "owner",
+        "buyer_user_id": "buyer",
+        "slice_label": "Insurance",
+        "status": "revoked",
+    }
+    svc, fake = _service_with([row])
+
+    result = await svc.revoke_request(owner_user_id="owner", request_id="req-1")
+
+    assert result["ok"] is True
+    # Owner-scoped, approved-only status flip; delivery pointer cleared.
+    assert fake.query.updated["status"] == "revoked"
+    assert fake.query.updated["latest_envelope_id"] is None
+    assert ("owner_user_id", "owner") in fake.query.eqs
+    assert ("status", "approved") in fake.query.eqs
+    # Delivered ciphertext is purged so the server stops relaying it.
+    assert fake.query.deleted is True
+
+
+async def test_revoke_request_not_ok_when_not_approved():
+    svc, fake = _service_with([])  # no approved row owned by this user
+
+    result = await svc.revoke_request(owner_user_id="owner", request_id="missing")
+
+    assert result["ok"] is False
+    assert result["reason"] == "not_found_or_not_approved"
+    assert fake.query.deleted is False  # nothing purged when nothing revoked
 
 
 async def test_register_recipient_key_rotates_and_upserts_active_key():

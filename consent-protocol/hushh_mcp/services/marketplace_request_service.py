@@ -21,7 +21,7 @@ from db.db_client import get_db
 
 logger = logging.getLogger(__name__)
 
-_STATUSES = {"pending", "approved", "denied", "expired"}
+_STATUSES = {"pending", "approved", "denied", "expired", "revoked"}
 _DEFAULT_KEY_ALGORITHM = "ECDH-P256-AES256-GCM"
 
 
@@ -383,6 +383,34 @@ class MarketplaceRequestService:
         return await self._resolve(
             owner_user_id=owner_user_id, request_id=request_id, next_status="denied"
         )
+
+    async def revoke_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
+        """Owner-scoped: withdraw a previously approved request. Flips the status to
+        ``revoked``, drops the ``latest_envelope_id`` pointer, and best-effort
+        deletes any delivered ciphertext so the buyer can no longer fetch the
+        slice. Only an ``approved`` request the owner owns can be revoked."""
+        result = await self._execute_query(
+            self.supabase.table("marketplace_access_requests")
+            .update({"status": "revoked", "resolved_at": _now_iso(), "latest_envelope_id": None})
+            .eq("id", request_id)
+            .eq("owner_user_id", owner_user_id)
+            .eq("status", "approved")
+        )
+        rows = getattr(result, "data", None) or []
+        if not rows:
+            return {"ok": False, "reason": "not_found_or_not_approved", "requestId": request_id}
+        # Purge delivered ciphertext (best-effort; the status flip is the source of
+        # truth for access, this just stops the server relaying a stale envelope).
+        try:
+            await self._execute_query(
+                self.supabase.table("marketplace_delivery_envelopes")
+                .delete()
+                .eq("request_id", request_id)
+                .eq("owner_user_id", owner_user_id)
+            )
+        except Exception:
+            logger.warning("marketplace.revoke_envelope_purge_failed", exc_info=True)
+        return {"ok": True, "request": _row_to_request(rows[0])}
 
     async def register_recipient_key(
         self,
