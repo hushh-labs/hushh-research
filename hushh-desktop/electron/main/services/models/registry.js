@@ -81,25 +81,55 @@ const RESTART_DELAY_MS = 1500;
 // measured GenieX process footprint with just Qwen3-4B loaded: ~3.2-3.5GB
 // working set/private memory -- smaller than the original QAIRT path's ~6GB
 // free-RAM gate (no NPU driver/context overhead in the llama.cpp runtime).
-// Caveat: this is a process-RSS snapshot, not a full free-RAM/throughput
-// degradation curve like the one run for Qwen3.5-2B earlier this session
-// (controlled memory-pressure allocator + real tok/s measurement) -- that
-// methodology hasn't been repeated for this exact model/combined-resident
-// case, so treat this gate as a reasonable starting point, not a
-// precisely-measured floor.
-const MIN_FREE_RAM_BYTES = 1.5 * 1024 * 1024 * 1024;
+//
+// Real degradation curve measured (controlled memory-pressure allocator +
+// real tok/s measurement against a realistic ~800-token production prompt,
+// both a short and a 900-token-completion generation, at each level):
+//   2.10GB free: 9.6 / 9.7 tok/s   1.35GB free: 7.4 / 9.6 tok/s
+//   0.83GB free: 7.0 / 9.6 tok/s   0.69GB free: 8.6 / 9.5 tok/s
+//   0.63GB free: 7.9 / 9.6 tok/s   0.19GB free: 8.6 / 9.4 tok/s
+// No degradation cliff found anywhere in this range -- long-generation
+// throughput stayed flat (9.4-9.7 tok/s) all the way down to 190MB free;
+// the short-prompt variance (7.0-9.6) didn't correlate with RAM level and
+// looks like ordinary per-request noise, not RAM-driven decay. Far more
+// resilient than either prior candidate (QAIRT Qwen3-4B collapsed 20x below
+// ~1.3GB free; Qwen3.5-2B/llama.cpp degraded ~27% below 0.49GB). Stopped
+// testing at 190MB free rather than pushing toward true system exhaustion,
+// since that risks broader OS-level instability, not just GenieX slowness --
+// so "no cliff below 190MB" is not the same claim as "no cliff at all."
+// Gate dropped to a minimal 200MB floor on this evidence -- but note what
+// the curve actually proved: an ALREADY-LOADED GenieX process tolerates
+// pressure down to 190MB free with zero throughput loss. It says nothing
+// about whether spawning fresh and loading ~3.2GB of new model weights
+// succeeds cleanly when free RAM is already near-zero at spawn time --
+// that's a different failure mode (allocation failure / system-wide
+// instability under the load itself), untested here. 200MB is kept as a
+// minimal safety floor against that untested case, not derived from the
+// throughput curve the way the old multi-GB gate was. Caveat: the curve
+// also tested only the reply-generation model (Qwen3-4B) resident alone,
+// not the combined classifier+reply scenario noted above.
+//
+// Important tradeoff, not just a strength: this resilience and the 100%
+// reliability (see agent_chat_service.py's stream_response comment) come at
+// a real speed cost -- ~7-10 tok/s here, vs. the original QAIRT/NPU path's
+// 23.1 tok/s rating (~16 tok/s real-world best case) and vs. Qwen3.5-2B's
+// 23-27 tok/s when it happened to converge. llama.cpp here is CPU-only, no
+// NPU offload. Live-tested in the running app and judged acceptable on
+// feel/smoothness despite the lower raw number -- a deliberate reliability-
+// over-speed tradeoff, not an oversight.
+const MIN_FREE_RAM_BYTES = 0.2 * 1024 * 1024 * 1024;
 
-// Soft working-set floor/ceiling for the GenieX process itself, distinct from
-// MIN_FREE_RAM_BYTES above (which only gates whether we spawn at all, once,
-// at spawn time). Setting a minimum working set is a hint to Windows to
-// deprioritize trimming GenieX's resident model weights under memory
-// pressure later in the session -- see _pinGenieXWorkingSet. Sized for both
-// models' combined ~3.2GB weight footprint (min) plus headroom for
-// KV-cache/engine overhead (max). This is a soft hint (Win32
-// SetProcessWorkingSetSize), not a hard reservation -- Windows can still
-// trim below it under severe system-wide memory pressure.
-const GENIEX_MIN_WORKING_SET_BYTES = 3.5 * 1024 * 1024 * 1024;
-const GENIEX_MAX_WORKING_SET_BYTES = 5 * 1024 * 1024 * 1024;
+// A working-set floor pin (forcing Windows to keep ~3.5GB permanently
+// resident, even while GenieX sits idle) was carried from the earlier
+// QAIRT/Qwen3.5-2B era, where it existed specifically to prevent the
+// RAM-pressure paging/degradation documented above. The real degradation
+// curve run for Qwen3-4B/llama.cpp found no such degradation at all, down
+// to 190MB free -- so for this model, the pin was pure reserved memory
+// with no protective benefit, working directly against a low idle
+// footprint. Removed: see _pinGenieXWorkingSet's removal below. If a future
+// model swap reintroduces real RAM-pressure sensitivity (re-run the mem_hog
+// + tok/s curve methodology to check), reinstate a pin sized to that
+// model's actual measured cliff, not a guess.
 
 class ModelRegistry {
   constructor() {
@@ -374,14 +404,13 @@ class ModelRegistry {
         return null;
     }
 
-    // Gate on free RAM rather than let a low-memory machine "succeed" into a
-    // ~20x-slower experience with no visible explanation -- see
-    // MIN_FREE_RAM_BYTES for how that number was derived.
+    // Minimal safety gate against spawning into near-zero free RAM -- see
+    // MIN_FREE_RAM_BYTES for what this does and doesn't protect against.
     const freeRamBytes = os.freemem();
     if (freeRamBytes < MIN_FREE_RAM_BYTES) {
         console.error(
-            `[ModelRegistry] ❌ Refusing to spawn GenieX: only ${(freeRamBytes / 1024 ** 3).toFixed(1)}GB ` +
-            `free, need ${(MIN_FREE_RAM_BYTES / 1024 ** 3).toFixed(0)}GB for acceptable performance.`
+            `[ModelRegistry] ❌ Refusing to spawn GenieX: only ${(freeRamBytes / 1024 ** 3).toFixed(2)}GB ` +
+            `free, need ${(MIN_FREE_RAM_BYTES / 1024 ** 3).toFixed(2)}GB minimum to spawn safely.`
         );
         this._lastSpawnFailureReason = "insufficient_ram";
         return null;
@@ -429,7 +458,6 @@ class ModelRegistry {
         timeout: 60000,
       });
         console.log(`[ModelRegistry] ✅ GenieX server is online and ready!`);
-        this._pinGenieXWorkingSet(this.aiProcess.pid);
         this.broadcastStatusChange(modelId);
         return this.aiProcess;
     } catch (err) {
@@ -438,46 +466,6 @@ class ModelRegistry {
         this.killLocalInferenceEngine(modelId);
         return null;
     }
-  }
-
-  /**
-   * Sets a minimum/maximum working-set size hint on the GenieX process so
-   * Windows deprioritizes trimming its resident model weights under memory
-   * pressure later in the session -- the root cause of the ~20x slowdown
-   * documented above (MIN_FREE_RAM_BYTES only gates spawn time, not this).
-   * Uses .NET's Process.MinWorkingSet/MaxWorkingSet (which wraps Win32's
-   * SetProcessWorkingSetSize) via a short PowerShell call rather than a
-   * native Node addon -- no new build-toolchain dependency for a soft hint.
-   * Best-effort and non-fatal: GenieX keeps running at its unpinned
-   * baseline if this fails for any reason.
-   */
-  _pinGenieXWorkingSet(pid) {
-      if (process.platform !== "win32") return;
-
-      // Max must be raised before Min -- .NET validates Min against the
-      // *current* Max (the small OS default) at assignment time, so setting
-      // Min first against an unraised ceiling fails even when the two
-      // literal values being requested are perfectly consistent.
-      const psCommand =
-          `$p = Get-Process -Id ${pid} -ErrorAction Stop; ` +
-          `$p.MaxWorkingSet = [IntPtr]${GENIEX_MAX_WORKING_SET_BYTES}; ` +
-          `$p.MinWorkingSet = [IntPtr]${GENIEX_MIN_WORKING_SET_BYTES}`;
-
-      const { spawn: spawnPs } = require("child_process");
-      const ps = spawnPs("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCommand]);
-
-      let stderr = "";
-      ps.stderr.on("data", (d) => { stderr += d.toString(); });
-      ps.on("exit", (code) => {
-          if (code === 0) {
-              console.log(
-                  `[ModelRegistry] 📌 Pinned GenieX working set (min ${(GENIEX_MIN_WORKING_SET_BYTES / 1024 ** 3).toFixed(1)}GB / ` +
-                  `max ${(GENIEX_MAX_WORKING_SET_BYTES / 1024 ** 3).toFixed(1)}GB) to reduce paging under memory pressure.`
-              );
-          } else {
-              console.warn(`[ModelRegistry] ⚠️ Could not pin GenieX working set (non-fatal): ${stderr.trim()}`);
-          }
-      });
   }
 
   /**

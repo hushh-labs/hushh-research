@@ -435,6 +435,67 @@ actual `stream_response()` code path:
 - The classifier stays on the 1B, unchanged -- this swap only affects the
   reply-generation role.
 
+### Qwen3-4B/llama.cpp real RAM curve: no degradation found, but a real speed tradeoff
+Ran the same controlled memory-pressure allocator + real tok/s methodology
+used for Qwen3.5-2B, this time against Qwen3-4B/llama.cpp, using a realistic
+~800-token production prompt (full system prompt + PKM context + guardrail
+text) plus a 900-token-completion long-generation variant at each level:
+
+| Target free | Actual free | Short-prompt tok/s | Long-gen (900 tok) tok/s |
+|---|---|---|---|
+| 2.0GB | 2.10GB | 9.6 | 9.7 |
+| 1.5GB | 1.54GB | 7.5 | 9.6 |
+| 1.0GB | 1.35GB | 7.4 | 9.6 |
+| 0.75GB | 0.83GB | 7.0 | 9.6 |
+| 0.5GB | 0.69GB | 8.6 | 9.5 |
+| 0.3GB | 0.63GB | 7.9 | 9.6 |
+| 0.15GB | 0.19GB | 8.6 | 9.4 |
+
+**No degradation cliff found anywhere in this range.** Long-generation
+throughput stayed flat (9.4-9.7 tok/s) all the way down to 190MB free; the
+short-prompt variance (7.0-9.6) didn't correlate with RAM level and looks
+like ordinary per-request noise. Far more resilient than either prior
+candidate (QAIRT Qwen3-4B collapsed 20x below ~1.3GB free; Qwen3.5-2B/
+llama.cpp degraded ~27% below 0.49GB). Stopped at 190MB free rather than
+pushing toward true system exhaustion -- that risks broader OS-level
+instability, not just GenieX slowness, so "no cliff below 190MB" isn't the
+same claim as "no cliff at all."
+
+**Important tradeoff, not just a strength:** this resilience and the 100%
+reliability come at a real speed cost. ~7-10 tok/s here vs. the original
+QAIRT/NPU path's 23.1 tok/s rating (~16 tok/s real-world best case) and vs.
+Qwen3.5-2B's 23-27 tok/s when it happened to converge. GenieX's llama.cpp
+backend here is CPU-only -- no NPU offload -- so this is genuinely slower to
+watch stream, not a free win. Live-tested in the running app (two complex
+multi-step financial-math prompts, correctly deferred per the guardrail both
+times) and explicitly judged acceptable on feel/smoothness despite the lower
+raw number. Worth revisiting if GenieX ever exposes NPU-accelerated
+inference for a GGUF checkpoint, or if the speed tradeoff stops feeling
+acceptable at scale.
+
+**Config changes made on this evidence:**
+- `MIN_FREE_RAM_BYTES` (spawn-time gate) dropped from 1.5GB to a minimal
+  200MB floor. Important distinction: the curve above proves an
+  **already-loaded** GenieX process tolerates pressure fine -- it says
+  nothing about whether spawning fresh and loading ~3.2GB of model weights
+  succeeds cleanly when free RAM is already near-zero at spawn time (a
+  different failure mode: allocation failure / system-wide instability
+  under the load itself, not GenieX's own throughput). 200MB is a minimal
+  safety floor against that untested case, not a value derived from the
+  throughput curve.
+- The working-set floor pin (`_pinGenieXWorkingSet`, forcing Windows to keep
+  ~3.5GB permanently resident even while GenieX sits idle) was **removed
+  entirely**, not just lowered. It was carried over from the QAIRT/
+  Qwen3.5-2B era specifically to prevent RAM-pressure paging degradation --
+  since this model shows no such degradation, the pin was pure reserved
+  idle memory with no protective benefit, working directly against a low
+  footprint. If a future model swap reintroduces real RAM-pressure
+  sensitivity, reinstate a pin sized to that model's actual measured cliff
+  via this same methodology, not a guess.
+- Both changes tested only the reply-generation model (Qwen3-4B) resident
+  alone, not the combined classifier+reply scenario noted in the hybrid
+  section above.
+
 ### Performance: throughput is highly sensitive to free system RAM
 Superseding an earlier (incorrect) conclusion in this file that this was a hard
 hardware floor and that RAM headroom didn't help — a later, apples-to-apples
