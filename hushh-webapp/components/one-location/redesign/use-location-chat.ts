@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   decryptLocationEnvelope,
@@ -274,7 +275,12 @@ export function useLocationChat(params: {
           durationHours: action.durationHours ?? 1,
           locationSnapshot,
         });
-        await report({ id: action.id, type: action.type, status: "completed", publicUrl });
+        await report({
+          id: action.id,
+          type: action.type,
+          status: "completed",
+          publicUrl: publicInviteUrlLabel(publicUrl),
+        });
       } else if (action.type === "sos_panic") {
         const state = await OneLocationService.getState(vaultOwnerToken);
         const connected = selectSosConnectedRecipients(

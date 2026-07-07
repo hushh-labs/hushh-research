@@ -57,6 +57,10 @@ import {
   type MarketplaceRequest,
   type PublishableSlice,
 } from "@/lib/one-marketplace/service";
+import {
+  ChatMarkdownLink,
+  copyTextToClipboard,
+} from "@/components/agent/chat-markdown-link";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import {
   AgentTurnStreamPanel,
@@ -611,26 +615,6 @@ function formatAgentDisplayName(displayName?: string | null, email?: string | nu
   return firstName.charAt(0).toUpperCase() + firstName.slice(1);
 }
 
-async function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
-}
-
 function AgentWelcomePanel({
   name,
   disabled,
@@ -714,14 +698,7 @@ function AgentMarkdown({ text }: { text: string }) {
           ),
           li: ({ children }) => <li className="pl-1">{children}</li>,
           a: ({ children, href }) => (
-            <a
-              href={href || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              {children}
-            </a>
+            <ChatMarkdownLink href={href}>{children}</ChatMarkdownLink>
           ),
           code: ({ children, className }) => {
             const inline = !className;
