@@ -37,6 +37,7 @@ function makeVm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewM
     renderMapPreview: () => <div data-testid="map" />,
     formatDateTime: () => "now",
     busy: null,
+    ...overrides,
   } as unknown as LocationHubViewModel;
 }
 
