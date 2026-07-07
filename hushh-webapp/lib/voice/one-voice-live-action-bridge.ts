@@ -459,6 +459,21 @@ export class OneVoiceLiveActionBridge {
   }): Promise<boolean> {
     const { plan, transcript, userId, vaultOwnerToken } = input;
     if (plan.status === "blocked") {
+      // A blocked plan WITH an inferred action carries a real prerequisite
+      // explanation ("Unlock the vault...", "Import your portfolio first.").
+      // Speak it so the user hears why, instead of the model improvising or
+      // the turn dying silently. Blocked plans with no action fall through to
+      // the conversational path.
+      if (plan.action && plan.reason) {
+        const turnId = `goal_blocked_${Date.now()}`;
+        await this.speakWithStage({
+          text: plan.reason,
+          turnId,
+          responseId: turnId,
+          segmentType: "final",
+        });
+        return true;
+      }
       return Boolean(this.pendingGoalPlan);
     }
     if (plan.status === "input_needed") {

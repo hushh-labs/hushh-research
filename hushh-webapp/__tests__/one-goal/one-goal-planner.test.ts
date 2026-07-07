@@ -114,6 +114,49 @@ describe("planOneGoal", () => {
     expect(plan.slots.symbol).toBeUndefined();
   });
 
+  it("explains the real prerequisite when state gating blocks the matched intent", () => {
+    const plan = planOneGoal({
+      transcript: "Analyze TSLA",
+      entrypoint: "voice",
+      appRuntimeState: {
+        auth: { signed_in: true, user_id: "user_1" },
+        vault: { unlocked: true, token_available: true, token_valid: true },
+        route: { pathname: "/one/kai", screen: "kai_market", subview: null },
+        runtime: {
+          analysis_active: true,
+          analysis_ticker: "NVDA",
+          analysis_run_id: "run_1",
+          import_active: false,
+          import_run_id: null,
+          busy_operations: [],
+        },
+        portfolio: { has_portfolio_data: false },
+        persona: {
+          active: "investor",
+          primary_nav: "investor",
+          available: ["investor"],
+          transition_target: null,
+          ria_switch_available: false,
+          ria_setup_available: false,
+        },
+        voice: {
+          available: true,
+          tts_playing: false,
+          last_tool_name: null,
+          last_ticker: null,
+        },
+      },
+    });
+
+    // A debate is already running, so analysis_idle_required blocks a new
+    // start. The plan must carry the matched intent and the true prerequisite
+    // instead of a generic "could not map that request".
+    expect(plan.status).toBe("blocked");
+    if (plan.status !== "blocked") return;
+    expect(plan.action?.action_id).toBe("analysis.start");
+    expect(plan.reason).toMatch(/active analysis/i);
+  });
+
   it("never overrides an explicit navigation intent with a ticker action", () => {
     // Regression: "navigate to Investor" was hijacked into analysis.start,
     // which then asked "Which list should Kai use for this debate?".

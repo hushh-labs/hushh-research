@@ -228,6 +228,40 @@ function inferAction(input: OneGoalPlannerInput): KaiActionDefinition | null {
   return ranked[0]?.action ?? null;
 }
 
+/**
+ * When state gating removed every viable match, find the action the user most
+ * likely MEANT (pure lexical ranking, no availability filter) and explain the
+ * real prerequisite. "Unlock your vault to start the stock debate" is a
+ * useful answer; "One could not map that request" reads as a hallucinating
+ * agent that did not listen.
+ */
+function explainBlockedIntent(input: OneGoalPlannerInput): {
+  action: KaiActionDefinition;
+  reason: string;
+} | null {
+  const appRuntimeState = input.appRuntimeState;
+  if (!appRuntimeState) return null;
+  const transcript = input.transcript || "";
+  if (!transcript.trim()) return null;
+  const lexical = KAI_ACTION_GATEWAY.actions
+    .map((action) => ({ action, score: scoreActionForTranscript(action, transcript) }))
+    .filter((entry) => entry.score >= 6)
+    .sort((left, right) => right.score - left.score);
+  const top = lexical[0];
+  if (!top) return null;
+  const availability = evaluateKaiActionAvailability({
+    action: top.action,
+    appRuntimeState,
+    allowPersonaRouteSettlement: true,
+  });
+  if (availability.status === "available") return null;
+  const reason =
+    availability.reason ||
+    availability.blocked_guidance ||
+    `${top.action.label} is not available right now.`;
+  return { action: top.action, reason };
+}
+
 function resolveTickerFromTranscript(
   transcript: string,
   action: KaiActionDefinition
@@ -338,6 +372,16 @@ function nextMissingInput(
 export function planOneGoal(input: OneGoalPlannerInput): OneGoalPlan {
   const action = inferAction(input);
   if (!action) {
+    const blockedIntent = explainBlockedIntent(input);
+    if (blockedIntent) {
+      return {
+        status: "blocked",
+        goalId: blockedIntent.action.goal.goal_id,
+        action: blockedIntent.action,
+        slots: { ...(input.slots || {}) },
+        reason: blockedIntent.reason,
+      };
+    }
     return {
       status: "blocked",
       goalId: null,
