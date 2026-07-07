@@ -1044,7 +1044,7 @@ export default function ProfileReceiptsPage() {
               onClick={() =>
                 isConnected
                   ? void handleSyncNow()
-                  : router.push(`${ROUTES.PROFILE}?panel=gmail`)
+                  : router.push(ROUTES.PROFILE_GMAIL)
               }
               disabled={
                 isConnected ? syncing : gmail.status?.configured === false

@@ -181,7 +181,11 @@ function KaiOnboardingPageContent() {
           const pending = await PreVaultOnboardingService.load(user.uid);
           if (cancelled) return;
           setPreVaultState(pending);
-          if (activePersona === "ria" && riaCapability !== "disabled") {
+          if (
+            activePersona === "ria" &&
+            riaCapability !== "disabled" &&
+            !preserveOnboardingAuditRoute
+          ) {
             router.replace(ROUTES.RIA_HOME);
             return;
           }
@@ -190,7 +194,11 @@ function KaiOnboardingPageContent() {
           // re-enters to review/edit their answers (finance tile / edit=1).
           // Otherwise the canonical surface is the `/one/setup` capability hub,
           // so we redirect there instead of showing the legacy entry hub.
-          if ((!onboardingResolved && pending) || wizardReentryRequested) {
+          if (
+            (!onboardingResolved && pending) ||
+            wizardReentryRequested ||
+            preserveOnboardingAuditRoute
+          ) {
             setStage("wizard");
           } else {
             router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
@@ -230,7 +238,7 @@ function KaiOnboardingPageContent() {
           // their preferences (finance tile / edit=1) stays on the questionnaire,
           // pre-filled from the saved profile. Everyone else returns to the
           // canonical `/one/setup` hub rather than the legacy entry screen.
-          if (wizardReentryRequested) {
+          if (wizardReentryRequested || preserveOnboardingAuditRoute) {
             setStage("wizard");
             return;
           }

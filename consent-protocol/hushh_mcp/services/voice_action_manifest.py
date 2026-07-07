@@ -21,11 +21,26 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
 
     aliases_raw = raw.get("aliases")
     aliases = [str(item).strip() for item in aliases_raw or [] if str(item or "").strip()]
+    search_keywords_raw = raw.get("search_keywords")
+    search_keywords = [
+        str(item).strip() for item in search_keywords_raw or [] if str(item or "").strip()
+    ]
     speaker_persona = str(raw.get("speaker_persona") or "one").strip().lower()
     if speaker_persona not in {"one", "kai", "nav", "kyc"}:
         speaker_persona = "one"
     delegate_agent_id = str(raw.get("delegate_agent_id") or "").strip().lower() or None
-    if delegate_agent_id not in {None, "one", "kai", "nav", "kyc"}:
+    if delegate_agent_id not in {
+        None,
+        "one",
+        "kai",
+        "nav",
+        "kyc",
+        "agent_connected_systems",
+        "agent_connections",
+        "agent_email",
+        "agent_location",
+        "agent_personal_information",
+    }:
         delegate_agent_id = None
     scope = (
         raw.get("reachability")
@@ -70,6 +85,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "speaker_persona": speaker_persona,
         "delegate_agent_id": delegate_agent_id,
         "aliases": aliases,
+        "search_keywords": search_keywords,
         "scope": {
             "screens": [
                 str(screen).strip()
@@ -89,6 +105,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "completion_mode": completion_mode or "none",
         "expected_effects": expected_effects,
         "background_behavior": background_behavior,
+        "goal": raw.get("goal") if isinstance(raw.get("goal"), dict) else {},
     }
 
 
@@ -133,14 +150,25 @@ def list_voice_manifest_actions() -> list[dict[str, Any]]:
     return list(payload.get("actions") or [])
 
 
+@lru_cache(maxsize=1)
+def _voice_manifest_action_index() -> dict[str, dict[str, Any]]:
+    """O(1) id lookup index; built once per process alongside the manifest.
+
+    Keeps the realtime relay/persona hot path free of repeated linear scans
+    when enriching each available action id with labels and guard hints.
+    """
+    return {
+        str(action.get("action_id") or ""): action
+        for action in list_voice_manifest_actions()
+        if str(action.get("action_id") or "")
+    }
+
+
 def get_voice_manifest_action(action_id: str | None) -> dict[str, Any] | None:
     normalized_action_id = str(action_id or "").strip()
     if not normalized_action_id:
         return None
-    for action in list_voice_manifest_actions():
-        if action.get("action_id") == normalized_action_id:
-            return action
-    return None
+    return _voice_manifest_action_index().get(normalized_action_id)
 
 
 def select_voice_manifest_actions_for_prompt(

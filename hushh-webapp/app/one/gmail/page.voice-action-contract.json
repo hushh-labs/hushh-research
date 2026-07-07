@@ -46,7 +46,9 @@
         "path": "route",
         "target": "/one/gmail"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_gmail"
+      ],
       "state_exposure": [],
       "docs_references": [
         "app/gmail/page.tsx"
@@ -80,7 +82,7 @@
       "reachability": {
         "routes": [
           "/profile",
-          "/profile?panel=gmail"
+          "/profile/gmail"
         ],
         "screens": [
           "profile_gmail_panel"
@@ -103,7 +105,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [
@@ -130,7 +132,7 @@
       "reachability": {
         "routes": [
           "/one/gmail",
-          "/profile?panel=gmail"
+          "/profile/gmail"
         ],
         "screens": [
           "gmail",
@@ -154,7 +156,7 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx",
+        "app/profile/profile-workspace-page.tsx",
         "app/gmail/page.tsx"
       ],
       "expected_effects": {
@@ -274,7 +276,7 @@
       ],
       "reachability": {
         "routes": [
-          "/profile?panel=gmail"
+          "/profile/gmail"
         ],
         "screens": [
           "profile_gmail_panel"
@@ -296,7 +298,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [

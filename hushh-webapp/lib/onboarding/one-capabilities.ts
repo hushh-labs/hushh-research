@@ -68,7 +68,7 @@ export interface OneCapability {
    * personal data and therefore needs an UNLOCKED vault to be usable. The setup
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
    * step set honest "you'll unlock your vault next" expectations and lets the
-   * destination's own guard own the actual unlock prompt. Consent Guardian is
+   * destination's own guard own the actual unlock prompt. Consent is
    * the only capability that does not read vault-backed data here.
    */
   requiresVault?: boolean;
@@ -80,8 +80,10 @@ export interface OneCapability {
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "finance",
-    title: "Finance",
-    description: "Kai market, portfolio, analysis, and RIA handoff.",
+    // Public agent name is "Investor". Kai remains the internal finance
+    // runtime naming: id, routes, contracts, and code identifiers unchanged.
+    title: "Investor",
+    description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
     icon: ChartNoAxesCombined,
@@ -133,7 +135,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "consent",
-    title: "Consent Guardian",
+    title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
     icon: ShieldCheck,
@@ -171,14 +173,20 @@ export function getOneCapability(id: string): OneCapability | undefined {
 
 /**
  * Tailwind classes for a capability's icon chip, keyed by tone.
+ * Calm, on-palette (ink + neutral) chips — no off-palette hues — so the grouped
+ * list reads like a native iOS Settings surface instead of a colorful dashboard.
+ * Uniform across tones; the row label carries per-item meaning.
  * Shared so the dashboard tile and the onboarding preview render identically.
  */
+const CAPABILITY_ICON_CHIP_NEUTRAL =
+  "bg-foreground/[0.06] text-foreground/70 dark:bg-foreground/[0.10] dark:text-foreground/80";
+
 export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<OneCapabilityTone, string> = {
-  finance: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  gmail: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
-  email: "bg-accent-surface text-accent-strong",
-  location: "bg-teal-500/12 text-teal-700 dark:text-teal-300",
-  pkm: "bg-amber-500/12 text-amber-700 dark:text-amber-300",
-  consent: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
-  connected: "bg-slate-500/12 text-slate-700 dark:text-slate-300",
+  finance: CAPABILITY_ICON_CHIP_NEUTRAL,
+  gmail: CAPABILITY_ICON_CHIP_NEUTRAL,
+  email: CAPABILITY_ICON_CHIP_NEUTRAL,
+  location: CAPABILITY_ICON_CHIP_NEUTRAL,
+  pkm: CAPABILITY_ICON_CHIP_NEUTRAL,
+  consent: CAPABILITY_ICON_CHIP_NEUTRAL,
+  connected: CAPABILITY_ICON_CHIP_NEUTRAL,
 };

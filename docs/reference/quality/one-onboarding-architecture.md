@@ -53,10 +53,10 @@ Capability classification (single source of truth:
 | Email | workflow | `/one/kyc` | `requiresVault` |
 | Location | workflow | `/one/location` | `requiresVault` |
 | Personal Data | workflow | `/one/pkm` | `requiresVault` |
-| Consent Guardian | explore‑only | `/consents?tab=pending` | none |
+| Consent | explore‑only | `/consents?tab=pending` | none |
 | Connected Systems | OAuth | `/one/connected-systems` | `requiresVault` |
 
-Only **Consent Guardian** is explore‑only (it collects nothing and is "set up"
+Only **Consent** is explore‑only (it collects nothing and is "set up"
 by looking once). Every other capability is a real workspace that reads
 vault‑backed data, so a `completed` status reads "Ready" (not "Explored") and a
 locked vault surfaces an honest "Unlock to see" / "Unlock & continue".
@@ -191,13 +191,13 @@ guarantee: step screens never hand‑roll top padding.
   destination guard owns the actual unlock prompt. The honest framing replaces
   the prior misleading "nothing to set up" copy on `email` and `location`,
   which are real vault‑gated workspaces, not explore‑only tabs.
-- **Explore‑only** capabilities (only Consent Guardian) keep the "Got it" CTA;
+- **Explore‑only** capabilities (only Consent) keep the "Got it" CTA;
   they are "set up" by looking once.
 
 ### Reset / come back to onboarding
 
 `handleResetAccount` in
-[`app/profile/page.tsx`](../../../hushh-webapp/app/profile/page.tsx) keeps the
+[`app/profile/profile-workspace-page.tsx`](../../../hushh-webapp/app/profile/profile-workspace-page.tsx) keeps the
 identity and vault but returns the account to a just‑set‑up state: it calls
 `AccountService.resetAccount` (clears the authoritative pre‑vault completion),
 clears local + cache state, re‑arms setup, and redirects to

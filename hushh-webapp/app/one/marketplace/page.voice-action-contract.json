@@ -53,7 +53,9 @@
         "path": "route",
         "target": "/one/marketplace"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_marketplace"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"

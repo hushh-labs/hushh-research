@@ -11,10 +11,13 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowLeft,
   Bot,
   Check,
+  ChevronRight,
   Copy,
   KeyRound,
   LogIn,
@@ -23,11 +26,9 @@ import {
   Minus,
   RotateCcw,
   Send,
-  Sparkles,
   ThumbsDown,
   ThumbsUp,
   UserRound,
-  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -47,12 +48,29 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
 import { OpportunityNudgeStack } from "@/components/agent/opportunity-nudge-card";
+import {
+  OneOpportunityService,
+  type OpportunitySignal,
+} from "@/lib/one-marketplace/opportunity-service";
+import {
+  OneMarketplaceService,
+  type MarketplaceRequest,
+  type PublishableSlice,
+} from "@/lib/one-marketplace/service";
+import {
+  ChatMarkdownLink,
+  copyTextToClipboard,
+} from "@/components/agent/chat-markdown-link";
 import { SelectionChip } from "@/components/agent/selection-chip";
+import {
+  AgentTurnStreamPanel,
+  agentToolEventToVisibleStreamEvent,
+  type AgentVisibleStreamEvent,
+  type AgentVisibleStreamStatus,
+} from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
-import type { PublishableSlice } from "@/lib/one-marketplace/service";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
-import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -127,6 +145,17 @@ import {
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
+import {
+  useOneConversationSession,
+  type AgentChatHandoff,
+} from "@/lib/agent/one-conversation-session";
+import {
+  dedupeAdjacentAgentMessages,
+  releaseAgentTurnSubmitLock,
+  tryAcquireAgentTurnSubmitLock,
+} from "@/lib/agent/agent-chat-turn-safety";
+import { planOneGoal } from "@/lib/one-goal/one-goal-planner";
+import { runOneGoal } from "@/lib/one-goal/one-goal-runner";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
@@ -140,7 +169,15 @@ type AgentMessage = {
   ephemeral?: boolean;
   kind?: "selection";
   specialistDirective?: SpecialistDirectiveEvent | null;
+  streamEvents?: AgentVisibleStreamEvent[];
 };
+
+function goalUsesService(
+  plan: Extract<ReturnType<typeof planOneGoal>, { status: "ready" }>,
+  service: string
+): boolean {
+  return plan.action.goal.workflow_steps.some((step) => step.service === service);
+}
 
 type AgentDebugEvent = {
   id: string;
@@ -149,6 +186,18 @@ type AgentDebugEvent = {
   event: string;
   payload: unknown;
 };
+
+function upsertVisibleStreamEvent(
+  events: AgentVisibleStreamEvent[] | undefined,
+  event: AgentVisibleStreamEvent
+): AgentVisibleStreamEvent[] {
+  const current = events ?? [];
+  const existingIndex = current.findIndex((item) => item.id === event.id);
+  if (existingIndex >= 0) {
+    return current.map((item, index) => (index === existingIndex ? event : item));
+  }
+  return [...current, event].slice(-10);
+}
 
 type AgentPkmReview = {
   id: string;
@@ -198,6 +247,7 @@ export type AgentChatWorkspaceVariant = "page" | "popover";
 type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
+  handoff?: AgentChatHandoff | null;
   windowControls?: ReactNode;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
@@ -566,26 +616,6 @@ function formatAgentDisplayName(displayName?: string | null, email?: string | nu
   return firstName.charAt(0).toUpperCase() + firstName.slice(1);
 }
 
-async function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
-}
-
 function AgentWelcomePanel({
   name,
   disabled,
@@ -599,13 +629,12 @@ function AgentWelcomePanel({
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
           One workspace
         </div>
-        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
+        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
+        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -615,10 +644,16 @@ function AgentWelcomePanel({
               type="button"
               disabled={disabled}
               onClick={() => onPromptSelect(prompt)}
-              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[rgba(156,116,52,0.45)] max-sm:focus-visible:ring-[rgba(156,116,52,0.40)] dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
               <span className="block leading-5">{prompt}</span>
-              <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
+              <span className="mt-4 flex items-center justify-between">
+                <span className="block h-px w-10 bg-primary/50 transition group-hover:w-14 max-sm:bg-[#9C7434] dark:max-sm:bg-[#D4AF6A]" />
+                <ChevronRight
+                  className="hidden h-4 w-4 text-[#9C7434] dark:text-[#D4AF6A] max-sm:block"
+                  aria-hidden
+                />
+              </span>
             </button>
           ))}
         </div>
@@ -664,14 +699,7 @@ function AgentMarkdown({ text }: { text: string }) {
           ),
           li: ({ children }) => <li className="pl-1">{children}</li>,
           a: ({ children, href }) => (
-            <a
-              href={href || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              {children}
-            </a>
+            <ChatMarkdownLink href={href}>{children}</ChatMarkdownLink>
           ),
           code: ({ children, className }) => {
             const inline = !className;
@@ -809,6 +837,7 @@ function AgentBubble({
   onRetry,
   retryDisabled = false,
   busyConsentItemId = null,
+  turnPanelOpportunities,
   onConsentRevoke,
   onConsentDetails,
   onPendingConsentApprove,
@@ -819,6 +848,7 @@ function AgentBubble({
   onRetry?: () => void;
   retryDisabled?: boolean;
   busyConsentItemId?: string | null;
+  turnPanelOpportunities?: ReactNode;
   onConsentRevoke?: (item: SpecialistConsentActionItem) => Promise<void> | void;
   onConsentDetails?: (item: SpecialistConsentActionItem) => void;
   onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
@@ -831,9 +861,10 @@ function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
+  const streamEvents = message.streamEvents ?? [];
+  const shouldRenderStreamPanel = !isUser && (isStreaming || streamEvents.length > 0);
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
-  const showStreamingAffordance = !isUser && animated.isAnimating;
   const consentActionsPayload = !isUser
     ? getConsentActionsPayload(message.specialistDirective ?? null)
     : null;
@@ -876,7 +907,10 @@ function AgentBubble({
       ) : null}
       <div
         className={cn(
-          "min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]",
+          "min-w-0",
+          shouldRenderStreamPanel && !isUser
+            ? "w-full max-w-none"
+            : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
           isUser && "order-first sm:max-w-[min(76%,42rem)]"
         )}
       >
@@ -893,6 +927,15 @@ function AgentBubble({
         >
           {isUser ? (
             <span className="whitespace-pre-wrap break-words">{message.text}</span>
+          ) : shouldRenderStreamPanel ? (
+            <AgentTurnStreamPanel
+              streamEvents={streamEvents}
+              responseText={assistantText}
+              isStreaming={isStreaming}
+              isError={isError}
+              opportunities={turnPanelOpportunities}
+              response={assistantText ? <AgentMarkdown text={assistantText} /> : null}
+            />
           ) : assistantText ? (
             <AgentMarkdown text={assistantText} />
           ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
@@ -900,14 +943,6 @@ function AgentBubble({
           ) : (
             <AgentThinkingDots />
           )}
-          {showStreamingAffordance ? (
-            <StreamingCursor
-              isStreaming={isStreaming}
-              color={isError ? "error" : "primary"}
-              size="md"
-              className="ml-1"
-            />
-          ) : null}
         </div>
         <div
           className={cn(
@@ -1100,6 +1135,7 @@ function shouldMinimizeForNavigationResult(result: AgentActionRuntimeResult): bo
 export function AgentChatWorkspace({
   variant = "page",
   className,
+  handoff,
   windowControls,
   onMinimize,
   onNavigationActionComplete,
@@ -1122,6 +1158,7 @@ export function AgentChatWorkspace({
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    switchPersona,
   } = usePersonaState();
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
@@ -1134,6 +1171,8 @@ export function AgentChatWorkspace({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
+  const consumeHandoff = useOneConversationSession((state) => state.consumeHandoff);
+  const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
@@ -1141,6 +1180,7 @@ export function AgentChatWorkspace({
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   // Just-in-time vault unlock: the agent prompts to unlock in place (the same
   // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
   // instead of bouncing the user to /profile. Opened only when a vault-gated
@@ -1150,6 +1190,16 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
+  const [opportunitiesDismissedForVaultSession, setOpportunitiesDismissedForVaultSession] =
+    useState(false);
+  const [marketplaceOpportunitySignals, setMarketplaceOpportunitySignals] = useState<
+    OpportunitySignal[]
+  >([]);
+  const [marketplaceOpportunityRequests, setMarketplaceOpportunityRequests] = useState<
+    MarketplaceRequest[]
+  >([]);
+  const [marketplaceOpportunitiesLoading, setMarketplaceOpportunitiesLoading] = useState(false);
+  const marketplaceOpportunityLoadKeyRef = useRef<string | null>(null);
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1184,6 +1234,7 @@ export function AgentChatWorkspace({
   const voiceSttAbortControllerRef = useRef<AbortController | null>(null);
   const voiceSessionEpochRef = useRef(0);
   const voiceTtsSpeakingRef = useRef(false);
+  const agentTurnSubmitLockRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
@@ -1298,6 +1349,7 @@ export function AgentChatWorkspace({
   );
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
+    personas.add("investor");
     if (riaSwitchAvailable) personas.add("ria");
     personas.add(primaryNavPersona);
     return Array.from(personas);
@@ -1588,6 +1640,11 @@ export function AgentChatWorkspace({
     setActivePkmToolCount(0);
     setPkmReviews([]);
     setPkmActivity([]);
+    setOpportunitiesDismissedForVaultSession(false);
+    setMarketplaceOpportunitySignals([]);
+    setMarketplaceOpportunityRequests([]);
+    setMarketplaceOpportunitiesLoading(false);
+    marketplaceOpportunityLoadKeyRef.current = null;
     setVoiceState("idle");
     setVoiceTranscriptReview(null);
     resetGlobalVoiceState();
@@ -1598,6 +1655,7 @@ export function AgentChatWorkspace({
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
     setSpecialistBusyItemId(null);
+    releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     historyLoadKeyRef.current = null;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
@@ -1615,6 +1673,58 @@ export function AgentChatWorkspace({
   const appendMessage = (message: AgentMessage) => {
     setMessages((current) => [...current, message]);
   };
+
+  const upsertMessageStreamEvent = (
+    messageId: string,
+    event: AgentVisibleStreamEvent
+  ) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              streamEvents: upsertVisibleStreamEvent(message.streamEvents, event),
+            }
+          : message
+      )
+    );
+  };
+
+  useEffect(() => {
+    if (!handoff || consumedHandoffIdRef.current === handoff.id) return;
+    consumedHandoffIdRef.current = handoff.id;
+    const timestamp = formatNow();
+    const nextMessages: AgentMessage[] = [];
+    const transcript = handoff.transcript?.trim();
+    const assistantText = handoff.assistantText?.trim();
+    const resultSummary = handoff.resultSummary?.trim();
+    if (transcript) {
+      nextMessages.push({
+        id: `handoff-${handoff.id}-user`,
+        role: "user",
+        text: transcript,
+        timestamp,
+      });
+    }
+    const summaryText =
+      assistantText ||
+      resultSummary ||
+      (handoff.actionId
+        ? `One moved this ${handoff.actionId} request into chat for the governed action path.`
+        : "One moved this live voice turn into chat.");
+    nextMessages.push({
+      id: `handoff-${handoff.id}-assistant`,
+      role: "assistant",
+      text: summaryText,
+      timestamp,
+      status: "done",
+    });
+    if (handoff.specialistDirective) {
+      setPendingSpecialistDirective(handoff.specialistDirective);
+    }
+    setMessages((current) => [...current, ...nextMessages]);
+    consumeHandoff(handoff.id);
+  }, [consumeHandoff, handoff]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked) return;
@@ -1797,6 +1907,50 @@ export function AgentChatWorkspace({
       cancelled = true;
     };
   }, [hasChatAccess, user?.uid, vaultOwnerToken]);
+
+  const loadMarketplaceOpportunities = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (
+        !hasChatAccess ||
+        !user?.uid ||
+        !vaultOwnerToken ||
+        opportunitiesDismissedForVaultSession
+      ) {
+        return;
+      }
+      const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
+      if (!options?.force && marketplaceOpportunityLoadKeyRef.current === loadKey) return;
+      marketplaceOpportunityLoadKeyRef.current = loadKey;
+      setMarketplaceOpportunitiesLoading(true);
+      const [dueResult, requestResult] = await Promise.allSettled([
+        OneOpportunityService.listDue({ vaultOwnerToken }),
+        OneMarketplaceService.listRequests({ vaultOwnerToken, status: "pending" }),
+      ]);
+      setMarketplaceOpportunitySignals(
+        dueResult.status === "fulfilled"
+          ? dueResult.value.filter((signal) => signal.status === "active" || signal.status === "snoozed")
+          : [],
+      );
+      setMarketplaceOpportunityRequests(
+        requestResult.status === "fulfilled"
+          ? requestResult.value.filter((request) => request.status === "pending")
+          : [],
+      );
+      setMarketplaceOpportunitiesLoading(false);
+    },
+    [hasChatAccess, opportunitiesDismissedForVaultSession, user?.uid, vaultOwnerToken],
+  );
+
+  useEffect(() => {
+    if (!hasChatAccess || opportunitiesDismissedForVaultSession) {
+      setMarketplaceOpportunitySignals([]);
+      setMarketplaceOpportunityRequests([]);
+      setMarketplaceOpportunitiesLoading(false);
+      marketplaceOpportunityLoadKeyRef.current = null;
+      return;
+    }
+    void loadMarketplaceOpportunities();
+  }, [hasChatAccess, loadMarketplaceOpportunities, opportunitiesDismissedForVaultSession]);
 
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
@@ -2068,7 +2222,6 @@ export function AgentChatWorkspace({
     let toolStatusMessageId: string | null = null;
     let pkmStatusItemId: string | null = null;
     let voiceTtsFailureReported = false;
-    let assistantHasToken = false;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pkmAddToolHandled = false;
     let pendingAssistantDelta = "";
@@ -2113,7 +2266,6 @@ export function AgentChatWorkspace({
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      assistantHasToken = true;
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.ephemeral ? delta : `${message.text}${delta}`,
@@ -2165,56 +2317,32 @@ export function AgentChatWorkspace({
         ...message,
         text: message.text || (isVoiceTurn ? "Voice turn canceled." : "Agent turn canceled."),
         status: "done",
+        streamEvents: [],
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
+    };
+
+    const upsertTurnStreamEvent = (event: AgentVisibleStreamEvent) => {
+      upsertMessageStreamEvent(assistantMessageId, event);
     };
 
     const upsertToolStatusMessage = (
       messageText: string,
       status: AgentMessage["status"] = "streaming"
     ) => {
-      const cleanText = messageText.trim() || "Working on that in Kai...";
-      if (toolStatusMessageId) {
-        if (toolStatusMessageId === assistantMessageId && assistantHasToken) {
-          toolStatusMessageId = `msg-${turnId}-tool-status`;
-          appendMessage({
-            id: toolStatusMessageId,
-            role: "assistant",
-            text: cleanText,
-            timestamp: formatNow(),
-            status,
-            ephemeral: true,
-          });
-          return;
-        }
-        updateMessage(toolStatusMessageId, (message) => ({
-          ...message,
-          text: cleanText,
-          status,
-          ephemeral: true,
-        }));
-        return;
-      }
-      if (assistantHasToken) {
-        toolStatusMessageId = `msg-${turnId}-tool-status`;
-        appendMessage({
-          id: toolStatusMessageId,
-          role: "assistant",
-          text: cleanText,
-          timestamp: formatNow(),
-          status,
-          ephemeral: true,
-        });
-        return;
-      }
-      toolStatusMessageId = assistantMessageId;
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text: cleanText,
-        status,
-        ephemeral: true,
-      }));
+      const cleanText = messageText.trim() || "Working on that.";
+      const visibleStatus: AgentVisibleStreamStatus =
+        status === "error" ? "error" : status === "done" ? "done" : "running";
+      const nextId = toolStatusMessageId || `turn-status-${turnId}`;
+      toolStatusMessageId = nextId;
+      upsertTurnStreamEvent({
+        id: nextId,
+        label: "Progress",
+        message: cleanText,
+        status: visibleStatus,
+        createdAtMs: Date.now(),
+      });
     };
 
     const upsertPkmStatusMessage = (
@@ -2399,6 +2527,7 @@ export function AgentChatWorkspace({
           hasPortfolioData,
           busyOperations,
           setAnalysisParams,
+          switchPersona,
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
@@ -2463,6 +2592,7 @@ export function AgentChatWorkspace({
         const cards = preview.cards;
         const autoSaveCards = getAutoSavePkmCards(cards);
         const reviewCards = getReviewRequiredPkmCards(cards);
+        const confirmationCards = [...autoSaveCards, ...reviewCards];
         const ignoredCards = getIgnoredPkmCards(cards);
 
         appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
@@ -2476,36 +2606,7 @@ export function AgentChatWorkspace({
           cards,
         });
 
-        if (autoSaveCards.length > 0) {
-          upsertPkmStatusMessage("Saving durable memory to PKM...", "streaming");
-          appendDebugEvent(debugTurnId, "pkm_memory_save_start", {
-            candidate_count: autoSaveCards.length,
-          });
-          const saveResult = await addToPKM({
-            userId,
-            cards: autoSaveCards,
-            sourceMessage: text,
-            vaultKey,
-            vaultOwnerToken: token,
-            source: "agent_chat_auto",
-          });
-          if (signal.aborted) return;
-          appendDebugEvent(debugTurnId, "pkm_memory_save_result", saveResult);
-          upsertPkmStatusMessage(
-            formatAgentPkmSaveSummary(saveResult),
-            saveResult.saved > 0 ? "done" : "error"
-          );
-          if (saveResult.saved > 0) {
-            void loadAgentPkmContext({
-              userId,
-              vaultOwnerToken: token,
-              vaultKey,
-              forceRefresh: true,
-            }).catch(() => undefined);
-          }
-        }
-
-        if (reviewCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+        if (confirmationCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
           if (signal.aborted) return;
           setPkmReviews((current) => [
             ...current.filter((review) => review.turnId !== debugTurnId),
@@ -2513,23 +2614,22 @@ export function AgentChatWorkspace({
               id: `${debugTurnId}-pkm-review`,
               turnId: debugTurnId,
               sourceMessage: text,
-              cards: reviewCards,
+              cards: confirmationCards,
               saving: false,
             },
           ]);
           appendDebugEvent(debugTurnId, "pkm_memory_review_required", {
-            candidate_count: reviewCards.length,
-            cards: reviewCards,
+            candidate_count: confirmationCards.length,
+            auto_save_candidates_requiring_confirmation: autoSaveCards.length,
+            cards: confirmationCards,
           });
-          if (autoSaveCards.length === 0) {
-            upsertPkmStatusMessage(
-              "Agent found PKM memory that needs your review before saving.",
-              "done"
-            );
-          }
+          upsertPkmStatusMessage(
+            "Agent found PKM memory that needs your review before saving.",
+            "done"
+          );
         }
 
-        if (autoSaveCards.length === 0 && reviewCards.length === 0) {
+        if (confirmationCards.length === 0) {
           upsertPkmStatusMessage("", "done");
         }
       } catch (error) {
@@ -2580,15 +2680,124 @@ export function AgentChatWorkspace({
     setPkmActivity([]);
     setIsChatLoading(true);
     setIsStreaming(true);
+    void loadMarketplaceOpportunities({ force: true });
 
     if (!token) {
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: "Vault access expired. Unlock again to continue.",
         status: "error",
+        streamEvents: [],
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
+      return;
+    }
+
+    const goalPlan = planOneGoal({
+      transcript: text,
+      appRuntimeState: appRuntimeStateRef.current,
+      entrypoint: isVoiceTurn ? "voice" : "chat",
+    });
+    if (goalPlan.status === "input_needed") {
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text: goalPlan.prompt.prompt,
+        status: "done",
+        streamEvents: [],
+      }));
+      speakVoiceReceipt(goalPlan.prompt.prompt);
+      setIsChatLoading(false);
+      setIsStreaming(false);
+      return;
+    }
+    if (
+      goalPlan.status === "ready" &&
+      goalPlan.action.execution_policy === "allow_direct" &&
+      (!goalPlan.action.delegate_agent_id ||
+        goalPlan.action.delegate_agent_id === "one" ||
+        goalUsesService(goalPlan, "specialist_chat.turn"))
+    ) {
+      try {
+        upsertToolStatusMessage(`Running ${goalPlan.action.label}...`, "streaming");
+        const goalResult = await runOneGoal({
+          plan: goalPlan,
+          userId,
+          vaultOwnerToken: token,
+          vaultKey,
+          router,
+          setAnalysisParams,
+          screenContext: buildOneVoiceStructuredScreenContext({
+            appRuntimeState: appRuntimeStateRef.current,
+            state: useAgentVoiceState.getState().oneVoiceState,
+            lastTransition: useAgentVoiceState.getState().lastTransition,
+          }) as unknown as Record<string, unknown>,
+          executeAction: (actionId, slots) =>
+            executeAgentGatewayAction({
+              actionId,
+              slots,
+              userId,
+              router,
+              appRuntimeState: appRuntimeStateRef.current,
+              surfaceMetadata: getVoiceSurfaceMetadata(),
+              hasPortfolioData,
+              busyOperations,
+              setAnalysisParams,
+              switchPersona,
+            }),
+          waitForCompletion: goalUsesService(goalPlan, "kai_debate.ensure_run"),
+          callbacks: {
+            onProgressText: async (messageText) => {
+              upsertToolStatusMessage(messageText, "streaming");
+              speakVoiceReceipt(messageText);
+            },
+            onFinalText: async (messageText) => {
+              updateMessage(assistantMessageId, (message) => ({
+                ...message,
+                text: messageText,
+                status: "done",
+                ephemeral: false,
+                streamEvents: [],
+              }));
+              speakVoiceReceipt(messageText);
+            },
+          },
+        });
+        if (goalResult.actionResult.data?.requiresChatHandoff === true) {
+          const specialistDirective =
+            goalResult.actionResult.data.specialistDirective &&
+            typeof goalResult.actionResult.data.specialistDirective === "object"
+              ? (goalResult.actionResult.data.specialistDirective as SpecialistDirectiveEvent)
+              : null;
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: goalResult.resultSummary.text,
+            status: "done",
+            ephemeral: false,
+            streamEvents: [],
+          }));
+          if (specialistDirective) {
+            setPendingSpecialistDirective(specialistDirective);
+          }
+          speakVoiceReceipt(goalResult.resultSummary.text);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "One could not complete that goal.";
+        updateMessage(assistantMessageId, (current) => ({
+          ...current,
+          text: message,
+          status: "error",
+          ephemeral: false,
+          streamEvents: [],
+        }));
+        speakVoiceReceipt(message);
+      } finally {
+        setIsChatLoading(false);
+        setIsStreaming(false);
+      }
       return;
     }
 
@@ -2621,6 +2830,7 @@ export function AgentChatWorkspace({
         ...current,
         text: current.text || message,
         status: "error",
+        streamEvents: [],
       }));
       voiceTtsQueueRef.current?.flushStream();
       voiceTtsQueueRef.current?.speakNow(message);
@@ -2713,7 +2923,7 @@ export function AgentChatWorkspace({
         VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
         "Agent voice response timed out before it started. Please try again."
       );
-      await streamAgentChat({
+      const streamResult = await streamAgentChat({
         userId,
         message: text,
         conversationId,
@@ -2743,6 +2953,7 @@ export function AgentChatWorkspace({
               "Agent voice tool call stalled. Please try again."
             );
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
+            upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("start", toolEvent));
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
@@ -2751,11 +2962,9 @@ export function AgentChatWorkspace({
               "Agent voice tool call stalled. Please try again."
             );
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
-            upsertToolStatusMessage(
-              toolEvent.message || "Working on that in Kai...",
-              "streaming"
-            );
-            speakVoiceReceipt(toolEvent.message || "Working on that in Kai...");
+            const visibleEvent = agentToolEventToVisibleStreamEvent("waiting", toolEvent);
+            upsertTurnStreamEvent(visibleEvent);
+            speakVoiceReceipt(visibleEvent.message);
             executeToolIfNeeded(toolEvent);
           },
           onToolResult: (toolEvent) => {
@@ -2765,12 +2974,10 @@ export function AgentChatWorkspace({
               "Agent voice tool result stalled. Please try again."
             );
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            const visibleEvent = agentToolEventToVisibleStreamEvent("result", toolEvent);
+            upsertTurnStreamEvent(visibleEvent);
             if (toolEvent.execution === "blocked" || toolEvent.status === "blocked") {
-              upsertToolStatusMessage(
-                toolEvent.message || "That action is blocked in Agent.",
-                "error"
-              );
-              speakVoiceReceipt(toolEvent.message || "That action is blocked in Agent.");
+              speakVoiceReceipt(visibleEvent.message || "That action needs attention.");
             }
           },
           onToken: (delta) => {
@@ -2798,6 +3005,7 @@ export function AgentChatWorkspace({
                 text: message.text.trim() ? message.text : event.message || "",
                 status: "done",
                 specialistDirective: event,
+                streamEvents: [],
               }));
               return;
             }
@@ -2805,7 +3013,7 @@ export function AgentChatWorkspace({
               current.flatMap((message) => {
                 if (message.id !== assistantMessageId) return [message];
                 if (!message.text.trim()) return [];
-                return [{ ...message, status: "done" }];
+                return [{ ...message, status: "done", streamEvents: [] }];
               })
             );
             setPendingSpecialistDirective(event);
@@ -2824,6 +3032,7 @@ export function AgentChatWorkspace({
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
+              streamEvents: [],
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -2841,6 +3050,7 @@ export function AgentChatWorkspace({
               ...current,
               text: current.text || message,
               status: "error",
+              streamEvents: [],
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -2857,6 +3067,9 @@ export function AgentChatWorkspace({
       }
       clearVoiceStreamWatchdog();
       flushAssistantDelta();
+      if (streamResult.conversationId) {
+        setConversationId(streamResult.conversationId);
+      }
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
         scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
@@ -2867,6 +3080,7 @@ export function AgentChatWorkspace({
           ...message,
           text: message.text || "I couldn't generate a response. Please try again.",
           status: "done",
+          streamEvents: [],
         };
       });
       if (
@@ -2901,6 +3115,7 @@ export function AgentChatWorkspace({
         ...current,
         text: current.text || message,
         status: "error",
+        streamEvents: [],
       }));
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
@@ -2979,13 +3194,14 @@ export function AgentChatWorkspace({
     latestVisibleTurnIdRef.current = debugTurnId;
     setIsChatLoading(true);
     setIsStreaming(true);
+    void loadMarketplaceOpportunities({ force: true });
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
 
     try {
-      await streamAgentChat({
+      const streamResult = await streamAgentChat({
         userId,
         message: "",
         conversationId,
@@ -3073,6 +3289,9 @@ export function AgentChatWorkspace({
         return;
       }
       flushAssistantDelta();
+      if (streamResult.conversationId) {
+        setConversationId(streamResult.conversationId);
+      }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
         return {
@@ -3178,6 +3397,7 @@ export function AgentChatWorkspace({
     setInput("");
     setIsChatLoading(true);
     setIsStreaming(true);
+    void loadMarketplaceOpportunities({ force: true });
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
@@ -3200,6 +3420,7 @@ export function AgentChatWorkspace({
         hasPortfolioData,
         busyOperations,
         setAnalysisParams,
+        switchPersona,
       })
         .then((result) => {
           if (shouldMinimizeForNavigationResult(result)) {
@@ -3283,12 +3504,23 @@ export function AgentChatWorkspace({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const text = input.trim();
+    if (!text || isChatLoading || isStreaming) return;
+    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
     if (hasChatAccess) {
-      await runAgentTurn(input, { source: "typed" });
+      try {
+        await runAgentTurn(text, { source: "typed" });
+      } finally {
+        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+      }
       return;
     }
     // Pre-vault / anonymous: single bar degrades to the informational tier.
-    await runIntroTurn(input);
+    try {
+      await runIntroTurn(text);
+    } finally {
+      releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+    }
   };
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
@@ -3793,17 +4025,40 @@ export function AgentChatWorkspace({
     [user?.displayName, user?.email]
   );
   const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
-  const visibleMessages = messages.filter((message) => {
-    if (message.id === "agent-greeting") return false;
-    if (
-      pendingSpecialistDirective &&
-      message.role === "assistant" &&
-      !message.text.trim()
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const visibleMessages = dedupeAdjacentAgentMessages(
+    messages.filter((message) => {
+      if (message.id === "agent-greeting") return false;
+      if (
+        pendingSpecialistDirective &&
+        message.role === "assistant" &&
+        !message.text.trim()
+      ) {
+        return false;
+      }
+      return true;
+    })
+  );
+  const activeStreamPanelMessageId =
+    [...visibleMessages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.status === "streaming")?.id ??
+    null;
+  const renderMarketplaceOpportunities = () =>
+    hasChatAccess ? (
+      <OpportunityNudgeStack
+        userId={user?.uid ?? null}
+        vaultOwnerToken={vaultOwnerToken}
+        vaultKey={vaultKey}
+        onRequireUnlock={() => setVaultDialogOpen(true)}
+        variant="accordion"
+        dismissed={opportunitiesDismissedForVaultSession}
+        onDismissPanel={() => setOpportunitiesDismissedForVaultSession(true)}
+        signals={marketplaceOpportunitySignals}
+        requests={marketplaceOpportunityRequests}
+        loading={marketplaceOpportunitiesLoading}
+        onRefresh={() => void loadMarketplaceOpportunities({ force: true })}
+      />
+    ) : null;
   const trailingSpecialistLoadingMessages = pendingSpecialistDirective
     ? messages.filter(
         (message) =>
@@ -3834,19 +4089,24 @@ export function AgentChatWorkspace({
       toast.error("No previous message found to retry.");
       return;
     }
+    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
     setPkmReviews([]);
     setPkmActivity([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
     if (!hasChatAccess) {
-      void runIntroTurn(retryText);
+      void runIntroTurn(retryText).finally(() => {
+        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+      });
       return;
     }
     void runAgentTurn(retryText, {
       source: "typed",
       appendUserMessage: false,
       replaceAssistantMessageId: messageId,
+    }).finally(() => {
+      releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     });
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
@@ -3909,7 +4169,8 @@ export function AgentChatWorkspace({
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
-    collapsed = false
+    collapsed = false,
+    mode: "desktop" | "mobile" = "desktop"
   ) => (
     <AgentHistorySidebar
       conversations={conversations}
@@ -3919,6 +4180,7 @@ export function AgentChatWorkspace({
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}
+      mode={mode}
       onClose={onClose}
       onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
       onCreateNew={handleSidebarCreateNewChat}
@@ -3938,6 +4200,7 @@ export function AgentChatWorkspace({
         className
       )}
       data-agent-chat-workspace={variant}
+      data-composer-focused={composerFocused ? "true" : "false"}
     >
       <div
         className={cn(
@@ -3972,8 +4235,11 @@ export function AgentChatWorkspace({
           inert={!isHistoryDrawerOpen}
           onKeyDown={handleHistoryDrawerKeyDown}
         >
-          {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
-            setIsHistoryDrawerOpen(false)
+          {renderHistorySidebar(
+            "h-full w-full",
+            () => setIsHistoryDrawerOpen(false),
+            false,
+            "mobile"
           )}
         </div>
 
@@ -3989,10 +4255,10 @@ export function AgentChatWorkspace({
         >
           <div
             className={cn(
-              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur sm:px-5",
               isPopover
-                ? "h-14 sm:h-16"
-                : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
+                ? "min-h-[calc(3.5rem+var(--agent-chat-header-safe-top))] sm:h-16 sm:min-h-16 sm:pt-0"
+                : "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)]",
               !isPopover && "lg:px-6"
             )}
             onPointerDown={handleHeaderPointerDown}
@@ -4002,12 +4268,23 @@ export function AgentChatWorkspace({
             }}
           >
             <div className="flex min-w-0 items-center gap-3">
+              {isPopover && onMinimize ? (
+                <button
+                  type="button"
+                  onClick={onMinimize}
+                  aria-label="Back"
+                  title="Back"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/[0.04] text-[rgba(0,0,0,0.62)] transition-colors hover:bg-black/[0.07] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(156,116,52,0.35)] dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.10] sm:hidden"
+                >
+                  <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+                </button>
+              ) : null}
               {!isPopover ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-black/[0.035] dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 dark:max-sm:bg-white/[0.04] lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -4015,11 +4292,19 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary dark:border-white/10 dark:bg-white/[0.04]">
-                <Bot className="h-4 w-4" />
+              <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md border border-black/10 bg-black/[0.035] max-sm:h-11 max-sm:w-11 max-sm:rounded-[13px] max-sm:border-[rgba(214,175,106,0.30)] dark:border-white/10 dark:bg-white/[0.04] dark:max-sm:border-[rgba(212,175,106,0.25)]">
+                <Image
+                  src="/one-quiet-emoji.png"
+                  alt="One"
+                  width={762}
+                  height={766}
+                  unoptimized
+                  draggable={false}
+                  className="h-6 w-6 object-contain max-sm:h-8 max-sm:w-8"
+                />
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
+                <div className="truncate text-base font-medium leading-5 text-foreground">
                   One
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
@@ -4032,6 +4317,19 @@ export function AgentChatWorkspace({
               <span className="hidden rounded-md border border-black/10 bg-black/[0.035] px-2.5 py-1 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 sm:inline-flex">
                 {statusText}
               </span>
+              {isPopover ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-full bg-black/[0.035] text-[rgba(0,0,0,0.56)] hover:bg-black/[0.06] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-zinc-50 sm:hidden"
+                  onClick={openHistoryDrawer}
+                  aria-label="Open chat history"
+                  title="Open chat history"
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+              ) : null}
               {!isPopover ? (
                 <Button
                   type="button"
@@ -4043,19 +4341,6 @@ export function AgentChatWorkspace({
                   title="Minimize Agent"
                 >
                   <Minus className="h-4 w-4" />
-                </Button>
-              ) : null}
-              {isPopover && onMinimize ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 sm:hidden"
-                  onClick={onMinimize}
-                  aria-label="Close Agent"
-                  title="Close Agent"
-                >
-                  <X className="h-4 w-4" />
                 </Button>
               ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
@@ -4108,6 +4393,11 @@ export function AgentChatWorkspace({
                         : undefined
                     }
                     busyConsentItemId={specialistBusyItemId}
+                    turnPanelOpportunities={
+                      message.id === activeStreamPanelMessageId
+                        ? renderMarketplaceOpportunities()
+                        : undefined
+                    }
                     onConsentRevoke={async (item) => {
                       setSpecialistBusyItemId(item.id);
                       try {
@@ -4128,8 +4418,11 @@ export function AgentChatWorkspace({
                       }
                     }}
                     onConsentDetails={(item) => {
+                      // Tag the agent's current route as origin so the consent
+                      // screen's back button retraces here, not to Profile
+                      // (the breadcrumb reads ?from; bare nav falls to Profile).
                       router.push(
-                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}`,
+                        `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                       );
                     }}
                     onPendingConsentApprove={async (item) => {
@@ -4167,8 +4460,9 @@ export function AgentChatWorkspace({
                       }
                     }}
                     onPendingConsentDetails={(item) => {
+                      // Origin-tagged so back retraces to the agent's route.
                       router.push(
-                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}`,
+                        `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                       );
                     }}
                   />
@@ -4189,14 +4483,7 @@ export function AgentChatWorkspace({
                 />
               ))}
 
-              {hasChatAccess ? (
-                <OpportunityNudgeStack
-                  userId={user?.uid ?? null}
-                  vaultOwnerToken={vaultOwnerToken}
-                  vaultKey={vaultKey}
-                  onRequireUnlock={() => setVaultDialogOpen(true)}
-                />
-              ) : null}
+              {!activeStreamPanelMessageId ? renderMarketplaceOpportunities() : null}
 
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
@@ -4212,7 +4499,9 @@ export function AgentChatWorkspace({
                     busy={specialistBusy}
                     onOpenConsent={() => {
                       setPendingSpecialistDirective(null);
-                      router.push(`${ROUTES.CONSENTS}?tab=pending`);
+                      router.push(
+                        `${ROUTES.CONSENTS}?tab=pending&from=${pathname || ROUTES.ONE_HOME}`,
+                      );
                     }}
                     onCancel={() => {
                       setPendingSpecialistDirective(null);
@@ -4321,7 +4610,7 @@ export function AgentChatWorkspace({
                           kind: "selection",
                         });
                         await sendDelegateResult({
-                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
                           promptKind: prompt.kind,
@@ -4349,7 +4638,7 @@ export function AgentChatWorkspace({
                           kind: "selection",
                         });
                         await sendDelegateResult({
-                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
                           promptKind: prompt.kind,
@@ -4375,7 +4664,7 @@ export function AgentChatWorkspace({
                         kind: "selection",
                       });
                       await sendDelegateResult({
-                        delegate_agent_id: evt.delegateAgentId as "agent_location",
+                        delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "selection",
                         id: prompt.id,
                         promptKind: prompt.kind,
@@ -4402,7 +4691,9 @@ export function AgentChatWorkspace({
                     }
                     onOpenMarketplace={() => {
                       setPendingSpecialistDirective(null);
-                      router.push(ROUTES.ONE_MARKETPLACE);
+                      router.push(
+                        `${ROUTES.ONE_MARKETPLACE}?from=${pathname || ROUTES.ONE_HOME}`,
+                      );
                     }}
                     onDismiss={() => setPendingSpecialistDirective(null)}
                   />
@@ -4524,7 +4815,9 @@ export function AgentChatWorkspace({
                         // decrypted point is rendered on the dedicated location
                         // surface, so hand the user off there to see it.
                         if (directivePayloadType === "view_envelope" && result.status === "completed") {
-                          router.push(ROUTES.ONE_LOCATION);
+                          router.push(
+                            `${ROUTES.ONE_LOCATION}?from=${pathname || ROUTES.ONE_HOME}`,
+                          );
                         }
                         // Follow-up turn: report the result back so One confirms in words.
                         await sendDelegateResult(result);
@@ -4544,7 +4837,7 @@ export function AgentChatWorkspace({
                         kind: "selection",
                       });
                       await sendDelegateResult({
-                        delegate_agent_id: directive.delegateAgentId as "agent_location",
+                        delegate_agent_id: directive.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "action",
                         id: String(
                           (directive.directive.payload as Record<string, unknown>).id ?? "",
@@ -4619,8 +4912,12 @@ export function AgentChatWorkspace({
           <form
             onSubmit={handleSubmit}
             className={cn(
-              "shrink-0 border-t border-border/70 bg-background/92 px-3 py-3 backdrop-blur sm:px-5",
-              !isPopover && "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
+              "shrink-0 border-t border-border/70 bg-background/92 px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-200 sm:px-5",
+              isPopover
+                ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
+                : composerFocused
+                  ? "pb-[var(--agent-chat-composer-focused-bottom)]"
+                  : "pb-[var(--agent-chat-composer-bottom)]"
             )}
           >
             <div className="mx-auto w-full max-w-3xl">
@@ -4648,12 +4945,14 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[#9C7434] max-sm:focus-within:ring-[rgba(156,116,52,0.20)] dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message One"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
                         return;
@@ -4666,14 +4965,16 @@ export function AgentChatWorkspace({
                     disabled={isLoadingHistory || isVoiceConnecting}
                     placeholder="Message One..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:text-zinc-100 dark:placeholder:text-zinc-500"
                   />
                   {agentRealtimeVoiceEnabled || agentVoiceEnabled ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
+                      data-native-voice-control-id="one_voice_agent_chat_start"
+                      data-testid="one-voice-agent-chat-start"
+                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[#9C7434] max-sm:focus-visible:ring-[rgba(156,116,52,0.35)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[#D4AF6A]"
                       disabled={!canToggleVoice}
                       onClick={() => {
                         void startConversationalVoice();
@@ -4687,7 +4988,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[#9C7434] max-sm:enabled:text-white max-sm:enabled:shadow-[rgba(156,116,52,0.25)] max-sm:enabled:hover:bg-[#835f27] max-sm:focus-visible:ring-[rgba(156,116,52,0.45)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[#D4AF6A] dark:max-sm:enabled:text-[#1d1d1f]"
                     disabled={!canSend}
                     aria-label="Send message"
                   >

@@ -1,0 +1,149 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_agents",
+  "surface_title": "Agents",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/reference/one/one-voice-runtime-architecture.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.one_agents",
+      "label": "Open Agents",
+      "meaning": "Navigates to the One Agents dashboard.",
+      "aliases": [
+        "open agents",
+        "open one agents",
+        "go to agents",
+        "show agents",
+        "open the one dashboard",
+        "open one"
+      ],
+      "search_keywords": [
+        "agents",
+        "one",
+        "dashboard",
+        "apps"
+      ],
+      "reachability": {
+        "routes": [
+          "/one"
+        ],
+        "screens": [
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one"
+      },
+      "control_ids": [
+        "top_agent_section_dropdown"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.one_location",
+      "label": "Open Location",
+      "meaning": "Navigates to the One Location agent route.",
+      "aliases": [
+        "open location",
+        "open location agent",
+        "go to location",
+        "show location"
+      ],
+      "search_keywords": [
+        "location",
+        "live sharing",
+        "local context"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location"
+      },
+      "control_ids": [
+        "top_agent_section_location"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.one_pkm",
+      "label": "Open Personal Data",
+      "meaning": "Navigates to the One Personal Data route.",
+      "aliases": [
+        "open personal data",
+        "open my personal data",
+        "go to personal data",
+        "show personal data",
+        "open saved knowledge"
+      ],
+      "search_keywords": [
+        "personal data",
+        "saved knowledge",
+        "memory"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm"
+      },
+      "control_ids": [
+        "top_agent_section_pkm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "one"
+    }
+  ]
+}

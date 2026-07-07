@@ -49,7 +49,8 @@ Non-owned surfaces:
 2. `docs/reference/operations/ci.md`
 3. `docs/reference/operations/branch-governance.md`
 4. `.codex/skills/repo-operations/references/branch-runtime-ops.md`
-5. `.codex/skills/repo-operations/references/agent-trigger-policy.md`
+5. `.codex/skills/repo-operations/references/maintainer-branch-freshness.md`
+6. `.codex/skills/repo-operations/references/agent-trigger-policy.md`
 
 ## Workflow
 
@@ -62,7 +63,9 @@ Non-owned surfaces:
 7. For DB migration/contract changes, run the DB release gate before calling UAT ready.
 8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.
 9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
-10. To add/remove a maintainer or change deploy/merge authority, edit `config/ci-governance.json` (single source of truth) then run `python3 scripts/ci/apply-governance.py --apply` to sync GitHub; the JSON edit must LAND ON MAIN for runtime UAT/merge gates to see it. Full runbook in `docs/reference/operations/branch-governance.md` ("Adding or removing a maintainer"). MERGE-TO-MAIN lane is decided by AUTHOR: governed maintainers (in `main.review_bypass_users` / `main.merge_queue_bypass_users`) shipping their own code branch from `origin/main` and open a PR DIRECTLY into `main` (the `PR Base Policy` gate passes by actor identity — no train, no cherry-pick, no promote-branch whitelist); the CI status gate, merge queue, and post-merge smoke gate still apply. Non-maintainer PRs route through `integration/pr-train`. Never cherry-pick a train-built branch onto `main` (dependency trap); branch from `origin/main` at the start instead.
+10. For an explicit admin/direct push to `main`, run the Direct Main Admin Push Preflight in `branch-runtime-ops.md` before pushing. This proves maintainer identity, branch-protection parity, latest `origin/main`, DCO, secret hygiene, requested verification, and a clean tree; maintainer bypass is never permission to skip validation.
+11. When branch freshness drift is detected, update the existing working branch using `maintainer-branch-freshness.md`, rerun DCO and changed-surface checks, then push the same branch with `--force-with-lease` only when this session owns the rewritten commits.
+12. To add/remove a maintainer, repair the repository auto-merge setting, or change deploy/merge authority, edit `config/ci-governance.json` (single source of truth) then run `python3 scripts/ci/apply-governance.py --apply` to sync GitHub; the JSON edit must LAND ON MAIN for runtime UAT/merge gates to see it. Full runbook in `docs/reference/operations/branch-governance.md` ("Adding or removing a maintainer"). MERGE-TO-MAIN lane is decided by AUTHOR: governed maintainers (in `main.review_bypass_users` / `main.merge_queue_bypass_users`) shipping their own code branch from `origin/main` and open a PR DIRECTLY into `main` (the `PR Base Policy` gate passes by actor identity — no train, no cherry-pick, no promote-branch whitelist); the CI status gate, merge queue, and post-merge smoke gate still apply. Non-maintainer PRs route through `integration/pr-train`. Never cherry-pick a train-built branch onto `main` (dependency trap); branch from `origin/main` at the start instead.
 
 ## Handoff Rules
 

@@ -41,7 +41,7 @@ Founder-language translation for this doc:
 
 - `Capability Tokens`: the current token model built from `VAULT_OWNER`, consent tokens, and delegated scoped tokens
 - `PCHP`: the public approval handshake that results in app-scoped consent and encrypted export access
-- `TrustLink / A2A delegation`: current delegated access that inherits consent and does not mint broader authority
+- `TrustLink / A2A delegation`: delegated-agent authority described in [Agent Delegation Boundary](./agent-delegation-boundary.md)
 - `Separation of Duties`: the split between actor identity, policy validation, private data access, and public discovery surfaces
 
 ## Invariants
@@ -97,7 +97,7 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 1. Agents: consume only consent-approved data slices.
 2. Operons: perform business logic only after scope check in calling path.
 3. MCP: external/tool access remains token-scoped and audit-backed.
-4. A2A: delegated actions inherit consent boundaries; no scope escalation.
+4. A2A: delegated actions inherit consent boundaries; no scope escalation. TrustLinks are signed delegation proofs, not standalone data-access grants.
 5. Tamper-Evident History: reviewable consent and share history comes from the audit tables and verification artifacts checked into the current runtime.
 5. ADK checks: route/contract/compliance gates must pass before release.
 

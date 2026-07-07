@@ -462,6 +462,29 @@ export class PersonalKnowledgeModelService {
     };
   }
 
+  /**
+   * Detects the native plugin's "no data for this user yet" rejection so the
+   * NATIVE read paths can mirror the WEB branch's graceful empty return instead
+   * of surfacing a raw error banner.
+   *
+   * A fresh user with no PKM data makes the backend raise
+   * `HTTPException(404, "No … data found for user")`. The iOS (Swift
+   * `executeRequest`) and Android (Kotlin `executeRequest`) plugins both reject
+   * such non-2xx responses with a message that STARTS with `HTTP Error <code>: `.
+   * The web branches already treat a 404 as an empty state (metadata ->
+   * `emptyMetadata`, data/domain -> `null`); this lets native do the same.
+   *
+   * The match is intentionally strict — anchored on the `HTTP Error 404` prefix
+   * and word-bounded — so that 401/403/408/429/5xx, `Network error: …`,
+   * `JSON parsing error: …`, and any other rejection keep propagating and stay
+   * visible to the user. (The plugins reject with a message only; there is no
+   * structured `.code`, so the message is the sole reliable signal.)
+   */
+  private static isNativeNoDataError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    return /^HTTP Error 404\b/.test(message);
+  }
+
   private static isAuthoritativeMetadataSnapshot(
     metadata: PersonalKnowledgeModelMetadata | null | undefined
   ): boolean {
@@ -1472,131 +1495,147 @@ export class PersonalKnowledgeModelService {
         const metadataToken = await this.resolveMetadataAuthToken(vaultOwnerToken);
         // Use Capacitor plugin for native platforms
         // Native plugins return snake_case from backend - transform to camelCase
-        const nativeResult = await HushhPersonalKnowledgeModel.getMetadata({
-          userId,
-          vaultOwnerToken: this.getVaultOwnerToken(metadataToken),
-        });
+        let nativeResult: unknown = null;
+        try {
+          nativeResult = await HushhPersonalKnowledgeModel.getMetadata({
+            userId,
+            vaultOwnerToken: this.getVaultOwnerToken(metadataToken),
+          });
+        } catch (error) {
+          // Fresh user with no PKM data: the backend 404 ("No … data found for
+          // user") surfaces here as a native plugin rejection. Mirror the web
+          // branch (below) and treat it as an empty model instead of a hard
+          // error; any other error (auth / server / network) keeps propagating.
+          if (!PersonalKnowledgeModelService.isNativeNoDataError(error)) {
+            throw error;
+          }
+        }
+
+        if (!nativeResult) {
+          result = this.emptyMetadata(userId);
+        } else {
          
-        const raw = nativeResult as any;
-        result = {
-          userId: raw.user_id || raw.userId || userId,
-          domains: (raw.domains || []).map((d: Record<string, unknown>) => ({
-            key: (d.domain_key || d.key) as string,
-            displayName: (d.display_name || d.displayName) as string,
-            icon: (d.icon_name || d.icon) as string,
-            color: (d.color_hex || d.color) as string,
-            attributeCount: (d.attribute_count || d.attributeCount || 0) as number,
-            summary: (d.summary || {}) as Record<string, unknown>,
-            availableScopes: (d.available_scopes || d.availableScopes || []) as string[],
-            lastUpdated: (d.last_updated || d.lastUpdated || null) as string | null,
-            readableSummary: (d.readable_summary || d.readableSummary || null) as string | null,
-            readableHighlights: Array.isArray(d.readable_highlights)
-              ? (d.readable_highlights as string[])
-              : Array.isArray(d.readableHighlights)
-                ? (d.readableHighlights as string[])
-                : [],
-            readableUpdatedAt: (d.readable_updated_at ||
-              d.readableUpdatedAt ||
-              null) as string | null,
-            readableSourceLabel: (d.readable_source_label ||
-              d.readableSourceLabel ||
-              null) as string | null,
-            domainContractVersion: Number(
-              d.domain_contract_version ??
-                d.domainContractVersion ??
-                currentDomainContractVersion(String(d.domain_key || d.key || ""))
-            ),
-            readableSummaryVersion: Number(
-              d.readable_summary_version ?? d.readableSummaryVersion ?? 0
-            ),
-            upgradedAt: (d.upgraded_at || d.upgradedAt || null) as string | null,
-          })),
-          totalAttributes: raw.total_attributes || raw.totalAttributes || 0,
-          modelCompleteness: raw.model_completeness || raw.modelCompleteness || 0,
-          modelVersion: raw.model_version || raw.modelVersion || CURRENT_PKM_MODEL_VERSION,
-          storedModelVersion:
-            raw.stored_model_version ||
-            raw.storedModelVersion ||
-            raw.model_version ||
-            raw.modelVersion ||
-            CURRENT_PKM_MODEL_VERSION,
-          effectiveModelVersion:
-            raw.effective_model_version ||
-            raw.effectiveModelVersion ||
-            raw.model_version ||
-            raw.modelVersion ||
-            CURRENT_PKM_MODEL_VERSION,
-          targetModelVersion:
-            raw.target_model_version || raw.targetModelVersion || CURRENT_PKM_MODEL_VERSION,
-          currentPkmContractVersion:
-            (raw.current_pkm_contract_version || raw.currentPkmContractVersion || null) as string | null,
-          targetPkmContractVersion:
-            (raw.target_pkm_contract_version || raw.targetPkmContractVersion || null) as string | null,
-          currentReadableProjectionVersion:
-            (raw.current_readable_projection_version ||
-              raw.currentReadableProjectionVersion ||
-              null) as string | null,
-          targetReadableProjectionVersion:
-            (raw.target_readable_projection_version ||
-              raw.targetReadableProjectionVersion ||
-              null) as string | null,
-          upgradeStatus: raw.upgrade_status || raw.upgradeStatus || "current",
-          upgradableDomains: Array.isArray(raw.upgradable_domains || raw.upgradableDomains)
-            ? ((raw.upgradable_domains || raw.upgradableDomains) as Array<Record<string, unknown>>).map(
-                (domain) => {
-                  const capabilities = domain.capabilities_applied || domain.capabilitiesApplied;
-                  const blockers = domain.blocked_reasons || domain.blockedReasons;
-                  return {
-                  domain: String(domain.domain || ""),
-                  currentDomainContractVersion: Number(
-                    domain.current_domain_contract_version ??
-                      domain.currentDomainContractVersion ??
-                      1
-                  ),
-                  targetDomainContractVersion: Number(
-                    domain.target_domain_contract_version ??
-                      domain.targetDomainContractVersion ??
-                      1
-                  ),
-                  currentReadableSummaryVersion: Number(
-                    domain.current_readable_summary_version ??
-                      domain.currentReadableSummaryVersion ??
-                      0
-                  ),
-                  targetReadableSummaryVersion: Number(
-                    domain.target_readable_summary_version ??
-                      domain.targetReadableSummaryVersion ??
-                      CURRENT_READABLE_SUMMARY_VERSION
-                  ),
-                  currentPkmContractVersion:
-                    (domain.current_pkm_contract_version ||
-                      domain.currentPkmContractVersion ||
-                      null) as string | null,
-                  targetPkmContractVersion:
-                    (domain.target_pkm_contract_version ||
-                      domain.targetPkmContractVersion ||
-                      null) as string | null,
-                  currentReadableProjectionVersion:
-                    (domain.current_readable_projection_version ||
-                      domain.currentReadableProjectionVersion ||
-                      null) as string | null,
-                  targetReadableProjectionVersion:
-                    (domain.target_readable_projection_version ||
-                      domain.targetReadableProjectionVersion ||
-                      null) as string | null,
-                  capabilitiesApplied: Array.isArray(capabilities) ? capabilities.map(String) : [],
-                  blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
-                  upgradedAt: (domain.upgraded_at || domain.upgradedAt || null) as string | null,
-                  needsUpgrade: Boolean(domain.needs_upgrade ?? domain.needsUpgrade),
-                };
-                }
-              )
-            : [],
-          lastUpgradedAt:
-            (raw.last_upgraded_at || raw.lastUpgradedAt || null) as string | null,
-          suggestedDomains: raw.suggested_domains || raw.suggestedDomains || [],
-          lastUpdated: raw.last_updated || raw.lastUpdated || null,
-        };
+          const raw = nativeResult as any;
+          result = {
+            userId: raw.user_id || raw.userId || userId,
+            domains: (raw.domains || []).map((d: Record<string, unknown>) => ({
+              key: (d.domain_key || d.key) as string,
+              displayName: (d.display_name || d.displayName) as string,
+              icon: (d.icon_name || d.icon) as string,
+              color: (d.color_hex || d.color) as string,
+              attributeCount: (d.attribute_count || d.attributeCount || 0) as number,
+              summary: (d.summary || {}) as Record<string, unknown>,
+              availableScopes: (d.available_scopes || d.availableScopes || []) as string[],
+              lastUpdated: (d.last_updated || d.lastUpdated || null) as string | null,
+              readableSummary: (d.readable_summary || d.readableSummary || null) as string | null,
+              readableHighlights: Array.isArray(d.readable_highlights)
+                ? (d.readable_highlights as string[])
+                : Array.isArray(d.readableHighlights)
+                  ? (d.readableHighlights as string[])
+                  : [],
+              readableUpdatedAt: (d.readable_updated_at ||
+                d.readableUpdatedAt ||
+                null) as string | null,
+              readableSourceLabel: (d.readable_source_label ||
+                d.readableSourceLabel ||
+                null) as string | null,
+              domainContractVersion: Number(
+                d.domain_contract_version ??
+                  d.domainContractVersion ??
+                  currentDomainContractVersion(String(d.domain_key || d.key || ""))
+              ),
+              readableSummaryVersion: Number(
+                d.readable_summary_version ?? d.readableSummaryVersion ?? 0
+              ),
+              upgradedAt: (d.upgraded_at || d.upgradedAt || null) as string | null,
+            })),
+            totalAttributes: raw.total_attributes || raw.totalAttributes || 0,
+            modelCompleteness: raw.model_completeness || raw.modelCompleteness || 0,
+            modelVersion: raw.model_version || raw.modelVersion || CURRENT_PKM_MODEL_VERSION,
+            storedModelVersion:
+              raw.stored_model_version ||
+              raw.storedModelVersion ||
+              raw.model_version ||
+              raw.modelVersion ||
+              CURRENT_PKM_MODEL_VERSION,
+            effectiveModelVersion:
+              raw.effective_model_version ||
+              raw.effectiveModelVersion ||
+              raw.model_version ||
+              raw.modelVersion ||
+              CURRENT_PKM_MODEL_VERSION,
+            targetModelVersion:
+              raw.target_model_version || raw.targetModelVersion || CURRENT_PKM_MODEL_VERSION,
+            currentPkmContractVersion:
+              (raw.current_pkm_contract_version || raw.currentPkmContractVersion || null) as string | null,
+            targetPkmContractVersion:
+              (raw.target_pkm_contract_version || raw.targetPkmContractVersion || null) as string | null,
+            currentReadableProjectionVersion:
+              (raw.current_readable_projection_version ||
+                raw.currentReadableProjectionVersion ||
+                null) as string | null,
+            targetReadableProjectionVersion:
+              (raw.target_readable_projection_version ||
+                raw.targetReadableProjectionVersion ||
+                null) as string | null,
+            upgradeStatus: raw.upgrade_status || raw.upgradeStatus || "current",
+            upgradableDomains: Array.isArray(raw.upgradable_domains || raw.upgradableDomains)
+              ? ((raw.upgradable_domains || raw.upgradableDomains) as Array<Record<string, unknown>>).map(
+                  (domain) => {
+                    const capabilities = domain.capabilities_applied || domain.capabilitiesApplied;
+                    const blockers = domain.blocked_reasons || domain.blockedReasons;
+                    return {
+                    domain: String(domain.domain || ""),
+                    currentDomainContractVersion: Number(
+                      domain.current_domain_contract_version ??
+                        domain.currentDomainContractVersion ??
+                        1
+                    ),
+                    targetDomainContractVersion: Number(
+                      domain.target_domain_contract_version ??
+                        domain.targetDomainContractVersion ??
+                        1
+                    ),
+                    currentReadableSummaryVersion: Number(
+                      domain.current_readable_summary_version ??
+                        domain.currentReadableSummaryVersion ??
+                        0
+                    ),
+                    targetReadableSummaryVersion: Number(
+                      domain.target_readable_summary_version ??
+                        domain.targetReadableSummaryVersion ??
+                        CURRENT_READABLE_SUMMARY_VERSION
+                    ),
+                    currentPkmContractVersion:
+                      (domain.current_pkm_contract_version ||
+                        domain.currentPkmContractVersion ||
+                        null) as string | null,
+                    targetPkmContractVersion:
+                      (domain.target_pkm_contract_version ||
+                        domain.targetPkmContractVersion ||
+                        null) as string | null,
+                    currentReadableProjectionVersion:
+                      (domain.current_readable_projection_version ||
+                        domain.currentReadableProjectionVersion ||
+                        null) as string | null,
+                    targetReadableProjectionVersion:
+                      (domain.target_readable_projection_version ||
+                        domain.targetReadableProjectionVersion ||
+                        null) as string | null,
+                    capabilitiesApplied: Array.isArray(capabilities) ? capabilities.map(String) : [],
+                    blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
+                    upgradedAt: (domain.upgraded_at || domain.upgradedAt || null) as string | null,
+                    needsUpgrade: Boolean(domain.needs_upgrade ?? domain.needsUpgrade),
+                  };
+                  }
+                )
+              : [],
+            lastUpgradedAt:
+              (raw.last_upgraded_at || raw.lastUpgradedAt || null) as string | null,
+            suggestedDomains: raw.suggested_domains || raw.suggestedDomains || [],
+            lastUpdated: raw.last_updated || raw.lastUpdated || null,
+          };
+        }
       } else {
         // Web: Use ApiService.apiFetch() for tri-flow compliance
         let metadataToken = await this.resolveMetadataAuthToken(vaultOwnerToken);
@@ -2198,10 +2237,22 @@ export class PersonalKnowledgeModelService {
       let result: EncryptedUserBlob | null = null;
 
       if (Capacitor.isNativePlatform()) {
-        const nativeResult = await HushhPersonalKnowledgeModel.getEncryptedData({
-          userId,
-          vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
-        });
+        let nativeResult: Awaited<
+          ReturnType<typeof HushhPersonalKnowledgeModel.getEncryptedData>
+        > | null = null;
+        try {
+          nativeResult = await HushhPersonalKnowledgeModel.getEncryptedData({
+            userId,
+            vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
+          });
+        } catch (error) {
+          // Fresh user (backend 404 "No data found for user") -> no blob yet.
+          // Mirror the web branch's null return; other errors keep propagating.
+          if (PersonalKnowledgeModelService.isNativeNoDataError(error)) {
+            return null;
+          }
+          throw error;
+        }
         if (nativeResult?.ciphertext && nativeResult?.iv && nativeResult?.tag) {
            
           const raw = nativeResult as any;
@@ -3203,12 +3254,28 @@ export class PersonalKnowledgeModelService {
       let encryptedBlob: EncryptedDomainBlob | null = null;
 
       if (Capacitor.isNativePlatform()) {
-        const result = await HushhPersonalKnowledgeModel.getDomainData({
-          userId,
-          domain,
-          segmentIds: normalizedSegmentIds.length > 0 ? normalizedSegmentIds : undefined,
-          vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
-        });
+        let nativeDomainResult: Awaited<
+          ReturnType<typeof HushhPersonalKnowledgeModel.getDomainData>
+        > | null = null;
+        try {
+          nativeDomainResult = await HushhPersonalKnowledgeModel.getDomainData({
+            userId,
+            domain,
+            segmentIds: normalizedSegmentIds.length > 0 ? normalizedSegmentIds : undefined,
+            vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
+          });
+        } catch (error) {
+          // Fresh user / no data for this domain (backend 404) -> mirror the web
+          // branch's null return; other errors keep propagating.
+          if (PersonalKnowledgeModelService.isNativeNoDataError(error)) {
+            return null;
+          }
+          throw error;
+        }
+        if (!nativeDomainResult) {
+          return null;
+        }
+        const result = nativeDomainResult;
         if (result.encrypted_blob) {
           const nativeSegments =
             result.encrypted_blob.segments && typeof result.encrypted_blob.segments === "object"

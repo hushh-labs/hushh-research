@@ -99,7 +99,9 @@ export function AppSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  href={buildConsentCenterHref("pending")}
+                  href={buildConsentCenterHref("pending", {
+                    from: pathname || undefined,
+                  })}
                   isActive={pathname === "/consents"}
                 >
                   <Icon icon={Shield} size="sm" />

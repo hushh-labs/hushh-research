@@ -6,6 +6,7 @@ OneLocationAgentService and scope checks inside @hushh_tool.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -232,6 +233,22 @@ async def propose_sos_panic() -> dict[str, Any]:
     return {"proposed": "sos_panic"}
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_check_in")
+async def propose_check_in(duration_hours: float, note: str | None = None) -> dict[str, Any]:
+    """Propose a check-in: share live location with the user's ready trusted
+    contacts for a bounded time with an optional note. The browser creates the
+    grants per recipient, encrypts, and publishes. Coordinate-free."""
+    _ctx()
+    try:
+        hours = float(duration_hours)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_hours must be a number between 0 and 24") from exc
+    if not (0 < hours <= 24):
+        raise ValueError("duration_hours must be greater than 0 and at most 24")
+    clean_note = (note or "").strip()[:120] or None
+    return {"proposed": "check_in", "durationHours": hours, "note": clean_note}
+
+
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="propose_location_view")
 async def propose_location_view(grant_id: str) -> dict[str, Any]:
     """Propose viewing an incoming share's latest location. The browser fetches the
@@ -251,34 +268,85 @@ async def revoke_public_link(invite_id: str) -> dict[str, Any]:
     return _service().revoke_public_invite(owner_user_id=context.user_id, invite_id=invite_id)
 
 
-def _expiry_hint(expires_at: Any) -> str | None:
-    return f"expires {expires_at}" if expires_at else None
+def _expiry_hint(expires_at: Any, *, now: datetime | None = None) -> str | None:
+    """Human-friendly relative expiry for chat option hints.
+
+    Renders "expires in N hours" (rounded to the nearest hour), or
+    "expires in N minutes" when under an hour, since these hints are shown inline
+    in the chat picker where a raw ISO timestamp is unreadable. Returns None when
+    there is no timestamp, "expired" when it is already past, and preserves the
+    raw value if it can't be parsed.
+    """
+    if not expires_at:
+        return None
+    if isinstance(expires_at, datetime):
+        when = expires_at
+    else:
+        try:
+            when = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        except ValueError:
+            return f"expires {expires_at}"
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    total_minutes = int((when - current).total_seconds() // 60)
+    if total_minutes <= 0:
+        return "expired"
+    if total_minutes < 60:
+        return f"expires in {total_minutes} minute{'s' if total_minutes != 1 else ''}"
+    hours = int(total_minutes / 60 + 0.5)
+    return f"expires in {hours} hour{'s' if hours != 1 else ''}"
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_recipient_choice")
-async def request_recipient_choice() -> dict[str, Any]:
+async def request_recipient_choice(name: str | None = None) -> dict[str, Any]:
     """Ask the user to pick who to share with. Returns a coordinate-free select
-    prompt whose options carry real recipient ids. Call this when the user wants to
-    share but did not name a (single, unambiguous) recipient."""
+    prompt whose options carry real recipient ids.
+
+    Pass ``name`` when the user named a person but it matched more than one contact
+    (e.g. two "Neelesh Meena"): the options are then limited to just the contacts
+    whose display name matches, so the picker shows only the ambiguous matches
+    instead of the whole directory. Omit ``name`` only when the user has not named
+    anyone at all — then the picker lists everyone plus a public-link option.
+    """
     context = _ctx()
     recipients = _service().list_verified_recipients(owner_user_id=context.user_id)
+    needle = (name or "").strip().lower()
+    matches = (
+        [r for r in recipients if needle in str(r.get("displayName") or "").strip().lower()]
+        if needle
+        else recipients
+    )
+    # Disambiguation mode: only when a name was given AND it matched someone. A
+    # name that matches nothing falls back to the full directory so a typo can't
+    # strand the user with an empty picker.
+    disambiguating = bool(needle) and bool(matches)
+    chosen = matches if matches else recipients
     options = [
         {
             "label": r.get("displayName") or "Someone",
             "ref": {"recipientUserId": r.get("userId"), "recipientKeyId": r.get("keyId")},
             "hint": None if r.get("canReceiveLocation") else "hasn't set up location yet",
         }
-        for r in recipients
+        for r in chosen
     ]
-    options.append({"label": "Public link (anyone)", "ref": {"publicLink": True}, "hint": None})
+    if not disambiguating:
+        # The user named a specific person, so a public link is not a valid
+        # disambiguation answer — only offer it in the open "who?" case.
+        options.append({"label": "Public link (anyone)", "ref": {"publicLink": True}, "hint": None})
+    question = (
+        f"Which “{name}” do you want to share your location with?"
+        if disambiguating
+        else "Who do you want to share your location with?"
+    )
     return {
         "prompt": {
             "kind": "select",
             "purpose": "select_recipient",
-            "question": "Who do you want to share your location with?",
+            "question": question,
             "options": options,
             "minSelections": 1,
-            "maxSelections": None,
+            "maxSelections": 1 if disambiguating else None,
             "allowFreeText": True,
         }
     }
@@ -406,8 +474,10 @@ async def request_incoming_choice() -> dict[str, Any]:
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_confirmation")
 async def request_confirmation(summary: str, destructive: bool = True) -> dict[str, Any]:
     """Ask the user to confirm an irreversible or bulk action before it runs. Returns
-    a coordinate-free yes/no confirm prompt. Use before creating a public link,
-    sharing with everyone, or stopping all shares."""
+    a coordinate-free yes/no confirm prompt. Use before sharing with everyone or
+    stopping all shares. Do NOT use before propose_public_link — the browser shows
+    its own owner-confirmation card for the link, so confirming here would make
+    the user confirm twice."""
     _ctx()
     return {
         "prompt": {
@@ -474,4 +544,5 @@ V2_LOCATION_TOOLS = [
     request_incoming_choice,
     request_confirmation,
     propose_sos_panic,
+    propose_check_in,
 ]

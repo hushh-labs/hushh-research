@@ -51,8 +51,26 @@ describe("Top app bar responsive contract", () => {
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref, {");
+    // Profile query-panels close via replace (mirrors the page's popProfileStack).
+    expect(source).toContain("router.replace(topShellBreadcrumb.backHref, {");
     expect(source).not.toContain("router.back();");
+  });
+
+  it("centers the plain Agents dropdown while preserving the reserved back slot", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const dropdown = read("components/app-ui/agent-section-dropdown.tsx");
+
+    expect(source).toContain("AgentSectionDropdown");
+    expect(source.indexOf('data-testid="top-app-bar-nav-slot"')).toBeLessThan(
+      source.indexOf("<AgentSectionDropdown"),
+    );
+    expect(source).toContain("resolveCommonRouteBreadcrumb");
+    expect(source).toContain("const showAgentSectionDropdown");
+    expect(source).toContain("normalizedPathname !== ROUTES.ONE_HOME");
+    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(dropdown).toContain("<button");
+    expect(dropdown).not.toContain("ShellActionSurface");
   });
 
   it("uses primary header visibility for top-bar title handoff", () => {
@@ -67,7 +85,7 @@ describe("Top app bar responsive contract", () => {
       "header.getBoundingClientRect().bottom <= readTopShellReservedHeight()",
     );
     expect(source).toContain("getScrolledRouteTitle(pathname)");
-    expect(source).toContain('label: "One dashboard"');
+    expect(source).toContain('label: "Agents"');
   });
 
   it("keeps background activity visible and adds locked-vault unlock action", () => {
@@ -94,8 +112,23 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("topShellBreadcrumb.backHref");
-    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref, {");
     expect(source).not.toContain("history.back()");
+  });
+
+  it("makes setup back prime the guard before deterministic navigation", () => {
+    const topBar = read("components/app-ui/top-app-bar.tsx");
+    const setupHub = read("components/onboarding/setup/one-setup-hub.tsx");
+    const exitService = read("lib/services/one-setup-exit-service.ts");
+
+    expect(topBar).toContain("normalizedPathname === ROUTES.ONE_SETUP");
+    expect(topBar).toContain("acknowledgeOneSetupExit({");
+    expect(topBar).toContain("router.push(ROUTES.ONE_HOME);");
+    expect(setupHub).toContain("acknowledgeOneSetupExit({");
+    expect(exitService).toContain("export function acknowledgeOneSetupExit");
+    expect(exitService).toContain("primeOneSetupResolved({");
+    expect(exitService).toContain("writeOneSetupCompletionHint(params.userId, true);");
+    expect(exitService).toContain("PreVaultUserStateService.primeSetupResolved");
   });
 
   it("uses shared mobile-width chrome for top-shell shield and bell dropdowns", () => {

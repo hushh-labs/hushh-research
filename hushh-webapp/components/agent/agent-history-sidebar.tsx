@@ -43,6 +43,7 @@ type AgentHistorySidebarProps = {
   actionPendingId?: string | null;
   className?: string;
   collapsed?: boolean;
+  mode?: "desktop" | "mobile";
   onClose?: () => void;
   onToggleCollapsed?: () => void;
   onCreateNew: () => void;
@@ -111,6 +112,7 @@ export function AgentHistorySidebar({
   actionPendingId,
   className,
   collapsed = false,
+  mode = "desktop",
   onClose,
   onToggleCollapsed,
   onCreateNew,
@@ -118,6 +120,7 @@ export function AgentHistorySidebar({
   onRenameConversation,
   onDeleteConversation,
 }: AgentHistorySidebarProps) {
+  const isMobileMode = mode === "mobile";
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AgentChatConversation | null>(null);
@@ -299,15 +302,18 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-black/10 bg-white/92 text-[#1d1d1f] shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl transition-[width] duration-200 ease-out dark:border-white/10 dark:bg-[#101216] dark:text-zinc-200 dark:shadow-none",
-          collapsed ? "w-16" : "w-72",
+          "flex min-h-0 shrink-0 flex-col overflow-hidden text-[#1d1d1f] transition-[width] duration-200 ease-out dark:text-zinc-200",
+          isMobileMode
+            ? "chrome-glass-surface border-r border-white/45 bg-transparent shadow-2xl shadow-black/20 dark:border-white/10"
+            : "border-r border-black/10 bg-white/92 shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:border-white/10 dark:bg-[#101216] dark:shadow-none",
+          collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
         aria-label="Agent chat history"
         data-collapsed={collapsed ? "true" : "false"}
       >
         <div className="flex items-center gap-2 border-b border-black/10 p-3 dark:border-white/10">
-          {collapsed ? (
+          {collapsed && !isMobileMode ? (
             <div className="flex w-full flex-col items-center gap-2">
               <Button
                 type="button"
@@ -338,7 +344,12 @@ export function AgentHistorySidebar({
               <Button
                 type="button"
                 variant="ghost"
-                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-black/10 bg-black/[0.035] px-3 text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition-colors hover:bg-black/[0.06] focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:shadow-none dark:hover:bg-white/[0.08]"
+                className={cn(
+                  "h-11 min-w-0 flex-1 justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
+                  isMobileMode
+                    ? "rounded-full bg-black/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_8px_26px_rgba(0,0,0,0.08)] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
+                    : "rounded-lg border border-black/10 bg-black/[0.035] shadow-sm shadow-black/[0.03] hover:bg-black/[0.06] dark:border-white/10 dark:bg-white/[0.04] dark:shadow-none dark:hover:bg-white/[0.08]"
+                )}
                 onClick={onCreateNew}
                 disabled={disabled}
                 aria-label="Create new Agent chat"
@@ -347,7 +358,7 @@ export function AgentHistorySidebar({
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 <span className="truncate">New chat</span>
               </Button>
-              {onToggleCollapsed ? (
+              {onToggleCollapsed && !isMobileMode ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -367,7 +378,7 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-lg text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:hidden"
+              className="h-10 w-10 rounded-full bg-black/[0.03] text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] dark:bg-white/[0.04] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:hidden"
               onClick={onClose}
               aria-label="Close chat history"
               title="Close chat history"
@@ -393,7 +404,12 @@ export function AgentHistorySidebar({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
-                className="h-9 border-black/10 bg-black/[0.025] pl-8 text-sm text-[#1d1d1f] placeholder:text-[rgba(0,0,0,0.4)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                className={cn(
+                  "h-9 rounded-full pl-8 text-sm text-[#1d1d1f] placeholder:text-[rgba(0,0,0,0.4)] dark:text-zinc-100 dark:placeholder:text-zinc-500",
+                  isMobileMode
+                    ? "border-transparent bg-black/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.045]"
+                    : "border-black/10 bg-black/[0.025] dark:border-white/10 dark:bg-white/[0.04]"
+                )}
               />
             </div>
           </div>

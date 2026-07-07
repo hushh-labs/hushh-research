@@ -130,11 +130,12 @@
         "target": "/one/connected-systems"
       },
       "control_ids": [
-        "connected_systems"
+        "connected_systems",
+        "top_agent_section_connected-systems"
       ],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "speaker_persona": "one"
     },
@@ -151,7 +152,7 @@
       ],
       "reachability": {
         "routes": [
-          "/profile?tab=account&panel=support"
+          "/profile/support"
         ],
         "screens": [
           "profile_support_panel"
@@ -168,12 +169,12 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/profile?tab=account&panel=support"
+        "target": "/profile/support"
       },
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "speaker_persona": "one"
     },
@@ -191,7 +192,7 @@
       ],
       "reachability": {
         "routes": [
-          "/profile?tab=privacy&panel=security"
+          "/profile/security"
         ],
         "screens": [
           "profile_security_panel"
@@ -208,12 +209,12 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/profile?tab=privacy&panel=security"
+        "target": "/profile/security"
       },
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "speaker_persona": "nav"
     },
@@ -272,7 +273,7 @@
       ],
       "reachability": {
         "routes": [
-          "/profile?tab=account&panel=support"
+          "/profile/support"
         ],
         "screens": [
           "profile_support_panel"
@@ -293,7 +294,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [
@@ -318,7 +319,7 @@
       ],
       "reachability": {
         "routes": [
-          "/profile?tab=privacy"
+          "/profile/access"
         ],
         "screens": [
           "profile_privacy"
@@ -340,7 +341,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "speaker_persona": "nav"
     },
@@ -379,7 +380,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "speaker_persona": "one"
     },
@@ -420,7 +421,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/profile/page.tsx"
+        "app/profile/profile-workspace-page.tsx"
       ],
       "speaker_persona": "nav"
     }

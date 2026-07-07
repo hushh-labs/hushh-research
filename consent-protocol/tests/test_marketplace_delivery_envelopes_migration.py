@@ -8,7 +8,7 @@ MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 MANIFEST_PATH = REPO_ROOT / "db" / "release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "db" / "contracts" / "uat_integrated_schema.json"
 
-MIGRATION_NAME = "079_marketplace_delivery_envelopes.sql"
+MIGRATION_NAME = "081_marketplace_delivery_envelopes.sql"
 
 
 def test_marketplace_delivery_envelopes_migration_is_registered_at_release_head() -> None:
@@ -18,9 +18,9 @@ def test_marketplace_delivery_envelopes_migration_is_registered_at_release_head(
     assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert manifest["ordered_migrations"].index(MIGRATION_NAME) > manifest[
         "ordered_migrations"
-    ].index("078_marketplace_recipient_keys.sql")
+    ].index("080_marketplace_recipient_keys.sql")
     # The contract version tracks the release head, which this migration now is.
-    assert contract["expected_migration_version"] == 80
+    assert contract["expected_migration_version"] == 82
 
 
 def test_marketplace_delivery_envelopes_migration_creates_envelope_table() -> None:

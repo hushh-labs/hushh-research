@@ -1,7 +1,6 @@
 "use client";
 
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
-import { OneLocationService } from "@/lib/one-location/service";
 
 /**
  * Syncs pre-vault onboarding data to the encrypted PKM after vault unlock.
@@ -15,7 +14,7 @@ export class PostUnlockSyncService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
-  }): Promise<{ onboardingSynced: boolean; sosSeeded: boolean }> {
+  }): Promise<{ onboardingSynced: boolean }> {
     const syncResult = await KaiProfileSyncService.syncPendingToVault({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -25,19 +24,6 @@ export class PostUnlockSyncService {
       return { synced: false };
     });
 
-    // Seed trusted contacts (idempotent, gated server-side on zero connections)
-    // so a fresh user has SOS recipients. Isolated: a failure here must not
-    // abort onboarding sync.
-    const seedResult = await OneLocationService.seedTrustedContacts({
-      vaultOwnerToken: params.vaultOwnerToken,
-    }).catch((error) => {
-      console.warn("[PostUnlockSyncService] SOS trusted-contact seed failed:", error);
-      return { seeded: 0, existingCount: 0, skippedSelf: 0 };
-    });
-
-    return {
-      onboardingSynced: Boolean(syncResult.synced),
-      sosSeeded: Boolean(seedResult.seeded),
-    };
+    return { onboardingSynced: Boolean(syncResult.synced) };
   }
 }

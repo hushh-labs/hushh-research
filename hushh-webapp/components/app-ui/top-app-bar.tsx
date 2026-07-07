@@ -79,7 +79,10 @@ import {
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
+import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
+import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
+import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { ConsentInboxDropdown } from "@/components/consent/consent-inbox-dropdown";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
@@ -87,7 +90,10 @@ import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
-import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  resolveTopShellBreadcrumb,
+  type TopShellBreadcrumbConfig,
+} from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   ShellActionSurface,
   SHELL_ICON_BUTTON_CLASSNAME,
@@ -211,6 +217,41 @@ function roleSwitcherIcon(activePersona: Persona): LucideIcon {
   return activePersona === "ria" ? BriefcaseBusiness : UserRound;
 }
 
+function resolveCommonRouteBreadcrumb(
+  pathname: string,
+  lastAgentSectionId: string | null,
+): TopShellBreadcrumbConfig | null {
+  const section = getAgentSection(lastAgentSectionId);
+  const backHref = section?.href ?? ROUTES.ONE_HOME;
+  const parentLabel = section?.label ?? "Agents";
+
+  if (pathname === ROUTES.PROFILE) {
+    return {
+      backHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: parentLabel, href: backHref },
+        { label: "Profile" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.MARKETPLACE) {
+    return {
+      backHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: parentLabel, href: backHref },
+        { label: "Connect" },
+      ],
+    };
+  }
+
+  return null;
+}
+
 function getScrolledRouteTitle(pathname: string): {
   label: string;
   icon?: LucideIcon;
@@ -221,7 +262,7 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) {
     return {
-      label: "One dashboard",
+      label: "Agents",
       icon: LayoutDashboard,
       interactive: false as const,
     };
@@ -307,21 +348,31 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const { isVaultUnlocked } = useVault();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  const normalizedPathname = useMemo(
+    () => normalizeTopBarPathname(pathname),
+    [pathname],
+  );
+  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
   const topShellMetrics = useMemo(
-    () => resolveTopShellMetrics(pathname),
-    [pathname],
+    () => resolveTopShellMetrics(normalizedPathname),
+    [normalizedPathname],
   );
   const topShellBreadcrumb = useMemo(
-    () => resolveTopShellBreadcrumb(pathname, searchParams),
-    [pathname, searchParams],
+    () =>
+      resolveTopShellBreadcrumb(normalizedPathname, searchParams) ??
+      resolveCommonRouteBreadcrumb(normalizedPathname, lastAgentSectionId),
+    [lastAgentSectionId, normalizedPathname, searchParams],
   );
-  const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
+  const chromeState = useMemo(
+    () => getKaiChromeState(normalizedPathname),
+    [normalizedPathname],
+  );
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
   const [hasVault, setHasVault] = useState<boolean | null>(null);
@@ -432,15 +483,20 @@ export function TopAppBar({ className }: TopAppBarProps) {
   }, [isAuthenticated, isVaultUnlocked, user?.uid]);
 
   const centerTitle = useMemo(
-    () => getTopBarTitle(pathname, primaryHeaderOutOfView),
-    [pathname, primaryHeaderOutOfView],
+    () => getTopBarTitle(normalizedPathname, primaryHeaderOutOfView),
+    [normalizedPathname, primaryHeaderOutOfView],
   );
   const canShowPersonaSwitcher = useMemo(
-    () => isPersonaSwitchTopBarRoute(pathname),
-    [pathname],
+    () => isPersonaSwitchTopBarRoute(normalizedPathname),
+    [normalizedPathname],
   );
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked;
+  const showAgentSectionDropdown =
+    isAuthenticated &&
+    !showOnboardingActions &&
+    normalizedPathname !== ROUTES.HOME &&
+    normalizedPathname !== ROUTES.ONE_HOME;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -545,7 +601,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
     () =>
       ({
         "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+        // Theme-accurate dark tint: derive from the live --background so the
+        // frosted band never reads lighter (milky) than the page behind it.
+        "--app-bar-glass-bg-dark":
+          "color-mix(in oklab, var(--background) 76%, transparent)",
         "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
         "--app-bar-mask-overscan": "14px",
       }) as React.CSSProperties,
@@ -610,7 +669,47 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       variant="icon"
                       aria-label="Go back"
                       onClick={() => {
-                        router.push(topShellBreadcrumb.backHref);
+                        if (normalizedPathname === ROUTES.ONE_SETUP) {
+                          if (!user?.uid) {
+                            router.push(ROUTES.ONE_HOME);
+                            return;
+                          }
+
+                          const setupExitSync = acknowledgeOneSetupExit({
+                            userId: user.uid,
+                            skipped: false,
+                            isVaultUnlocked,
+                            vaultKey,
+                            vaultOwnerToken,
+                          });
+                          router.push(ROUTES.ONE_HOME);
+                          void setupExitSync.catch((error: unknown) => {
+                            console.warn(
+                              "[TopAppBar] Failed to persist setup back acknowledgement:",
+                              error,
+                            );
+                          });
+                          return;
+                        }
+                        // Profile query-panels (`/profile?panel=…&detail=…`) are
+                        // a same-pathname, query-only nav. The profile page closes
+                        // its panels only via router.replace(.., { scroll: false })
+                        // (popProfileStack / updateProfileView "replace"), so a
+                        // plain push here is a no-op on device ("Access & Sharing
+                        // back doesn't work"). Mirror the page's own close path.
+                        if (
+                          normalizedPathname === ROUTES.PROFILE &&
+                          (searchParams?.get("panel") ||
+                            searchParams?.get("detail"))
+                        ) {
+                          router.replace(topShellBreadcrumb.backHref, {
+                            scroll: false,
+                          });
+                          return;
+                        }
+                        router.push(topShellBreadcrumb.backHref, {
+                          scroll: false,
+                        });
                       }}
                     >
                       <ArrowLeft className="h-5 w-5" />
@@ -633,7 +732,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   showOnboardingActions ? "justify-start" : "justify-center",
                 )}
               >
-                {centerTitle ? (
+                {showAgentSectionDropdown ? (
+                  <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
+                    <AgentSectionDropdown pathname={normalizedPathname} />
+                  </div>
+                ) : centerTitle ? (
                   centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                       <DropdownMenu>

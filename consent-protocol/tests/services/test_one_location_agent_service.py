@@ -110,10 +110,41 @@ def test_verified_recipient_directory_filters_self_and_allows_explicit_network_c
 
     assert service.list_verified_recipients(owner_user_id="owner") == []
     assert "a.phone_verified = TRUE" in service.sql
-    assert "one_location_network_connections" in service.sql
+    assert "trusted_connections" in service.sql
+    assert "one_location_network_connections" not in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
     assert "ORDER BY COALESCE" in service.sql
     assert service.params["owner_user_id"] == "owner"
+
+
+def test_list_verified_recipients_rule1_uses_trusted_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "user_id": "friend",
+                "display_name": "Friend",
+                "phone_number": None,
+                "phone_verified": True,
+                "key_id": "k1",
+                "public_key_jwk": "{}",
+                "algorithm": "ECDH-P256-AES256-GCM",
+                "key_created_at": None,
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    monkeypatch.setattr(svc, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
+    out = svc.list_verified_recipients(owner_user_id="owner")
+    assert "trusted_connections" in captured["sql"]
+    assert "one_location_network_connections" not in captured["sql"]
+    assert out and out[0]["userId"] == "friend"
 
 
 class EnvelopeReadProbe(OneLocationAgentService):
@@ -204,6 +235,7 @@ class FourUserMemoryService(OneLocationAgentService):
         self.public_submissions: dict[str, dict] = {}
         self.circle_invites: dict[str, dict] = {}
         self.network_connections: dict[str, dict] = {}
+        self.trusted_connections: dict[str, dict] = {}
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
@@ -267,6 +299,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 for connection in self.network_connections.values()
                 if connection["status"] == "active"
                 and owner in {connection["user_a_id"], connection["user_b_id"]}
+            } | {
+                tc["trusted_user_id"]
+                for tc in self.trusted_connections.values()
+                if tc.get("status") == "active" and tc.get("owner_user_id") == owner
             }
             # Mirror the real SQL: a user connected to the owner through an
             # approved marketplace (advisor<->investor) relationship is eligible
@@ -422,17 +458,18 @@ class FourUserMemoryService(OneLocationAgentService):
                 if invite["owner_user_id"] == params["user_id"]
                 or invite.get("claimed_by_user_id") == params["user_id"]
             ][:20]
-        if "FROM one_location_network_connections" in sql:
+        if "FROM trusted_connections" in sql:
+            # Serves both list_state (network_connections) and
+            # _add_one_network_signals: active edges owned by the caller.
             owner = params.get("owner_user_id") or params.get("user_id")
             return [
-                connection
-                for connection in sorted(
-                    self.network_connections.values(),
-                    key=lambda item: item["connected_at"],
+                tc
+                for tc in sorted(
+                    self.trusted_connections.values(),
+                    key=lambda item: item.get("created_at") or "",
                     reverse=True,
                 )
-                if connection["status"] == "active"
-                and (connection["user_a_id"] == owner or connection["user_b_id"] == owner)
+                if tc.get("status") == "active" and tc.get("owner_user_id") == owner
             ][:200]
         if "FROM one_location_public_invite_submissions submission" in sql:
             rows = []
@@ -989,47 +1026,6 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.circle_invites[invite_id] = row
             return row
-        if "INSERT INTO one_location_network_connections" in sql:
-            existing = next(
-                (
-                    connection
-                    for connection in self.network_connections.values()
-                    if connection["user_a_id"] == params["user_a_id"]
-                    and connection["user_b_id"] == params["user_b_id"]
-                ),
-                None,
-            )
-            now = datetime.now(timezone.utc)
-            if existing:
-                existing.update(
-                    {
-                        "inviter_user_id": params["inviter_user_id"],
-                        "invitee_user_id": params["invitee_user_id"],
-                        "invite_id": params["invite_id"],
-                        "status": "active",
-                        "updated_at": now,
-                        "revoked_at": None,
-                        "metadata": json.loads(params.get("metadata_json") or "{}"),
-                    }
-                )
-                return existing
-            connection_id = str(uuid.uuid4())
-            row = {
-                "id": connection_id,
-                "user_a_id": params["user_a_id"],
-                "user_b_id": params["user_b_id"],
-                "inviter_user_id": params["inviter_user_id"],
-                "invitee_user_id": params["invitee_user_id"],
-                "invite_id": params["invite_id"],
-                "status": "active",
-                "connected_at": now,
-                "created_at": now,
-                "updated_at": now,
-                "revoked_at": None,
-                "metadata": json.loads(params.get("metadata_json") or "{}"),
-            }
-            self.network_connections[connection_id] = row
-            return row
         if "FROM one_location_circle_invites i" in sql:
             for invite in self.circle_invites.values():
                 if invite["invite_code_hash"] == params["invite_code_hash"]:
@@ -1081,6 +1077,57 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant["revoked_at"] = datetime.now(timezone.utc)
                 return grant
             return None
+        if "INSERT INTO trusted_connections" in sql:
+            existing = next(
+                (
+                    tc
+                    for tc in self.trusted_connections.values()
+                    if tc["owner_user_id"] == params.get("owner_user_id")
+                    and tc["trusted_user_id"] == params.get("trusted_user_id")
+                ),
+                None,
+            )
+            now = datetime.now(timezone.utc)
+            if existing:
+                existing.update(
+                    {
+                        "status": "active",
+                        "updated_at": now,
+                        "revoked_at": None,
+                        "source": params.get("source", "circle_invite"),
+                    }
+                )
+                return {
+                    "id": existing["id"],
+                    "owner_user_id": existing["owner_user_id"],
+                    "trusted_user_id": existing["trusted_user_id"],
+                    "status": existing["status"],
+                    "created_at": existing.get("created_at"),
+                    "updated_at": existing.get("updated_at"),
+                    "revoked_at": existing.get("revoked_at"),
+                }
+            tc_id = str(uuid.uuid4())
+            row = {
+                "id": tc_id,
+                "owner_user_id": params.get("owner_user_id"),
+                "trusted_user_id": params.get("trusted_user_id"),
+                "status": "active",
+                "source": "circle_invite",
+                "created_at": now,
+                "updated_at": now,
+                "revoked_at": None,
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
+            }
+            self.trusted_connections[tc_id] = row
+            return {
+                "id": tc_id,
+                "owner_user_id": row["owner_user_id"],
+                "trusted_user_id": row["trusted_user_id"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "revoked_at": row["revoked_at"],
+            }
         raise AssertionError(f"unexpected execute_one SQL: {sql}")
 
 
@@ -1797,6 +1844,73 @@ def test_public_invite_submission_without_key_never_creates_access() -> None:
     assert service.requests == {}
 
 
+def test_claim_circle_invite_writes_one_way_trusted_edge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claiming a Circle invite must write a directional trusted_connections edge
+    (owner=claimer, trusted=inviter)."""
+    svc = OneLocationAgentService()
+    writes: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(
+        svc,
+        "_circle_invite_row_for_token",
+        lambda **kw: {"id": "inv1", "owner_user_id": "inviter-uid", "message": ""},
+    )
+    monkeypatch.setattr(
+        svc,
+        "_identity_row",
+        lambda uid: {"user_id": uid, "phone_verified": True, "display_name": uid},
+    )
+
+    def fake_execute_one(sql: str, params: dict | None = None) -> dict | None:
+        params = params or {}
+        writes.append((sql, params))
+        # NEW ORDER: invite UPDATE runs first, trusted INSERT runs second.
+        if "UPDATE one_location_circle_invites" in sql and "'claimed'" in sql:
+            return {
+                "id": "inv1",
+                "owner_user_id": "inviter-uid",
+                "status": "claimed",
+                "claimed_by_user_id": "claimant-uid",
+                "duration_hours": 24,
+                "expires_at": None,
+                "created_at": None,
+                "updated_at": None,
+                "revoked_at": None,
+                "claimed_at": None,
+                "message": None,
+                "metadata": None,
+            }
+        if "INSERT INTO trusted_connections" in sql:
+            return {
+                "id": "edge-1",
+                "owner_user_id": params.get("owner_user_id"),
+                "trusted_user_id": params.get("trusted_user_id"),
+                "status": "active",
+                "created_at": None,
+                "updated_at": None,
+                "revoked_at": None,
+            }
+        # _insert_event calls are wrapped in try/except and ignore return value
+        return {}
+
+    monkeypatch.setattr(svc, "_execute_one", fake_execute_one)
+
+    result = svc.claim_circle_invite(invite_token="tok", claimant_user_id="claimant-uid")  # noqa: S106
+
+    tc_writes = [(sql, p) for sql, p in writes if "INSERT INTO trusted_connections" in sql]
+    assert len(tc_writes) == 1, "Expected exactly one INSERT INTO trusted_connections"
+    assert tc_writes[0][1]["owner_user_id"] == "claimant-uid"
+    assert tc_writes[0][1]["trusted_user_id"] == "inviter-uid"
+    assert "circle_invite" in tc_writes[0][0], (
+        "INSERT SQL must contain the 'circle_invite' source literal"
+    )
+
+    assert result["connection"]["id"] == "edge-1"
+    assert result["connection"]["inviterUserId"] == "inviter-uid"
+    assert result["connection"]["inviteeUserId"] == "claimant-uid"
+    assert result["connection"]["inviteId"] == "inv1"
+
+
 def test_invite_to_one_claim_creates_network_connection_without_location_access() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -1834,11 +1948,14 @@ def test_invite_to_one_claim_creates_network_connection_without_location_access(
     assert claimed["invite"]["status"] == "claimed"
     assert claimed["invite"]["claimedByUserId"] == "user_b"
     assert claimed["connection"]["status"] == "active"
+    # One-way edge: owner=claimer (user_b), trusted=inviter (user_a).
+    # inviterUserId = invite owner (user_a), inviteeUserId = claimant (user_b).
     assert claimed["connection"]["inviterUserId"] == "user_a"
     assert claimed["connection"]["inviteeUserId"] == "user_b"
-    assert claimed["connection"]["inviteId"] == claimed["invite"]["id"]
+    assert claimed["connection"]["inviteId"] is not None
     assert service.requests == {}
     assert service.grants == {}
+    assert service.network_connections == {}
     assert "latitude" not in json.dumps(claimed, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
@@ -1849,14 +1966,15 @@ def test_invite_to_one_claim_creates_network_connection_without_location_access(
         event["event_type"] == "location_one_network_joined" for event in service.events.values()
     )
 
-    recipients_for_owner = service.list_verified_recipients(owner_user_id="user_a")
-    user_b = next(
-        recipient for recipient in recipients_for_owner if recipient["userId"] == "user_b"
+    # Claimer (user_b) sees the inviter (user_a) as a trusted_circle recipient.
+    recipients_for_claimer = service.list_verified_recipients(owner_user_id="user_b")
+    user_a = next(
+        recipient for recipient in recipients_for_claimer if recipient["userId"] == "user_a"
     )
-    assert user_b["recommendationCategory"] == "trusted_circle"
-    assert user_b["relationshipType"] == "One Network"
+    assert user_a["recommendationCategory"] == "trusted_circle"
+    assert user_a["relationshipType"] == "One Network"
     assert any(
-        reason["code"] == "one_network_connection" for reason in user_b["recommendationReasons"]
+        reason["code"] == "one_network_connection" for reason in user_a["recommendationReasons"]
     )
 
     with pytest.raises(OneLocationAgentError) as duplicate:

@@ -8,7 +8,7 @@ MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 MANIFEST_PATH = REPO_ROOT / "db" / "release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "db" / "contracts" / "uat_integrated_schema.json"
 
-MIGRATION_NAME = "080_marketplace_request_revoked_status.sql"
+MIGRATION_NAME = "082_marketplace_request_revoked_status.sql"
 
 
 def test_revoked_status_migration_is_registered_at_release_head() -> None:
@@ -19,8 +19,8 @@ def test_revoked_status_migration_is_registered_at_release_head() -> None:
     assert MIGRATION_NAME in ordered
     assert len(ordered) == len(set(ordered))
     # This migration is the new release head.
-    assert ordered.index(MIGRATION_NAME) > ordered.index("079_marketplace_delivery_envelopes.sql")
-    assert contract["expected_migration_version"] == 80
+    assert ordered.index(MIGRATION_NAME) > ordered.index("081_marketplace_delivery_envelopes.sql")
+    assert contract["expected_migration_version"] == 82
     assert contract["migration_version_policy"] == "exact"
 
 

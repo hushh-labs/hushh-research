@@ -596,6 +596,18 @@ a, button, input, select, textarea {
   --app-top-safe-offset: 2px;
 }
 
+.agent-chat-workspace {
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
+  --agent-chat-composer-bottom: calc(0.75rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-focused-bottom: calc(1.25rem + var(--app-safe-area-bottom-effective));
+}
+
+html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
+  --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
+  --agent-chat-composer-bottom: calc(1rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-focused-bottom: calc(1.75rem + var(--app-safe-area-bottom-effective));
+}
+
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
@@ -1394,9 +1406,11 @@ md-ripple.morphy-md-ripple {
 
 /* Shared masked glass for top/bottom app chrome. */
 .bar-glass {
-  /* Apple iCloud: match bg colors with transparency for glass blend */
+  /* Apple iCloud: match bg colors with transparency for glass blend.
+     Both tints derive from the live theme background so the frosted band
+     never reads lighter (milky) than the page behind it. */
   --app-bar-glass-bg-light: rgba(245, 245, 247, 0.72);
-  --app-bar-glass-bg-dark: rgba(28, 28, 30, 0.72);
+  --app-bar-glass-bg-dark: color-mix(in oklab, var(--background) 72%, transparent);
   --app-bar-glass-blur: var(--app-shared-chrome-mask-blur);
   --app-bar-border-top: 0;
   --app-bar-shadow: none;
@@ -1482,12 +1496,15 @@ md-ripple.morphy-md-ripple {
 }
 
 .dark .bar-glass-top::after {
+  /* Theme-accurate: derive from the live --background instead of hardcoded
+     rgb(28,28,30), which is LIGHTER than the actual dark background and reads
+     as a milky band over the page. */
   background: linear-gradient(
     to bottom,
-    rgba(28, 28, 30, 0.18) 0%,
-    rgba(28, 28, 30, 0.14) 46%,
-    rgba(28, 28, 30, 0.08) 72%,
-    rgba(28, 28, 30, 0.03) 90%,
+    color-mix(in oklab, var(--background) 18%, transparent) 0%,
+    color-mix(in oklab, var(--background) 14%, transparent) 46%,
+    color-mix(in oklab, var(--background) 8%, transparent) 72%,
+    color-mix(in oklab, var(--background) 3%, transparent) 90%,
     transparent 100%
   );
 }
@@ -1532,13 +1549,14 @@ md-ripple.morphy-md-ripple {
 }
 
 .dark .bar-glass-bottom::after {
-  /* Mirror the top app bar dark fade exactly, flipped to fade upward. */
+  /* Mirror the top app bar dark fade exactly, flipped to fade upward.
+     Theme-accurate via color-mix on the live --background (see top fade). */
   background: linear-gradient(
     to top,
-    var(--app-bar-bottom-fade-strong, rgba(28, 28, 30, 0.18)) 0%,
-    var(--app-bar-bottom-fade-medium, rgba(28, 28, 30, 0.14)) 46%,
-    var(--app-bar-bottom-fade-soft, rgba(28, 28, 30, 0.08)) 72%,
-    var(--app-bar-bottom-fade-trace, rgba(28, 28, 30, 0.03)) 90%,
+    var(--app-bar-bottom-fade-strong, color-mix(in oklab, var(--background) 18%, transparent)) 0%,
+    var(--app-bar-bottom-fade-medium, color-mix(in oklab, var(--background) 14%, transparent)) 46%,
+    var(--app-bar-bottom-fade-soft, color-mix(in oklab, var(--background) 8%, transparent)) 72%,
+    var(--app-bar-bottom-fade-trace, color-mix(in oklab, var(--background) 3%, transparent)) 90%,
     transparent 100%
   );
 }
@@ -1555,7 +1573,7 @@ md-ripple.morphy-md-ripple {
 }
 
 .dark .chrome-glass-surface {
-  background-color: rgba(28, 28, 30, 0.8);
+  background-color: color-mix(in oklab, var(--background) 80%, transparent);
   border: none;
   box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
 }
@@ -1582,6 +1600,7 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [data-segment-indicator] {
   background: rgb(0 0 0 / 0.06) !important;
+  border: 0;
   box-shadow: none !important;
 }
 
@@ -1646,12 +1665,12 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: rgb(0 113 227) !important;
+  color: var(--foundation-gold-deep) !important;
   font-weight: 600;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: rgb(41 171 255) !important;
+  color: var(--foundation-gold-deep) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
@@ -1667,7 +1686,7 @@ md-ripple.morphy-md-ripple {
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
   stroke-width: 1.95;
-  filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.24));
+  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--foundation-gold-deep) 28%, transparent));
   transform: translateY(-0.5px);
 }
 
@@ -1885,7 +1904,9 @@ md-ripple.morphy-md-ripple {
 }
 
 .dark .morphy-app-bg {
-  background-color: rgb(28, 28, 30) !important;
+  /* Match the theme --background exactly. A hardcoded rgb(28,28,30) here was
+     lighter than --background, so every glass band over it read milky. */
+  background-color: var(--background) !important;
   background-image: none !important;
 }
 
@@ -2446,12 +2467,37 @@ html.dark .morphy-app-bg {
   }
 }
 
+/* Shared in-page step/tab enter. The ONE sanctioned utility for content that
+ * swaps within a route (wizard steps, tab panels). Uses the same motion tokens
+ * as the route envelope so every transition in the app shares one frame. Do
+ * NOT use ad-hoc tailwind animate-in/duration-* utilities for this. */
+.motion-step-enter {
+  animation: app-step-enter var(--motion-duration-lg)
+    var(--motion-ease-decelerate) both;
+  will-change: opacity, transform;
+}
+
+@keyframes app-step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root[data-route-transition="pending"] [data-app-shell-content="true"],
   :root[data-route-transition="entering"] [data-app-shell-content="true"] {
     opacity: 1 !important;
     transform: none !important;
     transition: none !important;
+    animation: none !important;
+  }
+
+  .motion-step-enter {
     animation: none !important;
   }
 }

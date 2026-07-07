@@ -151,6 +151,17 @@ export type OneLocationGrant = {
   updatedAt?: string | null;
   revokedAt?: string | null;
   latestEnvelopeId?: string | null;
+  /**
+   * Share intent surfaced by the backend so the recipient's notification, bell,
+   * and Consent Manager can distinguish an emergency SOS from a friendly
+   * Check-In from a plain location share. "share" is the neutral default.
+   */
+  shareKind?: "sos" | "check_in" | "share" | "drive_to" | string | null;
+  /**
+   * Optional human note attached to the share (e.g. a Check-In message). Already
+   * coordinate-free and bounded by the backend; shown verbatim to the recipient.
+   */
+  shareMessage?: string | null;
 };
 
 export type OneLocationAccessRequest = {
@@ -304,12 +315,36 @@ export type OneLocationActivityResponse = {
   events: OneLocationActivityEvent[];
 };
 
+export type DriveDestination = {
+  label: string;
+  latitude: number;
+  longitude: number;
+  placeId?: string | null;
+};
+
+/**
+ * Drive-To payload carried INSIDE the encrypted envelope (never sent to the
+ * backend in plaintext). Recipients decrypt the point and read destination +
+ * latest ETA from here.
+ */
+export type DriveSharePayload = {
+  destination: DriveDestination;
+  etaSeconds: number | null;
+  distanceMeters: number | null;
+  etaComputedAt: string;
+};
+
 export type PlainLocationPoint = {
   latitude: number;
   longitude: number;
   accuracyM?: number | null;
   capturedAt: string;
   sourcePlatform: LocationSourcePlatform;
+  /**
+   * Present only for Drive-To shares. Encrypted together with the point, so the
+   * backend never sees the destination or ETA.
+   */
+  drive?: DriveSharePayload | null;
 };
 
 export type OneLocationEncryptedEnvelope = {
@@ -335,7 +370,7 @@ export interface ShareTarget {
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic";
+export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic" | "check_in";
 
 export interface ClientAction {
   id: string;
@@ -343,6 +378,7 @@ export interface ClientAction {
   shares?: ShareTarget[];
   grantId?: string;
   durationHours?: number;
+  note?: string | null;
   summary: string;
 }
 

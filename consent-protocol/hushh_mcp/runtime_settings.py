@@ -143,6 +143,7 @@ class CoreSecuritySettings:
     app_signing_key: str
     vault_data_key: str
     google_api_key: str
+    google_maps_api_key: str
     environment: str
     agent_id: str
     hushh_hackathon: bool
@@ -263,6 +264,7 @@ def get_core_security_settings() -> CoreSecuritySettings:
         app_signing_key=app_signing_key,
         vault_data_key=vault_data_key,
         google_api_key=_clean_env("GOOGLE_API_KEY"),
+        google_maps_api_key=_clean_env("GOOGLE_MAPS_API_KEY"),
         environment=_clean_env("ENVIRONMENT", "development").lower() or "development",
         agent_id=_clean_env("AGENT_ID", "agent_hushh_default") or "agent_hushh_default",
         hushh_hackathon=_bool_from_value(_clean_env("HUSHH_HACKATHON"), default=False),

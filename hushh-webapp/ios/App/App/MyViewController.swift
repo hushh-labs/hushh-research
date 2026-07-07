@@ -27,8 +27,14 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             // Keep iOS inset ownership aligned with Capacitor config:
             // ios.contentInset = "never" + app-level safe-area CSS contract.
             webView.scrollView.contentInsetAdjustmentBehavior = .never
+            // Disable the native scroll view (mirrors ios.scrollEnabled=false in
+            // capacitor.config). Belt-and-suspenders guarantee that iOS never
+            // auto-scrolls the WKWebView to reveal a focused input, which would
+            // drag the fixed chat overlay under the status bar / keyboard. All
+            // app scrolling is done by inner overflow-y containers.
+            webView.scrollView.isScrollEnabled = false
             webView.accessibilityIdentifier = "native-webview"
-            print("🔧 [MyViewController] WebView bounce disabled for stable scrolling")
+            print("🔧 [MyViewController] WebView bounce + native scroll disabled for stable fixed-overlay layout")
 
             if nativeTestConfig.enabled {
                 installNativeTestBridge(on: webView)

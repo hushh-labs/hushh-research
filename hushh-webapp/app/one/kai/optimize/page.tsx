@@ -607,7 +607,7 @@ export default function PortfolioHealthPage() {
       width="expanded"
       className="pb-6 sm:pb-8"
       nativeTest={{
-        routeId: "/kai/optimize",
+        routeId: "/one/kai/optimize",
         marker: "native-route-kai-optimize",
         authState: user ? "authenticated" : "pending",
         dataState: loading
@@ -1186,7 +1186,7 @@ export default function PortfolioHealthPage() {
                     if (!plan?.actions || plan.actions.length === 0) return null;
 
                     return (
-                      <TabsContent key={key} value={key} className="mt-6 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                      <TabsContent key={key} value={key} className="motion-step-enter mt-6 space-y-3">
                         <div className="grid gap-3">
                           {plan.actions.map((a, idx) => (
                             <div key={idx} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-3xl bg-muted/20 border border-border/20 hover:border-primary/40 transition-all group gap-4 ring-1 ring-transparent hover:ring-primary/10">

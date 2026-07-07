@@ -2,7 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   defaultReviewerIdentityEnvFiles,
   parseEnvFile,
@@ -16,18 +16,31 @@ const repoRoot = process.cwd();
 const webDir = repoRoot;
 const monorepoRoot = path.resolve(webDir, "..");
 const androidDir = path.join(repoRoot, "android");
-const reportPath = path.join(repoRoot, "native-android-ui-interaction-report.json");
-const defaultAndroidSdk = path.join(process.env.HOME || "", "Library/Android/sdk");
+const reportPath = path.join(
+  repoRoot,
+  "native-android-ui-interaction-report.json",
+);
+const defaultAndroidSdk = path.join(
+  process.env.HOME || "",
+  "Library/Android/sdk",
+);
 const defaultAdb = path.join(defaultAndroidSdk, "platform-tools/adb");
+const defaultEmulator = path.join(defaultAndroidSdk, "emulator/emulator");
 const adb = process.env.ADB || (fs.existsSync(defaultAdb) ? defaultAdb : "adb");
+const emulator =
+  process.env.ANDROID_EMULATOR ||
+  (fs.existsSync(defaultEmulator) ? defaultEmulator : "emulator");
 const bundleId = "com.hushh.app";
 const activityName = "com.hushh.app/.MainActivity";
 const apkPath =
   process.env.ANDROID_APK_PATH ||
   path.join(androidDir, "app/build/outputs/apk/debug/app-debug.apk");
-const timeoutMs = Number(process.env.ANDROID_UI_INTERACTION_TIMEOUT_MS || "600000");
+const timeoutMs = Number(
+  process.env.ANDROID_UI_INTERACTION_TIMEOUT_MS || "600000",
+);
 const flowFilter = (process.env.ANDROID_UI_FLOW_FILTER || "").trim();
 const routeFilter = (process.env.ANDROID_UI_ROUTE_FILTER || "").trim();
+let startedEmulatorSerial = "";
 const googleServicesCandidates = [
   path.join(androidDir, "app/google-services.json"),
   path.join(androidDir, "app/src/google-services.json"),
@@ -106,14 +119,88 @@ function listReadyAdbDevices() {
     .map(([serial]) => serial);
 }
 
+function listAndroidAvds() {
+  const output = tryRun(emulator, ["-list-avds"]);
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function waitForBootedDevice(timeoutMs = 180000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const devices = listReadyAdbDevices();
+    if (devices.length > 0) {
+      const serial = devices[0];
+      const booted = tryRunAdb(serial, [
+        "shell",
+        "getprop",
+        "sys.boot_completed",
+      ]);
+      if (booted.trim() === "1") {
+        tryRunAdb(serial, ["shell", "input", "keyevent", "82"], {
+          stdio: "ignore",
+        });
+        return serial;
+      }
+    }
+    sleep(1000);
+  }
+  throw new Error("Android emulator did not finish booting before timeout.");
+}
+
+function bootAndroidEmulator() {
+  if (
+    String(process.env.ANDROID_AUTO_BOOT_AVD || "true").toLowerCase() ===
+    "false"
+  ) {
+    throw new Error(
+      "No connected Android device is ready. Connect one with USB debugging enabled, set ANDROID_SERIAL, or enable ANDROID_AUTO_BOOT_AVD.",
+    );
+  }
+
+  const avds = listAndroidAvds();
+  const requestedAvd = (process.env.ANDROID_AVD_NAME || "").trim();
+  const avdName = requestedAvd || avds[0] || "";
+  if (!avdName) {
+    throw new Error(
+      "No connected Android device is ready and no Android AVD is available to boot.",
+    );
+  }
+
+  const extraArgs = String(process.env.ANDROID_EMULATOR_ARGS || "")
+    .split(/\s+/)
+    .map((arg) => arg.trim())
+    .filter(Boolean);
+  const args = [
+    "-avd",
+    avdName,
+    "-no-snapshot-load",
+    "-no-audio",
+    ...extraArgs,
+  ];
+  console.log(`==> booting Android emulator: ${avdName}`);
+  const child = spawn(emulator, args, {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  startedEmulatorSerial = waitForBootedDevice();
+  return startedEmulatorSerial;
+}
+
 function resolveAdbDevice() {
-  const requested =
-    (process.env.ANDROID_SERIAL || process.env.ANDROID_DEVICE_ID || "").trim();
+  const requested = (
+    process.env.ANDROID_SERIAL ||
+    process.env.ANDROID_DEVICE_ID ||
+    ""
+  ).trim();
   if (requested) {
     const state = runAdb(requested, ["get-state"]);
     if (state !== "device") {
       throw new Error(
-        `Android device ${requested} is not ready (adb state: ${state || "unknown"}).`
+        `Android device ${requested} is not ready (adb state: ${state || "unknown"}).`,
       );
     }
     return requested;
@@ -121,9 +208,7 @@ function resolveAdbDevice() {
 
   const devices = listReadyAdbDevices();
   if (devices.length === 0) {
-    throw new Error(
-      "No connected Android device is ready. Connect one with USB debugging enabled or set ANDROID_SERIAL."
-    );
+    return bootAndroidEmulator();
   }
   return devices[0];
 }
@@ -137,7 +222,7 @@ function parseStatus(raw) {
       .map((part) => {
         const [key, ...rest] = part.split("=");
         return [key, rest.join("=")];
-      })
+      }),
   );
 }
 
@@ -146,7 +231,7 @@ function sanitizeStatusForReport(status = {}) {
     Object.entries(status || {}).map(([key, value]) => [
       key,
       REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
-    ])
+    ]),
   );
 }
 
@@ -163,13 +248,17 @@ function ensureNativeTestBuildEnv() {
   const uatValues = parseEnvFile(uatEnvPath);
   const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
   const backendUrl =
-    configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)
+    configured &&
+    !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)
       ? configured
       : String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
 
-  if (!backendUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
+  if (
+    !backendUrl ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)
+  ) {
     throw new Error(
-      "native Android UI interaction audit requires UAT NEXT_PUBLIC_BACKEND_URL (.env.uat.local)."
+      "native Android UI interaction audit requires UAT NEXT_PUBLIC_BACKEND_URL (.env.uat.local).",
     );
   }
 
@@ -180,17 +269,22 @@ function ensureNativeTestBuildEnv() {
     NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:
+      uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:
+      uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
       uatValues.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     NEXT_PUBLIC_FIREBASE_APP_ID: uatValues.NEXT_PUBLIC_FIREBASE_APP_ID,
     NEXT_PUBLIC_FIREBASE_VAPID_KEY: uatValues.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: uatValues.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    NEXT_PUBLIC_OBSERVABILITY_ENABLED: uatValues.NEXT_PUBLIC_OBSERVABILITY_ENABLED,
+    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:
+      uatValues.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+    NEXT_PUBLIC_OBSERVABILITY_ENABLED:
+      uatValues.NEXT_PUBLIC_OBSERVABILITY_ENABLED,
     NEXT_PUBLIC_OBSERVABILITY_DEBUG: uatValues.NEXT_PUBLIC_OBSERVABILITY_DEBUG,
-    NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE: uatValues.NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE,
+    NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE:
+      uatValues.NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE,
   });
 
   console.log(`==> native test backend: ${backendUrl}`);
@@ -202,7 +296,7 @@ function buildApp() {
 
   if (!googleServicesCandidates.some((candidate) => fs.existsSync(candidate))) {
     throw new Error(
-      "Missing Android Firebase artifact. Add android/app/google-services.json or a debug source-set equivalent before running android:ui:test."
+      "Missing Android Firebase artifact. Add android/app/google-services.json or a debug source-set equivalent before running android:ui:test.",
     );
   }
 
@@ -219,19 +313,25 @@ function buildApp() {
   });
   const copiedManifestPath = path.join(
     repoRoot,
-    "android/app/src/main/assets/public/native-ui-flows.json"
+    "android/app/src/main/assets/public/native-ui-flows.json",
   );
   const copiedRunnerPath = path.join(
     repoRoot,
-    "android/app/src/main/assets/public/native-ui-test-runner.js"
+    "android/app/src/main/assets/public/native-ui-test-runner.js",
   );
   if (!fs.existsSync(copiedManifestPath)) {
-    throw new Error("native-ui-flows.json was not copied into the Android app bundle.");
+    throw new Error(
+      "native-ui-flows.json was not copied into the Android app bundle.",
+    );
   }
   if (!fs.existsSync(copiedRunnerPath)) {
-    throw new Error("native-ui-test-runner.js was not copied into the Android app bundle.");
+    throw new Error(
+      "native-ui-test-runner.js was not copied into the Android app bundle.",
+    );
   }
-  console.log(`==> native UI flow manifest copied (${manifest.flows.length} flow(s))`);
+  console.log(
+    `==> native UI flow manifest copied (${manifest.flows.length} flow(s))`,
+  );
   runAndroid("./gradlew", [":app:assembleDebug"], {
     stdio: "inherit",
     maxBuffer: 1024 * 1024 * 20,
@@ -245,8 +345,12 @@ function installAndLaunch(serial) {
     stdio: "ignore",
   });
   tryRunAdb(serial, ["shell", "wm", "dismiss-keyguard"], { stdio: "ignore" });
-  tryRunAdb(serial, ["shell", "input", "keyevent", "KEYCODE_MENU"], { stdio: "ignore" });
-  tryRunAdb(serial, ["shell", "am", "force-stop", bundleId], { stdio: "ignore" });
+  tryRunAdb(serial, ["shell", "input", "keyevent", "KEYCODE_MENU"], {
+    stdio: "ignore",
+  });
+  tryRunAdb(serial, ["shell", "am", "force-stop", bundleId], {
+    stdio: "ignore",
+  });
   tryRunAdb(serial, ["uninstall", bundleId], { stdio: "ignore" });
   runAdb(serial, ["install", "-r", "-t", apkPath], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -308,7 +412,7 @@ function readStatus(serial) {
 function resolveInitialLaunchTarget() {
   const firstFlow = uiFlows[0];
   const firstEnsurePersona = firstFlow?.steps?.find(
-    (step) => step?.type === "ensure_persona" && step?.persona
+    (step) => step?.type === "ensure_persona" && step?.persona,
   )?.persona;
   const firstRoute = String(firstFlow?.route || "");
   const route =
@@ -324,7 +428,8 @@ function resolveInitialLaunchTarget() {
 
   return {
     route,
-    marker: route === "/one/kai" ? "native-route-kai-home" : "native-route-ria-home",
+    marker:
+      route === "/one/kai" ? "native-route-kai-home" : "native-route-ria-home",
   };
 }
 
@@ -357,7 +462,8 @@ function waitForUiInteractionReport(serial) {
         }
         if ((lastStatus.ui_complete || "") === "1") {
           const report = readUiReport(serial);
-          if (report) return { ok: Boolean(report.ok), report, status: lastStatus };
+          if (report)
+            return { ok: Boolean(report.ok), report, status: lastStatus };
         }
       }
 
@@ -386,7 +492,9 @@ function main() {
     throw new Error("No UI flows matched the current filter.");
   }
 
-  console.log(`==> native Android UI interaction audit (${uiFlows.length} flows)`);
+  console.log(
+    `==> native Android UI interaction audit (${uiFlows.length} flows)`,
+  );
   for (const flow of uiFlows) {
     console.log(`   - ${flow.id} — ${flow.description}`);
   }
@@ -394,15 +502,26 @@ function main() {
   if (process.env.ANDROID_UI_INTERACTION_SKIP_BUILD !== "true") {
     buildApp();
   } else {
-    console.log("==> skipping rebuild (ANDROID_UI_INTERACTION_SKIP_BUILD=true)");
+    console.log(
+      "==> skipping rebuild (ANDROID_UI_INTERACTION_SKIP_BUILD=true)",
+    );
     prepareNativeTestArtifacts({ flowFilter, routeFilter });
   }
 
   const serial = resolveAdbDevice();
   console.log(`==> device: ${serial}`);
-  installAndLaunch(serial);
-  const result = waitForUiInteractionReport(serial);
-  tryRunAdb(serial, ["shell", "am", "force-stop", bundleId], { stdio: "ignore" });
+  let result;
+  try {
+    installAndLaunch(serial);
+    result = waitForUiInteractionReport(serial);
+  } finally {
+    tryRunAdb(serial, ["shell", "am", "force-stop", bundleId], {
+      stdio: "ignore",
+    });
+    if (startedEmulatorSerial === serial) {
+      tryRunAdb(serial, ["emu", "kill"], { stdio: "ignore" });
+    }
+  }
 
   const summary = {
     generated_at: new Date().toISOString(),
@@ -421,14 +540,16 @@ function main() {
   console.log(`\n==> report: ${path.relative(repoRoot, reportPath)}`);
 
   if (summary.ok) {
-    console.log(`==> Android UI interactions passed (${summary.passed_flows}/${summary.flow_count})`);
+    console.log(
+      `==> Android UI interactions passed (${summary.passed_flows}/${summary.flow_count})`,
+    );
     return;
   }
 
   const failed = (result.report?.flows || []).filter((flow) => !flow.ok);
   for (const flow of failed) {
     console.log(
-      `   x ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.error || "failed"}`
+      `   x ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.error || "failed"}`,
     );
   }
   if (result.error) {

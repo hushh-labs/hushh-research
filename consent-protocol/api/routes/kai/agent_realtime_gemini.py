@@ -16,8 +16,9 @@ Security model:
 - Auth is OPTIONAL, exactly like ``agent_intro.py``: a signed-in user with an
   unlocked vault gets the full persona, while an anonymous / locked-vault
   onboarding visitor gets a navigation-only informational persona. Neither tier
-  reads or writes PKM/vault data on this path: realtime voice has no tools,
-  memory, or persistence, so it is safe to expose at the lower privilege.
+  reads or writes PKM/vault data on this path: realtime voice only exposes a
+  proposal-only action tool, with no provider-side execution, memory, or
+  persistence, so it is safe to expose at the lower privilege.
 - Rate limited per user/IP to bound cost on the unauthenticated path.
 """
 
@@ -35,7 +36,7 @@ import os
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Literal, NamedTuple, Optional
 
 from fastapi import (
     APIRouter,
@@ -113,6 +114,12 @@ class AgentGeminiLiveTokenRequest(BaseModel):
     persona: Optional[str] = Field(default=None, max_length=32)
     route_family: Optional[str] = Field(default=None, max_length=64)
     voice_state: Optional[str] = Field(default=None, max_length=32)
+    access_tier: Optional[str] = Field(default=None, max_length=32)
+    available_action_ids: list[str] = Field(default_factory=list, max_length=10)
+    visible_modules: list[str] = Field(default_factory=list, max_length=10)
+    cache_freshness: Optional[str] = Field(default=None, max_length=32)
+    vault_ready: Optional[bool] = None
+    portfolio_ready: Optional[bool] = None
 
 
 class AgentGeminiLiveTokenResponse(BaseModel):
@@ -126,7 +133,9 @@ class AgentGeminiLiveTokenResponse(BaseModel):
 
 
 class AgentGeminiLiveRelaySessionResponse(BaseModel):
-    relay_ticket: str = Field(..., max_length=128)
+    # Signed stateless tickets include a compact payload plus HMAC signature.
+    # Keep the response bounded, but large enough for the signed-ticket contract.
+    relay_ticket: str = Field(..., max_length=4096)
     expires_at: int = Field(..., ge=0)
     model: str = Field(..., max_length=128)
     voice: str = Field(..., max_length=64)
@@ -134,7 +143,14 @@ class AgentGeminiLiveRelaySessionResponse(BaseModel):
 
 
 _SIGNED_RELAY_TICKET_PREFIX = "v1"
-_RELAY_TICKETS: dict[str, tuple[Optional[str], float]] = {}
+PersonaTier = Literal[
+    "anon_onboarding",
+    "anon_browsing",
+    "signed_locked",
+    "signed_unlocked",
+]
+RelayPersonaHints = dict[str, Any]
+_RELAY_TICKETS: dict[str, tuple[Optional[str], PersonaTier, RelayPersonaHints, float]] = {}
 _RELAY_TICKET_NONCES: dict[str, int] = {}
 
 
@@ -160,6 +176,108 @@ def _resolve_voice(requested: Optional[str]) -> str:
         if voice.lower() == candidate.lower():
             return voice
     return _DEFAULT_GEMINI_LIVE_VOICE
+
+
+def _resolve_persona_tier(uid: Optional[str], requested_access_tier: Optional[str]) -> PersonaTier:
+    if uid:
+        return "signed_unlocked" if requested_access_tier == "signed_unlocked" else "signed_locked"
+    requested = (requested_access_tier or "").strip().lower()
+    if requested == "anon_browsing":
+        return "anon_browsing"
+    return "anon_onboarding"
+
+
+def _compact_persona_hints(raw: RelayPersonaHints) -> RelayPersonaHints:
+    """Keep relay tickets bounded to non-secret, redacted app-state hints."""
+
+    hints: RelayPersonaHints = {}
+    for key in ("screen", "persona", "route_family", "voice_state", "cache_freshness"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            hints[key] = value.strip()[:96]
+    for key in ("vault_ready", "portfolio_ready"):
+        value = raw.get(key)
+        if isinstance(value, bool):
+            hints[key] = value
+    for key in ("available_action_ids", "visible_modules"):
+        value = raw.get(key)
+        if not isinstance(value, list):
+            continue
+        clean_items = [
+            item.strip()[:96] for item in value if isinstance(item, str) and item.strip()
+        ][:10]
+        if clean_items:
+            hints[key] = clean_items
+    return hints
+
+
+def _persona_hints_from_body(body: AgentGeminiLiveTokenRequest) -> RelayPersonaHints:
+    return _compact_persona_hints(
+        {
+            "screen": body.screen,
+            "persona": body.persona,
+            "route_family": body.route_family,
+            "voice_state": body.voice_state,
+            "available_action_ids": body.available_action_ids,
+            "visible_modules": body.visible_modules,
+            "cache_freshness": body.cache_freshness,
+            "vault_ready": body.vault_ready,
+            "portfolio_ready": body.portfolio_ready,
+        }
+    )
+
+
+def _persona_hints_from_query(websocket: WebSocket) -> RelayPersonaHints:
+    def _query_bool(key: str) -> Optional[bool]:
+        value = (websocket.query_params.get(key) or "").strip().lower()
+        if value in {"1", "true", "yes"}:
+            return True
+        if value in {"0", "false", "no"}:
+            return False
+        return None
+
+    return _compact_persona_hints(
+        {
+            "screen": websocket.query_params.get("screen"),
+            "persona": websocket.query_params.get("persona"),
+            "route_family": websocket.query_params.get("route_family"),
+            "voice_state": websocket.query_params.get("voice_state"),
+            "available_action_ids": websocket.query_params.getlist("action_id"),
+            "visible_modules": websocket.query_params.getlist("module"),
+            "cache_freshness": websocket.query_params.get("cache_freshness"),
+            "vault_ready": _query_bool("vault_ready"),
+            "portfolio_ready": _query_bool("portfolio_ready"),
+        }
+    )
+
+
+def _merge_persona_hints(
+    ticket_hints: RelayPersonaHints,
+    query_hints: RelayPersonaHints,
+) -> RelayPersonaHints:
+    """Prefer POST-bound ticket hints, then fall back to legacy query hints."""
+
+    merged = dict(query_hints)
+    for key, value in ticket_hints.items():
+        if value in (None, "", []):
+            continue
+        merged[key] = value
+    return merged
+
+
+def _hint_str(hints: RelayPersonaHints, key: str) -> Optional[str]:
+    value = hints.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _hint_bool(hints: RelayPersonaHints, key: str) -> Optional[bool]:
+    value = hints.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _hint_list(hints: RelayPersonaHints, key: str) -> list[str]:
+    value = hints.get(key)
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
 def _relay_ticket_secret() -> Optional[str]:
@@ -190,7 +308,7 @@ def _sign_relay_ticket_payload(payload_segment: str, secret: str) -> str:
 def _prune_relay_tickets(now_monotonic: float) -> None:
     expired = [
         ticket
-        for ticket, (_uid, expires_monotonic) in _RELAY_TICKETS.items()
+        for ticket, (_uid, _tier, _hints, expires_monotonic) in _RELAY_TICKETS.items()
         if expires_monotonic <= now_monotonic
     ]
     for ticket in expired:
@@ -203,17 +321,25 @@ def _prune_relay_tickets(now_monotonic: float) -> None:
         _RELAY_TICKET_NONCES.pop(nonce, None)
 
 
-def _issue_relay_ticket(uid: Optional[str]) -> tuple[str, int]:
+def _issue_relay_ticket(
+    uid: Optional[str],
+    persona_tier: PersonaTier,
+    persona_hints: Optional[RelayPersonaHints] = None,
+) -> tuple[str, int]:
     now_monotonic = time.monotonic()
     _prune_relay_tickets(now_monotonic)
     expires_at = int(datetime.now(tz=timezone.utc).timestamp()) + _SESSION_START_WINDOW_SECONDS
     secret = _relay_ticket_secret()
+    hints = _compact_persona_hints(persona_hints or {})
     if secret:
         payload = {
             "uid": uid,
+            "tier": persona_tier,
             "exp": expires_at,
             "nonce": secrets.token_urlsafe(18),
         }
+        if hints:
+            payload["ctx"] = hints
         payload_segment = _b64url_encode(
             json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
         )
@@ -222,48 +348,60 @@ def _issue_relay_ticket(uid: Optional[str]) -> tuple[str, int]:
 
     ticket = secrets.token_urlsafe(32)
     expires_monotonic = now_monotonic + _SESSION_START_WINDOW_SECONDS
-    _RELAY_TICKETS[ticket] = (uid, expires_monotonic)
+    _RELAY_TICKETS[ticket] = (uid, persona_tier, hints, expires_monotonic)
     return ticket, expires_at
 
 
-def _consume_relay_ticket(ticket: Optional[str]) -> tuple[bool, Optional[str]]:
+def _consume_relay_ticket(
+    ticket: Optional[str],
+) -> tuple[bool, Optional[str], PersonaTier, RelayPersonaHints]:
     clean = (ticket or "").strip()
     if not clean:
-        return False, None
+        return False, None, "anon_onboarding", {}
     now_monotonic = time.monotonic()
     _prune_relay_tickets(now_monotonic)
     if clean.startswith(f"{_SIGNED_RELAY_TICKET_PREFIX}."):
         secret = _relay_ticket_secret()
         if not secret:
-            return False, None
+            return False, None, "anon_onboarding", {}
         parts = clean.split(".")
         if len(parts) != 3:
-            return False, None
+            return False, None, "anon_onboarding", {}
         _version, payload_segment, signature = parts
         expected_signature = _sign_relay_ticket_payload(payload_segment, secret)
         if not hmac.compare_digest(signature, expected_signature):
-            return False, None
+            return False, None, "anon_onboarding", {}
         try:
             payload = json.loads(_b64url_decode(payload_segment))
         except (TypeError, ValueError, json.JSONDecodeError, binascii.Error):
-            return False, None
+            return False, None, "anon_onboarding", {}
         expires_at = int(payload.get("exp") or 0)
         if expires_at <= int(datetime.now(tz=timezone.utc).timestamp()):
-            return False, None
+            return False, None, "anon_onboarding", {}
         nonce = str(payload.get("nonce") or "").strip()
         if not nonce or nonce in _RELAY_TICKET_NONCES:
-            return False, None
+            return False, None, "anon_onboarding", {}
         _RELAY_TICKET_NONCES[nonce] = expires_at
         uid_value = payload.get("uid")
-        return True, uid_value if isinstance(uid_value, str) and uid_value else None
+        uid = uid_value if isinstance(uid_value, str) and uid_value else None
+        tier_value = payload.get("tier")
+        tier = (
+            tier_value
+            if tier_value
+            in {"anon_onboarding", "anon_browsing", "signed_locked", "signed_unlocked"}
+            else _resolve_persona_tier(uid, None)
+        )
+        ctx_value = payload.get("ctx")
+        hints = _compact_persona_hints(ctx_value if isinstance(ctx_value, dict) else {})
+        return True, uid, tier, hints
 
     stored = _RELAY_TICKETS.pop(clean, None)
     if stored is None:
-        return False, None
-    uid, expires_monotonic = stored
+        return False, None, "anon_onboarding", {}
+    uid, tier, hints, expires_monotonic = stored
     if expires_monotonic <= now_monotonic:
-        return False, None
-    return True, uid
+        return False, None, "anon_onboarding", {}
+    return True, uid, tier, hints
 
 
 @router.post(
@@ -285,8 +423,9 @@ async def create_agent_gemini_live_relay_session(
         )
 
     uid = await _resolve_optional_uid(authorization)
+    persona_tier = _resolve_persona_tier(uid, body.access_tier)
     tier = "full" if uid else "intro"
-    ticket, expires_at = _issue_relay_ticket(uid)
+    ticket, expires_at = _issue_relay_ticket(uid, persona_tier, _persona_hints_from_body(body))
     return AgentGeminiLiveRelaySessionResponse(
         relay_ticket=ticket,
         expires_at=expires_at,
@@ -324,13 +463,18 @@ async def create_agent_gemini_live_token(
     # Richer access tier used only to shape the (tool-less) system instruction.
     # Realtime voice never reads vault state, so a signed-in user maps to the
     # signed_locked tier here: the instruction must not promise data access.
-    persona_tier = "signed_locked" if uid else "anon_onboarding"
+    persona_tier = _resolve_persona_tier(uid, body.access_tier)
     persona_ctx = build_persona_context(
         tier=persona_tier,
         screen=body.screen,
         persona=body.persona,
         route_family=body.route_family,
         voice_state=body.voice_state,
+        available_action_ids=body.available_action_ids,
+        visible_modules=body.visible_modules,
+        cache_freshness=body.cache_freshness,
+        vault_ready=body.vault_ready,
+        portfolio_ready=body.portfolio_ready,
     )
     instructions = compose_voice_instructions(persona_ctx)
     voice = _resolve_voice(body.voice)
@@ -427,6 +571,284 @@ async def create_agent_gemini_live_token(
 # Audio is base64 PCM16 both ways (16 kHz in, 24 kHz out), exactly as before.
 
 _VERTEX_LIVE_INPUT_RATE = 16000
+_ONE_VOICE_ACTION_PROPOSAL_TOOL = "one_voice_propose_action"
+
+# Persona tiers where One may proactively speak after an app context update
+# (screen change) instead of waiting for the user. Onboarding/browsing visitors
+# need guided next steps; signed-in users keep a quieter, user-led session.
+_PROACTIVE_CONTEXT_TIERS: frozenset[str] = frozenset({"anon_onboarding", "anon_browsing"})
+
+
+def _compose_app_context_update(hints: RelayPersonaHints, *, proactive: bool) -> Optional[str]:
+    """Render a redacted app-state update for an active Live session.
+
+    Reuses the same sanitizers as the initial persona composition so mid-session
+    updates can never widen what the model sees beyond the session-start
+    contract. Returns None when the update carries no usable state.
+    """
+    from hushh_mcp.services.agent_persona import sanitize_action_id, sanitize_screen
+
+    parts: list[str] = []
+    screen = sanitize_screen(_hint_str(hints, "screen"))
+    if screen:
+        parts.append(f"The user is now on the '{screen}' screen.")
+    route_family = sanitize_screen(_hint_str(hints, "route_family"))
+    if route_family and route_family != screen:
+        parts.append(f"The route family is '{route_family}'.")
+    action_ids = [
+        clean
+        for clean in (
+            sanitize_action_id(action_id) for action_id in _hint_list(hints, "available_action_ids")
+        )
+        if clean
+    ][:10]
+    if action_ids:
+        parts.append("Available app action contracts here: " + ", ".join(action_ids) + ".")
+    vault_ready = _hint_bool(hints, "vault_ready")
+    if vault_ready is not None:
+        parts.append("Vault is ready." if vault_ready else "Vault is not ready.")
+    if not parts:
+        return None
+    guidance = (
+        "If a short next step would help the user move forward, offer one brief "
+        "sentence of guidance now; otherwise stay quiet and keep listening."
+        if proactive
+        else "Do not respond to this update; use it silently for your next turn."
+    )
+    return (
+        "[App state update - not user speech; never read it aloud verbatim] "
+        + " ".join(parts)
+        + " "
+        + guidance
+    )
+
+
+def _read_attr_or_key(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _read_text_field(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = _read_attr_or_key(value, "text") or _read_attr_or_key(value, "transcript")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
+
+
+def _read_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if value is None:
+        return {}
+    to_json = getattr(value, "to_json_dict", None)
+    if callable(to_json):
+        try:
+            raw = to_json()
+            return raw if isinstance(raw, dict) else {}
+        except Exception:  # noqa: BLE001 - best-effort provider normalization
+            return {}
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            raw = model_dump(exclude_none=True)
+            return raw if isinstance(raw, dict) else {}
+        except Exception:  # noqa: BLE001 - best-effort provider normalization
+            return {}
+    return {}
+
+
+def _extract_transcription_text(
+    response: Any, *, direction: Literal["input", "output"]
+) -> Optional[str]:
+    """Best-effort extractor for Live transcription fields across SDK shapes."""
+
+    field_names = (
+        ("input_transcription", "inputTranscription")
+        if direction == "input"
+        else ("output_transcription", "outputTranscription")
+    )
+    for field_name in field_names:
+        text = _read_text_field(_read_attr_or_key(response, field_name))
+        if text:
+            return text
+    server_content = _read_attr_or_key(response, "server_content") or _read_attr_or_key(
+        response, "serverContent"
+    )
+    for field_name in field_names:
+        text = _read_text_field(_read_attr_or_key(server_content, field_name))
+        if text:
+            return text
+    return None
+
+
+def _normalize_action_proposal_args(args: Any) -> Optional[dict[str, Any]]:
+    raw = _read_mapping(args)
+    action_id = raw.get("action_id") or raw.get("actionId")
+    if not isinstance(action_id, str) or not action_id.strip():
+        return None
+    slots = raw.get("slots") if isinstance(raw.get("slots"), dict) else {}
+    return {
+        "action_id": action_id.strip()[:160],
+        "slots": slots,
+        "confidence": raw.get("confidence")
+        if isinstance(raw.get("confidence"), (int, float))
+        else None,
+        "reason": raw.get("reason") if isinstance(raw.get("reason"), str) else None,
+        "needs_confirmation": bool(raw.get("needs_confirmation") or raw.get("needsConfirmation")),
+    }
+
+
+class _ActionProposalCall(NamedTuple):
+    proposal: dict[str, Any]
+    call_id: Optional[str]
+    name: str
+
+
+def _extract_action_proposal_calls(response: Any) -> list[_ActionProposalCall]:
+    """Extract provider function calls as proposal-only app signals.
+
+    Gemini Live function calling is synchronous for the Gemini 3.1 Live preview:
+    the relay must acknowledge every provider tool call even though Hussh never
+    executes the action provider-side. The call id/name are therefore retained
+    for ``send_tool_response`` while the proposal payload is forwarded to the
+    frontend One Goal path.
+    """
+
+    calls: list[_ActionProposalCall] = []
+    tool_call = _read_attr_or_key(response, "tool_call") or _read_attr_or_key(response, "toolCall")
+    function_calls = _read_attr_or_key(tool_call, "function_calls") or _read_attr_or_key(
+        tool_call, "functionCalls"
+    )
+    if isinstance(function_calls, list):
+        for call in function_calls:
+            name = _read_attr_or_key(call, "name")
+            if name != _ONE_VOICE_ACTION_PROPOSAL_TOOL:
+                continue
+            proposal = _normalize_action_proposal_args(_read_attr_or_key(call, "args"))
+            if proposal:
+                call_id = _read_attr_or_key(call, "id")
+                calls.append(
+                    _ActionProposalCall(
+                        proposal=proposal,
+                        call_id=call_id if isinstance(call_id, str) and call_id.strip() else None,
+                        name=name,
+                    )
+                )
+
+    server_content = _read_attr_or_key(response, "server_content") or _read_attr_or_key(
+        response, "serverContent"
+    )
+    model_turn = _read_attr_or_key(server_content, "model_turn") or _read_attr_or_key(
+        server_content, "modelTurn"
+    )
+    parts = _read_attr_or_key(model_turn, "parts")
+    if isinstance(parts, list):
+        for part in parts:
+            function_call = _read_attr_or_key(part, "function_call") or _read_attr_or_key(
+                part, "functionCall"
+            )
+            if not function_call:
+                continue
+            name = _read_attr_or_key(function_call, "name")
+            if name != _ONE_VOICE_ACTION_PROPOSAL_TOOL:
+                continue
+            proposal = _normalize_action_proposal_args(_read_attr_or_key(function_call, "args"))
+            if proposal:
+                call_id = _read_attr_or_key(function_call, "id")
+                calls.append(
+                    _ActionProposalCall(
+                        proposal=proposal,
+                        call_id=call_id if isinstance(call_id, str) and call_id.strip() else None,
+                        name=name,
+                    )
+                )
+    return calls
+
+
+def _extract_action_proposals(response: Any) -> list[dict[str, Any]]:
+    """Compatibility helper for tests and callers that only need proposals."""
+
+    return [call.proposal for call in _extract_action_proposal_calls(response)]
+
+
+def _build_proposal_tool_responses(genai_types: Any, calls: list[_ActionProposalCall]) -> list[Any]:
+    """Build synchronous Live API FunctionResponse acknowledgements.
+
+    The response intentionally says "proposal_received" rather than success.
+    Execution still belongs to One Goal and the generated gateway.
+    """
+
+    responses: list[Any] = []
+    for call in calls:
+        response_payload = {
+            "result": "proposal_received",
+            "execution": "not_executed_by_provider",
+            "next": "hussh_one_goal_planner_validates_gateway_guards_and_settlement",
+            "action_id": call.proposal.get("action_id"),
+        }
+        try:
+            kwargs: dict[str, Any] = {
+                "name": call.name,
+                "response": response_payload,
+            }
+            if call.call_id:
+                kwargs["id"] = call.call_id
+            responses.append(genai_types.FunctionResponse(**kwargs))
+        except Exception:  # noqa: BLE001 - SDK shape fallback for relay tests/older clients
+            fallback: dict[str, Any] = {
+                "name": call.name,
+                "response": response_payload,
+            }
+            if call.call_id:
+                fallback["id"] = call.call_id
+            responses.append(fallback)
+    return responses
+
+
+def _build_action_proposal_tools(genai_types: Any) -> Optional[list[Any]]:
+    """Return proposal-only Live tools when the installed SDK supports them."""
+
+    try:
+        # Keep schema broad for SDK compatibility; the app gateway validates the
+        # action id, slots, availability, and confirmation policy later.
+        declaration = genai_types.FunctionDeclaration(
+            name=_ONE_VOICE_ACTION_PROPOSAL_TOOL,
+            description=(
+                "Proposal-only signal for Hussh One Voice. Provide a generated "
+                "action_id, slots, confidence, and reason. Never execute the action."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action_id": {"type": "string"},
+                    "slots": {"type": "object"},
+                    "confidence": {"type": "number"},
+                    "reason": {"type": "string"},
+                    "needs_confirmation": {"type": "boolean"},
+                },
+                "required": ["action_id"],
+            },
+        )
+        return [genai_types.Tool(function_declarations=[declaration])]
+    except Exception:  # noqa: BLE001 - older SDKs can run transcript-only
+        return None
+
+
+def _with_live_proposal_instructions(instructions: str) -> str:
+    return (
+        f"{instructions}\n\n"
+        "Gemini Live action bridge: operate Agent First. Use the system "
+        "instruction, active app state, and generated action contracts to infer "
+        "the user's goal. When the user asks for an app action, you may call "
+        f"{_ONE_VOICE_ACTION_PROPOSAL_TOOL} with a generated action id, slots, "
+        "confidence, and reason as a proposal only. The provider must never claim "
+        "execution. Hussh One will validate guards, confirmation policy, A2A "
+        "delegation, and route settlement through the generated gateway before "
+        "any action occurs."
+    )
 
 
 def _resolve_vertex_live_client():
@@ -448,17 +870,22 @@ def _resolve_vertex_live_client():
 def _build_live_config(voice: str, instructions: str):
     from google.genai import types as genai_types
 
-    return genai_types.LiveConnectConfig(
-        response_modalities=["AUDIO"],
-        system_instruction=instructions,
-        speech_config=genai_types.SpeechConfig(
+    base_kwargs = {
+        "response_modalities": ["AUDIO"],
+        "system_instruction": _with_live_proposal_instructions(instructions),
+        "speech_config": genai_types.SpeechConfig(
             voice_config=genai_types.VoiceConfig(
                 prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=voice)
             )
         ),
-        input_audio_transcription=genai_types.AudioTranscriptionConfig(),
-        output_audio_transcription=genai_types.AudioTranscriptionConfig(),
-    )
+        "input_audio_transcription": genai_types.AudioTranscriptionConfig(),
+        "output_audio_transcription": genai_types.AudioTranscriptionConfig(),
+    }
+    proposal_tools = _build_action_proposal_tools(genai_types)
+    if proposal_tools:
+        with contextlib.suppress(TypeError, ValueError):
+            return genai_types.LiveConnectConfig(**base_kwargs, tools=proposal_tools)
+    return genai_types.LiveConnectConfig(**base_kwargs)
 
 
 @router.websocket("/agent/realtime/gemini/live")
@@ -477,8 +904,9 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
     # compatibility fallback for older clients only.
     relay_ticket = websocket.query_params.get("relay_ticket")
     uid: Optional[str] = None
+    ticket_hints: RelayPersonaHints = {}
     if relay_ticket:
-        accepted, uid = _consume_relay_ticket(relay_ticket)
+        accepted, uid, persona_tier, ticket_hints = _consume_relay_ticket(relay_ticket)
         if not accepted:
             await websocket.close(code=1008, reason="Voice relay ticket is expired.")
             return
@@ -487,13 +915,22 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
         if authorization and not authorization.startswith("Bearer "):
             authorization = f"Bearer {authorization}"
         uid = await _resolve_optional_uid(authorization)
-    persona_tier = "signed_locked" if uid else "anon_onboarding"
+        persona_tier = _resolve_persona_tier(
+            uid,
+            websocket.query_params.get("access_tier"),
+        )
+    persona_hints = _merge_persona_hints(ticket_hints, _persona_hints_from_query(websocket))
     persona_ctx = build_persona_context(
         tier=persona_tier,
-        screen=websocket.query_params.get("screen"),
-        persona=websocket.query_params.get("persona"),
-        route_family=websocket.query_params.get("route_family"),
-        voice_state=websocket.query_params.get("voice_state"),
+        screen=_hint_str(persona_hints, "screen"),
+        persona=_hint_str(persona_hints, "persona"),
+        route_family=_hint_str(persona_hints, "route_family"),
+        voice_state=_hint_str(persona_hints, "voice_state"),
+        available_action_ids=_hint_list(persona_hints, "available_action_ids"),
+        visible_modules=_hint_list(persona_hints, "visible_modules"),
+        cache_freshness=_hint_str(persona_hints, "cache_freshness"),
+        vault_ready=_hint_bool(persona_hints, "vault_ready"),
+        portfolio_ready=_hint_bool(persona_hints, "portfolio_ready"),
     )
     instructions = compose_voice_instructions(persona_ctx)
     voice = _resolve_voice(websocket.query_params.get("voice"))
@@ -501,6 +938,7 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
     try:
         client = _resolve_vertex_live_client()
         live_config = _build_live_config(voice, instructions)
+        from google.genai import types as genai_types
     except Exception as error:  # noqa: BLE001 - normalize provider failures
         logger.warning(
             "agent_gemini_live_relay_init_failed error=%s",
@@ -521,6 +959,87 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
                         message = json.loads(raw)
                     except (TypeError, ValueError):
                         continue
+                    if message.get("type") == "interrupt" or message.get("interrupt") is True:
+                        # The provider stream owns actual interruption semantics;
+                        # locally we acknowledge the app request and let the next
+                        # realtime audio frame continue the session.
+                        await websocket.send_text(
+                            json.dumps({"serverContent": {"interrupted": True}})
+                        )
+                        continue
+                    if message.get("type") == "app_context" or "appContext" in message:
+                        # Mid-session redacted context refresh: the browser
+                        # reports a screen change so One stays aware while the
+                        # voice session persists across navigation. Sanitized
+                        # with the same rules as session-start persona hints.
+                        context_payload = message.get("appContext")
+                        if not isinstance(context_payload, dict):
+                            context_payload = (
+                                message.get("context")
+                                if isinstance(message.get("context"), dict)
+                                else {}
+                            )
+                        update_hints = _compact_persona_hints(context_payload)
+                        update_text = _compose_app_context_update(
+                            update_hints,
+                            proactive=persona_tier in _PROACTIVE_CONTEXT_TIERS,
+                        )
+                        if not update_text:
+                            continue
+                        try:
+                            await session.send_client_content(
+                                turns={
+                                    "role": "user",
+                                    "parts": [{"text": update_text}],
+                                },
+                                turn_complete=persona_tier in _PROACTIVE_CONTEXT_TIERS,
+                            )
+                        except Exception as error:  # noqa: BLE001 - context refresh is best-effort
+                            logger.debug(
+                                "agent_gemini_live_context_update_failed error=%s",
+                                error.__class__.__name__,
+                            )
+                        continue
+                    if message.get("type") == "app_speech" or "appSpeech" in message:
+                        speech_payload = message.get("appSpeech")
+                        if not isinstance(speech_payload, dict):
+                            speech_payload = message
+                        text = (
+                            speech_payload.get("text") if isinstance(speech_payload, dict) else None
+                        )
+                        if not isinstance(text, str) or not text.strip():
+                            continue
+                        # Best-effort app-owned speech through the active Live
+                        # session. This asks Gemini to synthesize the exact
+                        # app-composed text; if the SDK shape differs, the
+                        # frontend falls back to its non-Live TTS path.
+                        try:
+                            await session.send_client_content(
+                                turns={
+                                    "role": "user",
+                                    "parts": [
+                                        {
+                                            "text": (
+                                                "Speak exactly this app-composed One Voice "
+                                                f"response and do not add anything: {text.strip()}"
+                                            )
+                                        }
+                                    ],
+                                },
+                                turn_complete=True,
+                            )
+                        except Exception as error:  # noqa: BLE001 - fallback signal only
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "appSpeechError": {
+                                            "message": "Live app speech is unavailable.",
+                                            "provider_error": error.__class__.__name__,
+                                        }
+                                    }
+                                )
+                            )
+                        continue
                     realtime = message.get("realtimeInput")
                     if not isinstance(realtime, dict):
                         # The browser may still send a {"setup": ...} frame; the
@@ -540,6 +1059,36 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
             async def pump_gemini_to_browser() -> None:
                 while True:
                     async for response in session.receive():
+                        input_transcript = _extract_transcription_text(response, direction="input")
+                        if input_transcript:
+                            await websocket.send_text(
+                                json.dumps({"inputTranscription": {"text": input_transcript}})
+                            )
+                        output_transcript = _extract_transcription_text(
+                            response, direction="output"
+                        )
+                        if output_transcript:
+                            await websocket.send_text(
+                                json.dumps({"outputTranscription": {"text": output_transcript}})
+                            )
+                        proposal_calls = _extract_action_proposal_calls(response)
+                        for proposal_call in proposal_calls:
+                            await websocket.send_text(
+                                json.dumps({"actionProposal": proposal_call.proposal})
+                            )
+                        if proposal_calls:
+                            try:
+                                await session.send_tool_response(
+                                    function_responses=_build_proposal_tool_responses(
+                                        genai_types, proposal_calls
+                                    )
+                                )
+                            except Exception as error:  # noqa: BLE001 - keep relay alive
+                                logger.warning(
+                                    "agent_gemini_live_tool_ack_failed count=%s error=%s",
+                                    len(proposal_calls),
+                                    error.__class__.__name__,
+                                )
                         server_content = response.server_content
                         if server_content is not None:
                             if getattr(server_content, "interrupted", False):

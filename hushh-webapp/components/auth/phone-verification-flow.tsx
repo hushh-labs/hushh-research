@@ -2,7 +2,7 @@
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "firebase/auth";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Check, Loader2, ShieldCheck } from "lucide-react";
 
 import {
   Field,
@@ -39,10 +39,13 @@ import { cn } from "@/lib/utils";
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
-  "h-12 overflow-hidden rounded-[18px] border-black/10 bg-[#f5f5f7]/92 shadow-xs dark:border-white/10 dark:bg-white/[0.08]";
+  "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[#9C7434] focus-within:ring-4 focus-within:ring-[rgba(156,116,52,0.12)] dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
   "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
+// 10a/11a immersive: solid black pill CTA (inverts to white in dark mode).
+const FLOW_CTA_CLASS_NAME =
+  "h-[54px] rounded-full border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-transform hover:!bg-[#EFE2C7] active:scale-[0.99] motion-reduce:active:scale-100 dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#EFE2C7]";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 
@@ -339,9 +342,9 @@ export function PhoneVerificationFlow({
     return (
       <div className={className} style={style}>
         <div
-          className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-emerald-500/20 bg-emerald-50/80 p-5 dark:bg-emerald-950/20`}
+          className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] p-5 dark:bg-[rgba(18,161,80,0.16)]`}
         >
-          <ShieldCheck className="h-10 w-10 text-emerald-600" />
+          <ShieldCheck className="h-10 w-10 text-[#12A150] dark:text-[#3FBF77]" />
           <h2 className={cn(kaiAppCardTitleClassName, "mt-4 text-foreground")}>Phone already linked</h2>
           <p className={cn(kaiAppHelperClassName, "mt-2 text-muted-foreground")}>
             This account already has a verified phone number:{" "}
@@ -450,9 +453,11 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleStartVerification(false)}
               loading={busy}
+              variant="none"
+              effect="fill"
               size="default"
               fullWidth
-              className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Send verification code"}
             </Button>
@@ -472,64 +477,97 @@ export function PhoneVerificationFlow({
         </>
       ) : (
         <>
-          <div
-            className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-black/5 bg-[#f5f5f7]/85 p-5 dark:border-white/10 dark:bg-white/[0.08]`}
-          >
-            <p className={cn(kaiAppCardTitleClassName, "text-foreground")}>Verification code sent</p>
-            <p className={cn(kaiAppHelperClassName, "mt-2 text-muted-foreground")}>
-              We sent a verification code to {submittedPhoneNumber}. Enter it to continue.
-            </p>
+          <div className="flex items-start gap-3 rounded-2xl border border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] p-4 dark:border-[rgba(18,161,80,0.35)] dark:bg-[rgba(18,161,80,0.16)]">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#12A150] text-white">
+              <Check className="h-3 w-3" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[15px] font-bold tracking-[-0.2px] text-[#0A0A0A] dark:text-white">
+                Verification code sent
+              </p>
+              <p className="mt-0.5 text-[13.5px] leading-[1.4] text-black/55 dark:text-white/60">
+                We sent a verification code to{" "}
+                <span className="font-semibold text-foreground">{submittedPhoneNumber}</span>.
+                Enter it to continue.
+              </p>
+            </div>
           </div>
 
           <Field className="gap-2.5">
             <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
-            <InputGroup className={FLOW_CONTROL_SHELL_CLASS_NAME}>
-              <InputGroupInput
+            <div className="relative">
+              <div className="flex gap-2.5">
+                {Array.from({ length: 6 }).map((_, index) => {
+                  const active = index === Math.min(verificationCode.length, 5);
+                  const filled = index < verificationCode.length;
+                  return (
+                    <div
+                      key={index}
+                      className={cn(
+                        "flex h-[58px] flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
+                        active
+                          ? "border-[#9C7434] bg-white shadow-[0_0_0_4px_rgba(156,116,52,0.12)] dark:bg-white/[0.06]"
+                          : "border-black/10 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.04]",
+                      )}
+                    >
+                      {filled ? (
+                        verificationCode[index]
+                      ) : active ? (
+                        <span className="h-6 w-px animate-pulse bg-[#9C7434]" />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <input
                 id="phone-flow-code"
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                aria-label="One-time code"
                 value={verificationCode}
-                onChange={(event) => setVerificationCode(event.target.value)}
-                placeholder="123456"
-                className={FLOW_CONTROL_CLASS_NAME}
+                onChange={(event) =>
+                  setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                autoFocus
+                className="absolute inset-0 h-full w-full cursor-default rounded-2xl opacity-0 outline-none"
               />
-            </InputGroup>
+            </div>
           </Field>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Button
-              onClick={() => void handleConfirmVerification()}
-              loading={busy}
-              size="default"
-              fullWidth
-              className={`type-headline h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : confirmLabel || "Verify and continue"}
-            </Button>
-            <Button
+          <Button
+            onClick={() => void handleConfirmVerification()}
+            loading={busy}
+            variant="none"
+            effect="fill"
+            size="default"
+            fullWidth
+            className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : confirmLabel || "Verify and continue"}
+          </Button>
+
+          <div className="flex items-center justify-center gap-3 pt-1 text-[15px]">
+            <button
+              type="button"
               onClick={() => void handleStartVerification(true)}
-              variant="none"
-              effect="glass"
-              size="default"
-              fullWidth
               disabled={busy}
-              className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className="font-bold text-[#9C7434] transition-colors hover:text-[#835f27] disabled:opacity-50 dark:text-[#D4AF6A]"
             >
               Resend code
-            </Button>
+            </button>
+            <span aria-hidden className="text-black/25 dark:text-white/30">
+              ·
+            </span>
+            <button
+              type="button"
+              onClick={() => setStep("phone")}
+              disabled={busy}
+              className="font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              Use a different number
+            </button>
           </div>
-
-          <Button
-            onClick={() => setStep("phone")}
-            variant="none"
-            effect="fade"
-            fullWidth
-            disabled={busy}
-            className={`type-subhead h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
-          >
-            Use a different number
-          </Button>
         </>
       )}
     </FieldSet>

@@ -191,6 +191,53 @@ describe("ApiService voice planning contract", () => {
     });
   });
 
+  it("exposes One Goal plan and compose routes over the One route family", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await ApiService.planOneGoal({
+      vaultOwnerToken: "vault_token",
+      transcript: "Analyze TSLA using default",
+      entrypoint: "voice",
+      slots: {
+        symbol: "TSLA",
+      },
+    });
+    await ApiService.composeOneGoal({
+      vaultOwnerToken: "vault_token",
+      goalId: "goal.analysis.start_debate",
+      actionId: "analysis.start",
+      state: "completed",
+      result: {
+        text: "Kai completed TSLA: HOLD.",
+      },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/one/goal/plan");
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe("/api/one/goal/compose");
+    const planRequest = fetchSpy.mock.calls[0]?.[1];
+    expect((planRequest?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer vault_token"
+    );
+    const planBody = JSON.parse(String(planRequest?.body || "{}")) as Record<
+      string,
+      unknown
+    >;
+    expect(planBody).toMatchObject({
+      transcript: "Analyze TSLA using default",
+      entrypoint: "voice",
+      slots: {
+        symbol: "TSLA",
+      },
+    });
+  });
+
   it("forwards voice turn id header for TTS requests", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -233,10 +280,16 @@ describe("ApiService voice planning contract", () => {
 
     const relayUrl = await ApiService.getGeminiLiveRelayUrl({
       voice: "Sulafat",
-      screen: "one_home",
+      screen: "one_agents",
       persona: "investor",
       routeFamily: "/one",
       voiceState: "listening",
+      accessTier: "signed_unlocked",
+      availableActionIds: ["route.profile", "profile.security.open_vault"],
+      visibleModules: ["Profile settings"],
+      cacheFreshness: "fresh_or_stale_safe",
+      vaultReady: true,
+      portfolioReady: false,
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -246,8 +299,26 @@ describe("ApiService voice planning contract", () => {
     const request = fetchSpy.mock.calls[0]?.[1];
     const headers = request?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer firebase_token");
+    const body = JSON.parse(String(request?.body || "{}")) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      access_tier: "signed_unlocked",
+      available_action_ids: ["route.profile", "profile.security.open_vault"],
+      visible_modules: ["Profile settings"],
+      cache_freshness: "fresh_or_stale_safe",
+      vault_ready: true,
+      portfolio_ready: false,
+    });
     const parsed = new URL(relayUrl);
     expect(parsed.searchParams.get("relay_ticket")).toBe("relay_ticket_123");
+    expect(parsed.searchParams.get("access_tier")).toBe("signed_unlocked");
+    expect(parsed.searchParams.get("cache_freshness")).toBe("fresh_or_stale_safe");
+    expect(parsed.searchParams.get("vault_ready")).toBe("1");
+    expect(parsed.searchParams.get("portfolio_ready")).toBe("0");
+    expect(parsed.searchParams.getAll("action_id")).toEqual([
+      "route.profile",
+      "profile.security.open_vault",
+    ]);
+    expect(parsed.searchParams.getAll("module")).toEqual(["Profile settings"]);
     expect(parsed.searchParams.has("authorization")).toBe(false);
     expect(relayUrl).not.toContain("firebase_token");
   });

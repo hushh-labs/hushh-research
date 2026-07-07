@@ -20,7 +20,7 @@ def test_connected_systems_migration_is_registered_before_current_release_head()
     assert "067_connected_systems.sql" in manifest["groups"]["iam"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 80
+    assert contract["expected_migration_version"] == 82
     assert contract["migration_version_policy"] == "exact"
 
 

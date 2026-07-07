@@ -71,7 +71,7 @@ export function PersonaBootstrapRedirect() {
       routePersona,
       activePersona,
       primaryTarget: activePersona,
-      scopedRouteLabel: routePersona === "ria" ? "RIA workspace" : "Kai workspace",
+      scopedRouteLabel: routePersona === "ria" ? "RIA workspace" : "One finance workspace",
       activePersonaLabel: activePersona === "ria" ? "RIA workspace" : "Investor workspace",
     };
   }, [
@@ -168,7 +168,7 @@ export function PersonaBootstrapRedirect() {
             </AlertDialogTitle>
             <AlertDialogDescription className="text-left text-sm leading-6 text-muted-foreground">
               You are currently in {activePersona === "ria" ? "RIA" : "Investor"} mode, but this
-              page belongs to the {mismatch.routePersona === "ria" ? "RIA" : "Investor"} shell.
+              page belongs to the {mismatch.routePersona === "ria" ? "RIA" : "investor finance"} shell.
               We can move you back to the correct workspace, or you can stay here and switch roles
               explicitly.
             </AlertDialogDescription>

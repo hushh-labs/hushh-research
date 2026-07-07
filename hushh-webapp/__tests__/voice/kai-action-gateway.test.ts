@@ -61,6 +61,18 @@ function makeRuntimeState(overrides: Partial<AppRuntimeState> = {}): AppRuntimeS
   };
 }
 
+const ALLOWED_DELEGATE_AGENT_IDS = [
+  "one",
+  "kai",
+  "nav",
+  "kyc",
+  "agent_connected_systems",
+  "agent_connections",
+  "agent_email",
+  "agent_location",
+  "agent_personal_information",
+];
+
 describe("kai-action-gateway", () => {
   it("loads the generated gateway with stable action identity", () => {
     expect(KAI_ACTION_GATEWAY.schema_version).toBe("kai.action_gateway.vnext");
@@ -78,12 +90,77 @@ describe("kai-action-gateway", () => {
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
           action.delegate_agent_id === null ||
-          ["one", "kai", "nav", "kyc"].includes(action.delegate_agent_id)
+          ALLOWED_DELEGATE_AGENT_IDS.includes(action.delegate_agent_id)
+      )
+    ).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every(
+        (action) =>
+          action.goal.goal_id === `goal.${action.action_id}` ||
+          action.goal.goal_id.startsWith("goal.")
+      )
+    ).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every(
+        (action) =>
+          action.goal.entrypoint_support.includes("voice") &&
+          action.goal.entrypoint_support.includes("chat") &&
+          action.goal.workflow_steps.length >= 1
       )
     ).toBe(true);
     expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
     expect(getKaiActionById("route.consents")?.speaker_persona).toBe("nav");
     expect(getKaiActionById("route.profile")?.speaker_persona).toBe("one");
+    expect(getKaiActionById("route.one_agents")).toMatchObject({
+      surface_id: "one_agents",
+      execution_target: {
+        status: "wired",
+        path: "route",
+        target: "/one",
+      },
+      control_ids: ["top_agent_section_dropdown"],
+    });
+    expect(getKaiActionsForControlId("top_agent_section_finance")[0]?.action_id).toBe(
+      "route.kai_home"
+    );
+  });
+
+  it("keeps analysis.start as the reference multi-step goal contract", () => {
+    const action = getKaiActionById("analysis.start");
+    expect(action?.goal).toEqual(
+      expect.objectContaining({
+        goal_id: "goal.analysis.start_debate",
+        required_inputs: expect.arrayContaining([
+          expect.objectContaining({
+            name: "ticker",
+            slot: "symbol",
+          }),
+          expect.objectContaining({
+            name: "pick_source",
+            slot: "pickSource",
+          }),
+        ]),
+        cancellation_contract: expect.objectContaining({
+          cancellable: true,
+          cancel_action_id: "analysis.cancel_active",
+        }),
+        result_contract: expect.objectContaining({
+          summary_mode: "decision_summary",
+        }),
+      })
+    );
+    expect(action?.goal.workflow_steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "action",
+          action_id: "analysis.start",
+        }),
+        expect.objectContaining({
+          type: "service",
+          service: "kai_debate.ensure_run",
+        }),
+      ])
+    );
   });
 
   it("maps control ids and authored workflows back to canonical actions", () => {
@@ -240,6 +317,31 @@ describe("kai-action-gateway", () => {
       reason: "Switch to RIA workspace first.",
       target_persona: "ria",
       blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+    });
+  });
+
+  it("allows direct route settlement for finance actions from an inactive earned workspace", () => {
+    const action = getKaiActionById("analysis.start");
+    const availability = evaluateKaiActionAvailability({
+      action: action!,
+      allowPersonaRouteSettlement: true,
+      appRuntimeState: makeRuntimeState({
+        persona: {
+          active: "ria",
+          primary_nav: "ria",
+          available: ["ria", "investor"],
+          transition_target: null,
+          ria_switch_available: true,
+          ria_setup_available: false,
+        },
+      }),
+    });
+
+    expect(availability).toEqual({
+      status: "available",
+      reason: null,
+      target_persona: null,
+      blocked_guidance: null,
     });
   });
 

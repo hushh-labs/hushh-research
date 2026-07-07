@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -13,6 +14,9 @@ interface PermissionLockedStateProps {
 }
 
 export function PermissionLockedState({ rule }: PermissionLockedStateProps) {
+  // Tag the current route as origin so the consent center's back button
+  // retraces here instead of falling to Profile (breadcrumb reads ?from).
+  const pathname = usePathname();
   return (
     <SurfaceCard accent="consent" data-testid="permission-locked-state">
       <SurfaceCardContent className="space-y-4 p-5">
@@ -27,7 +31,7 @@ export function PermissionLockedState({ rule }: PermissionLockedStateProps) {
         </div>
 
         <Button asChild size="sm" variant="blue" showRipple>
-          <Link href={buildConsentCenterHref("pending")}>
+          <Link href={buildConsentCenterHref("pending", { from: pathname || undefined })}>
             Review permissions
           </Link>
         </Button>

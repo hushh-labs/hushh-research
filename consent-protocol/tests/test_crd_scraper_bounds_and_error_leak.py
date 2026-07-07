@@ -73,7 +73,6 @@ class TestJobIdPathBounds:
 
 class TestValueErrorDoesNotLeak:
     def test_value_error_returns_opaque_422(self) -> None:
-
         svc = _stub_provider({})
         svc.get_job = AsyncMock(side_effect=ValueError("internal DB path: /var/secret/db.sock"))
 

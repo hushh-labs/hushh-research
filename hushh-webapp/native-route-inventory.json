@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 60,
-  "native_required_routes": 57,
+  "total_routes": 79,
+  "native_required_routes": 76,
   "excluded_routes": 3,
   "routes": [
     {
@@ -57,7 +57,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fregister-phone",
       "expectedMarker": "native-route-kai-home",
-      "expectedRoute": "/kai",
+      "expectedRoute": "/one/kai",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -423,6 +423,234 @@
       "initialRoute": "/login?redirect=%2Fprofile",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/profile",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/account",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Faccount",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/account",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/account/phone",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Faccount%2Fphone",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/account/phone",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/preferences",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/preferences",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/preferences/kai",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fkai",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/preferences/kai",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/preferences/device",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fdevice",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/preferences/device",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/security",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/security",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/security/vault",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fvault",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/security/vault",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/security/session",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fsession",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/security/session",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/my-data",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/my-data",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/my-data/domain",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/my-data/domain?key=finance",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/access",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Faccess",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/access",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/access/connection",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Faccess%2Fconnection%3Fid%3Ddemo_connection",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/access/connection?id=demo_connection",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/connected-systems",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fconnected-systems",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/connected-systems",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/gmail",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fgmail",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/gmail",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/gmail/connection",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Fconnection",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/gmail/connection",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/gmail/actions",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Factions",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/gmail/actions",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/support",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fsupport",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/support",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/support/routing",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Frouting",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/support/routing",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/profile/support/compose",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/support/compose?kind=support_request",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

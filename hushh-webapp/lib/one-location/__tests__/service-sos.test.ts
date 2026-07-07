@@ -95,11 +95,4 @@ describe("OneLocationService SOS additions", () => {
     expect("reason" in body).toBe(false);
   });
 
-  it("seedTrustedContacts POSTs to the seed endpoint and returns result", async () => {
-    const calls = stubFetch({ result: { seeded: 3, existingCount: 0, skippedSelf: 0 } });
-    const result = await OneLocationService.seedTrustedContacts({ vaultOwnerToken: "tok" });
-    expect(calls[0].url).toContain("/api/one/location/seed-trusted");
-    expect(calls[0].init.method).toBe("POST");
-    expect(result.seeded).toBe(3);
-  });
 });

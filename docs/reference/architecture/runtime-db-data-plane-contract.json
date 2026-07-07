@@ -319,6 +319,21 @@
       "expected_row_growth": "medium_per_user_request"
     },
     {
+      "id": "trusted_connections_graph",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_connections"
+      ],
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table (dropped in migration 080).",
+      "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
+      "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_connection"
+    },
+    {
       "id": "information_marketplace_opportunity_signals",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",

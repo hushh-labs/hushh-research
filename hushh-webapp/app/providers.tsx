@@ -79,10 +79,13 @@ function readCustomVar(style: CSSProperties, key: string): string {
 
 // Shared bottom chrome glass vars. Mirrors the top app bar glass (same bg,
 // blur via the .bar-glass default, overscan, and fade strengths) so the bottom
-// mask fade matches the top exactly, just flipped to fade upward.
+// mask fade matches the top exactly, just flipped to fade upward. The dark
+// tint derives from the live --background (same as the top bar) so neither
+// band can read lighter (milky) than the page behind it.
 const SHARED_BOTTOM_CHROME_GLASS_VARS = {
   "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-  "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+  "--app-bar-glass-bg-dark":
+    "color-mix(in oklab, var(--background) 76%, transparent)",
   "--app-bar-shadow": "none",
   "--app-bar-mask-overscan": "14px",
 } as const;
@@ -502,8 +505,19 @@ function AppShellFrame({ children }: ProvidersProps) {
 }
 
 export function Providers({ children }: ProvidersProps) {
+  // iOS ships in forced LIGHT ("daylight") mode: the native side is pinned via
+  // Info.plist UIUserInterfaceStyle=Light, and next-themes is pinned here so no
+  // persisted/system "dark" can re-apply the .dark class.
+  const forceNativeDaylight =
+    Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="light"
+      forcedTheme={forceNativeDaylight ? "light" : undefined}
+      enableSystem={!forceNativeDaylight}
+    >
       <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />

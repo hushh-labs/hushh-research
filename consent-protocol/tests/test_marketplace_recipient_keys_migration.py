@@ -8,7 +8,7 @@ MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 MANIFEST_PATH = REPO_ROOT / "db" / "release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "db" / "contracts" / "uat_integrated_schema.json"
 
-MIGRATION_NAME = "078_marketplace_recipient_keys.sql"
+MIGRATION_NAME = "080_marketplace_recipient_keys.sql"
 
 
 def test_marketplace_recipient_keys_migration_is_registered_at_release_head() -> None:
@@ -19,7 +19,7 @@ def test_marketplace_recipient_keys_migration_is_registered_at_release_head() ->
     assert manifest["ordered_migrations"].index(MIGRATION_NAME) > manifest[
         "ordered_migrations"
     ].index("077_marketplace_opportunity_signals.sql")
-    assert contract["expected_migration_version"] == 80
+    assert contract["expected_migration_version"] == 82
 
 
 def test_marketplace_recipient_keys_migration_creates_recipient_key_table() -> None:

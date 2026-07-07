@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemsError,
     get_connected_systems_service,
@@ -126,24 +125,6 @@ def _raise_connected_system_error(error: ConnectedSystemsError) -> None:
     ) from error
 
 
-def _raise_database_error(error: DatabaseExecutionError) -> None:
-    status_code = 503 if error.status_code >= 500 else error.status_code
-    code = (
-        "CONNECTED_SYSTEMS_SCHEMA_NOT_READY"
-        if "connected_system_" in error.details.lower() or "connected_system_" in str(error).lower()
-        else error.code
-    )
-    message = (
-        "Connected Systems workflow storage is not ready."
-        if code == "CONNECTED_SYSTEMS_SCHEMA_NOT_READY"
-        else "Connected Systems workflow storage is temporarily unavailable."
-    )
-    raise HTTPException(
-        status_code=status_code,
-        detail={"code": code, "message": message},
-    ) from error
-
-
 def _user_id(token_data: dict) -> str:
     return str(token_data.get("user_id") or "")
 
@@ -215,8 +196,6 @@ async def get_connected_system_record_binding(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)
 
 
 @router.post("/{system_id}/records/search")
@@ -239,8 +218,6 @@ async def search_connected_system_record(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)
 
 
 @router.post("/{system_id}/records/create-intents")
@@ -263,8 +240,6 @@ async def create_connected_system_record_intent(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)
 
 
 @router.post("/{system_id}/records/update-intents")
@@ -285,8 +260,6 @@ async def update_connected_system_record_intent(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)
 
 
 @router.post("/{system_id}/records/delete")
@@ -305,8 +278,6 @@ async def delete_connected_system_record(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)
 
 
 @router.post("/{system_id}/intents/{intent_id}/approve")
@@ -324,8 +295,6 @@ async def approve_connected_system_intent(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)
 
 
 @router.post("/{system_id}/intents/{intent_id}/reject")
@@ -343,5 +312,3 @@ async def reject_connected_system_intent(
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
-    except DatabaseExecutionError as error:
-        _raise_database_error(error)

@@ -13,6 +13,25 @@ export const ROUTES = {
   PHONE_MANDATE: "/register-phone",
   LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
+  PROFILE_ACCOUNT: "/profile/account",
+  PROFILE_ACCOUNT_PHONE: "/profile/account/phone",
+  PROFILE_PREFERENCES: "/profile/preferences",
+  PROFILE_PREFERENCES_KAI: "/profile/preferences/kai",
+  PROFILE_PREFERENCES_DEVICE: "/profile/preferences/device",
+  PROFILE_SECURITY: "/profile/security",
+  PROFILE_SECURITY_VAULT: "/profile/security/vault",
+  PROFILE_SECURITY_SESSION: "/profile/security/session",
+  PROFILE_MY_DATA: "/profile/my-data",
+  PROFILE_MY_DATA_DOMAIN: "/profile/my-data/domain",
+  PROFILE_ACCESS: "/profile/access",
+  PROFILE_ACCESS_CONNECTION: "/profile/access/connection",
+  PROFILE_CONNECTED_SYSTEMS: "/profile/connected-systems",
+  PROFILE_GMAIL: "/profile/gmail",
+  PROFILE_GMAIL_CONNECTION: "/profile/gmail/connection",
+  PROFILE_GMAIL_ACTIONS: "/profile/gmail/actions",
+  PROFILE_SUPPORT: "/profile/support",
+  PROFILE_SUPPORT_ROUTING: "/profile/support/routing",
+  PROFILE_SUPPORT_COMPOSE: "/profile/support/compose",
   PROFILE_PKM: "/profile/pkm",
   PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/profile/receipts",
@@ -150,6 +169,38 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
 }
 
 /**
+ * Canonical, HARD-GATED capability handoff targets: the subset of
+ * {@link CAPABILITY_HANDOFF_TARGETS} that live under `/one/*` but OUTSIDE the
+ * `/one/setup/*` surface (gmail, email→/one/kyc, location, pkm,
+ * connected-systems). These are the routes `OneOnboardingGuard` bounces to
+ * `/one/setup` while the master gate is unresolved. Finance (→ `/one/setup/kai`,
+ * a setup surface) and consent (→ `/consents`, off `/one`) are excluded: the
+ * former is already allow-listed, the latter is not gated at all.
+ * (`isOneSetupSurfaceRoute` is a hoisted function declaration, so it is safe to
+ * call here at module init.)
+ */
+const GATED_CAPABILITY_HANDOFF_TARGETS: ReadonlySet<string> = new Set(
+  Object.values(CAPABILITY_HANDOFF_TARGETS)
+    .map((target) => target.split("?")[0] ?? target)
+    .filter(
+      (target) =>
+        target.startsWith(`${ROUTES.ONE_HOME}/`) &&
+        !isOneSetupSurfaceRoute(target),
+    ),
+);
+
+/**
+ * True when `pathname` is a hard-gated capability handoff target (see
+ * {@link GATED_CAPABILITY_HANDOFF_TARGETS}). `OneOnboardingGuard` uses this,
+ * together with a `?from=setup` marker, to allow a setup-originated entry into
+ * the real product surface WITHOUT first resolving the account-wide master
+ * setup gate — so entering one capability no longer marks ALL setup complete.
+ */
+export function isCapabilityHandoffTarget(pathname: string): boolean {
+  return GATED_CAPABILITY_HANDOFF_TARGETS.has(pathname);
+}
+
+/**
  * Build a `/one/setup` hub route. A specific capability can be deep-linked via
  * the `feature` query param (e.g. `/one/setup?feature=gmail`). Query-backed
  * (not a `[feature]` path segment) so the Capacitor static export does not need
@@ -166,8 +217,7 @@ export function buildOneSetupRoute(entries?: {
 }
 
 export function buildProfileVaultRoute(returnTo?: string | null) {
-  return withQuery(ROUTES.PROFILE, {
-    panel: "security",
+  return withQuery(ROUTES.PROFILE_SECURITY, {
     unlock_vault: "1",
     return_to: returnTo,
   });
@@ -296,6 +346,7 @@ export const ONE_SETUP_CAPABILITY_IDS: readonly string[] = [
   "location",
   "pkm",
   "consent",
+  "marketplace",
   "connected-systems",
 ];
 

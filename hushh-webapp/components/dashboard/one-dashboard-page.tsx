@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
+  Check,
   ChevronRight,
-  LayoutDashboard,
+  Circle,
+  Lock,
   type LucideIcon,
 } from "lucide-react";
 
@@ -10,23 +12,25 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
-import { SurfaceStack } from "@/components/app-ui/surfaces";
+import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { Badge } from "@/components/ui/badge";
-import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
+import {
+  ONE_CAPABILITIES,
+  type OneCapabilityTone,
+} from "@/lib/onboarding/one-capabilities";
 import {
   getCapabilityStatusDisplay,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import {
   isCapabilitySetupActionable,
+  isCapabilitySetupComplete,
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { ROUTES } from "@/lib/navigation/routes";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 
-type OneDashboardMode = {
+type OneAgentMode = {
   id: string;
   title: string;
   description: string;
@@ -34,148 +38,143 @@ type OneDashboardMode = {
   icon: LucideIcon;
   status: string;
   statusTone: CapabilityStatusTone;
-  tone:
-    | "finance"
-    | "gmail"
-    | "email"
-    | "location"
-    | "pkm"
-    | "consent"
-    | "connected";
-  group: "workflow" | "memory" | "access";
+  tone: OneCapabilityTone;
+  locked: boolean;
+  isExploreOnly: boolean;
 };
 
-// Borderless neutral glass per the Card Depth Model: depth comes from the
-// shared shadow tokens, NOT from per-tone outline borders or tinted chrome.
-const MODE_TILE_CLASS =
-  "group relative isolate flex min-h-[5.8rem] flex-col overflow-hidden rounded-lg border border-transparent bg-card/78 p-3 text-left shadow-[var(--app-card-shadow-standard)] transition-[background-color,box-shadow] duration-200 hover:bg-card hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-[6.15rem]";
+const ONE_DASHBOARD_INSET_CLASSNAME = "px-4 sm:px-6";
+const ONE_AGENT_TILE_WIDTH_CLASSNAME = "w-[5.75rem]";
+const ONE_AGENT_GRID_CLASSNAME =
+  "grid grid-cols-[repeat(auto-fill,minmax(5.75rem,5.75rem))] justify-start gap-x-6 gap-y-5 sm:gap-x-8 md:gap-x-10";
 
-// Tone tints the ICON WELL only — the one place tone color is sanctioned. Outer
-// card chrome stays neutral.
-const MODE_ICON_CLASS_BY_TONE: Record<OneDashboardMode["tone"], string> = {
-  finance: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  gmail: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
-  email: "bg-accent-surface text-accent-strong",
-  location: "bg-teal-500/12 text-teal-700 dark:text-teal-300",
-  pkm: "bg-amber-500/12 text-amber-700 dark:text-amber-300",
-  consent: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
-  connected: "bg-slate-500/12 text-slate-700 dark:text-slate-300",
-};
-
-// State emphasis via neutral copy weight only — no tinted/bordered status pills.
-const MODE_STATUS_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
-  ready: "border-transparent bg-transparent px-0 text-muted-foreground",
-  action: "border-transparent bg-transparent px-0 font-medium text-foreground",
-  attention: "border-transparent bg-transparent px-0 font-medium text-foreground",
-  muted: "border-transparent bg-transparent px-0 text-muted-foreground",
-};
-
-function buildModes(statusById: Record<string, CapabilityStatus>): OneDashboardMode[] {
-  // Stable identity (title/desc/href/icon/tone/group) comes from the shared
-  // ONE_CAPABILITIES catalog; live per-tile status comes from the capability
-  // setup-state resolver via `statusById` so the dashboard never fabricates
-  // status. Missing entries render an honest "Checking…" muted state.
+function buildModes(
+  statusById: Record<string, CapabilityStatus>,
+): OneAgentMode[] {
   return ONE_CAPABILITIES.map((cap) => {
     const status = statusById[cap.id];
     const display = status
       ? getCapabilityStatusDisplay(status, { isExploreOnly: cap.isExploreOnly })
-      : { label: "Checking…", tone: "muted" as CapabilityStatusTone };
+      : { label: "Checking...", tone: "muted" as CapabilityStatusTone };
+    const locked =
+      !!status &&
+      (status.requiresUnlock === true ||
+        (status.state === "blocked" && status.prerequisite === "vault"));
     return {
       id: cap.id,
       title: cap.title,
       description: cap.description,
-      href: cap.href,
+      href: cap.href.includes("?")
+        ? `${cap.href}&from=${ROUTES.ONE_HOME}`
+        : `${cap.href}?from=${ROUTES.ONE_HOME}`,
       icon: cap.icon,
       status: display.label,
       statusTone: display.tone,
       tone: cap.tone,
-      group: cap.group,
+      locked,
+      isExploreOnly: cap.isExploreOnly === true,
     };
   });
 }
 
-function ModeTile({
-  mode,
-  className,
-}: {
-  mode: OneDashboardMode;
-  className?: string;
-}) {
-  const Icon = mode.icon;
+function statusClassName(mode: OneAgentMode): string {
+  if (mode.locked) return "text-muted-foreground";
+  if (mode.statusTone === "ready") return "text-[#138a3d] dark:text-[#5ee283]";
+  if (mode.statusTone === "attention") return "text-accent-strong";
+  if (mode.statusTone === "action") return "text-foreground";
+  return "text-muted-foreground";
+}
+
+function AgentIndicator({ mode }: { mode: OneAgentMode }) {
+  if (mode.locked) {
+    return (
+      <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-background bg-muted text-muted-foreground shadow-[0_1px_6px_rgba(0,0,0,0.16)]">
+        <Lock className="h-3 w-3" aria-hidden />
+      </span>
+    );
+  }
+  if (mode.statusTone === "ready") {
+    return (
+      <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-background bg-[#34c759] text-white shadow-[0_1px_6px_rgba(0,0,0,0.16)]">
+        <Check className="h-3 w-3" aria-hidden />
+      </span>
+    );
+  }
+  if (mode.statusTone === "attention") {
+    return (
+      <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-background bg-accent text-[10px] font-bold text-accent-foreground shadow-[0_1px_6px_rgba(0,0,0,0.16)]">
+        !
+      </span>
+    );
+  }
+  if (mode.statusTone === "action") {
+    return (
+      <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-background bg-accent-surface text-accent-strong shadow-[0_1px_6px_rgba(0,0,0,0.16)]">
+        <Circle className="h-2.5 w-2.5 fill-current" aria-hidden />
+      </span>
+    );
+  }
+  return null;
+}
+
+function AgentTile({ mode }: { mode: OneAgentMode }) {
   return (
     <Link
       href={mode.href}
       aria-label={`Open ${mode.title}`}
-      className={cn(MODE_TILE_CLASS, className)}
+      data-testid={`one-agent-tile-${mode.id}`}
+      title={mode.description}
+      className={cn(
+        "group flex flex-col items-center gap-2 rounded-[22px] px-1.5 py-2 text-center",
+        ONE_AGENT_TILE_WIDTH_CLASSNAME,
+        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+        "hover:bg-black/[0.04] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.06] motion-reduce:transition-none motion-reduce:active:scale-100",
+      )}
     >
-      <MaterialRipple variant="link" effect="glass" className="rounded-lg" />
-      <span className="flex items-start justify-between gap-2">
+      <span className="relative">
+        <AgentSectionIcon id={mode.id} icon={mode.icon} tone={mode.tone} />
+        <AgentIndicator mode={mode} />
+      </span>
+      <span className="min-w-0 space-y-0.5">
+        <span className="block max-w-[5.75rem] truncate text-[12.5px] font-semibold leading-tight text-foreground">
+          {mode.title}
+        </span>
         <span
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10",
-            MODE_ICON_CLASS_BY_TONE[mode.tone],
-          )}
-        >
-          <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden />
-        </span>
-        <Badge
-          variant="secondary"
-          className={cn(
-            "max-w-[8.5rem] shrink-0 truncate text-[10px] sm:max-w-[9rem] sm:text-xs",
-            MODE_STATUS_CLASS_BY_TONE[mode.statusTone],
+            "block max-w-[5.75rem] truncate text-[11px] font-medium leading-tight",
+            statusClassName(mode),
           )}
         >
           {mode.status}
-        </Badge>
-      </span>
-      <span className="mt-2 block min-w-0 sm:mt-2.5">
-        <span className="block truncate text-[15px] font-semibold leading-5 text-foreground sm:text-lg sm:leading-6">
-          {mode.title}
-        </span>
-        <span className="mt-1 hidden truncate text-sm leading-5 text-muted-foreground sm:block">
-          {mode.description}
         </span>
       </span>
     </Link>
   );
 }
 
-function ModeSection({
-  title,
-  description,
-  accent,
-  modes,
-  gridClassName,
-}: {
-  title: string;
-  description: string;
-  accent: "neutral" | "kai" | "consent";
-  modes: OneDashboardMode[];
-  gridClassName: string;
-}) {
-  if (modes.length === 0) {
-    return null;
-  }
-
+function FinishSetupStrip({ percent }: { percent: number }) {
   return (
-    <section
-      aria-labelledby={`one-section-${title.toLowerCase()}`}
-      className="space-y-2"
+    <Link
+      href={ROUTES.ONE_SETUP}
+      aria-label="Finish setting up One"
+      className="flex w-full items-center gap-3 overflow-hidden rounded-[22px] border border-border/55 bg-black/[0.035] px-4 py-3 transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:bg-black/[0.055] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.06] dark:hover:bg-white/[0.09] motion-reduce:transition-none motion-reduce:active:scale-100"
     >
-      <SectionHeader
-        id={`one-section-${title.toLowerCase()}`}
-        title={title}
-        description={description}
-        accent={accent}
-        className="px-0"
-        testId={`one-${title.toLowerCase()}-section`}
-      />
-      <div className={cn("grid gap-2 sm:gap-2.5", gridClassName)}>
-        {modes.map((mode) => (
-          <ModeTile key={mode.id} mode={mode} />
-        ))}
-      </div>
-    </section>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="text-[14px] font-semibold text-foreground">Finish setup</span>
+          <span className="text-[12px] font-medium text-muted-foreground">{percent}% ready</span>
+        </span>
+        <span className="mt-2 block h-1 w-full overflow-hidden rounded-full bg-foreground/[0.10]">
+          <span
+            className="block h-full rounded-full bg-accent transition-[width] duration-500 ease-[var(--motion-ease-standard)]"
+            style={{ width: `${percent}%` }}
+          />
+        </span>
+      </span>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-background text-foreground shadow-[0_1px_8px_rgba(0,0,0,0.08)]">
+        <ChevronRight className="h-4 w-4" aria-hidden />
+      </span>
+    </Link>
   );
 }
 
@@ -184,7 +183,6 @@ export function OneDashboardPage({
   capabilityStatusById = {},
 }: {
   displayName?: string | null;
-  /** Live per-capability setup status from `useCapabilitySetupStates`. */
   capabilityStatusById?: Record<string, CapabilityStatus>;
 }) {
   const firstName =
@@ -194,18 +192,20 @@ export function OneDashboardPage({
   const modes = buildModes(capabilityStatusById);
   const consentStatus = capabilityStatusById.consent;
   const pendingConsents = consentStatus?.pendingCount ?? 0;
-  // Only make a positive "no pending consents" claim once consent is actually
-  // resolved (set up). While the state is still unknown/blocked we stay silent
-  // rather than implying an all-clear.
   const consentResolved =
     consentStatus?.state === "completed" ||
     consentStatus?.state === "needs-attention";
   const hasSetupRemaining = Object.values(capabilityStatusById).some((status) =>
     isCapabilitySetupActionable(status),
   );
-  const workflowModes = modes.filter((mode) => mode.group === "workflow");
-  const memoryModes = modes.filter((mode) => mode.group === "memory");
-  const accessModes = modes.filter((mode) => mode.group === "access");
+  const setupable = ONE_CAPABILITIES.filter((cap) => !cap.isExploreOnly);
+  const doneCount = setupable.filter((cap) => {
+    const status = capabilityStatusById[cap.id];
+    return status ? isCapabilitySetupComplete(status) : false;
+  }).length;
+  const percent = setupable.length
+    ? Math.round((doneCount / setupable.length) * 100)
+    : 0;
 
   return (
     <AppPageShell
@@ -220,61 +220,67 @@ export function OneDashboardPage({
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow={`Good to see you, ${firstName}.`}
-          title="One dashboard"
-          description="Start a workflow, open memory, or review access."
-          icon={LayoutDashboard}
-          accent="neutral"
-          actions={
-            <span className="flex items-center gap-2">
-              {hasSetupRemaining ? (
-                <Link
-                  href={ROUTES.ONE_SETUP}
-                  className="inline-flex items-center gap-1 rounded-full bg-card/78 px-3 py-1 text-xs font-medium text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,box-shadow] duration-200 hover:bg-card hover:shadow-[var(--app-card-shadow-feature)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
-                >
-                  Finish setup
-                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-              ) : null}
-              {pendingConsents > 0 ? (
-                <Badge variant="secondary" className="w-fit whitespace-nowrap">
-                  {`${pendingConsents} consent${pendingConsents === 1 ? "" : "s"} pending`}
-                </Badge>
-              ) : consentResolved ? (
-                <Badge variant="secondary" className="w-fit whitespace-nowrap">
-                  No pending consents
-                </Badge>
-              ) : null}
-            </span>
-          }
-        />
+        <header
+          data-slot="page-header"
+          data-page-primary="true"
+          data-testid="page-header"
+          className="space-y-2"
+        >
+          <p className="text-[12px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+            {`Good to see you, ${firstName}.`}
+          </p>
+          <h1 className="font-[family-name:var(--font-app-display)] text-[34px] font-semibold leading-[1.02] tracking-normal text-foreground sm:text-[40px]">
+            One
+          </h1>
+          <p className="max-w-[34rem] text-[15px] leading-6 text-muted-foreground">
+            Your apps, memory, access, and specialist agents in one place.
+          </p>
+          {pendingConsents > 0 ? (
+            <Badge variant="secondary" className="w-fit whitespace-nowrap">
+              {`${pendingConsents} consent${pendingConsents === 1 ? "" : "s"} pending`}
+            </Badge>
+          ) : consentResolved ? (
+            <Badge variant="secondary" className="w-fit whitespace-nowrap">
+              No pending consents
+            </Badge>
+          ) : null}
+        </header>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <SurfaceStack compact className="gap-4">
-          <ModeSection
-            title="Workflows"
-            description="Finance, email, location, and connected systems."
-            accent="kai"
-            modes={workflowModes}
-            gridClassName="grid-cols-2 md:grid-cols-4"
-          />
-          <ModeSection
-            title="Memory"
-            description="Gmail receipts and saved knowledge."
-            accent="neutral"
-            modes={memoryModes}
-            gridClassName="grid-cols-2 md:grid-cols-4"
-          />
-          <ModeSection
-            title="Access"
-            description="Approvals and revocations."
-            accent="consent"
-            modes={accessModes}
-            gridClassName="grid-cols-2 md:grid-cols-4"
-          />
-        </SurfaceStack>
+        <div className="space-y-5">
+          {hasSetupRemaining ? <FinishSetupStrip percent={percent} /> : null}
+          <section
+            aria-labelledby="one-agents-heading"
+            data-testid="one-agents-section"
+            className="overflow-hidden rounded-[30px] border border-border/45 bg-background/55 py-5 shadow-[0_1px_0_rgba(255,255,255,0.35)_inset] dark:bg-white/[0.025]"
+          >
+            <div
+              className={cn(
+                "mb-4 flex items-center justify-between gap-3",
+                ONE_DASHBOARD_INSET_CLASSNAME,
+              )}
+            >
+              <h2
+                id="one-agents-heading"
+                className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+              >
+                Agents
+              </h2>
+              <span className="text-[12px] font-medium text-muted-foreground">
+                {doneCount} of {setupable.length} ready
+              </span>
+            </div>
+            <div
+              data-testid="one-agents-grid"
+              className={cn(ONE_AGENT_GRID_CLASSNAME, ONE_DASHBOARD_INSET_CLASSNAME)}
+            >
+              {modes.map((mode) => (
+                <AgentTile key={mode.id} mode={mode} />
+              ))}
+            </div>
+          </section>
+        </div>
       </AppPageContentRegion>
     </AppPageShell>
   );

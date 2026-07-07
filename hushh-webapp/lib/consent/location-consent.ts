@@ -68,13 +68,44 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
 
 
 /**
+ * Short human tag for a location consent row's share kind (SOS / Check-In /
+ * Share). Returns "" for rows that carry no share_kind (e.g. access requests,
+ * public/circle invites) so the caller can omit the badge entirely.
+ */
+export function locationConsentShareKindLabel(metadata: MetadataLike): string {
+  const kind = readString(metadata, "share_kind").toLowerCase();
+  if (kind === "sos") return "SOS";
+  if (kind === "check_in" || kind === "checkin") return "Check-In";
+  if (kind === "share") return "Share";
+  return "";
+}
+
+/**
  * Human summary for a location consent row. Coordinate-free by contract:
- * we never surface latitude/longitude in consent metadata or copy.
+ * we never surface latitude/longitude in consent metadata or copy. When the row
+ * is a share grant the summary is kind-aware so the Consent Manager can tell an
+ * emergency SOS from a friendly Check-In (with its note) from a plain share,
+ * instead of the same generic "wants to see your location" line for every row.
  */
 export function locationConsentSummary(metadata: MetadataLike): string {
   const requesterLabel = readString(metadata, "requester_label");
   const durationLabel = readString(metadata, "duration_label");
   const who = requesterLabel || "Someone in your One Network";
+  const shareKind = readString(metadata, "share_kind").toLowerCase();
+  const shareMessage = readString(metadata, "share_message");
+  const durationSuffix = durationLabel ? ` for ${durationLabel}` : "";
+  if (shareKind === "sos") {
+    return `${who} triggered an SOS and is sharing live location with you${durationSuffix}.`;
+  }
+  if (shareKind === "check_in" || shareKind === "checkin") {
+    if (shareMessage) {
+      return `${who}: ${shareMessage}`;
+    }
+    return `${who} checked in and shared their location with you${durationSuffix}.`;
+  }
+  if (shareKind === "share") {
+    return `${who} is sharing their location with you${durationSuffix}.`;
+  }
   if (durationLabel) {
     return `${who} wants to see your location for ${durationLabel}.`;
   }

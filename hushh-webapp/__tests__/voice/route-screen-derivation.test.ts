@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 
 describe("deriveVoiceRouteScreen", () => {
+  it("maps the One Agents dashboard to an explicit voice screen", () => {
+    expect(deriveVoiceRouteScreen("/one")).toEqual({
+      screen: "one_agents",
+      subview: null,
+    });
+  });
+
   it("maps canonical market and portfolio routes to richer Kai screens", () => {
     expect(deriveVoiceRouteScreen("/one/kai")).toEqual({
       screen: "kai_market",
@@ -44,6 +51,10 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("maps marketplace routes to generated action gateway screens", () => {
+    expect(deriveVoiceRouteScreen("/one/marketplace")).toEqual({
+      screen: "one_marketplace",
+      subview: null,
+    });
     expect(deriveVoiceRouteScreen("/marketplace")).toEqual({
       screen: "marketplace",
       subview: null,
@@ -55,6 +66,10 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("preserves receipts, gmail, support, and investments screen specificity", () => {
+    expect(deriveVoiceRouteScreen("/one/location")).toEqual({
+      screen: "one_location",
+      subview: null,
+    });
     expect(deriveVoiceRouteScreen("/one/gmail")).toEqual({
       screen: "gmail",
       subview: null,
@@ -83,9 +98,21 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_gmail_panel",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/profile/gmail/actions")).toEqual({
+      screen: "profile_gmail_panel",
+      subview: "actions",
+    });
     expect(deriveVoiceRouteScreen("/profile?tab=account&panel=support")).toEqual({
       screen: "profile_support_panel",
       subview: "account",
+    });
+    expect(deriveVoiceRouteScreen("/profile/support/routing")).toEqual({
+      screen: "profile_support_panel",
+      subview: "routing",
+    });
+    expect(deriveVoiceRouteScreen("/profile/security/vault")).toEqual({
+      screen: "profile_security_panel",
+      subview: "vault",
     });
     expect(deriveVoiceRouteScreen("/one/kai/investments")).toEqual({
       screen: "kai_investments",

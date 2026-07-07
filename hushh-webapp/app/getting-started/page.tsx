@@ -22,14 +22,27 @@ function GettingStartedContent() {
   const { user, loading } = useAuth();
 
   // Publish screen context so the onboarding guide can welcome and orient a
-  // brand-new, signed-out person before they have an account or a vault.
+  // brand-new, signed-out person before they have an account or a vault. The
+  // action ids are generated gateway contracts (onboarding surface), so voice
+  // proposals stay inside the governed action plane from the very first screen.
   usePublishVoiceSurfaceMetadata({
     screenId: "getting_started",
     title: "Welcome to One",
     purpose:
       "This is your welcome. Swipe through to see what One can do, then continue when you're ready.",
     actions: [
-      { id: "continue", label: "Continue", purpose: "Move on to sign in and set up." },
+      {
+        id: "onboarding.continue",
+        actionId: "onboarding.continue",
+        label: "Continue",
+        purpose: "Move on to sign in and set up.",
+      },
+      {
+        id: "auth.sign_in_open",
+        actionId: "auth.sign_in_open",
+        label: "Sign in",
+        purpose: "Go to the sign-in screen.",
+      },
     ],
   });
 

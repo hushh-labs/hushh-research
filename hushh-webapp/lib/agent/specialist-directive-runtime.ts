@@ -1,3 +1,4 @@
+import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import {
@@ -5,6 +6,7 @@ import {
   runSosPanic,
   selectSosConnectedRecipients,
 } from "@/lib/one-location/sos-trigger";
+import { runCheckIn } from "@/lib/one-location/check-in-trigger";
 
 export type SpecialistDirective = {
   kind: "action" | "prompt";
@@ -12,7 +14,12 @@ export type SpecialistDirective = {
 };
 
 export type DelegateResult = {
-  delegate_agent_id: "agent_location" | "agent_connected_systems";
+  delegate_agent_id:
+    | "agent_location"
+    | "agent_connected_systems"
+    | "agent_connections"
+    | "agent_email"
+    | "agent_personal_information";
   kind: "action" | "selection";
   id: string;
   // promptKind is only set for kind:"selection" turns. It carries the location
@@ -120,7 +127,7 @@ export async function runLocationDirective(
         id,
         type,
         status: "completed",
-        publicUrl,
+        publicUrl: publicInviteUrlLabel(publicUrl),
       };
     }
 
@@ -182,6 +189,36 @@ export async function runLocationDirective(
         type,
         status: "completed",
       };
+    }
+
+    if (type === "check_in") {
+      const state = await OneLocationService.getState(vaultOwnerToken);
+      const connected = selectSosConnectedRecipients(
+        state.recipients ?? [],
+        state.networkConnections,
+        currentUserId,
+      );
+      const ready = connected.filter(isSosShareReadyRecipient);
+      if (!ready.length) {
+        return { delegate_agent_id: "agent_location", kind: "action", id, type, status: "cancelled" };
+      }
+      const point = await OneLocationService.captureCurrentPosition();
+      await runCheckIn({
+        vaultOwnerToken,
+        recipients: ready,
+        point,
+        durationHours: Number(payload.durationHours) || 1,
+        note: payload.note ?? null,
+        publish: async (grant, recipient, pt) => {
+          const envelope = await encryptLocationForRecipient({
+            point: pt,
+            recipientPublicKeyJwk: recipient.publicKeyJwk,
+            recipientKeyId: recipient.keyId,
+          });
+          await OneLocationService.storeEnvelope({ vaultOwnerToken, grantId: grant.id, envelope });
+        },
+      });
+      return { delegate_agent_id: "agent_location", kind: "action", id, type, status: "completed" };
     }
 
     return {

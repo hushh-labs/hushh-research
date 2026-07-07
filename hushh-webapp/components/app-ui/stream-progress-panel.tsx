@@ -1,0 +1,263 @@
+"use client";
+
+import type { ReactNode } from "react";
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  type LucideIcon,
+} from "lucide-react";
+
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Progress } from "@/components/ui/progress";
+import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
+import { cn } from "@/lib/utils";
+
+export type AppStreamProgressStatus = "running" | "done" | "blocked" | "error";
+
+export type AppStreamProgressItem = {
+  id: string;
+  label?: string;
+  message: string;
+  status?: AppStreamProgressStatus;
+  badge?: string;
+};
+
+type AppStreamEventListProps = {
+  items: AppStreamProgressItem[];
+  emptyLabel?: string;
+  ariaLabel: string;
+  className?: string;
+};
+
+function ProgressStatusIcon({ status }: { status: AppStreamProgressStatus }) {
+  if (status === "done") return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />;
+  if (status === "blocked" || status === "error") {
+    return <AlertCircle className="h-3.5 w-3.5 text-destructive" />;
+  }
+  return <Loader2 className="h-3.5 w-3.5 animate-spin text-accent-strong" />;
+}
+
+export function AppStreamEventList({
+  items,
+  emptyLabel,
+  ariaLabel,
+  className,
+}: AppStreamEventListProps) {
+  if (items.length === 0) {
+    return emptyLabel ? (
+      <div className={cn("px-2.5 py-2 text-xs text-muted-foreground", className)}>
+        {emptyLabel}
+      </div>
+    ) : null;
+  }
+
+  return (
+    <ol
+      className={cn(
+        "max-h-44 min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-1",
+        className
+      )}
+      aria-label={ariaLabel}
+    >
+      {items.map((item) => {
+        const status = item.status ?? "running";
+        return (
+          <li key={item.id} className="flex gap-2 text-xs">
+            {item.badge ? (
+              <span className="mt-0.5 shrink-0 rounded border border-border/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                {item.badge}
+              </span>
+            ) : (
+              <span className="mt-0.5 shrink-0" aria-hidden="true">
+                <ProgressStatusIcon status={status} />
+              </span>
+            )}
+            <div className="min-w-0">
+              {item.label ? <p className="font-medium text-foreground">{item.label}</p> : null}
+              <p className="break-words text-muted-foreground">{item.message}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+export type AppStreamSectionProps = {
+  title: string;
+  items: AppStreamProgressItem[];
+  icon?: LucideIcon;
+  count?: number;
+  defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  emptyLabel?: string;
+  className?: string;
+  bodyClassName?: string;
+};
+
+export function AppStreamSection({
+  title,
+  items,
+  icon: Icon = Activity,
+  count,
+  defaultOpen = true,
+  open,
+  onOpenChange,
+  emptyLabel,
+  className,
+  bodyClassName,
+}: AppStreamSectionProps) {
+  return (
+    <Collapsible open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
+      <div className={cn("rounded-xl border border-border/60 bg-muted/20", className)}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="group flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+          >
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{title}</span>
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-2">
+              {typeof count === "number" ? (
+                <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[10px] font-semibold text-accent-strong">
+                  {count}
+                </span>
+              ) : null}
+              <ChevronDown
+                className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180"
+                aria-hidden="true"
+              />
+            </span>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className={cn("border-t border-border/50 px-3 py-2", bodyClassName)}>
+            <AppStreamEventList
+              items={items}
+              emptyLabel={emptyLabel}
+              ariaLabel={`${title} events`}
+            />
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+export type AppStreamPanelProps = {
+  title?: string;
+  progressValue?: number | null;
+  progressIndeterminate?: boolean;
+  statusMessage?: string;
+  progressItems?: AppStreamProgressItem[];
+  thinkingItems?: AppStreamProgressItem[];
+  response?: ReactNode;
+  responseText?: string;
+  isStreaming?: boolean;
+  isError?: boolean;
+  opportunities?: ReactNode;
+  className?: string;
+};
+
+export function AppStreamPanel({
+  title = "Response stream",
+  progressValue = null,
+  progressIndeterminate = false,
+  statusMessage,
+  progressItems = [],
+  thinkingItems = [],
+  response,
+  responseText = "",
+  isStreaming = false,
+  isError = false,
+  opportunities,
+  className,
+}: AppStreamPanelProps) {
+  const hasResponseText = responseText.trim().length > 0;
+  const hasResponse = Boolean(response) || hasResponseText;
+  const showProgressMeter =
+    progressIndeterminate || (typeof progressValue === "number" && Number.isFinite(progressValue));
+
+  return (
+    <section
+      className={cn(
+        "w-full max-w-none rounded-2xl border border-black/10 bg-white/70 p-3 shadow-sm shadow-black/[0.025] backdrop-blur-xl",
+        "dark:border-white/10 dark:bg-white/[0.035] dark:shadow-none",
+        className
+      )}
+      aria-label={title}
+    >
+      <div className="space-y-4">
+        {opportunities ? <div>{opportunities}</div> : null}
+
+        {showProgressMeter || statusMessage || progressItems.length > 0 ? (
+          <div className="space-y-2">
+            {showProgressMeter ? (
+              typeof progressValue === "number" && Number.isFinite(progressValue) ? (
+                <Progress value={Math.max(0, Math.min(100, progressValue))} className="h-2" />
+              ) : (
+                <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-primary/70" />
+                </div>
+              )
+            ) : null}
+            {statusMessage ? (
+              <p className="text-xs text-muted-foreground">{statusMessage}</p>
+            ) : null}
+            {progressItems.length > 0 ? (
+              <AppStreamSection
+                title="Progress"
+                items={progressItems}
+                count={progressItems.length}
+                defaultOpen
+              />
+            ) : null}
+          </div>
+        ) : null}
+
+        {thinkingItems.length > 0 ? (
+          <AppStreamSection
+            title="Thinking"
+            items={thinkingItems}
+            count={thinkingItems.length}
+            defaultOpen={false}
+          />
+        ) : null}
+
+        {hasResponse ? (
+          <div
+            className={cn(
+              "rounded-xl border border-border/60 bg-background/70 px-3 py-3 text-sm leading-6",
+              isError && "border-destructive/30 bg-destructive/10 text-destructive"
+            )}
+            aria-live={isStreaming ? "polite" : undefined}
+          >
+            {response ?? <p className="whitespace-pre-wrap break-words">{responseText}</p>}
+            {isStreaming ? (
+              <StreamingCursor
+                isStreaming
+                color={isError ? "error" : "primary"}
+                size="md"
+                className="ml-1"
+              />
+            ) : null}
+          </div>
+        ) : isStreaming ? (
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            Waiting for response tokens.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}

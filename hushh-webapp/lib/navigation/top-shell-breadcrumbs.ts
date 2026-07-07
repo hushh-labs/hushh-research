@@ -1,4 +1,9 @@
 import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildProfileRoute,
+  resolveProfileRouteState,
+  type ProfilePanel,
+} from "@/lib/navigation/profile-routes";
 
 export type TopShellBreadcrumbItem = {
   label: string;
@@ -28,7 +33,7 @@ function titleizeSegment(segment: string): string {
     .join(" ");
 }
 
-function profilePanelLabel(panel: string | null): string | null {
+function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "account") return "Account";
   if (panel === "my-data") return "My Data";
   if (panel === "access") return "Access & sharing";
@@ -40,19 +45,8 @@ function profilePanelLabel(panel: string | null): string | null {
   return null;
 }
 
-function profilePanelFromParams(
-  searchParams?: URLSearchParams | { get(name: string): string | null } | null,
-): string {
-  const panel = String(searchParams?.get("panel") || "").trim();
-  if (panel) return panel;
-
-  const tab = String(searchParams?.get("tab") || "").trim();
-  if (tab === "privacy") return "access";
-  return tab;
-}
-
-function profilePanelHref(panel: string): string {
-  return `${ROUTES.PROFILE}?panel=${encodeURIComponent(panel)}`;
+function profilePanelHref(panel: ProfilePanel): string {
+  return buildProfileRoute({ panel });
 }
 
 function profileDetailLabel(detail: string | null): string | null {
@@ -72,10 +66,19 @@ function profileDetailLabel(detail: string | null): string | null {
   return null;
 }
 
+function normalizeBreadcrumbPathname(pathname: string): string {
+  const base = String(pathname || "").split(/[?#]/, 1)[0]?.trim() || "/";
+  if (base === "/") return base;
+  const withSlash = base.startsWith("/") ? base : `/${base}`;
+  return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
+}
+
 export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
 ): TopShellBreadcrumbConfig | null {
+  pathname = normalizeBreadcrumbPathname(pathname);
+
   if (pathname === ROUTES.KAI_ANALYSIS) {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
@@ -147,6 +150,65 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  // Kai finance subroutes (level 3): back returns to the Kai home (level 2),
+  // which in turn returns to /one (level 1). Keeps the One -> agent -> subtab
+  // hierarchy consistent instead of relying on browser history.
+  const kaiSubroutes: Array<[string, string]> = [
+    [ROUTES.KAI_PORTFOLIO, "Portfolio"],
+    [ROUTES.KAI_INVESTMENTS, "Investments"],
+    [ROUTES.KAI_OPTIMIZE, "Optimize"],
+    [ROUTES.KAI_FUNDING_TRADE, "Funding"],
+  ];
+  for (const [route, label] of kaiSubroutes) {
+    if (pathname === route || pathname.startsWith(`${route}/`)) {
+      return {
+        backHref: ROUTES.KAI_HOME,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label },
+        ],
+      };
+    }
+  }
+
+  // RIA workspace home (level 2 for the adviser persona): back returns to /one.
+  if (pathname === ROUTES.RIA_HOME) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA" },
+      ],
+    };
+  }
+
+  // RIA subtabs (level 3): back returns to the RIA home (level 2).
+  const riaSubroutes: Array<[string, string]> = [
+    [ROUTES.RIA_PICKS, "Picks"],
+    [ROUTES.RIA_WORKSPACE, "Workspace"],
+    [ROUTES.RIA_REQUESTS, "Requests"],
+    [ROUTES.RIA_SETTINGS, "Settings"],
+  ];
+  for (const [route, label] of riaSubroutes) {
+    if (pathname === route || pathname.startsWith(`${route}/`)) {
+      return {
+        backHref: ROUTES.RIA_HOME,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.ONE_SETUP_KAI) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
@@ -165,6 +227,24 @@ export function resolveTopShellBreadcrumb(
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Setup", href: ROUTES.ONE_SETUP },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    return {
+      // Portfolio import is the final finance setup continuation. If the
+      // wizard handed us an explicit origin, honor it; otherwise return to the
+      // setup hub so the person is never trapped in the import flow.
+      backHref: originHref || ROUTES.ONE_SETUP,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Setup", href: ROUTES.ONE_SETUP },
+        { label: "Portfolio" },
       ],
     };
   }
@@ -288,36 +368,50 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.ONE_KYC) {
+    // Origin-aware back: explicit safe origins retrace exactly; direct/cold
+    // One capability entry falls back to the Agents dashboard.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: ROUTES.PROFILE,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Email" },
       ],
     };
   }
 
   if (pathname === ROUTES.ONE_LOCATION) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: ROUTES.PROFILE,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Location" },
       ],
     };
   }
 
   if (pathname === ROUTES.ONE_MARKETPLACE) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: ROUTES.PROFILE,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: ROUTES.PROFILE },
+        fromProfile
+          ? { label: "Profile", href: ROUTES.PROFILE }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Marketplace" },
       ],
     };
@@ -337,8 +431,11 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.PKM) {
+    // Origin-aware so a setup-hub-opened surface (?from=/one/setup) retraces to
+    // the hub; no marker → One home (unchanged).
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -349,8 +446,10 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.CONNECTED_SYSTEMS) {
+    // Origin-aware (see PKM above): setup-hub origin retraces to the hub.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -369,6 +468,19 @@ export function resolveTopShellBreadcrumb(
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Connected Systems", href: ROUTES.CONNECTED_SYSTEMS },
         { label: "System detail" },
+      ],
+    };
+  }
+
+  // Connect root (level 2): back returns to /one (level 1).
+  if (pathname === ROUTES.MARKETPLACE) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Connect" },
       ],
     };
   }
@@ -393,14 +505,24 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.PROFILE) {
-    const panel = profilePanelFromParams(searchParams);
-    const detail = String(searchParams?.get("detail") || "").trim();
+    const { panel, detail } = resolveProfileRouteState(pathname, searchParams);
     const panelLabel = profilePanelLabel(panel);
     if (!panelLabel) {
-      return null;
+      // Bare profile root (level 2): back returns to /one (level 1) so the
+      // One -> Profile hierarchy always has a governed exit.
+      return {
+        backHref: ROUTES.ONE_HOME,
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Profile" },
+        ],
+      };
     }
 
     const detailLabel = profileDetailLabel(detail);
+    if (!panel) return null;
     const panelHref = profilePanelHref(panel);
     return {
       backHref: detailLabel ? panelHref : ROUTES.PROFILE,
@@ -448,26 +570,22 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  const nestedPath = pathname.slice(`${ROUTES.PROFILE}/`.length);
-  const segments = nestedPath.split("/").filter(Boolean);
-  if (segments.length === 0) {
+  const { panel, detail } = resolveProfileRouteState(pathname, searchParams);
+  const panelLabel = profilePanelLabel(panel);
+  if (!panel || !panelLabel) {
     return null;
   }
-
-  const [firstSegment, ...remainingSegments] = segments;
-  if (!firstSegment) {
-    return null;
-  }
+  const detailLabel = profileDetailLabel(detail);
+  const panelHref = profilePanelHref(panel);
 
   return {
-    backHref: profilePanelHref("account"),
+    backHref: detailLabel ? panelHref : ROUTES.PROFILE,
     width: "profile",
+    align: "center",
     items: [
-      { label: "Profile", href: profilePanelHref("account") },
-      { label: titleizeSegment(firstSegment) },
-      ...remainingSegments.map((segment) => ({
-        label: titleizeSegment(segment),
-      })),
+      { label: "Profile", href: ROUTES.PROFILE },
+      { label: panelLabel, href: detailLabel ? panelHref : undefined },
+      ...(detailLabel ? [{ label: detailLabel }] : []),
     ],
   };
 }

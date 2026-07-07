@@ -20,6 +20,7 @@ import {
   MapPin,
   Search as SearchIcon,
   ShieldCheck,
+  Store,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import {
   type AppBottomNavScope,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
+import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import {
   openKaiCommandBar,
   toggleKaiCommandBar,
@@ -143,9 +145,15 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   pkm: {
     value: "pkm",
-    label: "PKM",
+    label: "Data",
     icon: FolderSearch,
     dataTourId: "nav-one-pkm",
+  },
+  marketplace: {
+    value: "marketplace",
+    label: "Market",
+    icon: Store,
+    dataTourId: "nav-one-marketplace",
   },
   connected: {
     value: "connected",
@@ -173,7 +181,7 @@ function navOptionForKey(
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
   // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
-  // now lives as a subroute of the One dashboard.
+  // now lives as a subroute of the One Agents dashboard.
   return {
     ...option,
     badge:
@@ -208,13 +216,25 @@ export const Navbar = () => {
     useKaiBottomChromeVisibility(allowScrollHide);
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
+  const lastAgentNavScope = useKaiSession((s) => s.lastAgentNavScope);
+  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
+  const setAgentNavigationContext = useKaiSession(
+    (s) => s.setAgentNavigationContext,
+  );
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const navigationScope = useMemo<AppBottomNavScope>(() => {
-    return resolveBottomNavigationScope(normalizedPathname, activePersona);
-  }, [activePersona, normalizedPathname]);
+    return resolveBottomNavigationScope(normalizedPathname, activePersona, {
+      lastAgentNavScope,
+      lastAgentSectionId,
+    });
+  }, [activePersona, lastAgentNavScope, lastAgentSectionId, normalizedPathname]);
 
   useEffect(() => {
     if (!pathname) return;
+    const agentContext = resolveAgentNavigationContextForPath(pathname);
+    if (agentContext) {
+      setAgentNavigationContext(agentContext);
+    }
     if (
       pathname.startsWith(ROUTES.KAI_HOME) ||
       pathname.startsWith(ROUTES.LEGACY_KAI_HOME)
@@ -225,7 +245,7 @@ export const Navbar = () => {
     if (pathname.startsWith("/ria")) {
       useKaiSession.getState().setLastRiaPath(pathname);
     }
-  }, [pathname]);
+  }, [pathname, setAgentNavigationContext]);
   const agentWindowOpen =
     agentPopover?.expanded || agentPopover?.motionState === "opening";
   const portfolioImportSurfaceActive = Boolean(
@@ -242,9 +262,10 @@ export const Navbar = () => {
     const keys = resolveBottomNavOptionKeys(
       normalizedPathname,
       navigationScope,
+      { lastAgentSectionId },
     );
     return keys.map((key) => navOptionForKey(key, pendingConsents));
-  }, [navigationScope, normalizedPathname, pendingConsents]);
+  }, [lastAgentSectionId, navigationScope, normalizedPathname, pendingConsents]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -377,7 +398,13 @@ export const Navbar = () => {
       openKaiCommandBar();
       return;
     }
-    if (action.type === "route") router.push(action.href);
+    if (action.type === "route") {
+      const nextAgentContext = resolveAgentNavigationContextForPath(action.href);
+      if (nextAgentContext) {
+        setAgentNavigationContext(nextAgentContext);
+      }
+      router.push(action.href);
+    }
   };
 
   return (
@@ -420,31 +447,27 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              // Lean flat track matching the search button + top app bar
-              // (ShellActionSurface): soft translucent surface, no shadow/blur.
-              "bg-black/[0.05] shadow-none backdrop-blur-none dark:bg-white/[0.07]",
-              // Active segment: Foundation gold "you are here" marker, matching
-              // hushh-search-console's canonical active recipe (gold-tint fill +
-              // gold-deep ink). Active label uses the deep-gold accent token
-              // (auto-brightens in dark); the moving indicator is a warm gold
-              // tint instead of the old neutral black/white wash.
+              // Shared bottom chrome surface: flat translucent track, no
+              // route-local glass or ink override. Active state is Foundation
+              // accent foreground so the nav matches the rest of the app
+              // identity without turning the background yellow.
               "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
-              "[&_[data-segment-indicator]]:bg-accent/20 [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-accent/25",
+              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
         </div>
         <button
           type="button"
           aria-label="Search"
+          data-native-voice-control-id="one_voice_open_command_search"
+          data-testid="one-voice-open-command-search"
           className={cn(
             // Stretch to the pill height and stay a perfect circle so the search
             // bubble and the bottom-nav pill read as one symmetric row.
             "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
-            // Flat surface matching the top app bar controls (ShellActionSurface):
-            // soft translucent track, no border/shadow/blur, symmetric in light + dark.
-            "bg-black/[0.05] text-[#1d1d1f] dark:bg-white/[0.07] dark:text-[#f5f5f7]",
+            "kai-bottom-search-action",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "hover:bg-black/[0.08] hover:text-primary dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "hover:bg-black/[0.08] hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {

@@ -1,7 +1,9 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
+  OneVoiceActionProposal,
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
   RealtimeVoiceTransport,
@@ -162,6 +164,56 @@ function rms(buffer: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, buffer.length));
 }
 
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeProposal(raw: unknown): OneVoiceActionProposal | null {
+  const record = readRecord(raw);
+  if (!record) return null;
+  const actionId = readString(record.action_id ?? record.actionId);
+  if (!actionId) return null;
+  const speakerPersona = readString(record.speaker_persona ?? record.speakerPersona);
+  const delegateAgentId = readString(record.delegate_agent_id ?? record.delegateAgentId);
+  const slots = readRecord(record.slots);
+  return {
+    action_id: actionId,
+    speaker_persona:
+      speakerPersona === "one" ||
+      speakerPersona === "kai" ||
+      speakerPersona === "nav" ||
+      speakerPersona === "kyc"
+        ? speakerPersona
+        : null,
+    delegate_agent_id:
+      delegateAgentId === "one" ||
+      delegateAgentId === "kai" ||
+      delegateAgentId === "nav" ||
+      delegateAgentId === "kyc" ||
+      delegateAgentId === "agent_connected_systems" ||
+      delegateAgentId === "agent_connections" ||
+      delegateAgentId === "agent_email" ||
+      delegateAgentId === "agent_location" ||
+      delegateAgentId === "agent_personal_information"
+        ? delegateAgentId
+        : null,
+    needs_confirmation: record.needs_confirmation === true || record.needsConfirmation === true,
+    confidence: readNumber(record.confidence),
+    slots: slots || undefined,
+    reason: readString(record.reason),
+  };
+}
+
 export class GeminiLiveClient implements RealtimeVoiceTransport {
   readonly provider = "gemini_live" as const;
   private handlers: GeminiLiveHandlers;
@@ -222,13 +274,21 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const context = options?.context ?? null;
     let relayUrl: string;
     try {
-      relayUrl = await ApiService.getGeminiLiveRelayUrl({
-        voice: options?.voice ?? null,
-        screen: context?.route.screen ?? null,
-        persona: context?.persona.active ?? null,
-        routeFamily: context?.route.route_family ?? null,
-        voiceState: context?.voice.state ?? null,
-      });
+      relayUrl =
+        options?.relayUrl ||
+        (await ApiService.getGeminiLiveRelayUrl({
+          voice: options?.voice ?? null,
+          screen: context?.route.screen ?? null,
+          persona: context?.persona.active ?? null,
+          routeFamily: context?.route.route_family ?? null,
+          voiceState: context?.voice.state ?? null,
+          accessTier: options?.accessTier ?? null,
+          availableActionIds: options?.allowedActionIds ?? context?.available_action_ids ?? null,
+          visibleModules: context?.ui.visible_modules ?? null,
+          cacheFreshness: context?.cache.freshness ?? null,
+          vaultReady: context?.cache.vault_ready ?? null,
+          portfolioReady: context?.cache.portfolio_ready ?? null,
+        }));
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Could not start Gemini Live.");
       return;
@@ -371,6 +431,83 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const serverContent = message.serverContent as
       | { modelTurn?: { parts?: Array<Record<string, unknown>> }; interrupted?: boolean }
       | undefined;
+
+    const eventOptions = this.nextEventOptions();
+    const inputTranscription =
+      readRecord(message.inputTranscription) ||
+      readRecord(message.input_transcription) ||
+      readRecord(message.transcriptFinal);
+    const inputText = readString(
+      inputTranscription?.text ?? inputTranscription?.transcript ?? inputTranscription?.final
+    );
+    if (inputText) {
+      this.handlers.onEvent?.({
+        type: "transcript_final",
+        provider: this.provider,
+        text: inputText,
+        turnId: readString(inputTranscription?.turn_id ?? inputTranscription?.turnId),
+        confidence: readNumber(inputTranscription?.confidence),
+        source: "provider",
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
+    const outputTranscription =
+      readRecord(message.outputTranscription) ||
+      readRecord(message.output_transcription) ||
+      readRecord(message.assistantText);
+    const outputText = readString(
+      outputTranscription?.text ?? outputTranscription?.transcript
+    );
+    if (outputText) {
+      this.handlers.onEvent?.({
+        type: "assistant_text",
+        provider: this.provider,
+        text: outputText,
+        turnId: readString(outputTranscription?.turn_id ?? outputTranscription?.turnId),
+        source: "provider",
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
+    const proposal =
+      normalizeProposal(message.actionProposal) ||
+      normalizeProposal(readRecord(message.toolCall)?.args);
+    if (proposal) {
+      this.handlers.onEvent?.({
+        type: "action_proposal",
+        provider: this.provider,
+        proposal,
+        transcript: readString(message.transcript),
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
+    const handoff = readRecord(message.handoff);
+    const handoffTarget = readString(handoff?.target);
+    const handoffReason = readString(handoff?.reason);
+    if (
+      (handoffTarget === "chat" || handoffTarget === "consent" || handoffTarget === "route") &&
+      handoffReason
+    ) {
+      this.handlers.onEvent?.({
+        type: "handoff",
+        provider: this.provider,
+        target: handoffTarget,
+        reason: handoffReason,
+        payload: readRecord(handoff?.payload) || undefined,
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
     if (!serverContent) return;
 
     if (serverContent.interrupted) {
@@ -387,7 +524,73 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       if (inlineData?.data && (inlineData.mimeType ?? "").startsWith("audio/")) {
         this.enqueueAudio(bytesFromBase64(inlineData.data));
       }
+      const textPart = readString(part.text);
+      if (textPart) {
+        const textEventOptions = this.nextEventOptions();
+        this.handlers.onEvent?.({
+          type: "assistant_text",
+          provider: this.provider,
+          text: textPart,
+          source: "model",
+          sessionId: textEventOptions.sessionId,
+          sourceId: textEventOptions.sourceId,
+          sourceSeq: textEventOptions.sourceSeq,
+        });
+      }
     }
+  }
+
+  async speakText(input: {
+    text: string;
+    turnId?: string | null;
+    segmentType?: "ack" | "final";
+    signal?: AbortSignal;
+  }): Promise<boolean> {
+    const text = input.text.trim();
+    if (!text || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return false;
+    }
+    if (input.signal?.aborted) return false;
+    this.ws.send(
+      JSON.stringify({
+        type: "app_speech",
+        text,
+        turn_id: input.turnId ?? null,
+        segment_type: input.segmentType ?? "final",
+      })
+    );
+    return true;
+  }
+
+  interrupt(): void {
+    this.stopPlayback();
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: "interrupt" }));
+  }
+
+  updateContext(context: OneVoiceContextSnapshot): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return false;
+    }
+    // Redacted subset only; mirrors the relay-session persona hint shape. The
+    // relay re-sanitizes every field before it reaches the model.
+    this.ws.send(
+      JSON.stringify({
+        type: "app_context",
+        appContext: {
+          screen: context.route.screen,
+          route_family: context.route.route_family,
+          persona: context.persona.active,
+          voice_state: context.voice.state,
+          available_action_ids: context.available_action_ids,
+          visible_modules: context.ui.visible_modules,
+          cache_freshness: context.cache.freshness,
+          vault_ready: context.cache.vault_ready,
+          portfolio_ready: context.cache.portfolio_ready,
+        },
+      })
+    );
+    return true;
   }
 
   private ensureOutputContext(): AudioContext {

@@ -29,6 +29,9 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavigationScope(ROUTES.MARKETPLACE, "investor")).toBe(
       "one",
     );
+    expect(resolveBottomNavigationScope(ROUTES.PROFILE, "investor")).toBe(
+      "one",
+    );
     expect(resolveBottomNavigationScope("/kaizen", "investor")).toBe("one");
     expect(resolveBottomNavigationScope("/marketplace-old", "ria")).toBe("one");
   });
@@ -40,17 +43,34 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavigationScope("/ria/clients", "ria")).toBe("ria");
   });
 
-  it("collapses One subroutes onto fixed parent tabs (finance-style)", () => {
-    // Dashboard parent stays highlighted for the dashboard and every subroute
-    // entered from it. Subroutes no longer surface their own bottom-nav entry.
+  it("preserves the last agent-family scope on common Connect and Profile routes", () => {
+    expect(
+      resolveBottomNavigationScope(ROUTES.PROFILE, "investor", {
+        lastAgentNavScope: "investor",
+      }),
+    ).toBe("investor");
+    expect(
+      resolveBottomNavigationScope(ROUTES.MARKETPLACE, "investor", {
+        lastAgentNavScope: "investor",
+      }),
+    ).toBe("investor");
+    expect(
+      resolveBottomNavigationScope(ROUTES.PROFILE, "ria", {
+        lastAgentNavScope: "ria",
+      }),
+    ).toBe("ria");
+  });
+
+  it("uses the active One agent app as the first tab on One subroutes", () => {
     expect(resolveOneActiveNav("/")).toBe("dashboard");
     expect(resolveOneActiveNav(ROUTES.ONE_HOME)).toBe("dashboard");
-    expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("dashboard");
-    expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("dashboard");
-    expect(resolveOneActiveNav(ROUTES.ONE_LOCATION)).toBe("dashboard");
-    expect(resolveOneActiveNav("/consents?tab=active")).toBe("dashboard");
-    expect(resolveOneActiveNav(ROUTES.PKM)).toBe("dashboard");
-    expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
+    expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
+    expect(resolveOneActiveNav(ROUTES.ONE_LOCATION)).toBe("location");
+    expect(resolveOneActiveNav("/consents?tab=active")).toBe("guardian");
+    expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
+    expect(resolveOneActiveNav(ROUTES.ONE_MARKETPLACE)).toBe("marketplace");
+    expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
     // Global destinations keep their own fixed tab; profile subroutes stay on
     // the Profile tab.
     expect(resolveOneActiveNav(ROUTES.AGENT)).toBe("search");
@@ -72,29 +92,60 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
   });
 
-  it("keeps One bottom navigation as a fixed top-level set across subroutes", () => {
-    // The One scope is now a fixed list. Subroutes never inject their own tab.
-    const ONE_FIXED = ["dashboard", "connect", "profile"];
+  it("keeps One bottom navigation three-slot while naming the active agent app", () => {
     expect(resolveBottomNavOptionKeys(ROUTES.CONNECTED_SYSTEMS, "one")).toEqual(
-      ONE_FIXED,
+      ["connected", "connect", "profile"],
     );
-    expect(resolveBottomNavOptionKeys(ROUTES.GMAIL, "one")).toEqual(ONE_FIXED);
-    expect(resolveBottomNavOptionKeys(ROUTES.CONSENTS, "one")).toEqual(
-      ONE_FIXED,
-    );
-    expect(resolveBottomNavOptionKeys(ROUTES.PKM, "one")).toEqual(ONE_FIXED);
-    expect(resolveBottomNavOptionKeys(ROUTES.ONE_LOCATION, "one")).toEqual(
-      ONE_FIXED,
-    );
-    expect(resolveBottomNavOptionKeys(ROUTES.ONE_HOME, "one")).toEqual(
-      ONE_FIXED,
-    );
-    expect(resolveBottomNavOptionKeys(ROUTES.PROFILE, "one")).toEqual(
-      ONE_FIXED,
-    );
-    expect(resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one")).toEqual(
-      ONE_FIXED,
-    );
+    expect(resolveBottomNavOptionKeys(ROUTES.GMAIL, "one")).toEqual([
+      "gmail",
+      "connect",
+      "profile",
+    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.CONSENTS, "one")).toEqual([
+      "guardian",
+      "connect",
+      "profile",
+    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.PKM, "one")).toEqual([
+      "pkm",
+      "connect",
+      "profile",
+    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.ONE_MARKETPLACE, "one")).toEqual([
+      "marketplace",
+      "connect",
+      "profile",
+    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.ONE_LOCATION, "one")).toEqual([
+      "location",
+      "connect",
+      "profile",
+    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.ONE_HOME, "one")).toEqual([
+      "dashboard",
+      "connect",
+      "profile",
+    ]);
+    expect(
+      resolveBottomNavOptionKeys(ROUTES.PROFILE, "one", {
+        lastAgentSectionId: "gmail",
+      }),
+    ).toEqual(["gmail", "connect", "profile"]);
+    expect(
+      resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one", {
+        lastAgentSectionId: "location",
+      }),
+    ).toEqual(["location", "connect", "profile"]);
+    expect(resolveBottomNavOptionKeys(ROUTES.PROFILE, "one")).toEqual([
+      "dashboard",
+      "connect",
+      "profile",
+    ]);
+    expect(resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one")).toEqual([
+      "dashboard",
+      "connect",
+      "profile",
+    ]);
     expect(resolveBottomNavOptionKeys(ROUTES.KAI_ANALYSIS, "investor")).toEqual(
       ["finance", "portfolio", "analysis", "connect", "profile"],
     );
@@ -129,6 +180,9 @@ describe("app bottom navigation", () => {
       "/consents?tab=pending&actor=ria&view=outgoing",
     );
     expect(resolveBottomNavHref("pkm", "one")).toBe(ROUTES.PKM);
+    expect(resolveBottomNavHref("marketplace", "one")).toBe(
+      ROUTES.ONE_MARKETPLACE,
+    );
     expect(resolveBottomNavHref("connected", "one")).toBe(
       ROUTES.CONNECTED_SYSTEMS,
     );

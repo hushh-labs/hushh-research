@@ -56,9 +56,11 @@
     "075_agent_chat_message_metadata.sql",
     "076_marketplace_access_requests.sql",
     "077_marketplace_opportunity_signals.sql",
-    "078_marketplace_recipient_keys.sql",
-    "079_marketplace_delivery_envelopes.sql",
-    "080_marketplace_request_revoked_status.sql"
+    "078_trusted_connections.sql",
+    "079_unify_location_connections.sql",
+    "080_marketplace_recipient_keys.sql",
+    "081_marketplace_delivery_envelopes.sql",
+    "082_marketplace_request_revoked_status.sql"
   ],
   "groups": {
     "iam": [

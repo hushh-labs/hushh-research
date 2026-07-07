@@ -24,6 +24,7 @@
     "redirect-valid",
     "error",
   ];
+  var UI_FLOW_STORAGE_KEY = "__hushh_native_ui_flow_state_v1";
 
   var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
     investor: {
@@ -71,7 +72,9 @@
   }
 
   function visibleButtons() {
-    return Array.prototype.slice.call(document.querySelectorAll("button, [role='button']")).filter(visible);
+    return Array.prototype.slice
+      .call(document.querySelectorAll("button, [role='button']"))
+      .filter(visible);
   }
 
   function escapeRegExp(value) {
@@ -98,7 +101,9 @@
       "dismiss",
       "continue",
     ];
-    var buttons = Array.prototype.slice.call(document.querySelectorAll("button, [role='button']"));
+    var buttons = Array.prototype.slice.call(
+      document.querySelectorAll("button, [role='button']"),
+    );
     for (var i = 0; i < exactLabels.length; i += 1) {
       var target = exactLabels[i];
       var match = buttons.find(function (button) {
@@ -114,8 +119,7 @@
       var text = (button.textContent || "").trim().toLowerCase();
       return (
         visible(button) &&
-        (text.indexOf("not now") >= 0 ||
-          text.indexOf("skip tour") >= 0)
+        (text.indexOf("not now") >= 0 || text.indexOf("skip tour") >= 0)
       );
     });
     if (partial) {
@@ -131,11 +135,16 @@
   }
 
   function visibleButtonSummary(limit) {
-    var buttons = Array.prototype.slice.call(document.querySelectorAll("button, [role='button']"));
+    var buttons = Array.prototype.slice.call(
+      document.querySelectorAll("button, [role='button']"),
+    );
     return buttons
       .filter(visible)
       .map(function (button) {
-        return (button.textContent || "").trim().replace(/ +/g, " ").slice(0, 48);
+        return (button.textContent || "")
+          .trim()
+          .replace(/ +/g, " ")
+          .slice(0, 48);
       })
       .filter(Boolean)
       .slice(0, limit || 6)
@@ -181,7 +190,7 @@
       if (allowed.includes("[") && allowed.includes("]")) {
         var escaped = normalizedAllowed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         var pattern = new RegExp(
-          "^" + escaped.replace(/\\\[[^\\\]]+\\\]/g, "[^/]+") + "(?:$|[/?#])"
+          "^" + escaped.replace(/\\\[[^\\\]]+\\\]/g, "[^/]+") + "(?:$|[/?#])",
         );
         if (pattern.test(current)) return true;
         continue;
@@ -211,7 +220,9 @@
   }
 
   function currentRouteMatches(route) {
-    var current = normalizeRoute(window.location.pathname + window.location.search);
+    var current = normalizeRoute(
+      window.location.pathname + window.location.search,
+    );
     var expected = normalizeRoute(route);
     return (
       current === expected ||
@@ -223,12 +234,16 @@
 
   async function waitForBeacon(routeIds, dataStates, timeoutMs) {
     var deadline = Date.now() + (timeoutMs || 120000);
-    var states = dataStates && dataStates.length ? dataStates : TERMINAL_DATA_STATES;
+    var states =
+      dataStates && dataStates.length ? dataStates : TERMINAL_DATA_STATES;
     var mismatchRecoveredAt = 0;
     var routeRecoveredAt = 0;
     var targetRoute = concreteTargetRoute(routeIds);
     while (Date.now() < deadline) {
-      if (personaMismatchPromptVisible() && Date.now() - mismatchRecoveredAt > 1500) {
+      if (
+        personaMismatchPromptVisible() &&
+        Date.now() - mismatchRecoveredAt > 1500
+      ) {
         mismatchRecoveredAt = Date.now();
         var targetPersona = targetPersonaForRouteIds(routeIds);
         if (targetPersona) {
@@ -240,13 +255,16 @@
         }
       }
       var beacons = Array.prototype.slice.call(
-        document.querySelectorAll('[data-native-test-beacon="true"]')
+        document.querySelectorAll('[data-native-test-beacon="true"]'),
       );
       for (var i = 0; i < beacons.length; i += 1) {
         var beacon = beacons[i];
         var routeId = beacon.getAttribute("data-native-route-id") || "";
         var dataState = beacon.getAttribute("data-native-data-state") || "";
-        if (matchesRouteId(routeId, routeIds) && states.indexOf(dataState) >= 0) {
+        if (
+          matchesRouteId(routeId, routeIds) &&
+          states.indexOf(dataState) >= 0
+        ) {
           return { routeId: routeId, dataState: dataState };
         }
       }
@@ -266,12 +284,14 @@
         " at " +
         window.location.href +
         " visible=" +
-        visibleButtonSummary(8)
+        visibleButtonSummary(8),
     );
   }
 
   async function clickBottomNav(label) {
-    var beforeRoute = normalizeRoute(window.location.pathname + window.location.search);
+    var beforeRoute = normalizeRoute(
+      window.location.pathname + window.location.search,
+    );
     var tourIds = NAV_TOUR_IDS_BY_LABEL[label] || [];
     for (var i = 0; i < tourIds.length; i += 1) {
       var target = firstVisible('[data-tour-id="' + tourIds[i] + '"]');
@@ -283,7 +303,9 @@
       }
     }
 
-    var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
+    var buttons = Array.prototype.slice.call(
+      document.querySelectorAll("button"),
+    );
     var pattern = new RegExp("^" + label + "$", "i");
     for (var j = 0; j < buttons.length; j += 1) {
       var text = (buttons[j].textContent || "").trim();
@@ -303,13 +325,19 @@
         persona &&
         NAV_ROUTE_BY_PERSONA_AND_LABEL[persona] &&
         NAV_ROUTE_BY_PERSONA_AND_LABEL[persona][label];
-      if (expectedRoute && bridge.enabled === true && typeof bridge.navigateToRoute === "function") {
+      if (
+        expectedRoute &&
+        bridge.enabled === true &&
+        typeof bridge.navigateToRoute === "function"
+      ) {
         await navigateWithNativeRouter(expectedRoute);
         return;
       }
     }
 
-    throw new Error('bottom nav item not found: "' + label + '" on ' + window.location.href);
+    throw new Error(
+      'bottom nav item not found: "' + label + '" on ' + window.location.href,
+    );
   }
 
   async function ensureBottomNavRoute(label, beforeRoute) {
@@ -339,23 +367,33 @@
       : "";
     if (!expectedRoute) return;
 
-    var currentRoute = normalizeRoute(window.location.pathname + window.location.search);
+    var currentRoute = normalizeRoute(
+      window.location.pathname + window.location.search,
+    );
     var normalizedExpected = normalizeRoute(expectedRoute);
     if (
       currentRoute === normalizedExpected ||
-      (normalizedExpected !== "/" && currentRoute.indexOf(normalizedExpected + "/") === 0)
+      (normalizedExpected !== "/" &&
+        currentRoute.indexOf(normalizedExpected + "/") === 0)
     ) {
       return;
     }
 
-    if (bridge.enabled === true && typeof bridge.navigateToRoute === "function") {
+    if (
+      bridge.enabled === true &&
+      typeof bridge.navigateToRoute === "function"
+    ) {
       await navigateWithNativeRouter(expectedRoute);
     }
   }
 
   async function clickButton(name, regex) {
-    var pattern = regex ? new RegExp(name, "i") : new RegExp("^" + name + "$", "i");
-    var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
+    var pattern = regex
+      ? new RegExp(name, "i")
+      : new RegExp("^" + name + "$", "i");
+    var buttons = Array.prototype.slice.call(
+      document.querySelectorAll("button"),
+    );
     for (var i = 0; i < buttons.length; i += 1) {
       var text = (buttons[i].textContent || "").trim();
       if (pattern.test(text) && visible(buttons[i]) && !buttons[i].disabled) {
@@ -373,38 +411,52 @@
         return;
       }
     }
-    throw new Error('button/link not found: "' + name + '" on ' + window.location.href);
+    throw new Error(
+      'button/link not found: "' + name + '" on ' + window.location.href,
+    );
   }
 
   async function waitForButton(name, regex, timeoutMs) {
-    var pattern = regex ? new RegExp(name, "i") : new RegExp("^" + escapeRegExp(name) + "$", "i");
+    var pattern = regex
+      ? new RegExp(name, "i")
+      : new RegExp("^" + escapeRegExp(name) + "$", "i");
     var deadline = Date.now() + (timeoutMs || 30000);
     while (Date.now() < deadline) {
       var target = findVisibleButton(pattern);
       if (target && !target.disabled) return target;
       await sleep(250);
     }
-    throw new Error('button/link not ready: "' + name + '" on ' + window.location.href);
+    throw new Error(
+      'button/link not ready: "' + name + '" on ' + window.location.href,
+    );
   }
 
   async function waitForText(value, regex, timeoutMs) {
-    var pattern = regex ? new RegExp(value, "i") : new RegExp(escapeRegExp(value), "i");
+    var pattern = regex
+      ? new RegExp(value, "i")
+      : new RegExp(escapeRegExp(value), "i");
     var deadline = Date.now() + (timeoutMs || 30000);
     while (Date.now() < deadline) {
       var text = (document.body && document.body.innerText) || "";
       if (pattern.test(text)) return;
       await sleep(250);
     }
-    throw new Error('text not visible: "' + value + '" on ' + window.location.href);
+    throw new Error(
+      'text not visible: "' + value + '" on ' + window.location.href,
+    );
   }
 
   async function assertNoText(value, regex, timeoutMs) {
-    var pattern = regex ? new RegExp(value, "i") : new RegExp(escapeRegExp(value), "i");
+    var pattern = regex
+      ? new RegExp(value, "i")
+      : new RegExp(escapeRegExp(value), "i");
     var deadline = Date.now() + (timeoutMs || 3000);
     while (Date.now() < deadline) {
       var text = (document.body && document.body.innerText) || "";
       if (pattern.test(text)) {
-        throw new Error('unexpected text visible: "' + value + '" on ' + window.location.href);
+        throw new Error(
+          'unexpected text visible: "' + value + '" on ' + window.location.href,
+        );
       }
       await sleep(250);
     }
@@ -457,10 +509,13 @@
     var url = assetPath.charAt(0) === "/" ? assetPath : "/" + assetPath;
     var response = await fetch(url, { cache: "no-store" });
     if (!response.ok) {
-      throw new Error("failed to load upload asset: " + response.status + " " + url);
+      throw new Error(
+        "failed to load upload asset: " + response.status + " " + url,
+      );
     }
     var blob = await response.blob();
-    var fileName = step.fileName || assetPath.split("/").pop() || "native-test-upload.pdf";
+    var fileName =
+      step.fileName || assetPath.split("/").pop() || "native-test-upload.pdf";
     var mimeType = step.mimeType || blob.type || "application/octet-stream";
     var file = new File([blob], fileName, { type: mimeType });
     var input = document.querySelector('input[type="file"]');
@@ -487,6 +542,33 @@
     return window.__HUSHH_NATIVE_TEST__ || {};
   }
 
+  function nativeUiFlowRunState() {
+    window.__HUSHH_NATIVE_UI_FLOW_STATE__ =
+      window.__HUSHH_NATIVE_UI_FLOW_STATE__ || {
+        started: false,
+        complete: false,
+        promise: null,
+        report: null,
+      };
+    return window.__HUSHH_NATIVE_UI_FLOW_STATE__;
+  }
+
+  function readStoredUiFlowState() {
+    try {
+      var raw = window.sessionStorage.getItem(UI_FLOW_STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeStoredUiFlowState(state) {
+    try {
+      window.sessionStorage.setItem(UI_FLOW_STORAGE_KEY, JSON.stringify(state));
+    } catch (_) {}
+  }
+
   async function waitForNativeAutomationBridge(timeoutMs) {
     var ready = await waitForCondition(function () {
       var bridge = nativeTestBridge();
@@ -505,7 +587,7 @@
           " switch=" +
           (typeof bridge.switchPersona === "function" ? "1" : "0") +
           " active=" +
-          String(bridge.activePersona || "")
+          String(bridge.activePersona || ""),
       );
     }
   }
@@ -560,7 +642,9 @@
   }
 
   function visibleNavLabel(label) {
-    return Boolean(findVisibleButton(new RegExp("^" + escapeRegExp(label) + "$", "i")));
+    return Boolean(
+      findVisibleButton(new RegExp("^" + escapeRegExp(label) + "$", "i")),
+    );
   }
 
   function personaShellReady(persona, expectedTour) {
@@ -573,7 +657,27 @@
       routeMatchesPersona(persona) &&
       personaReady &&
       (Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]')) ||
+        visibleNavLabel(personaHomeLabel(persona)) ||
+        bridge.personaSwitchStatus === "ok:" + persona)
+    );
+  }
+
+  function personaRouteUiReady(persona, expectedTour) {
+    return (
+      routeMatchesPersona(persona) &&
+      !personaMismatchPromptVisible() &&
+      (Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]')) ||
         visibleNavLabel(personaHomeLabel(persona)))
+    );
+  }
+
+  function personaBridgeReady(persona) {
+    var bridge = nativeTestBridge();
+    return (
+      routeMatchesPersona(persona) &&
+      (bridge.activePersona === persona ||
+        bridge.primaryNavPersona === persona ||
+        bridge.personaSwitchStatus === "ok:" + persona)
     );
   }
 
@@ -590,7 +694,7 @@
         " status=" +
         String(nativeTestBridge().personaSwitchStatus || "") +
         " error=" +
-      String(nativeTestBridge().personaSwitchError || "")
+        String(nativeTestBridge().personaSwitchError || ""),
     );
   }
 
@@ -622,35 +726,160 @@
           " visible=" +
           visibleButtonSummary(8) +
           " body=" +
-          body
+          body,
       );
+    }
+  }
+
+  function findVoiceControl(controlId) {
+    var selectors = [
+      '[data-native-voice-control-id="' + controlId + '"]',
+      '[data-voice-control-id="' + controlId + '"]',
+      '[data-testid="' + controlId + '"]',
+    ];
+    for (var i = 0; i < selectors.length; i += 1) {
+      var target = firstVisible(selectors[i]);
+      if (target && !target.disabled) return target;
+    }
+    return null;
+  }
+
+  function voiceSurface() {
+    return (
+      firstVisible('[data-testid="one-voice-surface"]') ||
+      firstVisible("[data-voice-mode]")
+    );
+  }
+
+  function currentVoiceMode() {
+    var surface = voiceSurface();
+    if (!surface) return "";
+    return String(surface.getAttribute("data-voice-mode") || "");
+  }
+
+  function voiceFallbackVisible() {
+    var text = ((document.body && document.body.innerText) || "").toLowerCase();
+    return (
+      text.indexOf("microphone permission") >= 0 ||
+      text.indexOf("microphone access") >= 0 ||
+      text.indexOf("no microphone") >= 0 ||
+      text.indexOf("voice unavailable") >= 0 ||
+      text.indexOf("could not connect to realtime voice") >= 0 ||
+      text.indexOf("realtime voice connection") >= 0
+    );
+  }
+
+  async function waitForVoiceMode(modes, timeoutMs, allowPermissionFallback) {
+    var expected = Array.isArray(modes) ? modes : [modes];
+    var ready = await waitForCondition(function () {
+      var mode = currentVoiceMode();
+      if (expected.indexOf(mode) >= 0) return true;
+      return allowPermissionFallback === true && voiceFallbackVisible();
+    }, timeoutMs || 30000);
+    if (!ready) {
+      throw new Error(
+        "voice mode mismatch expected=" +
+          expected.join(",") +
+          " actual=" +
+          currentVoiceMode() +
+          " route=" +
+          window.location.pathname +
+          window.location.search,
+      );
+    }
+  }
+
+  async function waitForVoiceControl(controlId, timeoutMs) {
+    var ready = await waitForCondition(function () {
+      return Boolean(findVoiceControl(controlId));
+    }, timeoutMs || 30000);
+    if (!ready) {
+      throw new Error(
+        "voice control missing: " +
+          controlId +
+          " mode=" +
+          currentVoiceMode() +
+          " route=" +
+          window.location.pathname +
+          window.location.search,
+      );
+    }
+  }
+
+  async function openCommandPalette(timeoutMs) {
+    window.dispatchEvent(new CustomEvent("kai:command-bar:open"));
+    await waitForVoiceControl(
+      "one_voice_command_palette_toggle",
+      timeoutMs || 30000,
+    );
+  }
+
+  async function endVoiceIfActive(timeoutMs) {
+    await waitForCondition(function () {
+      return Boolean(voiceSurface());
+    }, timeoutMs || 5000);
+    var mode = currentVoiceMode();
+    if (!mode || mode === "idle" || mode === "error") return;
+    var endControl =
+      findVoiceControl("one_voice_agent_bar_end") ||
+      findVoiceControl("one_voice_end_session") ||
+      findVoiceControl("one_voice_cancel_turn");
+    if (endControl) {
+      clickElement(endControl);
+      await sleep(500);
     }
   }
 
   async function attemptNativePersonaSwitch(persona) {
     var bridge = nativeTestBridge();
-    if (bridge.activePersona === persona) return true;
-    if (bridge.enabled !== true || typeof bridge.switchPersona !== "function") return false;
+    if (
+      bridge.activePersona === persona ||
+      bridge.primaryNavPersona === persona ||
+      bridge.personaSwitchStatus === "ok:" + persona
+    ) {
+      return true;
+    }
+    if (bridge.enabled !== true || typeof bridge.switchPersona !== "function")
+      return false;
 
     try {
       var observed = waitForPersonaState(persona, 12000).then(function () {
         return "observed";
       });
-      var requested = Promise.resolve(bridge.switchPersona(persona)).then(function () {
-        return "resolved";
-      });
+      var requested = Promise.resolve(bridge.switchPersona(persona)).then(
+        function () {
+          return "resolved";
+        },
+      );
       var timedOut = sleep(12000).then(function () {
         return "timeout";
       });
       var result = await Promise.race([observed, requested, timedOut]);
-      if (result === "observed" || nativeTestBridge().activePersona === persona) {
+      if (
+        result === "observed" ||
+        nativeTestBridge().activePersona === persona ||
+        nativeTestBridge().primaryNavPersona === persona ||
+        nativeTestBridge().personaSwitchStatus === "ok:" + persona
+      ) {
         return true;
       }
       return await waitForCondition(function () {
-        return nativeTestBridge().activePersona === persona;
+        var current = nativeTestBridge();
+        return (
+          current.activePersona === persona ||
+          current.primaryNavPersona === persona ||
+          current.personaSwitchStatus === "ok:" + persona
+        );
       }, 12000);
     } catch (error) {
-      if (nativeTestBridge().activePersona === persona) return true;
+      var current = nativeTestBridge();
+      if (
+        current.activePersona === persona ||
+        current.primaryNavPersona === persona ||
+        current.personaSwitchStatus === "ok:" + persona
+      ) {
+        return true;
+      }
       throw error;
     }
   }
@@ -693,17 +922,25 @@
       "persona mismatch prompt still visible on " +
         window.location.href +
         " visible=" +
-        visibleButtonSummary(8)
+        visibleButtonSummary(8),
     );
   }
 
   async function waitForRoute(route, timeoutMs) {
     var expected = normalizeRoute(route);
-    var expectedBase = expected.length > 1 && expected.endsWith("/") ? expected.slice(0, -1) : expected;
+    var expectedBase =
+      expected.length > 1 && expected.endsWith("/")
+        ? expected.slice(0, -1)
+        : expected;
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
-      var current = normalizeRoute(window.location.pathname + window.location.search);
-      var currentBase = current.length > 1 && current.endsWith("/") ? current.slice(0, -1) : current;
+      var current = normalizeRoute(
+        window.location.pathname + window.location.search,
+      );
+      var currentBase =
+        current.length > 1 && current.endsWith("/")
+          ? current.slice(0, -1)
+          : current;
       if (
         currentBase === expectedBase ||
         current === expected ||
@@ -740,7 +977,7 @@
           route +
           " from " +
           window.location.pathname +
-          window.location.search
+          window.location.search,
       );
     }
     throw new Error("Next.js native router bridge missing for " + route);
@@ -761,13 +998,34 @@
         await navigateWithNativeRouter(route);
       }
       var switched = await attemptNativePersonaSwitch(persona);
-      if (switched) {
-        await resolvePersonaMismatchPrompt(persona);
+      var resolvedMismatch = await resolvePersonaMismatchPrompt(persona);
+      if (switched || resolvedMismatch) {
+        await sleep(500);
+      }
+      if (
+        personaBridgeReady(persona) ||
+        personaShellReady(persona, expectedTour) ||
+        personaRouteUiReady(persona, expectedTour)
+      ) {
+        await waitForNoPersonaMismatchPrompt(1000);
+        return;
       }
       await waitForBeacon([route], undefined, 30000);
+      await resolvePersonaMismatchPrompt(persona);
+      if (
+        personaBridgeReady(persona) ||
+        personaShellReady(persona, expectedTour) ||
+        personaRouteUiReady(persona, expectedTour)
+      ) {
+        await waitForNoPersonaMismatchPrompt(1000);
+        return;
+      }
 
       var ready = await waitForCondition(function () {
-        return personaShellReady(persona, expectedTour);
+        return (
+          personaShellReady(persona, expectedTour) ||
+          personaRouteUiReady(persona, expectedTour)
+        );
       }, 15000);
       if (ready) {
         await waitForNoPersonaMismatchPrompt(1000);
@@ -775,9 +1033,11 @@
       }
     }
 
-    var stayInRia = Array.prototype.slice.call(document.querySelectorAll("button")).find(function (button) {
-      return /stay in ria workspace/i.test((button.textContent || "").trim());
-    });
+    var stayInRia = Array.prototype.slice
+      .call(document.querySelectorAll("button"))
+      .find(function (button) {
+        return /stay in ria workspace/i.test((button.textContent || "").trim());
+      });
     if (persona === "ria" && stayInRia && visible(stayInRia)) {
       clickElement(stayInRia);
       await sleep(800);
@@ -785,9 +1045,13 @@
       return;
     }
 
-    var stayInvestor = Array.prototype.slice.call(document.querySelectorAll("button")).find(function (button) {
-      return /stay in (?:investor|kai) workspace/i.test((button.textContent || "").trim());
-    });
+    var stayInvestor = Array.prototype.slice
+      .call(document.querySelectorAll("button"))
+      .find(function (button) {
+        return /stay in (?:investor|kai) workspace/i.test(
+          (button.textContent || "").trim(),
+        );
+      });
     if (persona === "investor" && stayInvestor && visible(stayInvestor)) {
       clickElement(stayInvestor);
       await sleep(800);
@@ -795,9 +1059,13 @@
       return;
     }
 
-    var switchInvestor = Array.prototype.slice.call(document.querySelectorAll("button")).find(function (button) {
-      return /switch to investor workspace/i.test((button.textContent || "").trim());
-    });
+    var switchInvestor = Array.prototype.slice
+      .call(document.querySelectorAll("button"))
+      .find(function (button) {
+        return /switch to investor workspace/i.test(
+          (button.textContent || "").trim(),
+        );
+      });
     if (persona === "investor" && switchInvestor && visible(switchInvestor)) {
       clickElement(switchInvestor);
       await sleep(800);
@@ -810,26 +1078,32 @@
       return;
     }
 
-    await clickBottomNav("Profile");
-    await waitForBeacon(["/profile"]);
-    var titles = Array.prototype.slice.call(document.querySelectorAll('[data-testid="top-app-bar-title"]'));
-    var titleTrigger = titles.find(visible);
-    if (!titleTrigger) {
-      throw new Error("persona trigger missing on profile");
+    if (!routeMatchesPersona(persona)) {
+      await navigateWithNativeRouter(route);
     }
-    clickElement(titleTrigger);
-    await sleep(200);
-    var label = persona === "ria" ? "RIA" : "Investor";
-    var menuItems = Array.prototype.slice.call(document.querySelectorAll('[role="menuitem"]'));
-    var menuItem = menuItems.find(function (item) {
-      return new RegExp(label, "i").test((item.textContent || "").trim());
-    });
-    if (!menuItem) {
-      throw new Error("persona menu item missing: " + label);
+    await resolvePersonaMismatchPrompt(persona);
+    var routeReady = await waitForCondition(function () {
+      return (
+        personaBridgeReady(persona) ||
+        personaShellReady(persona, expectedTour) ||
+        personaRouteUiReady(persona, expectedTour)
+      );
+    }, 15000);
+    if (routeReady) {
+      await waitForNoPersonaMismatchPrompt(1000);
+      return;
     }
-    clickElement(menuItem);
-    await sleep(800);
-    await waitForNoPersonaMismatchPrompt(3000);
+
+    throw new Error(
+      "persona switch failed: " +
+        persona +
+        " route=" +
+        window.location.pathname +
+        " bridge=" +
+        bridgeSummary() +
+        " visible=" +
+        visibleButtonSummary(8),
+    );
   }
 
   async function openRiaWorkspace() {
@@ -846,7 +1120,9 @@
         // Live client cards come from UAT data. If that roster is empty, use the
         // existing non-production test profile so account-detail UI coverage stays deterministic.
         await navigateWithNativeRouter(
-          "/ria/clients/" + encodeURIComponent(expectedUserId) + "?test_profile=1"
+          "/ria/clients/" +
+            encodeURIComponent(expectedUserId) +
+            "?test_profile=1",
         );
       } else {
         await clickButton("kai test user|kushal trivedi", true);
@@ -870,8 +1146,9 @@
             await waitForButton(
               step.name,
               step.regex === true,
-              step.buttonTimeoutMs || (step.fallbackRoute ? 8000 : step.timeoutMs)
-            )
+              step.buttonTimeoutMs ||
+                (step.fallbackRoute ? 8000 : step.timeoutMs),
+            ),
           );
         } catch (error) {
           if (step.fallbackRoute) {
@@ -900,13 +1177,29 @@
       case "assert_no_persona_mismatch_prompt":
         await waitForNoPersonaMismatchPrompt(step.timeoutMs);
         return;
+      case "assert_voice_control_visible":
+        await waitForVoiceControl(step.controlId, step.timeoutMs);
+        return;
+      case "open_command_palette":
+        await openCommandPalette(step.timeoutMs);
+        return;
       case "click_voice_control":
-        var voiceTarget = firstVisible('[data-voice-control-id="' + step.controlId + '"]');
+        var voiceTarget = findVoiceControl(step.controlId);
         if (!voiceTarget) {
           throw new Error("voice control missing: " + step.controlId);
         }
         clickElement(voiceTarget);
         await sleep(400);
+        return;
+      case "wait_voice_mode":
+        await waitForVoiceMode(
+          step.modes || step.mode,
+          step.timeoutMs,
+          step.allowPermissionFallback === true,
+        );
+        return;
+      case "end_voice_if_active":
+        await endVoiceIfActive(step.timeoutMs);
         return;
       case "click_testid":
         var testTarget = firstVisible('[data-testid="' + step.testId + '"]');
@@ -960,8 +1253,8 @@
                     ") visible=" +
                     visibleButtonSummary(8) +
                     " bridge=" +
-                    bridgeSummary()
-                )
+                    bridgeSummary(),
+                ),
               );
             }, stepTimeoutMs);
           }),
@@ -997,26 +1290,72 @@
 
   async function runAllUiFlows() {
     var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    var runState = nativeUiFlowRunState();
+    if (runState.complete) {
+      return runState.report || bridge.uiFlowReport || { ok: true, flows: [] };
+    }
+    if (runState.promise) {
+      return runState.promise;
+    }
+    runState.started = true;
+    runState.promise = runAllUiFlowsOnce().finally(function () {
+      runState.promise = null;
+    });
+    return runState.promise;
+  }
+
+  async function runAllUiFlowsOnce() {
+    var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    var runState = nativeUiFlowRunState();
     if (bridge.uiFlowsComplete) {
       return bridge.uiFlowReport || { ok: true, flows: [] };
+    }
+    var storedState = readStoredUiFlowState();
+    if (storedState && storedState.complete && storedState.report) {
+      bridge.uiFlowReport = storedState.report;
+      bridge.uiFlowError = storedState.report.error || "";
+      bridge.uiFlowsComplete = true;
+      bridge.uiFlowsOk = storedState.report.ok === true;
+      bridge.uiFlowsFailed = !storedState.report.ok;
+      runState.complete = true;
+      runState.report = storedState.report;
+      return storedState.report;
     }
 
     var response = await fetch("/native-ui-flows.json", { cache: "no-store" });
     if (!response.ok) {
-      throw new Error("failed to load native-ui-flows.json: " + response.status);
+      throw new Error(
+        "failed to load native-ui-flows.json: " + response.status,
+      );
     }
     var payload = await response.json();
     var flows = payload.flows || [];
-    var report = {
-      ok: true,
-      startedAt: new Date().toISOString(),
-      flows: [],
-    };
+    var report =
+      storedState && storedState.report
+        ? storedState.report
+        : {
+            ok: true,
+            startedAt: new Date().toISOString(),
+            flows: [],
+          };
+    var startIndex = Math.max(
+      0,
+      Math.min(
+        flows.length,
+        Number(storedState && storedState.nextIndex) || report.flows.length || 0,
+      ),
+    );
 
-    for (var i = 0; i < flows.length; i += 1) {
+    for (var i = startIndex; i < flows.length; i += 1) {
       var flow = flows[i];
       bridge.uiFlowCurrent = flow.id;
       bridge.uiFlowIndex = i;
+      writeStoredUiFlowState({
+        started: true,
+        complete: false,
+        nextIndex: i,
+        report: report,
+      });
       dismissBlockingScreens();
       var result = await runFlow(flow);
       report.flows.push({
@@ -1031,8 +1370,20 @@
       if (!result.ok && flow.optional !== true) {
         report.ok = false;
         report.error = result.error || "flow failed: " + flow.id;
+        writeStoredUiFlowState({
+          started: true,
+          complete: true,
+          nextIndex: i + 1,
+          report: report,
+        });
         break;
       }
+      writeStoredUiFlowState({
+        started: true,
+        complete: false,
+        nextIndex: i + 1,
+        report: report,
+      });
     }
 
     report.completedAt = new Date().toISOString();
@@ -1041,6 +1392,14 @@
     bridge.uiFlowsComplete = true;
     bridge.uiFlowsOk = report.ok === true;
     bridge.uiFlowsFailed = !report.ok;
+    runState.complete = true;
+    runState.report = report;
+    writeStoredUiFlowState({
+      started: true,
+      complete: true,
+      nextIndex: flows.length,
+      report: report,
+    });
     try {
       window.webkit.messageHandlers.hushhNativeTest.postMessage({
         uiFlowReport: report,
@@ -1054,11 +1413,14 @@
 
   function startUiFlowBootstrap() {
     var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    var runState = nativeUiFlowRunState();
     if (
       bridge.runUiFlows !== true ||
       bridge._uiFlowBootstrapTimer ||
       bridge._uiFlowsStarted ||
-      bridge.uiFlowsComplete === true
+      bridge.uiFlowsComplete === true ||
+      runState.started ||
+      runState.complete
     ) {
       return;
     }
@@ -1088,24 +1450,32 @@
           (route.indexOf("/ria") === 0 ||
             route.indexOf("/one/kai") === 0 ||
             route.indexOf("/kai") === 0) &&
-          (dataState === "loaded" || dataState === "empty-valid" || dataState === "unavailable-valid"));
+          (dataState === "loaded" ||
+            dataState === "empty-valid" ||
+            dataState === "unavailable-valid"));
       var bridgeReady =
         typeof bridge.navigateToRoute === "function" &&
         typeof bridge.switchPersona === "function" &&
         (bridge.activePersona === "investor" || bridge.activePersona === "ria");
-      if (!ready || !bridgeReady || bridge._uiFlowsStarted) return;
+      if (!ready || !bridgeReady || bridge._uiFlowsStarted || runState.started)
+        return;
       dismissBlockingScreens();
+      runState.started = true;
       bridge._uiFlowsStarted = true;
       clearNativeTestRouteLock();
       window.clearInterval(bridge._uiFlowBootstrapTimer);
       bridge._uiFlowBootstrapTimer = null;
       runAllUiFlows().catch(function (error) {
-        bridge.uiFlowError = error instanceof Error ? error.message : String(error);
+        bridge.uiFlowError =
+          error instanceof Error ? error.message : String(error);
         bridge.uiFlowReport = {
           ok: false,
           error: bridge.uiFlowError,
           flows: [],
         };
+        runState.complete = true;
+        runState.report = bridge.uiFlowReport;
+        runState.promise = null;
         bridge.uiFlowsComplete = true;
         bridge.uiFlowsOk = false;
         bridge.uiFlowsFailed = true;
@@ -1132,7 +1502,10 @@
   bridge.runAllUiFlows = runAllUiFlows;
   window.__HUSHH_NATIVE_TEST__ = bridge;
 
-  window.addEventListener("hushh:native-test-config-updated", startUiFlowBootstrap);
+  window.addEventListener(
+    "hushh:native-test-config-updated",
+    startUiFlowBootstrap,
+  );
   window.setTimeout(startUiFlowBootstrap, 0);
   window.setTimeout(startUiFlowBootstrap, 500);
   window.setTimeout(startUiFlowBootstrap, 2000);

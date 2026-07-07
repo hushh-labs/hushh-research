@@ -973,6 +973,11 @@ export interface KaiHomeOverviewItem {
   as_of: string | null;
   source: string;
   degraded: boolean;
+  /**
+   * Optional real intraday series (chronological closes) for an honest
+   * sparkline. When absent the UI must not invent a chart shape.
+   */
+  sparkline?: number[] | null;
 }
 
 export interface KaiHomeSpotlightItem {
@@ -1378,6 +1383,58 @@ export class ApiService {
         action_result: data.actionResult ?? null,
         memory_short: data.memoryShort || [],
         memory_retrieved: data.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async planOneGoal(data: {
+    vaultOwnerToken: string;
+    transcript?: string | null;
+    actionId?: string | null;
+    candidateActionId?: string | null;
+    slots?: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    entrypoint: "voice" | "chat" | "typed_search" | "command_bar" | "ui";
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/goal/plan", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        transcript: data.transcript ?? null,
+        action_id: data.actionId ?? null,
+        candidate_action_id: data.candidateActionId ?? null,
+        slots: data.slots || {},
+        app_state: data.appState || {},
+        entrypoint: data.entrypoint,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async composeOneGoal(data: {
+    vaultOwnerToken: string;
+    goalId: string;
+    actionId: string;
+    state: string;
+    events?: Array<Record<string, unknown>>;
+    result?: Record<string, unknown> | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/goal/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        goal_id: data.goalId,
+        action_id: data.actionId,
+        state: data.state,
+        events: data.events || [],
+        result: data.result ?? null,
       }),
       signal: data.signal,
     });
@@ -2726,6 +2783,7 @@ export class ApiService {
     timezone?: string;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
+    delegateAgentId?: string | null;
     delegateResult?: Record<string, unknown>;
     signal?: AbortSignal;
   }): Promise<Response> {
@@ -2743,6 +2801,7 @@ export class ApiService {
         timezone: data.timezone || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
+        delegate_agent_id: data.delegateAgentId || undefined,
         delegate_result: data.delegateResult || undefined,
       }),
       signal: data.signal,
@@ -2793,6 +2852,12 @@ export class ApiService {
     persona?: string | null;
     routeFamily?: string | null;
     voiceState?: string | null;
+    accessTier?: string | null;
+    availableActionIds?: string[] | null;
+    visibleModules?: string[] | null;
+    cacheFreshness?: string | null;
+    vaultReady?: boolean | null;
+    portfolioReady?: boolean | null;
     signal?: AbortSignal;
   }): Promise<Response> {
     const firebaseIdToken = await this.getFirebaseToken();
@@ -2808,6 +2873,12 @@ export class ApiService {
         persona: data?.persona || undefined,
         route_family: data?.routeFamily || undefined,
         voice_state: data?.voiceState || undefined,
+        access_tier: data?.accessTier || undefined,
+        available_action_ids: data?.availableActionIds || undefined,
+        visible_modules: data?.visibleModules || undefined,
+        cache_freshness: data?.cacheFreshness || undefined,
+        vault_ready: data?.vaultReady ?? undefined,
+        portfolio_ready: data?.portfolioReady ?? undefined,
       }),
       signal: data?.signal,
     });
@@ -2819,6 +2890,12 @@ export class ApiService {
     persona?: string | null;
     routeFamily?: string | null;
     voiceState?: string | null;
+    accessTier?: string | null;
+    availableActionIds?: string[] | null;
+    visibleModules?: string[] | null;
+    cacheFreshness?: string | null;
+    vaultReady?: boolean | null;
+    portfolioReady?: boolean | null;
     signal?: AbortSignal;
   }): Promise<{
     relay_ticket: string;
@@ -2842,6 +2919,12 @@ export class ApiService {
           persona: data?.persona || undefined,
           route_family: data?.routeFamily || undefined,
           voice_state: data?.voiceState || undefined,
+          access_tier: data?.accessTier || undefined,
+          available_action_ids: data?.availableActionIds || undefined,
+          visible_modules: data?.visibleModules || undefined,
+          cache_freshness: data?.cacheFreshness || undefined,
+          vault_ready: data?.vaultReady ?? undefined,
+          portfolio_ready: data?.portfolioReady ?? undefined,
         }),
         signal: data?.signal,
       }
@@ -2862,8 +2945,8 @@ export class ApiService {
    *
    * WebSockets cannot carry an Authorization header from the browser and do not
    * pass through the Next.js middleware proxy, so the browser first mints a
-   * short-lived opaque relay ticket over HTTPS. The WebSocket URL carries only
-   * that ticket, never the Firebase bearer.
+   * short-lived opaque relay ticket over HTTPS. The WebSocket URL carries that
+   * ticket plus redacted route/action hints, never the Firebase bearer.
    */
   static async getGeminiLiveRelayUrl(data?: {
     voice?: string | null;
@@ -2871,6 +2954,13 @@ export class ApiService {
     persona?: string | null;
     routeFamily?: string | null;
     voiceState?: string | null;
+    accessTier?: string | null;
+    availableActionIds?: string[] | null;
+    visibleModules?: string[] | null;
+    cacheFreshness?: string | null;
+    vaultReady?: boolean | null;
+    portfolioReady?: boolean | null;
+    signal?: AbortSignal;
   }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
@@ -2883,6 +2973,20 @@ export class ApiService {
     if (data?.persona) url.searchParams.set("persona", data.persona);
     if (data?.routeFamily) url.searchParams.set("route_family", data.routeFamily);
     if (data?.voiceState) url.searchParams.set("voice_state", data.voiceState);
+    if (data?.accessTier) url.searchParams.set("access_tier", data.accessTier);
+    if (data?.cacheFreshness) url.searchParams.set("cache_freshness", data.cacheFreshness);
+    if (typeof data?.vaultReady === "boolean") {
+      url.searchParams.set("vault_ready", data.vaultReady ? "1" : "0");
+    }
+    if (typeof data?.portfolioReady === "boolean") {
+      url.searchParams.set("portfolio_ready", data.portfolioReady ? "1" : "0");
+    }
+    for (const actionId of data?.availableActionIds || []) {
+      if (actionId) url.searchParams.append("action_id", actionId);
+    }
+    for (const moduleName of data?.visibleModules || []) {
+      if (moduleName) url.searchParams.append("module", moduleName);
+    }
     return url.toString();
   }
 

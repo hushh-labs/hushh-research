@@ -526,6 +526,7 @@ export function resolveGroundedVoicePlan(input: ResolveGroundedPlanInput): Groun
     action: getKaiActionById(action.id)!,
     appRuntimeState: input.appRuntimeState,
     surfaceMetadata: getVoiceSurfaceMetadata(),
+    allowPersonaRouteSettlement: true,
   });
   const destructive = DESTRUCTIVE_ACTION_IDS.has(action.id);
   if (destructive || availability.status === "manual_only") {

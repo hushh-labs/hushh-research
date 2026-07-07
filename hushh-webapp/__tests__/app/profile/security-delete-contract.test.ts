@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const profilePageSource = readFileSync(
-  join(process.cwd(), "app/profile/page.tsx"),
+  join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
   "utf8",
 );
 

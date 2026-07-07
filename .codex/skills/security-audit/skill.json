@@ -30,6 +30,7 @@
     "docs/reference/iam/README.md",
     "docs/reference/streaming/README.md",
     "docs/project_context_map.md",
+    "docs/reference/iam/agent-delegation-boundary.md",
     "consent-protocol/docs/reference/consent-protocol.md"
   ],
   "required_commands": [

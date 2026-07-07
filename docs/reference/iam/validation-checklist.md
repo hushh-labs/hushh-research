@@ -44,7 +44,8 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 1. Agents and Operons respect consent scope boundaries.
 2. MCP access remains token-scoped.
 3. A2A delegation does not escalate scopes.
-4. ADK/A2A compliance checks pass.
+4. TrustLinks verify signature, expiry, scope, and session binding where the caller has a server-derived session id.
+5. ADK/A2A compliance checks pass.
 
 ## Exit Criteria
 
