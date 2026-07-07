@@ -128,7 +128,16 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     const originalReplaceState = window.history.replaceState;
     const sync = () => {
       const search = window.location.search;
-      setRouteQuery(search.startsWith("?") ? search.slice(1) : search);
+      const next = search.startsWith("?") ? search.slice(1) : search;
+      // pushState/replaceState may be invoked synchronously from another
+      // component's useInsertionEffect (styling libs, the Next router). Setting
+      // state right here would schedule an update during that phase, which React
+      // forbids ("useInsertionEffect must not schedule updates"). Defer to a
+      // microtask so the update always lands outside the insertion-effect phase,
+      // and bail out when the query is unchanged to avoid extra renders.
+      queueMicrotask(() => {
+        setRouteQuery((prev) => (prev === next ? prev : next));
+      });
     };
     window.history.pushState = ((...args) => {
       const result = originalPushState.apply(window.history, args);
