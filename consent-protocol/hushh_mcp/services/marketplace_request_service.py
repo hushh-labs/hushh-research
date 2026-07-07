@@ -212,6 +212,49 @@ class MarketplaceRequestService:
         )
         return resolved
 
+    async def deliver_envelope(
+        self,
+        *,
+        owner_user_id: str,
+        request_id: str,
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Deliver a sealed slice for an ALREADY-approved request.
+
+        This is the fulfilment half of an agent-driven approval. When Agent One
+        (A2A) or the marketplace chat agent approves, it can only flip the request
+        to ``approved`` — it has no device to run the ECDH/AES-GCM sealing. The
+        seller's browser later runs a delivery sweep, seals the slice on-device,
+        and posts the ciphertext here. Unlike :meth:`approve_request` this does
+        NOT touch status: the request is already approved, so we only attach the
+        envelope. Owner-scoped and gated on ``status == "approved"`` so it can
+        never resurrect a denied/expired request or run cross-user.
+        """
+        self._validate_envelope(envelope)
+        result = await self._execute_query(
+            self.supabase.table("marketplace_access_requests")
+            .select("*")
+            .eq("id", request_id)
+            .eq("owner_user_id", owner_user_id)
+            .limit(1)
+        )
+        rows = getattr(result, "data", None) or []
+        if not rows:
+            return {"ok": False, "reason": "not_found", "requestId": request_id}
+        request = _row_to_request(rows[0])
+        if request.get("status") != "approved":
+            return {"ok": False, "reason": "not_approved", "requestId": request_id}
+        buyer_user_id = request.get("buyerUserId")
+        if not buyer_user_id:
+            return {"ok": False, "reason": "no_buyer", "requestId": request_id}
+        stored = await self._store_delivery_envelope(
+            request=request,
+            owner_user_id=owner_user_id,
+            buyer_user_id=str(buyer_user_id),
+            envelope=envelope,
+        )
+        return {"ok": True, "request": request, "envelope": stored}
+
     @staticmethod
     def _validate_envelope(envelope: dict[str, Any]) -> None:
         """Reject anything that is not a well-formed ciphertext envelope. Slice

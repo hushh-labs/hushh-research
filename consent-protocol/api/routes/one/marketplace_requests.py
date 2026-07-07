@@ -56,6 +56,17 @@ class ApproveRequestBody(BaseModel):
     envelope: dict[str, Any] | None = None
 
 
+class DeliverRequestBody(BaseModel):
+    """Sealed delivery envelope for an already-approved request. Used by the
+    seller's on-device delivery sweep to fulfil an approval that an agent (A2A or
+    the marketplace chat) made without a browser to seal. Envelope is required —
+    this endpoint exists only to deliver ciphertext."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    envelope: dict[str, Any]
+
+
 @router.post("/recipient-keys")
 async def register_marketplace_recipient_key(
     body: RegisterRecipientKeyBody,
@@ -177,6 +188,27 @@ async def approve_marketplace_request(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not result.get("ok"):
         raise HTTPException(status_code=404, detail="Request not found or not pending")
+    return result
+
+
+@router.post("/requests/{request_id}/deliver")
+async def deliver_marketplace_request(
+    request_id: str = Path(..., min_length=1, max_length=128),
+    body: DeliverRequestBody = ...,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Owner-scoped: attach a sealed slice envelope to an already-approved request
+    (agent-approval fulfilment). Does not change status; only stores ciphertext."""
+    try:
+        result: dict[str, Any] = await _service().deliver_envelope(
+            owner_user_id=token_data["user_id"],
+            request_id=request_id,
+            envelope=body.envelope,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="Request not found or not awaiting delivery")
     return result
 
 

@@ -250,6 +250,84 @@ async def test_approve_request_without_buyer_skips_delivery():
     assert fake.query.inserted is None
 
 
+async def test_deliver_envelope_stores_for_already_approved_request():
+    # Agent-approval fulfilment: the request is already "approved" (an agent flipped
+    # it), and the seller's device now delivers the sealed slice via /deliver.
+    row = {
+        "id": "req-1",
+        "owner_user_id": "owner",
+        "buyer_user_id": "buyer",
+        "slice_label": "Insurance",
+        "status": "approved",
+        # The fake reuses this row as the envelope INSERT ... RETURNING result too.
+        "request_id": "req-1",
+        "recipient_key_id": "buyer-key-1",
+        "ciphertext": "ct",
+        "iv": "iv",
+        "sender_ephemeral_public_key_jwk": {"kty": "EC"},
+    }
+    svc, fake = _service_with([row])
+
+    result = await svc.deliver_envelope(
+        owner_user_id="owner", request_id="req-1", envelope=dict(_VALID_ENVELOPE)
+    )
+
+    assert result["ok"] is True
+    assert result["envelope"]["ciphertext"] == "ct"
+    # Ciphertext-only delivery keyed to the request/buyer; no status flip needed.
+    assert fake.query.inserted["request_id"] == "req-1"
+    assert fake.query.inserted["buyer_user_id"] == "buyer"
+    assert fake.query.inserted["recipient_key_id"] == "buyer-key-1"
+    assert "slice_label" not in fake.query.inserted  # no plaintext slice ever stored
+    assert fake.query.updated == {"latest_envelope_id": "req-1"}
+    # Owner-scoped lookup — never cross-user.
+    assert ("owner_user_id", "owner") in fake.query.eqs
+    assert ("id", "req-1") in fake.query.eqs
+
+
+async def test_deliver_envelope_rejects_non_approved_request():
+    # A pending request must be approved (by owner or agent) before delivery.
+    row = {"id": "req-1", "owner_user_id": "owner", "buyer_user_id": "buyer", "status": "pending"}
+    svc, fake = _service_with([row])
+
+    result = await svc.deliver_envelope(
+        owner_user_id="owner", request_id="req-1", envelope=dict(_VALID_ENVELOPE)
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "not_approved"
+    assert fake.query.inserted is None  # nothing delivered
+
+
+async def test_deliver_envelope_not_found_when_not_owners():
+    svc, fake = _service_with([])
+
+    result = await svc.deliver_envelope(
+        owner_user_id="owner", request_id="missing", envelope=dict(_VALID_ENVELOPE)
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "not_found"
+    assert fake.query.inserted is None
+
+
+async def test_deliver_envelope_rejects_malformed_envelope():
+    svc, fake = _service_with([])
+
+    for bad in (
+        {},
+        {"ciphertext": "x"},
+        {"ciphertext": "x", "iv": "y", "senderEphemeralPublicKeyJwk": {}},
+    ):
+        try:
+            await svc.deliver_envelope(owner_user_id="owner", request_id="req-1", envelope=bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
+    # Validation happens before any DB read/write.
+    assert fake.query.inserted is None
+
+
 async def test_list_buyer_requests_scopes_by_buyer():
     rows = [{"id": "a", "buyer_user_id": "buyer", "slice_label": "One", "status": "approved"}]
     svc, fake = _service_with(rows)
