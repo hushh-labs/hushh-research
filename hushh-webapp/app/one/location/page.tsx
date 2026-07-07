@@ -48,7 +48,9 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -139,8 +141,8 @@ import {
   LocationRedesignHub,
   type LocationHubViewModel,
 } from "@/components/one-location/redesign/location-redesign-hub";
-import { LocationRedesignSkeleton } from "@/components/one-location/redesign/location-redesign-skeleton";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+
 import {
   clearSosIncident,
   loadSosIncident,
@@ -4716,10 +4718,11 @@ function OneLocationAgentPageContent() {
       <AppPageShell width="standard" nativeTest={nativeTestConfig}>
         <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
           {showInitialSkeleton ? (
-            <LocationRedesignSkeleton />
+            <HushhLoader variant="page" label="Loading location..." />
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
+
           <LocationChatPanel
             vaultOwnerToken={vaultOwnerToken ?? null}
             userId={auth.userId ?? undefined}
