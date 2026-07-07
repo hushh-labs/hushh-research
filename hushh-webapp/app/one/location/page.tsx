@@ -127,6 +127,7 @@ import {
   type OneLocationNotificationSection,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
+import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -870,6 +871,18 @@ function LocalMapPreview({
             {locationSourceLabel(point.sourcePlatform)}
           </p>
         </div>
+
+        {point.drive ? (
+          <div className="rounded-[12px] border border-sky-500/30 bg-sky-500/[0.08] p-3">
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-sky-700 dark:text-sky-300">
+              <Route className="h-3.5 w-3.5" aria-hidden="true" />
+              Driving to {point.drive.destination.label}
+            </p>
+            <p className="mt-0.5 text-[13px] font-semibold text-foreground">
+              {driveEtaText(point.drive.etaSeconds)}
+            </p>
+          </div>
+        ) : null}
 
         {showNavigation ? (
           <div className="grid gap-2">

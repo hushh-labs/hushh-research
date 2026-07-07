@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 
+import { driveEtaText } from "@/app/one/location/drive-eta";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,6 +85,17 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
             {accuracy ? ` - ${accuracy}` : ""}
           </p>
         </div>
+        {point.drive ? (
+          <div className="rounded-[12px] border border-sky-500/30 bg-sky-500/[0.08] p-3">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
+              <Route className="h-3.5 w-3.5" aria-hidden="true" />
+              Driving to {point.drive.destination.label}
+            </p>
+            <p className="mt-0.5 text-sm font-semibold">
+              {driveEtaText(point.drive.etaSeconds)}
+            </p>
+          </div>
+        ) : null}
         <div className="grid gap-2">
           <Button asChild variant="outline" size="sm" className="h-10 rounded-full">
             <a
