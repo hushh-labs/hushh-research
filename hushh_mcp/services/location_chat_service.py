@@ -70,6 +70,7 @@ _QUERY_TOOL_NAMES = {
     "propose_public_link",
     "propose_location_view",
     "propose_sos_panic",
+    "propose_check_in",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -99,6 +100,8 @@ _ACTION_RESULT_TEMPLATES = {
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
     ("sos_panic", "completed"): "SOS sent — your emergency contacts are being notified.",
     ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
+    ("check_in", "completed"): "Done — your trusted contacts can see your check-in. ✓",
+    ("check_in", "cancelled"): "Okay — I didn't check you in.",
 }
 
 _UNAVAILABLE_MESSAGE = (
@@ -295,8 +298,26 @@ def _function_declarations_v2(types: Any) -> list:
             ),
             types.FunctionDeclaration(
                 name="request_recipient_choice",
-                description="Ask the user to choose who to share with (returns selectable options). Call when no single recipient was named.",
-                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+                description=(
+                    "Ask the user to choose who to share with (returns selectable options). "
+                    "Call when no single recipient was named. When the user DID name a person "
+                    "but more than one contact matches that name (e.g. two 'Neelesh Meena'), "
+                    "pass `name` with the name they gave so the options are limited to just "
+                    "those matches instead of the whole directory."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "name": schema(
+                            type=kind.STRING,
+                            description=(
+                                "The name the user gave, used to limit the choices to matching "
+                                "contacts. Omit only when the user named no one."
+                            ),
+                        )
+                    },
+                    required=[],
+                ),
             ),
             types.FunctionDeclaration(
                 name="request_active_share_choice",
@@ -339,6 +360,23 @@ def _function_declarations_v2(types: Any) -> list:
                     "request_confirmation first before proposing this."
                 ),
                 parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="propose_check_in",
+                description=(
+                    "Propose a check-in: share live location with the user's ready "
+                    "trusted contacts for duration_hours (0<h<=24) with an optional note. "
+                    "The browser creates grants per recipient, encrypts, and publishes. "
+                    "Coordinate-free. Ask for the duration first (request_duration_choice)."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                        "note": schema(type=kind.STRING, description="Optional short note"),
+                    },
+                    required=["duration_hours"],
+                ),
             ),
         ]
     )
@@ -549,12 +587,26 @@ class LocationChatService:
         prompts: list[dict] = []
         with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
             for _ in range(_MAX_TOOL_STEPS):
-                response = await self._model_call(contents, config)
-                calls = list(getattr(response, "function_calls", None) or [])
+                try:
+                    calls, reply = await self._model_step(contents, config)
+                except Exception:
+                    # A model/transport failure (e.g. the follow-up summarization
+                    # call times out). If a mutating tool has ALREADY committed a
+                    # change this turn, do NOT report total failure: the grant /
+                    # revoke is real, so surface the accumulated state (state_changed
+                    # + any clientAction) with a deterministic reply. Only a failure
+                    # BEFORE any side effect is a truthful "temporarily unavailable",
+                    # so re-raise in that case for the caller's fallback.
+                    if state_changed or directives or prompts:
+                        logger.warning(
+                            "Location model step failed after side effects; "
+                            "returning partial turn result",
+                            exc_info=True,
+                        )
+                        break
+                    raise
                 if not calls:
-                    reply = (getattr(response, "text", "") or "").strip()
                     break
-                contents.append(response.candidates[0].content)
                 for call in calls:
                     result, mutated, directive, prompt = await self._run_tool(
                         call.name, dict(call.args or {})
@@ -576,6 +628,21 @@ class LocationChatService:
                 reply = _GAVE_UP_MESSAGE
                 errored = True
         return reply, errored, state_changed, directives, prompts
+
+    async def _model_step(self, contents: list, config: Any) -> tuple[list, str]:
+        """Run one model turn. Returns (function_calls, reply_text).
+
+        When the model requests tool calls, its content is appended to ``contents``
+        and reply_text is "". When it answers, calls is empty and reply_text holds
+        the text. Isolating the throwing model interaction here lets the loop treat
+        a post-mutation model failure as recoverable (see _run_tool_loop).
+        """
+        response = await self._model_call(contents, config)
+        calls = list(getattr(response, "function_calls", None) or [])
+        if not calls:
+            return [], (getattr(response, "text", "") or "").strip()
+        contents.append(response.candidates[0].content)
+        return calls, ""
 
     async def _run_tool(self, name: str, args: dict) -> tuple[dict, bool, dict | None, dict | None]:
         """Execute one tool inside the active HushhContext.
@@ -626,6 +693,12 @@ class LocationChatService:
             return {"type": "view_envelope", "grantId": result.get("grantId")}
         if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
             return {"type": "sos_panic"}
+        if name == "propose_check_in" and result.get("proposed") == "check_in":
+            return {
+                "type": "check_in",
+                "durationHours": result.get("durationHours"),
+                "note": result.get("note"),
+            }
         return None
 
     @staticmethod
@@ -686,6 +759,18 @@ class LocationChatService:
                 "type": "sos_panic",
                 "summary": "Send an emergency SOS to all your trusted contacts",
             }
+        check_in = next((d for d in directives if d.get("type") == "check_in"), None)
+        if check_in:
+            hours = check_in.get("durationHours")
+            return {
+                "id": action_id,
+                "type": "check_in",
+                "durationHours": hours,
+                "note": check_in.get("note"),
+                "summary": f"Check in with your trusted contacts for {hours}h"
+                if hours is not None
+                else "Check in with your trusted contacts",
+            }
         return None
 
     async def _handle_action_result(
@@ -720,6 +805,7 @@ class LocationChatService:
             "publish_share",
             "create_public_link",
             "sos_panic",
+            "check_in",
         )
         conv_id = conversation_id or ""
         if conv_id:

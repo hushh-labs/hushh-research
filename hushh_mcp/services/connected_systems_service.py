@@ -454,6 +454,26 @@ def _safe_error_message(error: Exception) -> str:
     return message or "Connected Systems request failed."
 
 
+def _connected_systems_storage_error(error: DatabaseExecutionError) -> ConnectedSystemsError:
+    details = str(getattr(error, "details", "") or "")
+    code = (
+        "CONNECTED_SYSTEMS_SCHEMA_NOT_READY"
+        if "connected_system_" in details.lower() or "connected_system_" in str(error).lower()
+        else getattr(error, "code", "CONNECTED_SYSTEMS_STORAGE_ERROR")
+    )
+    message = (
+        "Connected Systems workflow storage is not ready."
+        if code == "CONNECTED_SYSTEMS_SCHEMA_NOT_READY"
+        else "Connected Systems workflow storage is temporarily unavailable."
+    )
+    status_code = getattr(error, "status_code", 500)
+    return ConnectedSystemsError(
+        message,
+        code=code,
+        status_code=503 if status_code >= 500 else status_code,
+    )
+
+
 def _redact_error_text(value: str) -> str:
     text = re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "[email]", value)
     text = re.sub(r"\+?\d[\d\s().-]{6,}\d", "[phone]", text)
@@ -1376,6 +1396,12 @@ class ConnectedSystemsService:
                 return system
         raise ConnectedSystemNotFoundError("Connected system was not found.")
 
+    def _store_call(self, operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except DatabaseExecutionError as error:
+            raise _connected_systems_storage_error(error) from error
+
     async def get_schema(self, *, system_id: str, object_type: str | None = None) -> dict[str, Any]:
         system = self.get_system(system_id)
         payload = {
@@ -1445,7 +1471,8 @@ class ConnectedSystemsService:
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         object_type_value = _normalize_object_type(object_type)
-        binding = self.store.get_binding(
+        binding = self._store_call(
+            self.store.get_binding,
             user_id=user_id,
             system_id=system_id,
             object_type=object_type_value,
@@ -1477,7 +1504,8 @@ class ConnectedSystemsService:
         # cache and re-search (e.g. to reconcile a possibly-stale binding).
         object_type_value = _normalize_object_type(object_type)
         if not force_refresh:
-            existing = self.store.get_binding(
+            existing = self._store_call(
+                self.store.get_binding,
                 user_id=user_id,
                 system_id=system_id,
                 object_type=object_type_value,
@@ -1524,7 +1552,8 @@ class ConnectedSystemsService:
         binding: dict[str, Any] | None = None
         if read.get("resultClass") == "succeeded" and record_id:
             system = self.get_system(system_id)
-            binding = self.store.upsert_binding(
+            binding = self._store_call(
+                self.store.upsert_binding,
                 {
                     "binding_id": _binding_id(),
                     "user_id": user_id,
@@ -1534,7 +1563,7 @@ class ConnectedSystemsService:
                     "record_id": record_id,
                     "created_intent_id": None,
                     "last_intent_id": None,
-                }
+                },
             )
         return {
             **read,
@@ -1654,7 +1683,8 @@ class ConnectedSystemsService:
         system = self.get_system(system_id)
         intent = self._get_pending_intent(user_id=user_id, system_id=system_id, intent_id=intent_id)
         approval = _approval_id()
-        intent = self.store.update_intent(
+        intent = self._store_call(
+            self.store.update_intent,
             intent_id=intent_id,
             updates={"status": "approved", "approval_id": approval},
         )
@@ -1692,7 +1722,8 @@ class ConnectedSystemsService:
                     "error_message": mcp_error_message,
                 },
             )
-            updated = self.store.update_intent(
+            updated = self._store_call(
+                self.store.update_intent,
                 intent_id=intent_id,
                 updates=terminal_updates,
             )
@@ -1720,7 +1751,8 @@ class ConnectedSystemsService:
                     "error_message": safe_message,
                 },
             )
-            updated = self.store.update_intent(
+            updated = self._store_call(
+                self.store.update_intent,
                 intent_id=intent_id,
                 updates=failure_updates,
             )
@@ -1731,8 +1763,6 @@ class ConnectedSystemsService:
                 status="failed",
                 metadata={"error_code": updated.get("error_code")},
             )
-            if isinstance(error, DatabaseExecutionError):
-                raise
             if isinstance(error, ConnectedSystemsError):
                 raise
             raise ConnectedSystemsError(
@@ -1747,7 +1777,8 @@ class ConnectedSystemsService:
             intent,
             {"status": "rejected", "approval_id": _approval_id()},
         )
-        updated = self.store.update_intent(
+        updated = self._store_call(
+            self.store.update_intent,
             intent_id=intent["intent_id"],
             updates=reject_updates,
         )
@@ -1776,7 +1807,8 @@ class ConnectedSystemsService:
         object_type_value = _normalize_object_type(object_type)
         binding = None
         if user_id:
-            binding = self.store.get_binding(
+            binding = self._store_call(
+                self.store.get_binding,
                 user_id=user_id,
                 system_id=system_id,
                 object_type=object_type_value,
@@ -1795,7 +1827,8 @@ class ConnectedSystemsService:
         status = "failed" if result.get("isError") else "succeeded"
         deleted_binding = None
         if user_id and status == "succeeded":
-            deleted_binding = self.store.mark_binding_deleted(
+            deleted_binding = self._store_call(
+                self.store.mark_binding_deleted,
                 user_id=user_id,
                 system_id=system_id,
                 object_type=object_type_value,
@@ -1888,12 +1921,17 @@ class ConnectedSystemsService:
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
         }
-        return self._public_intent(self.store.create_intent(intent))
+        return self._public_intent(self._store_call(self.store.create_intent, intent))
 
     def _get_pending_intent(
         self, *, user_id: str, system_id: str, intent_id: str
     ) -> dict[str, Any]:
-        intent = self.store.get_intent(user_id=user_id, system_id=system_id, intent_id=intent_id)
+        intent = self._store_call(
+            self.store.get_intent,
+            user_id=user_id,
+            system_id=system_id,
+            intent_id=intent_id,
+        )
         if not intent:
             raise ConnectedSystemNotFoundError("CRM intent was not found.")
         if intent.get("status") != "pending":
@@ -1983,7 +2021,8 @@ class ConnectedSystemsService:
         if not user_id:
             return
         system = self.get_system(system_id)
-        self.store.record_audit_event(
+        self._store_call(
+            self.store.record_audit_event,
             {
                 "event_id": f"csae_{uuid4().hex}",
                 "user_id": user_id,
@@ -1999,7 +2038,7 @@ class ConnectedSystemsService:
                 "readback_result_class": readback_result_class,
                 "status": status,
                 "metadata": metadata or {},
-            }
+            },
         )
 
     def _public_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
@@ -2028,7 +2067,8 @@ class ConnectedSystemsService:
     ) -> dict[str, Any] | None:
         if intent.get("action") not in {"create", "update"}:
             return None
-        return self.store.upsert_binding(
+        return self._store_call(
+            self.store.upsert_binding,
             {
                 "binding_id": _binding_id(),
                 "user_id": intent["user_id"],
@@ -2040,7 +2080,7 @@ class ConnectedSystemsService:
                 if intent.get("action") == "create"
                 else None,
                 "last_intent_id": intent["intent_id"],
-            }
+            },
         )
 
     def _public_binding(self, binding: dict[str, Any] | None) -> dict[str, Any] | None:

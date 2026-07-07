@@ -400,6 +400,8 @@ async def delegate_to_my_agent(query: str) -> dict:
 
 ## Existing Agents
 
+The cross-surface One-led hierarchy lives in `docs/reference/one/one-agent-hierarchy.md`. This backend page owns the package-local agent/tool/operon implementation rules below that hierarchy.
+
 | Agent               | Directory                    | Scopes                          | Tools                            |
 | ------------------- | ---------------------------- | ------------------------------- | -------------------------------- |
 | OneAgent            | `agents/one/` and legacy `agents/orchestrator/` | `agent.one.orchestrate` | delegate to Kai, Nav, and KYC |

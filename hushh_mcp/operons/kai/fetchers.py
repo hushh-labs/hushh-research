@@ -4,7 +4,7 @@
 Kai Fetcher Operons
 
 External data retrieval with per-source consent validation.
-Each fetcher requires specific TrustLink for the data source.
+Each fetcher validates a specific consent token scope for the data source.
 
 Runtime provider priority (for realtime market/news flows):
 1) Finnhub
@@ -747,7 +747,7 @@ async def fetch_market_data_batch(
         )
 
         if not valid:
-            logger.error("[Market Data Batch Fetcher] trust_link_check_failed")
+            logger.error("[Market Data Batch Fetcher] consent_token_check_failed")
             raise PermissionError(f"Market data access denied: {reason}")
 
         if token.user_id != user_id:
@@ -845,7 +845,7 @@ async def fetch_sec_filings(
     """
     Operon: Fetch SEC filings from EDGAR (free, public API).
 
-    TrustLink Required: external.sec.filings
+    Consent token scope: external.sec.filings
 
     This requires EXPLICIT consent for external data access.
     SEC EDGAR is 100% free and requires no API key.
@@ -865,9 +865,9 @@ async def fetch_sec_filings(
         - source: "SEC EDGAR"
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
-    # Validate TrustLink for Kai analysis
+    # Validate consent token for Kai analysis
     # Note: agent.kai.analyze scope covers all data fetching needs for Kai
     valid, reason, token = validate_token(
         consent_token,
@@ -875,7 +875,7 @@ async def fetch_sec_filings(
     )
 
     if not valid:
-        logger.error("[SEC Fetcher] trust_link_check_failed")
+        logger.error("[SEC Fetcher] consent_token_check_failed")
         raise PermissionError(f"SEC data access denied: {reason}")
 
     if token.user_id != user_id:
@@ -1139,7 +1139,7 @@ async def fetch_market_news(
     """
     Operon: Fetch recent news articles.
 
-    TrustLink Required: external.news.api
+    Consent token scope: external.news.api
 
     Provider priority:
     - Finnhub (if FINNHUB_API_KEY is configured)
@@ -1162,17 +1162,17 @@ async def fetch_market_news(
         - source: {"name": "Source Name"}
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
     if consent_token:
-        # Validate TrustLink
+        # Validate consent token
         valid, reason, token = validate_token(
             consent_token,
             ConsentScope("agent.kai.analyze"),  # Changed from external.news.api
         )
 
         if not valid:
-            logger.error("[News Fetcher] trust_link_check_failed")
+            logger.error("[News Fetcher] consent_token_check_failed")
             raise PermissionError(f"News data access denied: {reason}")
 
         if token.user_id != user_id:
@@ -1276,7 +1276,7 @@ async def fetch_market_data(
     """
     Operon: Fetch current market data (price, volume, metrics).
 
-    TrustLink Required: external.market.data
+    Consent token scope: external.market.data
 
     Provider priority:
     - Finnhub (if FINNHUB_API_KEY is configured)
@@ -1300,17 +1300,17 @@ async def fetch_market_data(
         - source: Data source name
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
     if consent_token:
-        # Validate TrustLink
+        # Validate consent token
         valid, reason, token = validate_token(
             consent_token,
             ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
         )
 
         if not valid:
-            logger.error("[Market Data Fetcher] trust_link_check_failed")
+            logger.error("[Market Data Fetcher] consent_token_check_failed")
             raise PermissionError(f"Market data access denied: {reason}")
 
         if token.user_id != user_id:
@@ -1474,7 +1474,7 @@ async def fetch_peer_data(
     """
     Operon: Fetch peer company data for comparison.
 
-    TrustLink Required: external.market.data
+    Consent token scope: external.market.data
 
     Args:
         ticker: Stock ticker symbol
@@ -1486,9 +1486,9 @@ async def fetch_peer_data(
         List of peer company dicts with market data
 
     Raises:
-        PermissionError: If TrustLink validation fails
+        PermissionError: If consent token validation fails
     """
-    # Validate TrustLink
+    # Validate consent token
     valid, reason, token = validate_token(
         consent_token,
         ConsentScope("agent.kai.analyze"),  # Changed from external.market.data

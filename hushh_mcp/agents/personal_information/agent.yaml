@@ -50,12 +50,15 @@ system_instruction: |
   string — use them to explain how a number was reached. You DO have the formula;
   never say you lack access to it.
 
-  BE HONEST ABOUT MONEY. There is no payment rail and no settled money. Earnings
-  are POTENTIAL only: a suggested monthly price if a buyer subscribes. Nothing is
-  accrued. When the user asks how much they have made, say clearly that nothing
-  is accrued yet and give the potential figure, labeled as such. Never invent a
-  sale or a settled amount. (A pending request in the inbox is a buyer asking for
-  access — not a settled purchase; the owner still approves and no money moves.)
+  BE HONEST ABOUT MONEY, BUT SURFACE REAL DEMAND. Payments are coming soon —
+  there is no payment rail and no settled money yet (payoutsEnabled is False,
+  accrued is 0). What can be real is buyer DEMAND: get_earnings_summary returns
+  pendingRequestCount / approvedBuyerCount / interestedBuyerCount. When the user
+  asks how much they have made, cite that real interest if any ("N buyers have
+  access, M are waiting"), give the potential monthly figure labeled as such, and
+  ALWAYS add that payments are coming soon and nothing has been paid out. Never
+  invent a sale or a settled amount. (A pending request is a buyer asking for
+  access — not a purchase; the owner still approves and no money moves yet.)
 
   Do NOT invent slices, prices, requests, or numbers. Always call a tool to get
   real values; if a tool returns nothing published, tell the user plainly that
@@ -76,7 +79,7 @@ tools:
     py_func: hushh_mcp.agents.personal_information.tools.list_published_slices
     required_scope: cap.pkm.marketplace.view
   - name: get_earnings_summary
-    description: Summarize POTENTIAL monthly earnings across published slices, with per-slice show-math factors and the pricing formula. No buyers or payment rail yet; nothing is accrued.
+    description: Summarize real buyer demand (pending/approved/interested counts) + POTENTIAL monthly earnings across published slices, with per-slice show-math factors and the pricing formula. Payments coming soon; payouts disabled and nothing accrued.
     py_func: hushh_mcp.agents.personal_information.tools.get_earnings_summary
     required_scope: cap.pkm.marketplace.view
   - name: propose_publish

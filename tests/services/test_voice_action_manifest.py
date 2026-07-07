@@ -128,6 +128,11 @@ class TestNormalizeDelegateAgentId:
     def test_valid_delegate_nav_accepted(self):
         assert _normalized(delegate_agent_id="nav")["delegate_agent_id"] == "nav"
 
+    def test_valid_runtime_specialist_delegate_accepted(self):
+        assert (
+            _normalized(delegate_agent_id="agent_location")["delegate_agent_id"] == "agent_location"
+        )
+
     def test_invalid_delegate_set_to_none(self):
         assert _normalized(delegate_agent_id="unknown_agent")["delegate_agent_id"] is None
 

@@ -41,6 +41,20 @@ LOCATION_VIEW_SCOPE = "cap.location.live.view"
 _ACTIVE_GRANT_STATUSES = {"active", "approved", "granted"}
 _PENDING_REQUEST_STATUSES = {"pending", "request_pending", "sent"}
 
+# Human-facing labels + scope descriptions per share kind so the Consent Manager
+# can render a "SOS" / "Check-In" / "Share" tag and an accurate one-line
+# description instead of the same generic copy for every location grant.
+_SHARE_KIND_LABEL = {
+    "sos": "SOS",
+    "check_in": "Check-In",
+    "share": "Share",
+}
+_SHARE_KIND_SCOPE_DESCRIPTION = {
+    "sos": "SOS emergency live location",
+    "check_in": "Check-in live location",
+    "share": "Live location sharing",
+}
+
 
 def _safe_str(value: Any) -> str:
     return str(value or "").strip()
@@ -258,12 +272,25 @@ class OneLocationCenterContributor:
     ) -> dict[str, Any]:
         grant_id = _safe_str(grant.get("id"))
         duration_hours = grant.get("durationHours")
+        # Distinguish an emergency SOS share from a friendly Check-In from a plain
+        # location share so the Consent Manager can tag + describe each row
+        # accurately (instead of every location grant reading the same). The share
+        # kind + optional human message are already coordinate-free on the grant
+        # payload (see OneLocationAgentService._grant_payload).
+        share_kind = _safe_str(grant.get("shareKind")) or "share"
+        share_message = _safe_str(grant.get("shareMessage"))
+        scope_description = _SHARE_KIND_SCOPE_DESCRIPTION.get(
+            share_kind, _SHARE_KIND_SCOPE_DESCRIPTION["share"]
+        )
         metadata = _coerce_metadata(
             {
                 "request_source": "one_location_share_grant",
                 "section": section,
                 "grant_id": grant_id,
                 "requester_label": counterpart_label,
+                "share_kind": share_kind,
+                "share_kind_label": _SHARE_KIND_LABEL.get(share_kind, _SHARE_KIND_LABEL["share"]),
+                **({"share_message": share_message} if share_message else {}),
                 **({"duration_label": _duration_label(duration_hours)} if duration_hours else {}),
             }
         )
@@ -273,7 +300,7 @@ class OneLocationCenterContributor:
             "status": _safe_str(grant.get("status")) or "active",
             "action": "CONSENT_GRANTED",
             "scope": LOCATION_VIEW_SCOPE,
-            "scope_description": "Live location sharing",
+            "scope_description": scope_description,
             "counterpart_type": "investor",
             "counterpart_id": counterpart_id or None,
             "counterpart_label": counterpart_label,
