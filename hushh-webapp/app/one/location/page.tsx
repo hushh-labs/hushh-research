@@ -154,6 +154,8 @@ import {
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 import type {
+  DriveDestination,
+  DriveSharePayload,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -166,6 +168,10 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import {
+  addRecentDestination,
+  loadRecentDestinations,
+} from "@/lib/one-location/drive-recents";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   CONSENT_STATE_CHANGED_EVENT,
@@ -196,6 +202,8 @@ const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // user's point never goes stale.
 const LIVE_LOCATION_MIN_MOVE_METERS = 25;
 const LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS = 8_000;
+const DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS = 60_000;
+const DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS = 250;
 
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const REQUEST_MESSAGE_MAX_LENGTH = 80;
@@ -237,6 +245,7 @@ type BusyState =
   | "sos"
   | "locationSettings"
   | "selfLocation"
+  | "driveTo"
   | "contactSync"
   | "contactInvite"
   | "publicInvite"
@@ -1788,6 +1797,16 @@ function OneLocationAgentPageContent() {
   const liveWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
+  const driveSessionRef = useRef<{
+    grantIds: Set<string>;
+    destination: DriveDestination;
+    etaSeconds: number | null;
+    distanceMeters: number | null;
+    etaComputedAt: string;
+    lastEtaPoint: PlainLocationPoint | null;
+    lastEtaAt: number;
+  } | null>(null);
+  const [recentDestinations, setRecentDestinations] = useState<DriveDestination[]>([]);
 
 
   const recipients = useMemo(
@@ -2544,6 +2563,11 @@ function OneLocationAgentPageContent() {
   }, []);
 
   useEffect(() => {
+    if (!auth.userId) return;
+    void loadRecentDestinations(auth.userId).then(setRecentDestinations);
+  }, [auth.userId]);
+
+  useEffect(() => {
     if (!auth.userId || typeof window === "undefined") return;
     const handleLocationNotification = (event: Event) => {
       const detail =
@@ -2852,6 +2876,54 @@ function OneLocationAgentPageContent() {
         task: () => publishEnvelope(grant, recipient, pointOverride),
       }),
     [publishEnvelope],
+  );
+
+  const drivePointForGrant = useCallback(
+    async (
+      grant: OneLocationGrant,
+      point: PlainLocationPoint,
+    ): Promise<PlainLocationPoint> => {
+      const session = driveSessionRef.current;
+      if (!session || !session.grantIds.has(grant.id)) return point;
+
+      const now = Date.now();
+      const movedMeters = session.lastEtaPoint
+        ? locationDistanceMeters(session.lastEtaPoint, point)
+        : Number.POSITIVE_INFINITY;
+      const sinceMs = now - session.lastEtaAt;
+      const shouldRecompute =
+        !session.lastEtaPoint ||
+        movedMeters >= DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS ||
+        sinceMs >= DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS;
+
+      if (shouldRecompute && vaultOwnerToken) {
+        try {
+          const eta = await OneLocationService.routeEta({
+            vaultOwnerToken,
+            originLat: point.latitude,
+            originLng: point.longitude,
+            destLat: session.destination.latitude,
+            destLng: session.destination.longitude,
+          });
+          session.etaSeconds = eta.etaSeconds;
+          session.distanceMeters = eta.distanceMeters;
+          session.etaComputedAt = new Date().toISOString();
+          session.lastEtaPoint = point;
+          session.lastEtaAt = now;
+        } catch {
+          // Keep the last known ETA; the share still carries the moving point.
+        }
+      }
+
+      const drive: DriveSharePayload = {
+        destination: session.destination,
+        etaSeconds: session.etaSeconds,
+        distanceMeters: session.distanceMeters,
+        etaComputedAt: session.etaComputedAt,
+      };
+      return { ...point, drive };
+    },
+    [vaultOwnerToken],
   );
 
   const resetShareComposer = useCallback(() => {
@@ -3247,11 +3319,12 @@ function OneLocationAgentPageContent() {
         for (const grant of activeOwnerGrants) {
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
+          const pointForGrant = await drivePointForGrant(grant, point);
           await publishEnvelopeWithRetry(
             grant,
             recipient,
             "foreground_interval",
-            point,
+            pointForGrant,
           );
         }
         lastPublishedPointRef.current = point;
@@ -3297,6 +3370,7 @@ function OneLocationAgentPageContent() {
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
+    drivePointForGrant,
     vaultOwnerToken,
   ]);
 
@@ -4119,6 +4193,110 @@ function OneLocationAgentPageContent() {
     ],
   );
 
+  const handleDriveTo = useCallback(
+    async (
+      destination: DriveDestination,
+      recipientIds: string[],
+      durationHoursValue: string,
+    ) => {
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+        toast.error("Location permission is required to share your drive.");
+        return;
+      }
+      const selected = sosActionRecipients
+        .filter((recipient) => recipientIds.includes(recipient.userId))
+        .filter(isShareReadyRecipient);
+      if (!selected.length) {
+        toast.error("Select at least one trusted contact who is ready to receive your location.");
+        return;
+      }
+      setBusy("driveTo");
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) {
+          toast.error("Couldn't get your location — drive not shared.");
+          return;
+        }
+        const point = readiness.point;
+        const durationHoursNum = Number(durationHoursValue) || 1;
+
+        // Initial ETA (best-effort; the share still works without it).
+        let etaSeconds: number | null = null;
+        let distanceMeters: number | null = null;
+        try {
+          const eta = await OneLocationService.routeEta({
+            vaultOwnerToken,
+            originLat: point.latitude,
+            originLng: point.longitude,
+            destLat: destination.latitude,
+            destLng: destination.longitude,
+          });
+          etaSeconds = eta.etaSeconds;
+          distanceMeters = eta.distanceMeters;
+        } catch {
+          // ETA unavailable — proceed with destination only.
+        }
+
+        const etaComputedAt = new Date().toISOString();
+        const drive: DriveSharePayload = {
+          destination,
+          etaSeconds,
+          distanceMeters,
+          etaComputedAt,
+        };
+        const drivePoint: PlainLocationPoint = { ...point, drive };
+        const grantIds = new Set<string>();
+
+        for (const recipient of selected) {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: durationHoursNum,
+            reason: "drive_to",
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", drivePoint);
+          grantIds.add(grant.id);
+        }
+
+        driveSessionRef.current = {
+          grantIds,
+          destination,
+          etaSeconds,
+          distanceMeters,
+          etaComputedAt,
+          lastEtaPoint: point,
+          lastEtaAt: Date.now(),
+        };
+
+        if (auth.userId) {
+          await addRecentDestination(auth.userId, destination);
+          setRecentDestinations(await loadRecentDestinations(auth.userId));
+        }
+
+        toast.success(`Sharing your drive with ${peopleCountLabel(selected.length)}.`);
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not share your drive.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      vaultOwnerToken,
+      permission,
+      sosActionRecipients,
+      ensureForegroundLocationReady,
+      publishEnvelopeWithRetry,
+      refresh,
+      auth.userId,
+    ],
+  );
+
   const canShare = Boolean(
     vaultOwnerToken &&
     selectedShareRecipients.length &&
@@ -4511,6 +4689,11 @@ function OneLocationAgentPageContent() {
     onStopSos: handleStopSos,
     onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
       void handleCheckIn(recipientIds, durationHoursValue, messageValue),
+    vaultOwnerToken: vaultOwnerToken ?? null,
+    driveBusy: busy === "driveTo",
+    recentDestinations,
+    onDriveTo: (destination, recipientIds, durationHoursValue) =>
+      void handleDriveTo(destination, recipientIds, durationHoursValue),
   };
 
   if (USE_LOCATION_REDESIGN && !loadError) {

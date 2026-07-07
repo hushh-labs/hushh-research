@@ -54,9 +54,7 @@ export function DriveToFlow({
   onClose: () => void;
 }) {
   const contacts = vm.sosRecipients;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const vmAny = vm as any;
-  const busy = vmAny.driveBusy || vm.busy === "selfLocation";
+  const busy = vm.driveBusy || vm.busy === "selfLocation";
 
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<{ placeId: string; text: string }[]>([]);
@@ -79,7 +77,7 @@ export function DriveToFlow({
 
   // Debounced Places autocomplete via the backend proxy.
   useEffect(() => {
-    const token = vmAny.vaultOwnerToken as string | null;
+    const token = vm.vaultOwnerToken;
     const q = query.trim();
     if (!token || q.length < 2 || destination?.label === q) {
       setSuggestions([]);
@@ -108,10 +106,10 @@ export function DriveToFlow({
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [query, vmAny.vaultOwnerToken, destination?.label]);
+  }, [query, vm.vaultOwnerToken, destination?.label]);
 
   const selectSuggestion = async (placeId: string, text: string) => {
-    const token = vmAny.vaultOwnerToken as string | null;
+    const token = vm.vaultOwnerToken;
     if (!token) return;
     setQuery(text);
     setSuggestions([]);
@@ -158,7 +156,7 @@ export function DriveToFlow({
         ? "Select who to share with"
         : "Start Sharing Route";
 
-  const recentDestinations = (vmAny.recentDestinations ?? []) as DriveDestination[];
+  const recentDestinations = vm.recentDestinations;
 
   return (
     <div className="space-y-5">
@@ -371,7 +369,7 @@ export function DriveToFlow({
       <div className="space-y-2 pt-1">
         <Button
           onClick={() =>
-            destination && vmAny.onDriveTo(destination, checkedIds, durationValue)
+            destination && vm.onDriveTo(destination, checkedIds, durationValue)
           }
           disabled={!canStart}
           isLoading={busy}
