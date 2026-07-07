@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
@@ -141,7 +141,7 @@ async def get_request_recipient_key(
     """Owner-scoped: the buyer's active recipient key for one of the owner's
     requests, so the seller can seal a slice envelope for them at approve time."""
     try:
-        result = await _service().get_request_recipient_key(
+        result: dict[str, Any] | None = await _service().get_request_recipient_key(
             owner_user_id=token_data["user_id"], request_id=request_id
         )
     except Exception:
@@ -160,7 +160,7 @@ async def get_marketplace_delivery(
     """Buyer-scoped: the latest sealed envelope for one of the caller's requests.
     Ciphertext only — the buyer decrypts on-device with their IndexedDB key."""
     try:
-        result = await _service().get_delivered_envelope(
+        result: dict[str, Any] | None = await _service().get_delivered_envelope(
             buyer_user_id=token_data["user_id"], request_id=request_id
         )
     except Exception:
@@ -194,7 +194,7 @@ async def approve_marketplace_request(
 @router.post("/requests/{request_id}/deliver")
 async def deliver_marketplace_request(
     request_id: str = Path(..., min_length=1, max_length=128),
-    body: DeliverRequestBody = ...,
+    body: DeliverRequestBody = Body(...),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     """Owner-scoped: attach a sealed slice envelope to an already-approved request
