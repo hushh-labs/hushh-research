@@ -102,6 +102,13 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
   const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
+  // Mirror of tokenExpiresAt so the app-resume listener can read the latest
+  // expiry without re-subscribing every time the token changes.
+  const tokenExpiresAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    tokenExpiresAtRef.current = tokenExpiresAt;
+  }, [tokenExpiresAt]);
+
 
   const lockVault = useCallback(() => {
     resetSessionUnlocked();
@@ -153,10 +160,67 @@ export function VaultProvider({ children }: VaultProviderProps) {
     }
   }, [user, vaultKey, lockVault]);
 
+  // App-resume expiry guard (iOS/Android + web).
+  // The VAULT_OWNER token is memory-only with a fixed TTL and is never
+  // auto-refreshed. When the OS backgrounds the app (e.g. the user locks their
+  // phone) and later foregrounds it, the token can already be past its expiry.
+  // Any request made with that stale token fails backend validation and the
+  // location screen surfaced a dead-end "Token validation failed." banner that
+  // only a full app restart cleared. Instead, fail CLOSED: if the token is
+  // expired on resume, lock the vault so the standard VaultLockGuard re-unlock
+  // sheet (Face ID / passphrase) appears — a one-tap recovery, no restart, no
+  // scary error, and no weakening of the memory-only security model.
+  useEffect(() => {
+    let removeListener: (() => void) | null = null;
+    let cancelled = false;
+
+    const relockIfTokenExpired = () => {
+      const expiresAt = tokenExpiresAtRef.current;
+      // Only act when a token exists AND is actually past expiry. A missing
+      // token means the vault is already locked (guard handles it).
+      if (expiresAt !== null && Date.now() > expiresAt) {
+        console.warn(
+          "🔒 [VaultProvider] VAULT_OWNER token expired while backgrounded — locking to prompt re-unlock.",
+        );
+        lockVault();
+      }
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      void import("@capacitor/app")
+        .then(({ App }) => App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) relockIfTokenExpired();
+        }))
+        .then((handle) => {
+          if (cancelled) {
+            void handle.remove();
+            return;
+          }
+          removeListener = () => void handle.remove();
+        })
+        .catch((error) => {
+          console.warn("[VaultProvider] Failed to register app-resume expiry guard:", error);
+        });
+    } else if (typeof document !== "undefined") {
+      const onVisible = () => {
+        if (document.visibilityState === "visible") relockIfTokenExpired();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      removeListener = () =>
+        document.removeEventListener("visibilitychange", onVisible);
+    }
+
+    return () => {
+      cancelled = true;
+      if (removeListener) removeListener();
+    };
+  }, [lockVault]);
+
   // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)
   useEffect(() => {
     const handleLockRequest = (event: Event) => {
       const customEvent = event as CustomEvent<{ reason: string }>;
+
       console.log(
         `🔒 [VaultProvider] Lock requested: ${customEvent.detail?.reason}`
       );
