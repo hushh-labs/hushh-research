@@ -159,9 +159,9 @@ export const UI_FLOWS = [
     description: "One shell: Consent tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "One" },
-      { type: "click_bottom_nav", label: "Consent" },
+      { type: "navigate_route", route: "/consents" },
       { type: "wait_beacon", routeIds: ["/consents"] },
+      { type: "assert_visible_testid", testId: "consent-manager-primary" },
     ],
   },
   {

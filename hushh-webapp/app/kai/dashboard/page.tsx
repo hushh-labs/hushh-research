@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
-
+import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { ROUTES } from "@/lib/navigation/routes";
 
 export default function KaiDashboardCompatibilityPage() {
-  redirect(ROUTES.KAI_PORTFOLIO);
+  return <ClientRedirect to={ROUTES.KAI_PORTFOLIO} />;
 }
