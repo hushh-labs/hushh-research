@@ -56,11 +56,68 @@ def test_agent_card_is_manifest_backed():
     payload = response.json()
     assert payload["agentId"] == "agent_one"
     assert payload["name"] == "Agent One"
+    assert payload["supportedInterfaces"] == [
+        {
+            "url": "http://testserver/api/one/a2a/message",
+            "protocolBinding": "HTTP+JSON",
+            "protocolVersion": "1.0.0",
+        }
+    ]
+    assert payload["protocolVersion"] == "1.0.0"
+    assert payload["url"] == "http://testserver/api/one/a2a/message"
+    assert payload["preferredTransport"] == "HTTP+JSON"
     assert payload["requiredScopes"] == ["agent.one.orchestrate"]
+    assert payload["securitySchemes"]["developerBearer"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "developer-token",
+        "description": "Developer token issued for the partner app.",
+    }
+    assert payload["securitySchemes"]["userConsentToken"] == {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Consent-Token",
+        "description": (
+            "User-approved consent token scoped to agent.one.orchestrate. "
+            "Required when executing an approved user request."
+        ),
+    }
+    assert payload["security"] == [{"developerBearer": []}]
+    assert payload["securityRequirements"] == [{"developerBearer": []}]
     assert payload["protocol"]["developerAuth"] == "Authorization: Bearer <developer-token>"
     assert payload["protocol"]["consentHeader"] == "X-Consent-Token"
     assert payload["endpoints"]["message"] == "/api/one/a2a/message"
-    assert payload["capabilities"]["specialist_delegation"] is True
+    assert payload["capabilities"] == {
+        "streaming": False,
+        "pushNotifications": False,
+        "stateTransitionHistory": False,
+        "extendedAgentCard": False,
+    }
+    assert payload["defaultInputModes"] == ["text/plain", "application/json"]
+    assert payload["defaultOutputModes"] == ["application/json", "text/plain"]
+    assert [skill["id"] for skill in payload["skills"]] == [
+        "consent_managed_personal_data",
+        "account_opening_identity_data",
+        "privacy_and_vault_coordination",
+        "financial_eligibility_data",
+    ]
+    financial_skill = next(
+        skill for skill in payload["skills"] if skill["id"] == "financial_eligibility_data"
+    )
+    assert financial_skill["examples"] == [
+        "I need your financial net worth score, so that I can review your eligibility to join my Hedge Fund.",
+        "I need your last 3 months bank statement details for each of your connected bank accounts.",
+    ]
+    for skill in payload["skills"]:
+        assert skill["inputModes"] == ["text/plain", "application/json"]
+        assert skill["outputModes"] == ["application/json", "text/plain"]
+        assert skill["security"] == [{"developerBearer": [], "userConsentToken": []}]
+        assert skill["securityRequirements"] == [{"developerBearer": [], "userConsentToken": []}]
+    assert "specialists" not in payload
+    assert "agent_kai" not in str(payload)
+    assert "agent_nav" not in str(payload)
+    assert "agent_kyc" not in str(payload)
+    assert "agent_location" not in str(payload)
 
 
 def test_standard_well_known_agent_card_matches_manifest_card():
@@ -320,7 +377,7 @@ def test_message_routes_general_turn_to_one(monkeypatch):
     assert "One" in payload["response"]
 
 
-def test_message_surfaces_specialist_delegation(monkeypatch):
+def test_message_masks_internal_delegation(monkeypatch):
     _patch_developer_auth(monkeypatch)
     _patch_db_token_validation(monkeypatch)
 
@@ -336,6 +393,9 @@ def test_message_surfaces_specialist_delegation(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["userId"] == "user-one"
-    assert payload["delegation"]["delegated"] is True
-    assert payload["delegation"]["target_agent"] == "agent_kai"
-    assert payload["delegation"]["domain"] == "finance"
+    assert payload["delegation"] == {
+        "delegated": True,
+        "status": "routed_internally",
+    }
+    assert "target_agent" not in str(payload)
+    assert "agent_kai" not in str(payload)
