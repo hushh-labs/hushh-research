@@ -197,7 +197,9 @@ def build_persona_context(
         persona=normalize_persona(persona),
         route_family=sanitize_screen(route_family),
         voice_state=normalized_voice_state or None,
-        available_action_ids=_sanitize_sequence(available_action_ids, sanitize_action_id),
+        # 18 mirrors the frontend AVAILABLE_ACTION_IDS_CAP: screen segment (10)
+        # plus the reserved global navigation segment (8).
+        available_action_ids=_sanitize_sequence(available_action_ids, sanitize_action_id, limit=18),
         visible_modules=_sanitize_sequence(visible_modules, sanitize_label),
         cache_freshness=(normalized_cache_freshness or None),  # type: ignore[arg-type]
         vault_ready=vault_ready if isinstance(vault_ready, bool) else None,
@@ -253,13 +255,49 @@ _PERSONA_LENS: dict[AgentPersona, str] = {
 }
 
 
+def _describe_action_inputs(manifest_action: dict) -> str:
+    """Render a compact MCP-tool-style parameter signature for one action.
+
+    Mirrors how tool schemas read to coding agents: each required input shows
+    its slot name, and defaults are stated inline so the model knows it never
+    needs to ask a clarifying question for an input the contract already
+    answers. Example: "inputs: symbol=<ticker>, pickSource default 'default'".
+    """
+    goal = manifest_action.get("goal")
+    if not isinstance(goal, dict):
+        return ""
+    required_inputs = goal.get("required_inputs")
+    if not isinstance(required_inputs, list) or not required_inputs:
+        return ""
+    rendered: list[str] = []
+    for entry in required_inputs:
+        if not isinstance(entry, dict):
+            continue
+        slot = sanitize_label(str(entry.get("slot") or entry.get("name") or ""))
+        if not slot:
+            continue
+        default_value = sanitize_label(str(entry.get("default_value") or ""))
+        if default_value:
+            rendered.append(f"{slot} default '{default_value}'")
+            continue
+        resolver = sanitize_label(str(entry.get("resolver") or ""))
+        rendered.append(f"{slot}=<{resolver or 'value'}>")
+        if len(rendered) >= 4:
+            break
+    if not rendered:
+        return ""
+    return "; inputs: " + ", ".join(rendered)
+
+
 def _describe_action_contract(action_id: str, ctx: AgentPersonaContext) -> str:
-    """Render one action id with its manifest label and a coarse lock hint.
+    """Render one action id like an MCP tool doc: label, param signature, lock.
 
     The manifest load is process-cached (lru_cache), so this adds no I/O on the
-    hot token/relay path. Labels give the model semantics beyond bare ids, and
-    the lock hint keeps tier prose and the action list from contradicting each
-    other (the app still enforces every guard at execution time).
+    hot token/relay path. Labels + input signatures give the model the same
+    affordance a coding agent gets from a tool schema: it can propose the
+    action with slots filled (using contract defaults) instead of guessing
+    from a bare id or asking questions the contract already answers. The app
+    still enforces every guard at execution time.
     """
     try:
         from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
@@ -283,8 +321,9 @@ def _describe_action_contract(action_id: str, ctx: AgentPersonaContext) -> str:
         "anon_browsing",
     }:
         locked_hint = " [requires sign-in]"
+    inputs_hint = _describe_action_inputs(manifest_action)
     if label:
-        return f"{action_id} ({label}){locked_hint}"
+        return f"{action_id} ({label}{inputs_hint}){locked_hint}"
     return f"{action_id}{locked_hint}"
 
 
@@ -300,7 +339,10 @@ def _context_clause(ctx: AgentPersonaContext) -> str:
         described = [
             _describe_action_contract(action_id, ctx) for action_id in ctx.available_action_ids
         ]
-        parts.append("Available app action contracts: " + ", ".join(described) + ".")
+        parts.append(
+            "Available app action contracts (route.* navigation contracts work "
+            "from any screen): " + ", ".join(described) + "."
+        )
     if ctx.voice_state:
         parts.append(f"The current voice transition state is '{ctx.voice_state}'.")
     cache_parts: list[str] = []

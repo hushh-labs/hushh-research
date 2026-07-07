@@ -16,6 +16,30 @@ import type {
 } from "@/lib/voice/voice-ui-state-machine";
 
 export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
+/**
+ * available_action_ids carries the screen-ranked list PLUS a reserved global
+ * navigation segment, so it gets a wider cap than other context arrays. The
+ * backend mirrors this value (Pydantic max_length + persona sanitize limit);
+ * keep all three in sync.
+ */
+export const AVAILABLE_ACTION_IDS_CAP = 18;
+/**
+ * Cross-screen navigation contracts that must ALWAYS be visible to the model,
+ * regardless of the current screen. Without this reserved segment, strict
+ * screen filtering plus the context cap made "go to profile" undiscoverable
+ * from any non-profile tab: the model was never told route.profile existed.
+ * One id per top-level agent surface.
+ */
+export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
+  "route.one_agents",
+  "route.kai_home",
+  "route.ria_home",
+  "route.profile",
+  "route.one_location",
+  "route.one_pkm",
+  "route.one_marketplace",
+  "route.consents",
+];
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -327,7 +351,19 @@ function prioritizeAvailableActionIds(
       screen
     );
   }
-  return enforceArrayDimensionCap(ranked).items;
+  // Screen-ranked segment first (original cap), then the reserved global
+  // navigation segment so cross-agent navigation is always proposable. The
+  // combined list stays within AVAILABLE_ACTION_IDS_CAP, which the backend
+  // accepts (Pydantic max_length is kept in sync).
+  const screenSegment = enforceArrayDimensionCap(ranked).items;
+  const combined = [...screenSegment];
+  for (const navId of GLOBAL_NAV_ACTION_IDS) {
+    if (combined.length >= AVAILABLE_ACTION_IDS_CAP) break;
+    if (combined.includes(navId)) continue;
+    if (!getKaiActionById(navId)) continue;
+    combined.push(navId);
+  }
+  return combined;
 }
 
 function stableRevision(values: unknown[]): string {

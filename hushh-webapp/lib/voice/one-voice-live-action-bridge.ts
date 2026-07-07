@@ -181,9 +181,13 @@ function getPlannerCandidate(
 ): OneVoiceActionProposal | null {
   if (!proposal) return null;
   const confidence = proposal.confidence;
+  // A proposal without a finite numeric confidence must NOT bypass the floor:
+  // model self-reports are already optimistic, and a null/absent confidence is
+  // the least trustworthy signal of all. Fail closed and let the lexical
+  // planner rank the transcript from scratch instead.
   if (
-    typeof confidence === "number" &&
-    Number.isFinite(confidence) &&
+    typeof confidence !== "number" ||
+    !Number.isFinite(confidence) ||
     confidence < ACTION_PROPOSAL_CONFIDENCE_FLOOR
   ) {
     return null;
