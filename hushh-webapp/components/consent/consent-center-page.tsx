@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
@@ -1186,7 +1187,7 @@ export function ConsentCenterPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
-  const { getVaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultOwnerToken, isVaultUnlocked, vaultKey } = useVault();
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1291,6 +1292,40 @@ export function ConsentCenterPage() {
     router,
     searchParams,
   ]);
+
+  // Fulfil agent-driven marketplace approvals. Agent One (A2A) and the
+  // marketplace chat agent can only flip a request to `approved` server-side —
+  // they have no browser/vault key to seal the encrypted slice, so the seller's
+  // device must complete delivery. The unlock-warm sweep runs at most once per
+  // session and usually fires before the agent approval exists, leaving slices
+  // approved-but-undelivered. Opening the Consent Guardian is exactly when the
+  // seller is present with an unlocked vault, so we sweep again here (guard-free
+  // relative to unlock-warm, once per mount) to seal + deliver those requests.
+  const marketplaceSweptRef = useRef(false);
+  useEffect(() => {
+    if (marketplaceSweptRef.current) return;
+    if (!isVaultUnlocked || !user?.uid || !vaultKey) return;
+    const vaultOwnerToken = getVaultOwnerToken();
+    if (!vaultOwnerToken) return;
+    marketplaceSweptRef.current = true;
+    void runMarketplaceDeliverySweep({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .then((result) => {
+        // Refresh the lists so freshly delivered grants reflect their new state.
+        if (result.delivered > 0) {
+          setMutationTick((value) => value + 1);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          "[ConsentCenter] marketplace delivery sweep failed:",
+          error,
+        );
+      });
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
 
   const {
     handleApprove,
