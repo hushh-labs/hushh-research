@@ -972,6 +972,8 @@ export default function OneMarketplacePage() {
       <div className="mb-5">
         <MarketplaceChatPanel
           vaultOwnerToken={token ?? null}
+          userId={user?.uid ?? null}
+          vaultKey={vaultKey}
           onStateChanged={loadReceived}
           onPublishSlice={onPublishSlice}
           publishedSliceKeys={publishedSliceKeys}

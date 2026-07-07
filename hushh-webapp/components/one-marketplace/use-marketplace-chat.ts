@@ -6,6 +6,7 @@ import {
   OneMarketplaceService,
   type PublishSlicesAction,
 } from "@/lib/one-marketplace/service";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 
 export interface MarketplaceChatMessage {
   id: string;
@@ -32,12 +33,20 @@ export const MARKETPLACE_CHAT_ERROR_TEXT =
  * renders replies. When a turn reports `stateChanged` (the agent approved/denied
  * a request server-side), it calls `onStateChanged` so the page refetches the
  * durable request inbox — no client-side action plumbing needed.
+ *
+ * A server-side agent approval can only flip a request to `approved`; it has no
+ * browser/vault key to seal the encrypted slice. Since this chat runs in the
+ * seller's unlocked browser, we run the delivery sweep right after a state change
+ * so an agent approval seals + delivers immediately — matching what an
+ * interactive Consent Guardian approval does in one step.
  */
 export function useMarketplaceChat(params: {
   vaultOwnerToken: string;
+  userId?: string | null;
+  vaultKey?: string | null;
   onStateChanged?: () => void;
 }): UseMarketplaceChat {
-  const { vaultOwnerToken, onStateChanged } = params;
+  const { vaultOwnerToken, userId, vaultKey, onStateChanged } = params;
   const [messages, setMessages] = useState<MarketplaceChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [publishCard, setPublishCard] = useState<PublishSlicesAction | null>(null);
@@ -71,7 +80,25 @@ export function useMarketplaceChat(params: {
         if (result.clientAction?.type === "publish_slices") {
           setPublishCard(result.clientAction);
         }
-        if (result.stateChanged) changedRef.current?.();
+        if (result.stateChanged) {
+          // The agent just approved/denied server-side. Seal + deliver any
+          // now-approved-but-undelivered slice from the seller's unlocked
+          // browser before refreshing, so agent approval matches the Guardian's
+          // approve-and-deliver in one step. Best-effort: the sweep skips (no
+          // error) when the buyer has no recipient key yet.
+          if (userId && vaultKey) {
+            try {
+              await runMarketplaceDeliverySweep({
+                userId,
+                vaultKey,
+                vaultOwnerToken,
+              });
+            } catch (error) {
+              console.warn("[MarketplaceChat] delivery sweep failed:", error);
+            }
+          }
+          changedRef.current?.();
+        }
       } catch {
         setMessages((prev) => [
           ...prev,
@@ -86,7 +113,7 @@ export function useMarketplaceChat(params: {
         setBusy(false);
       }
     },
-    [vaultOwnerToken, nextId],
+    [vaultOwnerToken, userId, vaultKey, nextId],
   );
 
   const send = useCallback(
