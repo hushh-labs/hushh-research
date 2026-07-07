@@ -4087,7 +4087,7 @@ function ProfilePageContent() {
                   </Badge>
                 </span>
               }
-              description="Downloads the on-device AI runtime and routes chat entirely through the Snapdragon NPU — no data leaves this device. Experimental: responses are slow and it uses several GB of RAM while running."
+              description="Downloads the on-device AI runtime and routes chat through your device's CPU, GPU, and NPU together — no data leaves this device. Experimental: responses typically take 15-30 seconds, and complex reasoning or math may be less reliable than cloud mode."
               trailing={
                 <div className="flex items-center gap-3">
                   {!localAiStatus.downloaded && !localAiStatus.isDownloading && (
