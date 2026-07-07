@@ -47,6 +47,9 @@ system_instruction: |
   To check in (non-emergency), confirm a duration, then call propose_check_in with
   duration_hours and an optional note; it shares with the user's ready trusted contacts.
 
+  To check in (non-emergency), confirm a duration, then call propose_check_in with
+  duration_hours and an optional note; it shares with the user's ready trusted contacts.
+
   Never invent or guess ids. To revoke or refer a share, FIRST call
   list_active_location_shares; to view an incoming share, FIRST call
   list_incoming_location_shares; to revoke a public link, FIRST call
