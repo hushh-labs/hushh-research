@@ -108,6 +108,41 @@ the save-to-PKM trigger and the on-page flash card.
 | **Offer-worthy signal detection** | Phase 3 (new, small) |
 | **`propose_publish` card + inline triggers** | Phase 3 (new) |
 
+## Next milestone — Consent-based E2E delivery + Consent Guardian merge (2026-07-05)
+
+Phases 1–3 above are built (durable requests, A2A approve, opportunity nudge) plus
+Stage A anonymized cross-account demand. The remaining gap: **approve flips a status
+row but no data reaches the buyer**, and approval lives in a redundant marketplace
+"Flow & requests" tab that duplicates the Consent Guardian. This milestone makes
+delivery real and consolidates approval. **No payment** (still deferred).
+
+Delivery blueprint = the **One Location** user-to-user envelope pattern (recipient
+publishes an ECDH P-256 public key, private half stays in IndexedDB; sender posts an
+encrypted envelope; recipient fetches + decrypts). The Consent Guardian already runs
+the full E2E pipeline (`lib/consent/use-consent-actions.ts`), so approval routes there.
+
+**Target tabs:** Owner (publish/price, unchanged) · Buyer (storefront browse, unchanged) ·
+Flow & requests → **repurposed to the buyer's "Received data" tab** (their requests +
+delivered slices they open in-app). **Approvals move entirely to the Consent Guardian.**
+
+- **Phase D1 — Buyer recipient key**: mirror/generalize `lib/one-location/encryption.ts`
+  + `key-bootstrap.ts`; auto-publish buyer public key on unlock (`unlock-warm-orchestrator`).
+  Backend persists it so the owner can fetch at approve time.
+- **Phase D2 — Approve via Guardian + real delivery**: surface marketplace requests as
+  a new entry type in the Consent Center "requests" tab (branch `approveEntry`/`denyEntry`
+  like location rows); new `useMarketplaceConsentActions` decrypts the slice via
+  `buildConsentExportForScope`, wraps for the buyer key, posts an envelope; backend
+  `approve_marketplace_request` stores the envelope. Remove the owner inbox from
+  `app/one/marketplace/page.tsx`.
+- **Phase D3 — Buyer "Received data" tab**: backend buyer-scoped list + envelope fetch;
+  frontend repurposes the `flow` tab to decrypt (IndexedDB private key) and render slices.
+
+**Commit strategy:** one commit per phase (D1, D2, D3), not per step — context is cleared
+between phases. **Open decision:** buyer key is device-bound (IndexedDB); switching device
+loses access — acceptable for first cut, revisit key backup before relying on it.
+
+Full plan file: `~/.claude/plans/scalable-seeking-kurzweil.md`.
+
 ## Out of scope (for now)
 Payment rail / settlement (still no money moves); autonomous buyer/business agent
 (demo runs on One ↔ Information Marketplace only).

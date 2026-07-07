@@ -1,0 +1,9 @@
+#!/bin/sh
+# .githooks/prepare-commit-msg  (local, untracked)
+# Auto-append DCO "Signed-off-by" line if the commit message lacks one, so the
+# PR Validation / DCO check never fails for a missing signoff again.
+COMMIT_MSG_FILE="$1"
+NAME=$(git config user.name)
+EMAIL=$(git config user.email)
+SOB="Signed-off-by: $NAME <$EMAIL>"
+grep -qsF "$SOB" "$COMMIT_MSG_FILE" || printf '\n%s\n' "$SOB" >> "$COMMIT_MSG_FILE"
