@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
 
 export type OneConversationMirrorEvent = {
   id: string;
@@ -19,7 +20,8 @@ export type AgentChatHandoffReason =
   | "sensitive_action"
   | "long_running"
   | "manual_only"
-  | "delegated_action";
+  | "delegated_action"
+  | "pkm_memory_candidate";
 
 export type AgentChatHandoff = {
   id: string;
@@ -28,6 +30,7 @@ export type AgentChatHandoff = {
   assistantText?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;
+  specialistDirective?: SpecialistDirectiveEvent | null;
   createdAtMs: number;
 };
 

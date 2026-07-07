@@ -16,8 +16,9 @@ Security model:
 - Auth is OPTIONAL, exactly like ``agent_intro.py``: a signed-in user with an
   unlocked vault gets the full persona, while an anonymous / locked-vault
   onboarding visitor gets a navigation-only informational persona. Neither tier
-  reads or writes PKM/vault data on this path: realtime voice has no tools,
-  memory, or persistence, so it is safe to expose at the lower privilege.
+  reads or writes PKM/vault data on this path: realtime voice only exposes a
+  proposal-only action tool, with no provider-side execution, memory, or
+  persistence, so it is safe to expose at the lower privilege.
 - Rate limited per user/IP to bound cost on the unauthenticated path.
 """
 
@@ -35,7 +36,7 @@ import os
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal, NamedTuple, Optional
 
 from fastapi import (
     APIRouter,
@@ -651,10 +652,23 @@ def _normalize_action_proposal_args(args: Any) -> Optional[dict[str, Any]]:
     }
 
 
-def _extract_action_proposals(response: Any) -> list[dict[str, Any]]:
-    """Extract provider function calls as proposal-only app signals."""
+class _ActionProposalCall(NamedTuple):
+    proposal: dict[str, Any]
+    call_id: Optional[str]
+    name: str
 
-    proposals: list[dict[str, Any]] = []
+
+def _extract_action_proposal_calls(response: Any) -> list[_ActionProposalCall]:
+    """Extract provider function calls as proposal-only app signals.
+
+    Gemini Live function calling is synchronous for the Gemini 3.1 Live preview:
+    the relay must acknowledge every provider tool call even though Hussh never
+    executes the action provider-side. The call id/name are therefore retained
+    for ``send_tool_response`` while the proposal payload is forwarded to the
+    frontend One Goal path.
+    """
+
+    calls: list[_ActionProposalCall] = []
     tool_call = _read_attr_or_key(response, "tool_call") or _read_attr_or_key(response, "toolCall")
     function_calls = _read_attr_or_key(tool_call, "function_calls") or _read_attr_or_key(
         tool_call, "functionCalls"
@@ -666,7 +680,14 @@ def _extract_action_proposals(response: Any) -> list[dict[str, Any]]:
                 continue
             proposal = _normalize_action_proposal_args(_read_attr_or_key(call, "args"))
             if proposal:
-                proposals.append(proposal)
+                call_id = _read_attr_or_key(call, "id")
+                calls.append(
+                    _ActionProposalCall(
+                        proposal=proposal,
+                        call_id=call_id if isinstance(call_id, str) and call_id.strip() else None,
+                        name=name,
+                    )
+                )
 
     server_content = _read_attr_or_key(response, "server_content") or _read_attr_or_key(
         response, "serverContent"
@@ -687,8 +708,55 @@ def _extract_action_proposals(response: Any) -> list[dict[str, Any]]:
                 continue
             proposal = _normalize_action_proposal_args(_read_attr_or_key(function_call, "args"))
             if proposal:
-                proposals.append(proposal)
-    return proposals
+                call_id = _read_attr_or_key(function_call, "id")
+                calls.append(
+                    _ActionProposalCall(
+                        proposal=proposal,
+                        call_id=call_id if isinstance(call_id, str) and call_id.strip() else None,
+                        name=name,
+                    )
+                )
+    return calls
+
+
+def _extract_action_proposals(response: Any) -> list[dict[str, Any]]:
+    """Compatibility helper for tests and callers that only need proposals."""
+
+    return [call.proposal for call in _extract_action_proposal_calls(response)]
+
+
+def _build_proposal_tool_responses(genai_types: Any, calls: list[_ActionProposalCall]) -> list[Any]:
+    """Build synchronous Live API FunctionResponse acknowledgements.
+
+    The response intentionally says "proposal_received" rather than success.
+    Execution still belongs to One Goal and the generated gateway.
+    """
+
+    responses: list[Any] = []
+    for call in calls:
+        response_payload = {
+            "result": "proposal_received",
+            "execution": "not_executed_by_provider",
+            "next": "hussh_one_goal_planner_validates_gateway_guards_and_settlement",
+            "action_id": call.proposal.get("action_id"),
+        }
+        try:
+            kwargs: dict[str, Any] = {
+                "name": call.name,
+                "response": response_payload,
+            }
+            if call.call_id:
+                kwargs["id"] = call.call_id
+            responses.append(genai_types.FunctionResponse(**kwargs))
+        except Exception:  # noqa: BLE001 - SDK shape fallback for relay tests/older clients
+            fallback: dict[str, Any] = {
+                "name": call.name,
+                "response": response_payload,
+            }
+            if call.call_id:
+                fallback["id"] = call.call_id
+            responses.append(fallback)
+    return responses
 
 
 def _build_action_proposal_tools(genai_types: Any) -> Optional[list[Any]]:
@@ -821,6 +889,7 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
     try:
         client = _resolve_vertex_live_client()
         live_config = _build_live_config(voice, instructions)
+        from google.genai import types as genai_types
     except Exception as error:  # noqa: BLE001 - normalize provider failures
         logger.warning(
             "agent_gemini_live_relay_init_failed error=%s",
@@ -920,8 +989,24 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
                             await websocket.send_text(
                                 json.dumps({"outputTranscription": {"text": output_transcript}})
                             )
-                        for proposal in _extract_action_proposals(response):
-                            await websocket.send_text(json.dumps({"actionProposal": proposal}))
+                        proposal_calls = _extract_action_proposal_calls(response)
+                        for proposal_call in proposal_calls:
+                            await websocket.send_text(
+                                json.dumps({"actionProposal": proposal_call.proposal})
+                            )
+                        if proposal_calls:
+                            try:
+                                await session.send_tool_response(
+                                    function_responses=_build_proposal_tool_responses(
+                                        genai_types, proposal_calls
+                                    )
+                                )
+                            except Exception as error:  # noqa: BLE001 - keep relay alive
+                                logger.warning(
+                                    "agent_gemini_live_tool_ack_failed count=%s error=%s",
+                                    len(proposal_calls),
+                                    error.__class__.__name__,
+                                )
                         server_content = response.server_content
                         if server_content is not None:
                             if getattr(server_content, "interrupted", False):

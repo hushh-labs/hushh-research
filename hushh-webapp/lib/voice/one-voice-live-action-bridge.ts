@@ -2,6 +2,7 @@
 
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import type { AgentChatHandoffReason } from "@/lib/agent/one-conversation-session";
+import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
 import {
   buildVoiceActionResult,
   type VoiceActionResult as CommandVoiceActionResult,
@@ -34,6 +35,7 @@ type BridgeHandoffInput = {
   assistantText?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;
+  specialistDirective?: SpecialistDirectiveEvent | null;
 };
 
 type RouterLike = {
@@ -41,6 +43,8 @@ type RouterLike = {
 };
 
 type PendingGoalPlan = Extract<OneGoalPlan, { status: "input_needed" }>;
+
+const ACTION_PROPOSAL_CONFIDENCE_FLOOR = 0.55;
 
 export type OneVoiceLiveActionBridgeConfig = {
   userId: string | null | undefined;
@@ -106,7 +110,11 @@ function shouldHandoffToChat(params: {
 }): { handoff: boolean; reason: AgentChatHandoffReason } {
   const actionId = params.groundedPlan?.actionId || params.plan.action_id || null;
   const action = getKaiActionById(actionId);
-  if (action?.delegate_agent_id && action.delegate_agent_id !== "one") {
+  if (
+    action?.delegate_agent_id &&
+    action.delegate_agent_id !== "one" &&
+    !goalUsesService(actionId, "specialist_chat.turn")
+  ) {
     return { handoff: true, reason: "delegated_action" };
   }
   if (params.needsConfirmation || params.plan.needs_confirmation) {
@@ -165,6 +173,70 @@ function isCancelGoalRequest(transcript: string): boolean {
   return /\b(cancel|stop|never mind|nevermind|forget it)\b/i.test(transcript);
 }
 
+function getPlannerCandidate(
+  proposal: OneVoiceActionProposal | null | undefined
+): OneVoiceActionProposal | null {
+  if (!proposal) return null;
+  const confidence = proposal.confidence;
+  if (
+    typeof confidence === "number" &&
+    Number.isFinite(confidence) &&
+    confidence < ACTION_PROPOSAL_CONFIDENCE_FLOOR
+  ) {
+    return null;
+  }
+  return proposal;
+}
+
+function containsSensitiveMemoryText(transcript: string): boolean {
+  const lower = transcript.toLowerCase();
+  const forbidden = [
+    "password",
+    "passphrase",
+    "secret",
+    "private key",
+    "api key",
+    "token",
+    "ssn",
+    "social security",
+    "passport",
+    "driver license",
+    "routing number",
+    "account number",
+  ];
+  if (forbidden.some((keyword) => lower.includes(keyword))) return true;
+  if (/\b\d{8,}\b/.test(transcript)) return true;
+  if (/\b[a-zA-Z0-9_-]{24,}\b/.test(transcript)) return true;
+  return false;
+}
+
+export function classifyOneVoicePkmMemoryCandidate(transcript: string): {
+  candidate: boolean;
+  explicit: boolean;
+  reason: "explicit_remember" | "stable_user_preference" | null;
+} {
+  const text = transcript.trim();
+  if (!text || text.length > 320 || containsSensitiveMemoryText(text)) {
+    return { candidate: false, explicit: false, reason: null };
+  }
+  const explicit =
+    /\b(?:remember|save|store|add)\b[\s\S]{0,140}\b(?:this|that|to memory|to my memory|to personal data|to pkm|as my preference)\b/i.test(
+      text
+    ) ||
+    /\b(?:remember|save|store)\b\s+(?:that\s+)?(?:i|my)\b/i.test(text);
+  if (explicit) {
+    return { candidate: true, explicit: true, reason: "explicit_remember" };
+  }
+  const stablePreference =
+    /\b(?:i prefer|i usually|i always|i normally|my default|call me|my preference is|i like to)\b/i.test(
+      text
+    ) && !/[?]/.test(text);
+  if (stablePreference) {
+    return { candidate: true, explicit: false, reason: "stable_user_preference" };
+  }
+  return { candidate: false, explicit: false, reason: null };
+}
+
 export class OneVoiceLiveActionBridge {
   private config: OneVoiceLiveActionBridgeConfig;
   private orchestrator: VoiceTurnOrchestrator | null = null;
@@ -206,6 +278,18 @@ export class OneVoiceLiveActionBridge {
       });
       return;
     }
+    const memoryCandidate = classifyOneVoicePkmMemoryCandidate(transcript);
+    if (memoryCandidate.candidate) {
+      this.config.openChatHandoff({
+        reason: "pkm_memory_candidate",
+        transcript,
+        actionId: "profile.pkm.preview_capture",
+        assistantText: memoryCandidate.explicit
+          ? "I can review that before saving it to your personal data."
+          : "That may be useful to remember. Review it before saving it to your personal data.",
+      });
+      return;
+    }
     if (!this.config.userId || !this.config.vaultOwnerToken || !this.orchestrator) {
       this.config.openChatHandoff({
         reason: "action_requires_chat",
@@ -214,17 +298,18 @@ export class OneVoiceLiveActionBridge {
       });
       return;
     }
+    const plannerCandidate = getPlannerCandidate(input.candidate);
     const handledByGoal = await this.tryProcessGoalTranscript({
       transcript,
-      candidate: input.candidate,
+      candidate: plannerCandidate,
     });
     if (handledByGoal) return;
     await this.orchestrator.processTranscript({
       transcript,
       source: "gemini_live",
-      candidateActionId: input.candidate?.action_id ?? null,
-      candidateSlots: input.candidate?.slots ?? null,
-      candidateReason: input.candidate?.reason ?? null,
+      candidateActionId: plannerCandidate?.action_id ?? null,
+      candidateSlots: plannerCandidate?.slots ?? null,
+      candidateReason: plannerCandidate?.reason ?? null,
     });
   }
 
@@ -314,7 +399,8 @@ export class OneVoiceLiveActionBridge {
     this.pendingGoalPlan = null;
 
     const action = plan.action;
-    if (action.delegate_agent_id && action.delegate_agent_id !== "one") {
+    const specialistGoal = goalUsesService(action.action_id, "specialist_chat.turn");
+    if (action.delegate_agent_id && action.delegate_agent_id !== "one" && !specialistGoal) {
       this.config.openChatHandoff({
         reason: "delegated_action",
         transcript,
@@ -355,6 +441,7 @@ export class OneVoiceLiveActionBridge {
         router: this.config.router,
         setAnalysisParams: this.config.setAnalysisParams,
         executeAction: this.config.executeAction,
+        screenContext: this.config.getVoiceContext(),
         waitForCompletion: !longRunning,
         callbacks: {
           onProgressText: async (text) => {
@@ -377,6 +464,23 @@ export class OneVoiceLiveActionBridge {
           },
         },
       });
+      if (result.actionResult.data?.requiresChatHandoff === true) {
+        const specialistDirective =
+          result.actionResult.data.specialistDirective &&
+          typeof result.actionResult.data.specialistDirective === "object"
+            ? (result.actionResult.data.specialistDirective as SpecialistDirectiveEvent)
+            : null;
+        this.config.openChatHandoff({
+          reason: "delegated_action",
+          transcript,
+          actionId: action.action_id,
+          assistantText: result.resultSummary.text,
+          resultSummary: result.resultSummary.text,
+          specialistDirective,
+        });
+        this.config.setStage?.("idle");
+        return true;
+      }
       if (longRunning && result.resultSummary.text) {
         const turnId = `goal_waiting_${Date.now()}`;
         await this.speakWithStage({

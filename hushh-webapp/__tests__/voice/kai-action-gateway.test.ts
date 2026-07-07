@@ -61,6 +61,18 @@ function makeRuntimeState(overrides: Partial<AppRuntimeState> = {}): AppRuntimeS
   };
 }
 
+const ALLOWED_DELEGATE_AGENT_IDS = [
+  "one",
+  "kai",
+  "nav",
+  "kyc",
+  "agent_connected_systems",
+  "agent_connections",
+  "agent_email",
+  "agent_location",
+  "agent_personal_information",
+];
+
 describe("kai-action-gateway", () => {
   it("loads the generated gateway with stable action identity", () => {
     expect(KAI_ACTION_GATEWAY.schema_version).toBe("kai.action_gateway.vnext");
@@ -78,7 +90,7 @@ describe("kai-action-gateway", () => {
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
           action.delegate_agent_id === null ||
-          ["one", "kai", "nav", "kyc"].includes(action.delegate_agent_id)
+          ALLOWED_DELEGATE_AGENT_IDS.includes(action.delegate_agent_id)
       )
     ).toBe(true);
     expect(

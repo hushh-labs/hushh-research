@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
-import { OneVoiceLiveActionBridge } from "@/lib/voice/one-voice-live-action-bridge";
+import {
+  classifyOneVoicePkmMemoryCandidate,
+  OneVoiceLiveActionBridge,
+} from "@/lib/voice/one-voice-live-action-bridge";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { runOneGoal } from "@/lib/one-goal/one-goal-runner";
+
+const orchestratorMocks = vi.hoisted(() => ({
+  processTranscript: vi.fn(),
+  cancelActiveTurn: vi.fn(),
+}));
 
 vi.mock("@/lib/one-goal/one-goal-runner", () => ({
   runOneGoal: vi.fn().mockResolvedValue({
@@ -24,8 +32,8 @@ vi.mock("@/lib/one-goal/one-goal-runner", () => ({
 vi.mock("@/lib/voice/voice-turn-orchestrator", () => ({
   VoiceTurnOrchestrator: vi.fn().mockImplementation(function MockVoiceTurnOrchestrator() {
     return {
-      processTranscript: vi.fn(),
-      cancelActiveTurn: vi.fn(),
+      processTranscript: orchestratorMocks.processTranscript,
+      cancelActiveTurn: orchestratorMocks.cancelActiveTurn,
     };
   }),
 }));
@@ -77,6 +85,7 @@ function runtimeState(): AppRuntimeState {
 describe("OneVoiceLiveActionBridge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    orchestratorMocks.processTranscript.mockResolvedValue(undefined);
   });
 
   it("keeps pending goal context across Gemini Live clarification turns", async () => {
@@ -302,5 +311,242 @@ describe("OneVoiceLiveActionBridge", () => {
         pickSource: "default",
       },
     });
+  });
+
+  it("runs read-only specialist-turn goals through the One Goal runner", async () => {
+    const speak = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(runOneGoal).mockImplementationOnce(async (options) => {
+      await options.callbacks?.onFinalText?.("Two threads need a reply today.");
+      return {
+        session: {} as never,
+        actionResult: {
+          status: "succeeded",
+          actionId: "email.chat.turn",
+          label: "Ask Email",
+          routeBefore: "/one",
+          routeAfter: "/one/gmail",
+          resultSummary: "Two threads need a reply today.",
+        },
+        resultSummary: {
+          text: "Two threads need a reply today.",
+          route: "/one/gmail",
+        },
+      };
+    });
+    const openChatHandoff = vi.fn();
+    const bridge = new OneVoiceLiveActionBridge({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      getAppRuntimeState: runtimeState,
+      getVoiceContext: () => ({ route: { pathname: "/one/gmail" } }),
+      executeAction: vi.fn(),
+      speak,
+      openChatHandoff,
+    });
+
+    await bridge.processTranscript({ transcript: "What needs a reply today?" });
+
+    expect(runOneGoal).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runOneGoal).mock.calls[0]?.[0]).toMatchObject({
+      screenContext: { route: { pathname: "/one/gmail" } },
+      plan: {
+        status: "ready",
+        action: {
+          action_id: "email.chat.turn",
+          delegate_agent_id: "agent_email",
+        },
+        slots: {
+          utterance: "What needs a reply today?",
+        },
+      },
+    });
+    expect(openChatHandoff).not.toHaveBeenCalled();
+    expect(speak.mock.lastCall?.[0].text).toBe("Two threads need a reply today.");
+  });
+
+  it("hands confirmation-required specialist goals to chat instead of direct execution", async () => {
+    const openChatHandoff = vi.fn();
+    const bridge = new OneVoiceLiveActionBridge({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      getAppRuntimeState: runtimeState,
+      getVoiceContext: () => ({}),
+      executeAction: vi.fn(),
+      speak: vi.fn(),
+      openChatHandoff,
+    });
+
+    await bridge.processTranscript({
+      transcript: "Add Kushal to my trusted connections",
+    });
+
+    expect(runOneGoal).not.toHaveBeenCalled();
+    expect(openChatHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "sensitive_action",
+        actionId: "connections.chat.turn",
+        transcript: "Add Kushal to my trusted connections",
+      })
+    );
+  });
+
+  it("preserves specialist directives when voice hands off to Agent Chat", async () => {
+    const specialistDirective = {
+      delegateAgentId: "agent_location",
+      directive: {
+        kind: "action" as const,
+        payload: {
+          id: "share-1",
+          type: "publish_share",
+        },
+      },
+      message: "Review this location share before I start it.",
+      stateChanged: false,
+    };
+    vi.mocked(runOneGoal).mockResolvedValueOnce({
+      session: {} as never,
+      actionResult: {
+        status: "blocked",
+        actionId: "location.chat.turn",
+        label: "Ask Location",
+        routeBefore: "/one/location",
+        routeAfter: "/one/location",
+        resultSummary: "Review this location share before I start it.",
+        data: {
+          requiresChatHandoff: true,
+          specialistDirective,
+        },
+      },
+      resultSummary: {
+        text: "Review this location share before I start it.",
+        route: "/one/location",
+      },
+    });
+    const openChatHandoff = vi.fn();
+    const bridge = new OneVoiceLiveActionBridge({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      getAppRuntimeState: runtimeState,
+      getVoiceContext: () => ({}),
+      executeAction: vi.fn(),
+      speak: vi.fn().mockResolvedValue(undefined),
+      openChatHandoff,
+    });
+
+    await bridge.processTranscript({
+      transcript: "Start sharing my location with Rohan",
+    });
+
+    expect(runOneGoal).toHaveBeenCalledTimes(1);
+    expect(openChatHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "delegated_action",
+        actionId: "location.chat.turn",
+        transcript: "Start sharing my location with Rohan",
+        specialistDirective,
+      })
+    );
+  });
+
+  it("ignores low-confidence Gemini Live action proposals before planning or orchestration", async () => {
+    const bridge = new OneVoiceLiveActionBridge({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      getAppRuntimeState: runtimeState,
+      getVoiceContext: () => ({}),
+      executeAction: vi.fn(),
+      speak: vi.fn(),
+      openChatHandoff: vi.fn(),
+    });
+
+    await bridge.processTranscript({
+      transcript: "unrelatedly supercalifragilistic",
+      candidate: {
+        action_id: "route.profile",
+        needs_confirmation: false,
+        confidence: 0.2,
+        slots: {},
+        reason: "Weak provider-side guess.",
+      },
+    });
+
+    expect(runOneGoal).not.toHaveBeenCalled();
+    expect(orchestratorMocks.processTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcript: "unrelatedly supercalifragilistic",
+        source: "gemini_live",
+        candidateActionId: null,
+        candidateSlots: null,
+        candidateReason: null,
+      })
+    );
+  });
+
+  it.each([
+    ["remember that I prefer concise summaries", true, true],
+    ["I usually use the default stock debate list", true, false],
+    ["what lists are available", false, false],
+    ["my password is hunter2", false, false],
+  ])(
+    "classifies PKM memory candidates conservatively: %s",
+    (transcript, expectedCandidate, expectedExplicit) => {
+      expect(classifyOneVoicePkmMemoryCandidate(transcript)).toMatchObject({
+        candidate: expectedCandidate,
+        explicit: expectedExplicit,
+      });
+    },
+  );
+
+  it("hands useful memory candidates to chat/PKM review instead of saving directly", async () => {
+    const openChatHandoff = vi.fn();
+    const bridge = new OneVoiceLiveActionBridge({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      getAppRuntimeState: runtimeState,
+      getVoiceContext: () => ({}),
+      executeAction: vi.fn(),
+      speak: vi.fn(),
+      openChatHandoff,
+    });
+
+    await bridge.processTranscript({
+      transcript: "remember that I prefer concise summaries",
+    });
+
+    expect(openChatHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "pkm_memory_candidate",
+        actionId: "profile.pkm.preview_capture",
+        transcript: "remember that I prefer concise summaries",
+      })
+    );
+    expect(runOneGoal).not.toHaveBeenCalled();
+  });
+
+  it("does not create PKM handoffs for secret-like voice content", async () => {
+    const openChatHandoff = vi.fn();
+    const bridge = new OneVoiceLiveActionBridge({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      getAppRuntimeState: runtimeState,
+      getVoiceContext: () => ({}),
+      executeAction: vi.fn(),
+      speak: vi.fn(),
+      openChatHandoff,
+    });
+
+    await bridge.processTranscript({
+      transcript: "my password is hunter2",
+    });
+
+    expect(openChatHandoff).not.toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "pkm_memory_candidate" })
+    );
   });
 });

@@ -42,7 +42,7 @@ Rules:
    - hidden workflow/writeback metadata
    - Gmail-safe plaintext and HTML generated through the shared client renderer
 7. Local voice/action contracts must set `speaker_persona` to `one`, `kai`, `nav`, or `kyc` using the same ownership rules.
-8. Actions executed by a specialist on behalf of One should set `delegate_agent_id` to `kai`, `nav`, or `kyc`.
+8. Actions executed by a specialist on behalf of One should set `delegate_agent_id` to the wired runtime specialist id while keeping public `speaker_persona` as `one`, `kai`, `nav`, or `kyc`.
 9. Persona switching changes the workspace context. It does not change the top relationship agent; One stays the default shell voice.
 10. Canonical app copy uses neutral voice descriptors. Do not encode celebrity references or personal numeric preferences in maintained UI copy or docs.
 
@@ -114,6 +114,24 @@ Rules:
 4. Content-aware tabs and dropdowns should appear only where they add navigation value. If the route body already shows the same launcher choices, hide the duplicate top selector.
 5. Progress and setup strips must be full-width within the same content column and use `overflow-hidden` only on the strip itself when needed to prevent visual bleed.
 6. When changing a shared visual pattern, update the owning component test to lock the layout primitive that prevents drift, such as fixed cell width, shared inset, or selector visibility.
+
+## Agent Chat Stream Surface Contract
+
+Agent Chat uses the portfolio import progress pattern as the canonical stream interface. The shared primitive lives in `hushh-webapp/components/app-ui/stream-progress-panel.tsx`.
+
+Rules:
+
+1. Active assistant stream panels use the full available chat-column width (`w-full max-w-none`). Do not cap active stream panels with the normal assistant bubble width. Completed historical assistant messages may keep a readable max width.
+2. The stream surface has three distinct regions:
+   - `Progress` for app-owned tool, route, stage, cancellation, and settlement events.
+   - `Thinking` only for optional provider telemetry when available.
+   - `Response` only for real assistant/model text from SSE `token` frames or explicit final assistant text.
+3. Do not show placeholder text such as `Preparing response` inside the `Response` region. Waiting states belong to `Progress` or a small status line outside the response body.
+4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it.
+5. Progress, thinking, and marketplace opportunity lists must use bounded internal scroll with `max-height`, `min-height: 0`, `overflow-y: auto`, and `overscroll-contain`. Long assistant answers use the main chat scroll, not a tiny nested response box.
+6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
+7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
+8. Agent Chat session continuity is a surface contract: consecutive user commands reuse the active `conversationId`; reset only on explicit New chat, selecting history, user change, or vault session reset.
 
 ## Page Header Contract
 

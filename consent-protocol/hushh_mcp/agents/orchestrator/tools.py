@@ -51,6 +51,14 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "sell my information",
             "what have i published",
             "what data have i published",
+            "subscription available on marketplace",
+            "subscriptions available on marketplace",
+            "subscriptions have i put available",
+            "listings have i put available",
+            "listing available on marketplace",
+            "listings available on marketplace",
+            "available on marketplace",
+            "put available on marketplace",
             "my data worth",
             "from my data",
             "for my data",
@@ -143,6 +151,8 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "location",
             "where is",
             "where am i",
+            "who can see me",
+            "who can see my location",
             "share my location",
             "live location",
         ),
@@ -176,7 +186,7 @@ def classify_specialist_domain(message: str) -> Optional[tuple[str, str]]:
         return None
     for domain, target_agent, cues in _SPECIALIST_ROUTES:
         for cue in cues:
-            if re.search(rf"\b{re.escape(cue)}", text):
+            if re.search(rf"(?<!\w){re.escape(cue)}(?!\w)", text):
                 return domain, target_agent
     return None
 

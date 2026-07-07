@@ -10,6 +10,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  AppStreamSection,
+  type AppStreamProgressItem,
+} from "@/components/app-ui/stream-progress-panel";
 import { cn } from "@/lib/morphy-ux";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Progress } from "@/components/ui/progress";
@@ -185,6 +189,19 @@ export function ImportProgressView({
     return normalizeLiveHoldingPreviewRows(liveHoldings);
   }, [liveHoldings]);
   const streamLinesForDisplay = useMemo(() => effectiveRawLines.slice(-80), [effectiveRawLines]);
+  const streamItemsForDisplay = useMemo<AppStreamProgressItem[]>(
+    () =>
+      streamLinesForDisplay.map((line, idx) => {
+        const { tag, message } = splitTaggedLine(line);
+        return {
+          id: `${idx}-${line}`,
+          badge: tag,
+          message: message || line,
+          status: stage === "error" ? "error" : stage === "complete" ? "done" : "running",
+        };
+      }),
+    [streamLinesForDisplay, stage]
+  );
   const showConfirmedHoldings = uniqueLiveHoldings.length > 0 || stage === "complete";
   const displayHoldings = showConfirmedHoldings ? uniqueLiveHoldings : [];
   const holdingsCount =
@@ -253,59 +270,17 @@ export function ImportProgressView({
           </p>
         ) : null}
 
-        <Collapsible open={streamExpanded} onOpenChange={setStreamExpanded}>
-          <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="mb-2 flex w-full items-center justify-between text-left text-xs text-muted-foreground"
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Activity className={cn("h-3.5 w-3.5", isStreaming && "text-primary")} />
-                  AI stream
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  {effectiveRawLines.length}
-                  {streamExpanded ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                </span>
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="max-h-48 overflow-y-auto rounded-md border border-border/40 bg-background/70">
-                {streamLinesForDisplay.length === 0 ? (
-                  <div className="px-2.5 py-2 text-xs text-muted-foreground">
-                    Waiting for stream events...
-                  </div>
-                ) : (
-                  streamLinesForDisplay.map((line, idx) => {
-                    const { tag, message } = splitTaggedLine(line);
-                    return (
-                      <div
-                        key={`${idx}-${line}`}
-                        className="border-b border-border/30 px-2.5 py-2 text-xs last:border-b-0"
-                      >
-                        <div className="flex items-start gap-2">
-                          {tag ? (
-                            <span className="mt-0.5 shrink-0 rounded border border-border/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                              {tag}
-                            </span>
-                          ) : null}
-                          <span className="min-w-0 break-words text-muted-foreground">
-                            {message || line}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </CollapsibleContent>
-          </div>
-        </Collapsible>
+        <AppStreamSection
+          title="AI stream"
+          icon={Activity}
+          count={effectiveRawLines.length}
+          items={streamItemsForDisplay}
+          open={streamExpanded}
+          onOpenChange={setStreamExpanded}
+          emptyLabel="Waiting for stream events..."
+          className={cn(isStreaming && "border-primary/25")}
+          bodyClassName="bg-background/50"
+        />
 
         <Collapsible open={holdingsExpanded} onOpenChange={setHoldingsExpanded}>
           <div className="rounded-xl border border-border/60 bg-muted/20 p-3">

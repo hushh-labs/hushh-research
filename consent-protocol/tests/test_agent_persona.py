@@ -32,6 +32,8 @@ def test_voice_boundary_present_in_every_tier():
         assert "provider-native function calling may only be used to propose" in text
         assert "it never executes tools" in text
         assert "Never claim access to raw vault data" in text
+        assert "public/app knowledge fetches" in text
+        assert "never save inferred memory directly" in text
         assert "Kai is the specialist contract" in text
 
 

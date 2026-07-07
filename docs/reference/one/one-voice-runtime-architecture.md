@@ -68,8 +68,11 @@ Rules:
 - “Analyze TSLA using default” has the ticker and source, so it can start directly when the action policy is `allow_direct` and guards pass.
 - earned but inactive workspaces may be synced and route-settled only when the generated action is direct and does not require persona-switch confirmation
 - long-running finance analysis opens the analysis workspace, starts or attaches through the debate run manager, speaks milestone updates, and returns the final decision summary back to the conversation
-- delegated, sensitive, or manual-only actions switch to Agent Chat, consent, or the relevant specialist surface
+- generated specialist-turn actions such as `email.chat.turn`, `location.chat.turn`, `connections.chat.turn`, and Information Marketplace turns use the shared `specialist_chat.turn` runner over Agent Chat A2A
+- read-only specialist-turn actions may run directly when policy is `allow_direct`; if the A2A stream returns a directive/prompt, One hands the directive into Agent Chat so the existing card, confirmation, and client-side execution path renders
+- sensitive, `confirm_required`, or `manual_only` actions switch to Agent Chat, consent, or the relevant specialist surface before mutation
 - Gemini Live and future providers may propose `action_id` plus slots, but One Goal remains the authority for planning, guard evaluation, running, progress, and result speech
+- low-confidence provider proposals are dropped before planning; clear transcript intent can still resolve through generated goal metadata, while weak provider guesses fall back to ordinary conversation or app-owned retrieval
 
 ## Context Snapshot
 
@@ -105,6 +108,14 @@ The Gemini Live relay contract carries the same redacted context through the HTT
 Those fields are capability and readiness hints, not authority. One may say Kai can analyze stocks, markets, or portfolio questions when the active route or action ids expose Kai finance contracts. One must not say it is unable to provide stock analysis solely because the topic is financial. It must also avoid claiming live quotes, holdings, private portfolio access, completed trades, money movement, or saved-data reads unless the app provides explicit visible/redacted state and a governed action result confirms the outcome.
 
 Gemini Live action proposals are normalized into `OneVoiceSessionEvent` frames (`transcript_final`, `assistant_text`, `action_proposal`, and `handoff`) and mirrored into a lightweight One conversation session. Agent Chat hydrates from that mirror only when the user asks to switch to chat, an action requires confirmation, or a delegated/sensitive/long-running action needs the richer A2A surface.
+
+Gemini Live provider tools are proposal-only, but they still follow the provider's synchronous function-calling protocol. The relay must acknowledge every provider function call with a tool response that says the proposal was received and not executed. Without that acknowledgement, Gemini 3.1 Live can remain blocked waiting for the tool result. The app-owned One Goal path then validates the generated action id, guards, confirmation policy, A2A delegation, route settlement, and result speech.
+
+Provider confidence is a routing signal, not execution authority. If confidence is below the app threshold, the bridge must omit the candidate action id from both One Goal and the compatibility orchestrator. The planner may still infer a generated goal from the transcript and active state, but the provider's weak guess must not hijack the turn.
+
+General intelligence fetches must be app-owned. Gemini may answer low-risk general conversation directly, and it may propose a generated knowledge/action goal when external or app-context retrieval is needed. Public facts can shape an answer; user-specific memory writes still require vault readiness, PKM preview, and user confirmation.
+
+Conversation memory follows the same rule. Live voice may detect a high-confidence user preference or explicit "remember this" request, but that detection creates a chat/PKM review handoff only. It must not save raw transcript text, provider output, decrypted PKM, or inferred private facts directly.
 
 ## Migration Rule
 

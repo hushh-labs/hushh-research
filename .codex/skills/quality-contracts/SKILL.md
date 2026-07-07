@@ -52,12 +52,15 @@ Non-owned surfaces:
 1. Start from the contract or user-visible behavior that needs proof.
 2. Select the smallest authoritative checks across frontend, backend, route, data, and browser surfaces.
 3. Keep frontend and backend contract tests aligned with the same user-visible or policy-visible rule.
-4. Use Playwright only when a real browser is required; follow `browser-verification-contract.md` for protected routes.
-5. For signed-in, vault, PKM, Email Helper, consent, or app-review proof, resolve the reviewer from runtime env (`REVIEWER_UID`; deprecated aliases only as migration fallbacks) and assert the browser session, vault owner, workflow owner, and PKM data owner are the same user. Do not validate against copied recipients, counterparty labels, admin fixtures, or a hardcoded UID/email.
-6. Treat CI pipeline ownership as `repo-operations` unless the primary question is what should be verified.
-7. For new tables or data-contract changes, include the repo data-model audit.
-8. When changing required test sets or gate policy, rerun selected checks once after the edit and once from the canonical repo entrypoint.
-9. Treat helper-only drift as advisory unless it weakens runtime, deploy, or test authority.
+4. Do not add one-time, manual, skipped-by-default, or source-string tests to routine suites when a reusable runtime helper, component test, service test, or script-first smoke proves the behavior.
+5. Source-reading contract tests are allowed only for explicit architecture boundaries with no cheaper runtime surface; delete them when behavior-level coverage becomes available.
+6. Legacy, migration, and compatibility tests stay only while they protect a live compatibility/removal boundary; otherwise delete or move the durable fact into the canonical contract.
+7. Use Playwright only when a real browser is required; follow `browser-verification-contract.md` for protected routes.
+8. For signed-in, vault, PKM, Email Helper, consent, or app-review proof, resolve the reviewer from runtime env (`REVIEWER_UID`; deprecated aliases only as migration fallbacks) and assert the browser session, vault owner, workflow owner, and PKM data owner are the same user. Do not validate against copied recipients, counterparty labels, admin fixtures, or a hardcoded UID/email.
+9. Treat CI pipeline ownership as `repo-operations` unless the primary question is what should be verified.
+10. For new tables or data-contract changes, include the repo data-model audit.
+11. When changing required test sets or gate policy, rerun selected checks once after the edit and once from the canonical repo entrypoint.
+12. Treat helper-only drift as advisory unless it weakens runtime, deploy, or test authority.
 
 ## Handoff Rules
 

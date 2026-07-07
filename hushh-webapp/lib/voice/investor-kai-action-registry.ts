@@ -125,6 +125,7 @@ const KNOWN_VOICE_TOOLS: readonly VoiceToolCall["tool_name"][] = [
   "clarify",
   "switch_persona",
   "capture_pkm_memory",
+  "specialist_chat.turn",
 ];
 
 function describeGuard(guardId: string): string {

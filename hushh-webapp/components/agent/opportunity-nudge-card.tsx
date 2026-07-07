@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, Inbox } from "lucide-react";
+import { CalendarClock, ChevronDown, Inbox, X } from "lucide-react";
 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button, morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { formatCents } from "@/lib/services/slice-pricing-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -190,19 +195,38 @@ export function OpportunityNudgeStack({
   vaultOwnerToken,
   vaultKey,
   onRequireUnlock,
+  variant = "stack",
+  dismissed = false,
+  onDismissPanel,
+  signals: externalSignals,
+  requests: externalRequests,
+  loading = false,
+  onRefresh,
 }: {
   userId: string | null;
   vaultOwnerToken: string | null;
   vaultKey: string | null;
   /** Just-in-time vault unlock when a publish is requested while the vault is locked. */
   onRequireUnlock: () => void;
+  variant?: "stack" | "accordion";
+  /** Chat-surface-only dismissal. Does not mutate opportunity records. */
+  dismissed?: boolean;
+  onDismissPanel?: () => void;
+  /** Optional preloaded workspace data. When provided, this component skips its internal fetch. */
+  signals?: OpportunitySignal[];
+  requests?: MarketplaceRequest[];
+  loading?: boolean;
+  onRefresh?: () => void;
 }) {
   const [signals, setSignals] = useState<OpportunitySignal[]>([]);
   const [requests, setRequests] = useState<MarketplaceRequest[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const loadKeyRef = useRef<string | null>(null);
+  const usesExternalData = Boolean(externalSignals || externalRequests);
+  const visibleSignals = externalSignals ?? signals;
+  const visibleRequests = externalRequests ?? requests;
 
-  const canLoad = Boolean(userId && vaultOwnerToken);
+  const canLoad = Boolean(userId && vaultOwnerToken && !dismissed && !usesExternalData);
 
   const load = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -235,17 +259,19 @@ export function OpportunityNudgeStack({
   const removeAndRefresh = useCallback(
     (signalId: string) => {
       setSignals((current) => current.filter((s) => s.id !== signalId));
+      onRefresh?.();
       void load();
     },
-    [load],
+    [load, onRefresh],
   );
 
   const removeRequestAndRefresh = useCallback(
     (requestId: string) => {
       setRequests((current) => current.filter((r) => r.id !== requestId));
+      onRefresh?.();
       void load();
     },
-    [load],
+    [load, onRefresh],
   );
 
   const handleApproveRequest = useCallback(
@@ -377,14 +403,13 @@ export function OpportunityNudgeStack({
     [vaultOwnerToken, removeAndRefresh],
   );
 
-  if (signals.length === 0 && requests.length === 0) return null;
+  if (dismissed) return null;
 
-  return (
-    <div className="space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-        Marketplace opportunities
-      </p>
-      {requests.map((request) => (
+  const totalCount = visibleSignals.length + visibleRequests.length;
+  if (!loading && totalCount === 0) return null;
+  const cards = (
+    <>
+      {visibleRequests.map((request) => (
         <BuyerRequestCard
           key={request.id}
           request={request}
@@ -393,7 +418,7 @@ export function OpportunityNudgeStack({
           onDecline={handleDeclineRequest}
         />
       ))}
-      {signals.map((signal) => (
+      {visibleSignals.map((signal) => (
         <OpportunityNudgeCard
           key={signal.id}
           signal={signal}
@@ -403,6 +428,70 @@ export function OpportunityNudgeStack({
           onDismiss={handleDismiss}
         />
       ))}
+    </>
+  );
+
+  if (variant === "accordion") {
+    return (
+      <Collapsible defaultOpen={false}>
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-background/65">
+          <div className="flex items-center gap-1">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="group flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+              >
+                <span className="min-w-0 truncate">Marketplace opportunities</span>
+                <span className="inline-flex shrink-0 items-center gap-2">
+                  <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[10px] font-semibold text-accent-strong">
+                    {totalCount}
+                  </span>
+                  <ChevronDown
+                    className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180"
+                    aria-hidden
+                  />
+                </span>
+              </button>
+            </CollapsibleTrigger>
+            {onDismissPanel ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDismissPanel();
+                }}
+                className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                aria-label="Hide marketplace opportunities for this vault session"
+                title="Hide for this vault session"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            ) : null}
+          </div>
+          <CollapsibleContent>
+            <div className="max-h-72 min-h-0 overflow-y-auto overscroll-contain border-t border-border/60">
+              <div className="space-y-2 p-3">
+                {loading && totalCount === 0 ? (
+                  <div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    Loading marketplace opportunities...
+                  </div>
+                ) : (
+                  cards
+                )}
+              </div>
+            </div>
+          </CollapsibleContent>
+        </div>
+      </Collapsible>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+        Marketplace opportunities
+      </p>
+      {cards}
     </div>
   );
 }

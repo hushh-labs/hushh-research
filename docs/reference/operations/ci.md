@@ -135,6 +135,16 @@ Web validation is intentionally split:
 3. Merge queue runs `web-full`, which includes `web-core`, full Vitest, voice gateway generation check, surface-map parity, and Capacitor static parity.
 4. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
+Fail-fast contract:
+
+1. Cheap authority checks run before expensive web/protocol/integration lanes:
+   secret scan, DCO/base-policy where applicable, branch freshness, path
+   resolution, and repo governance.
+2. The `Preflight Gate` fails before Next.js, full protocol, or integration
+   runners start when one of those authority checks is already failed.
+3. This intentionally saves CI minutes on governance failures. The tradeoff is
+   that green runs start heavy jobs only after preflight completes.
+
 The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, keep `Main Freshness Gate` advisory on pull requests, enforce freshness authoritatively through merge queue validation, trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
 ### Protected pipeline surfaces

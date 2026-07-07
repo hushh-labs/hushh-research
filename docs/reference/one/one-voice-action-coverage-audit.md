@@ -1,7 +1,7 @@
 # One Voice Action Coverage Audit
 
 Status: current coverage audit.
-Snapshot date: 2026-04-27.
+Snapshot date: 2026-07-06.
 
 ## Visual Map
 
@@ -31,7 +31,7 @@ flowchart TD
 
 The current One Voice mapper still does not map every UI screen and every button across the whole app.
 
-It now maps the expanded voice/search action plane: 21 local action-contract surfaces, 82 generated actions, and a smaller set of backend/frontend executable tools. RIA coverage is now first-class for workspace entry, onboarding, clients, picks, client workspace tabs, account/request fallbacks, compatibility routes, and marketplace RIA profile. Some non-RIA controls still publish voice metadata or `data-voice-control-id` values that do not exist in the generated gateway, and several app routes still have no local action contract or explicit voice-ignore contract.
+It now maps the expanded voice/search action plane: 22 local action-contract surfaces, 85 generated actions, and a smaller set of backend/frontend executable tools. RIA coverage is now first-class for workspace entry, onboarding, clients, picks, client workspace tabs, account/request fallbacks, compatibility routes, and marketplace RIA profile. Some non-RIA controls still publish voice metadata or `data-voice-control-id` values that do not exist in the generated gateway, and several app routes still have no local action contract or explicit voice-ignore contract.
 
 Treat the current mapper as capability coverage, not full UI coverage.
 
@@ -107,11 +107,11 @@ The frontend dispatcher supports the backend tools above plus `switch_persona`.
 Generated gateway coverage:
 
 - 21 source contracts
-- 82 generated actions
-- 48 wired actions
+- 85 generated actions
+- 51 wired actions
 - 33 unwired actions
 - 1 dead legacy action
-- execution policy split: 47 `allow_direct`, 29 `manual_only`, 6 `confirm_required`
+- execution policy split: 50 `allow_direct`, 29 `manual_only`, 6 `confirm_required`
 
 Action inventory:
 
@@ -132,8 +132,8 @@ Action inventory:
 | `profile.marketplace_visibility.toggle` | unwired | Local ProfilePage switch only; manual-only. |
 | `profile.sign_out` | unwired | Local ProfilePage handler only; manual-only. |
 | `profile.delete_account` | unwired | Local guarded dialog flow only; manual-only. |
-| `profile.pkm.preview_capture` | unwired | Local PKM Agent Lab state only. |
-| `profile.pkm.save_capture` | unwired | Local PKM Agent Lab save only; manual-only. |
+| `profile.pkm.preview_capture` | review-handoff | Live voice can hand high-confidence memory candidates into Agent Chat/PKM review; direct save is not allowed. |
+| `profile.pkm.save_capture` | manual-only | PKM save stays behind the review card and unlocked-vault confirmation path. |
 | `route.profile_receipts` | wired route `/profile/receipts` | Can open receipts memory page. |
 | `profile.gmail.connect` | unwired | Local Gmail connect handler only; confirmation required. |
 | `profile.gmail.sync_now` | unwired | Local receipts/Profile handlers only; confirmation required. |

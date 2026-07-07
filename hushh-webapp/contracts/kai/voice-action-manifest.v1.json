@@ -4883,6 +4883,527 @@
       ]
     },
     {
+      "id": "email.chat.turn",
+      "label": "Ask Email",
+      "meaning": "Delegates a governed read-only Gmail or Email triage turn to the Email specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_email",
+      "aliases": [
+        "what needs a reply today",
+        "what needs a reply",
+        "what needs reply today",
+        "check my inbox",
+        "show emails that need a reply",
+        "summarize my gmail",
+        "search my email"
+      ],
+      "scope": {
+        "routes": [
+          "/one/gmail",
+          "/one"
+        ],
+        "screens": [
+          "gmail",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "gmail connection required for mailbox content"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_email"
+        }
+      },
+      "goal": {
+        "goal_id": "goal.email.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Email?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "gmail_connection_status"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Email specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "location.chat.turn",
+      "label": "Ask Location",
+      "meaning": "Delegates live-location status and client-side location directives to the Location specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_location",
+      "aliases": [
+        "who can see me right now",
+        "who can see my location",
+        "show who can see me",
+        "start sharing my location",
+        "share my location with",
+        "stop sharing my location",
+        "where am i",
+        "check in here"
+      ],
+      "scope": {
+        "routes": [
+          "/one/location",
+          "/one"
+        ],
+        "screens": [
+          "one_location",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "browser location permission may be requested for share/check-in actions"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "location_permission_when_needed"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_location"
+        }
+      },
+      "goal": {
+        "goal_id": "goal.location.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Location?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "active_location_shares",
+          "location_permission_status"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Location specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "directive_or_answer",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer_or_directive"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "connections.chat.turn",
+      "label": "Manage Trusted Connections",
+      "meaning": "Delegates trusted-connection questions and write proposals to the Connections specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_connections",
+      "aliases": [
+        "add kushal to my trusted connections",
+        "add to my trusted connections",
+        "add a trusted connection",
+        "remove from my trusted connections",
+        "who do i trust",
+        "show trusted connections"
+      ],
+      "scope": {
+        "routes": [
+          "/marketplace/connections",
+          "/one"
+        ],
+        "screens": [
+          "marketplace_connections",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "trusted-connection writes require governed confirmation"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_connections"
+        }
+      },
+      "goal": {
+        "goal_id": "goal.connections.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Connections?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "trusted_connections_summary"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Connections specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/marketplace/connections",
+              "screen": "marketplace_connections"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "confirmation_needed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "chat_handoff"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "marketplace.information.chat.turn",
+      "label": "Ask Information Marketplace",
+      "meaning": "Delegates read-only Information Marketplace questions about published data slices, listings, demand, and potential earnings.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_personal_information",
+      "aliases": [
+        "how many subscriptions have i put available on marketplace",
+        "how many listings have i put available on marketplace",
+        "what have i published to the information marketplace",
+        "what data have i published",
+        "how much is my data worth",
+        "show marketplace demand"
+      ],
+      "scope": {
+        "routes": [
+          "/one/marketplace",
+          "/one"
+        ],
+        "screens": [
+          "one_marketplace",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "marketplace data requires vault and marketplace readiness"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_personal_information"
+        }
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.information.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask the Information Marketplace?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "marketplace_readiness"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Information Marketplace specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/marketplace",
+              "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "marketplace.information.requests.turn",
+      "label": "Review Information Marketplace Requests",
+      "meaning": "Delegates pending Information Marketplace request review to the specialist and requires chat confirmation before any approval or denial mutation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_personal_information",
+      "aliases": [
+        "can you approve any pending request for information marketplace",
+        "approve pending information marketplace request",
+        "approve marketplace request",
+        "review pending marketplace requests",
+        "show pending marketplace requests",
+        "deny marketplace request"
+      ],
+      "scope": {
+        "routes": [
+          "/one/marketplace",
+          "/one"
+        ],
+        "screens": [
+          "one_marketplace",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "marketplace approvals require explicit owner confirmation"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_personal_information"
+        }
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.information.requests.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask the Information Marketplace request reviewer?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "marketplace_pending_requests"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Information Marketplace request specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/marketplace",
+              "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "confirmation_needed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "chat_handoff"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
       "id": "route.consents",
       "label": "Open Consent Center",
       "meaning": "Navigates to consents route.",

@@ -318,6 +318,7 @@ def test_extracts_action_proposal_without_executing_tool():
         tool_call=pytypes.SimpleNamespace(
             function_calls=[
                 pytypes.SimpleNamespace(
+                    id="call-1",
                     name=mod._ONE_VOICE_ACTION_PROPOSAL_TOOL,
                     args={
                         "action_id": "route.kai_portfolio",
@@ -339,6 +340,56 @@ def test_extracts_action_proposal_without_executing_tool():
             "needs_confirmation": False,
         }
     ]
+
+
+def test_extracts_action_proposal_call_metadata_for_live_ack():
+    response = pytypes.SimpleNamespace(
+        tool_call=pytypes.SimpleNamespace(
+            function_calls=[
+                pytypes.SimpleNamespace(
+                    id="call-ack",
+                    name=mod._ONE_VOICE_ACTION_PROPOSAL_TOOL,
+                    args={"action_id": "analysis.start", "slots": {"symbol": "TSLA"}},
+                )
+            ]
+        )
+    )
+
+    calls = mod._extract_action_proposal_calls(response)
+
+    assert len(calls) == 1
+    assert calls[0].call_id == "call-ack"
+    assert calls[0].name == mod._ONE_VOICE_ACTION_PROPOSAL_TOOL
+    assert calls[0].proposal == {
+        "action_id": "analysis.start",
+        "slots": {"symbol": "TSLA"},
+        "confidence": None,
+        "reason": None,
+        "needs_confirmation": False,
+    }
+
+
+def test_builds_provider_tool_response_ack_without_claiming_execution():
+    class _FakeTypes:
+        class FunctionResponse:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+    call = mod._ActionProposalCall(
+        proposal={"action_id": "analysis.start", "slots": {"symbol": "TSLA"}},
+        call_id="call-ack",
+        name=mod._ONE_VOICE_ACTION_PROPOSAL_TOOL,
+    )
+
+    responses = mod._build_proposal_tool_responses(_FakeTypes, [call])
+
+    assert len(responses) == 1
+    payload = responses[0].kwargs
+    assert payload["id"] == "call-ack"
+    assert payload["name"] == mod._ONE_VOICE_ACTION_PROPOSAL_TOOL
+    assert payload["response"]["result"] == "proposal_received"
+    assert payload["response"]["execution"] == "not_executed_by_provider"
+    assert payload["response"]["action_id"] == "analysis.start"
 
 
 def test_missing_key_fails_closed(monkeypatch):

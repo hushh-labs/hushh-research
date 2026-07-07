@@ -8,6 +8,10 @@ def test_resolve_target_location_is_wired():
     assert resolve_delegate_target("share my location with Mom") == "agent_location"
 
 
+def test_resolve_target_location_visibility_status_is_wired():
+    assert resolve_delegate_target("Who can see me right now?") == "agent_location"
+
+
 def test_resolve_target_crm_is_wired():
     assert (
         resolve_delegate_target("update the CRM record city to New York")
@@ -26,6 +30,13 @@ def test_resolve_target_unwired_specialist_falls_through():
 
 def test_resolve_target_general_chat_none():
     assert resolve_delegate_target("hello there") is None
+
+
+def test_resolve_target_marketplace_subscription_is_wired():
+    assert (
+        resolve_delegate_target("how many subscriptions have I put available on marketplace?")
+        == "agent_personal_information"
+    )
 
 
 def test_frames_for_action_directive():

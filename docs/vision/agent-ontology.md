@@ -165,6 +165,11 @@ Delegated actions may also declare `delegate_agent_id` with one of:
 - `kai`
 - `nav`
 - `kyc`
+- `agent_connected_systems`
+- `agent_connections`
+- `agent_email`
+- `agent_location`
+- `agent_personal_information`
 
 ## Public Voice Descriptor Rule
 

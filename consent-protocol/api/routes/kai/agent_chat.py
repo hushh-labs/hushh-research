@@ -62,6 +62,7 @@ class AgentChatStreamRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
+    delegate_agent_id: Optional[str] = Field(default=None, max_length=64)
     delegate_result: Optional[DelegateResultModel] = Field(default=None)
 
 
@@ -320,6 +321,8 @@ async def stream_agent_chat(
     if body.delegate_result is not None:
         delegate_agent_id = body.delegate_result.delegate_agent_id
         delegate_result_payload = body.delegate_result.model_dump(by_alias=True, exclude_none=True)
+    elif body.delegate_agent_id and is_wired_specialist(body.delegate_agent_id):
+        delegate_agent_id = body.delegate_agent_id
     elif body.message:
         delegate_agent_id = resolve_delegate_target(body.message)
 
@@ -463,7 +466,11 @@ async def stream_agent_chat(
     # Deterministic disambiguation: a bare "marketplace" (not already delegated as
     # a clear data-slice question) gets a fixed clarifying question instead of
     # letting the planner guess a surface.
-    if body.delegate_result is None and _is_bare_marketplace(body.message):
+    if (
+        body.delegate_result is None
+        and body.delegate_agent_id is None
+        and _is_bare_marketplace(body.message)
+    ):
         conv_id = body.conversation_id or ""
         headers = {
             "Cache-Control": "no-cache, no-transform",
