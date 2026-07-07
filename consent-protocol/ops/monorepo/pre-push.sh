@@ -204,7 +204,17 @@ else
       while read local_ref local_sha remote_ref remote_sha; do
         [ -z "$local_sha" ] && continue
 
-        if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        RANGE=""
+        CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
+        MAIN_BASE_REF="${MAIN_SYNC_REMOTE}/${MAIN_SYNC_BRANCH}"
+
+        if [ "$CURRENT_BRANCH_NAME" != "$MAIN_SYNC_BRANCH" ] && \
+          git rev-parse --verify --quiet "$MAIN_BASE_REF" >/dev/null 2>&1; then
+          # Feature branches are often behind main on the remote. Use the
+          # branch's actual delta from main so already-landed main commits do
+          # not trigger expensive subtree checks during freshness pushes.
+          RANGE="$MAIN_BASE_REF..$local_sha"
+        elif [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
           RANGE="$local_sha"
         else
           RANGE="$remote_sha..$local_sha"

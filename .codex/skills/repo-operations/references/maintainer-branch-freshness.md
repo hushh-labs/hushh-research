@@ -18,4 +18,6 @@ branch before a PR update, merge, or admin-mode landing.
 6. Push the same branch. Use `--force-with-lease` only when the freshness update
    rewrote commits this session owns and after confirming the remote branch head
    has not advanced unexpectedly.
-
+7. Pre-push subtree checks on feature branches should inspect the branch delta
+   from `origin/main`, not the stale remote feature branch range; otherwise
+   already-landed `main` subtree commits create false-positive slow checks.
