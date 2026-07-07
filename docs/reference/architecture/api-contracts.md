@@ -195,8 +195,12 @@ not the product owner for live location.
 
 Agent One exposes a scoped A2A coordination surface. The standard A2A discovery
 endpoint is `/.well-known/agent-card.json`; `/api/one/a2a/card` remains a Hussh
-compatibility alias. Both return manifest-backed metadata. The message endpoint
-has two paths:
+compatibility alias. Both return public discovery metadata. The public Agent
+Card exposes A2A/publisher-compatible fields including `protocolVersion`,
+`preferredTransport`, `supportedInterfaces`, `capabilities`,
+`securitySchemes`, `security`, `securityRequirements`, default modes, and
+public `skills`. It must not expose internal routing targets such as specialist
+agent ids. The message endpoint has two paths:
 
 1. With `X-Consent-Token`, the caller must also authenticate as the developer
    app with `Authorization: Bearer <developer-token>`; the consent token is
@@ -208,13 +212,13 @@ has two paths:
    `userId`, `email`, or `phoneNumber`. This path does not execute Agent One
    and does not return a consent token.
 
-Specialist work still validates at the specialist boundary.
+Downstream work still validates consent at its own boundary.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/.well-known/agent-card.json` | Public metadata | Standard A2A Agent Card discovery endpoint for Agent One |
-| GET | `/api/one/a2a/card` | Public metadata | Return Agent One manifest, required scope, specialists, and endpoint metadata |
-| POST | `/api/one/a2a/message` | Developer bearer token plus `X-Consent-Token` scoped `agent.one.orchestrate` | Invoke Agent One as the coordinator for a user request; returns either a direct One response or a specialist delegation payload |
+| GET | `/api/one/a2a/card` | Public metadata | Return Agent One A2A discovery metadata, supported interface, public skills, required scope, and endpoint metadata |
+| POST | `/api/one/a2a/message` | Developer bearer token plus `X-Consent-Token` scoped `agent.one.orchestrate` | Invoke Agent One as the coordinator for a user request; returns the user-approved workflow response |
 | POST | `/api/one/a2a/message` | Developer `Authorization: Bearer <token>` or legacy `?token=` | Create or report pending Agent One orchestration consent for a resolved user; returns consent request metadata only |
 
 ### VAULT_OWNER (Consent-Gated)
