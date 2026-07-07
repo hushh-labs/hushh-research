@@ -127,6 +127,7 @@ import {
   type OneLocationNotificationSection,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
+import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   syncOneLocationContactSignals,
@@ -613,21 +614,6 @@ function publicSubmissionLabel(
   submission: OneLocationPublicInviteSubmission,
 ): string {
   return safePersonLabel(submission.visitorDisplayName, "Public request");
-}
-
-function publicInviteUrlLabel(value: string): string {
-  if (!value) return "";
-  const configuredOrigin = String(process.env.NEXT_PUBLIC_APP_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (/^https?:\/\//i.test(value)) return value;
-  const origin =
-    /^https?:\/\//i.test(configuredOrigin) ||
-    typeof window === "undefined"
-      ? configuredOrigin
-      : String(window.location.origin || "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(origin)) return value;
-  return new URL(value, origin).toString();
 }
 
 function publicInviteUrlPreview(value: string): string {

@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
+import { ChatMarkdownLink } from "@/components/agent/chat-markdown-link";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import type { ChatMessage } from "./use-location-chat";
 import { BotAvatar, StateChangedNote, TypingIndicator } from "./location-chat-atoms";
@@ -43,7 +44,14 @@ export function ChatMessageList(props: {
                   message.errored && "text-muted-foreground",
                 )}
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ children, href }) => (
+                      <ChatMarkdownLink href={href}>{children}</ChatMarkdownLink>
+                    ),
+                  }}
+                >
                   {message.text}
                 </ReactMarkdown>
               </div>

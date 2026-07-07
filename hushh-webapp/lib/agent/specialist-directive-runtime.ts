@@ -1,3 +1,4 @@
+import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import {
@@ -126,7 +127,7 @@ export async function runLocationDirective(
         id,
         type,
         status: "completed",
-        publicUrl,
+        publicUrl: publicInviteUrlLabel(publicUrl),
       };
     }
 
