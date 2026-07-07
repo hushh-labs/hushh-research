@@ -288,11 +288,20 @@ def _fingerprint_public_key(public_key_jwk: dict[str, Any]) -> str:
 # classification and message-filtering agree on the same string.
 _SOS_SHARE_REASON = "sos_panic"
 
+# Grant "reason" marker for a Drive-To share. The destination and ETA never live
+# here (they are inside the encrypted envelope); this marker only tags the kind.
+_DRIVE_TO_SHARE_REASON = "drive_to"
+
 # Internal grant "reason" markers used for plain shares, approved access requests,
 # and the SOS panic flow. These are plumbing, never a human message, so they must
 # NOT be surfaced verbatim to the recipient. Anything else (e.g. a Check-In note)
 # is a real message. SOS still gets its own dedicated copy via the share kind.
-_INTERNAL_SHARE_REASONS = {"owner_approved", "request_approved", _SOS_SHARE_REASON}
+_INTERNAL_SHARE_REASONS = {
+    "owner_approved",
+    "request_approved",
+    _SOS_SHARE_REASON,
+    _DRIVE_TO_SHARE_REASON,
+}
 
 
 def _classify_share_kind(reason: str | None) -> str:
@@ -306,6 +315,8 @@ def _classify_share_kind(reason: str | None) -> str:
     text = " ".join(str(reason or "").split()).lower()
     if text == _SOS_SHARE_REASON:
         return "sos"
+    if text == _DRIVE_TO_SHARE_REASON:
+        return "drive_to"
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
@@ -2612,6 +2623,9 @@ class OneLocationAgentService:
             notification_body = (
                 f"{owner_label} triggered an SOS and is sharing live location with you."
             )
+        elif share_kind == "drive_to":
+            notification_title = "Drive shared"
+            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
         elif share_kind == "check_in":
             notification_title = "Check-in shared"
             notification_body = (

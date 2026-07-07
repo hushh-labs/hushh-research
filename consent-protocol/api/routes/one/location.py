@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, sta
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.google_maps_service import GoogleMapsError, GoogleMapsService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
@@ -82,6 +83,22 @@ class SubmitPublicInviteRequest(_CamelModel):
     visitor_display_name: str = Field(alias="visitorDisplayName", min_length=2, max_length=120)
     phone_number: str = Field(alias="phoneNumber", min_length=8, max_length=32)
     message: str | None = Field(default=None, max_length=500)
+
+
+class MapsAutocompleteRequest(_CamelModel):
+    input: str = Field(min_length=1, max_length=200)
+    session_token: str | None = Field(default=None, alias="sessionToken", max_length=120)
+
+
+class MapsPlaceDetailsRequest(_CamelModel):
+    place_id: str = Field(alias="placeId", min_length=1, max_length=300)
+
+
+class MapsRouteEtaRequest(_CamelModel):
+    origin_lat: float = Field(alias="originLat", ge=-90, le=90)
+    origin_lng: float = Field(alias="originLng", ge=-180, le=180)
+    dest_lat: float = Field(alias="destLat", ge=-90, le=90)
+    dest_lng: float = Field(alias="destLng", ge=-180, le=180)
 
 
 def _service() -> OneLocationAgentService:
@@ -324,6 +341,65 @@ async def register_location_recipient_key(
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
+
+
+def _maps_service() -> GoogleMapsService:
+    return GoogleMapsService()
+
+
+@router.post("/location/maps/autocomplete")
+async def maps_autocomplete(
+    payload: MapsAutocompleteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _user_id(token_data)  # auth-gate only; result is not user-scoped
+    try:
+        suggestions = await _maps_service().autocomplete(
+            payload.input, session_token=payload.session_token
+        )
+        return {"suggestions": suggestions}
+    except GoogleMapsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/location/maps/place-details")
+async def maps_place_details(
+    payload: MapsPlaceDetailsRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _user_id(token_data)
+    try:
+        place = await _maps_service().place_details(payload.place_id)
+        return {"place": place}
+    except GoogleMapsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/location/maps/route-eta")
+async def maps_route_eta(
+    payload: MapsRouteEtaRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _user_id(token_data)
+    try:
+        eta = await _maps_service().route_eta(
+            origin_lat=payload.origin_lat,
+            origin_lng=payload.origin_lng,
+            dest_lat=payload.dest_lat,
+            dest_lng=payload.dest_lng,
+        )
+        return {"eta": eta}
+    except GoogleMapsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+        ) from exc
 
 
 @router.post("/location/grants")
