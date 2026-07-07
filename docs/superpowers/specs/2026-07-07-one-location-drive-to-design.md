@@ -23,7 +23,7 @@ flowchart LR
 ## Problem
 
 The One Location hub shows a "Drive To" quick-action card, but it is a `comingSoon`
-placeholder (`hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx:555`).
+placeholder (`hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx` (line 555)).
 Users cannot share where they are headed or a live ETA. The provided design
 screenshots show the "Drive To" screen (destination search → "Start Sharing Route")
 and a related "Pick Me Up" screen, but neither shows how recipients are chosen —

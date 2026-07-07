@@ -8,6 +8,22 @@
 
 **Tech Stack:** Next.js (React 18, TypeScript, Tailwind), FastAPI (Python), httpx, Google Places API (New) + Google Routes API, Web Crypto (ECDH-P256 + AES-GCM), IndexedDB.
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  card[Drive To card] --> flow[DriveToFlow]
+  flow --> search[Destination search]
+  search --> proxy[Backend maps proxy]
+  flow --> pick[Trusted-connections picker]
+  flow --> start[Start Sharing Route]
+  start --> eta[Backend Routes API ETA]
+  start --> grant[createGrant reason=drive_to]
+  grant --> env[Encrypted envelope + drive payload]
+  env --> loop[Movement loop re-publishes + throttled ETA]
+  env --> view[Recipient viewer: destination + live ETA]
+```
+
 ## Global Constraints
 
 - Maps key is **server-side only**: `GOOGLE_MAPS_API_KEY` in `consent-protocol` env. NEVER expose it to the browser; NEVER use the `NEXT_PUBLIC_` prefix. All Places/Routes calls go through the backend proxy.
@@ -52,8 +68,8 @@
 ## Task 1: Backend — surface `GOOGLE_MAPS_API_KEY`
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/runtime_settings.py:142-151` (add field) and `:262-275` (populate)
-- Modify: `consent-protocol/hushh_mcp/config.py:1-25`
+- Modify: `consent-protocol/hushh_mcp/runtime_settings.py` (lines 142-151) (add field) and `:262-275` (populate)
+- Modify: `consent-protocol/hushh_mcp/config.py` (lines 1-25)
 - Verify: `consent-protocol/.env.example` has `GOOGLE_MAPS_API_KEY` (added during design)
 - Test: `consent-protocol/tests/test_runtime_settings_maps.py` (create)
 
@@ -674,7 +690,7 @@ Signed-off-by: Gautam Ahuja <ahujagautam024@gmail.com>"
 ## Task 4: Backend — `drive_to` share kind
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py:287-311` (marker + classify) and `:2608-2624` (notification copy)
+- Modify: `consent-protocol/hushh_mcp/services/one_location_agent_service.py` (lines 287-311) (marker + classify) and `:2608-2624` (notification copy)
 - Test: `consent-protocol/tests/services/test_share_kind_classification.py` (create — a focused unit test on `_classify_share_kind`)
 
 **Interfaces:**
@@ -802,7 +818,7 @@ Signed-off-by: Gautam Ahuja <ahujagautam024@gmail.com>"
 ## Task 5: Frontend — types for the drive payload
 
 **Files:**
-- Modify: `hushh-webapp/lib/one-location/types.ts:159` (shareKind union) and `:318-324` (`PlainLocationPoint`)
+- Modify: `hushh-webapp/lib/one-location/types.ts` (line 159) (shareKind union) and `:318-324` (`PlainLocationPoint`)
 - Test: none (type-only; validated by `tsc` in later tasks)
 
 **Interfaces:**
@@ -1705,7 +1721,7 @@ This task connects the flow: hub scaffolding, the `handleDriveTo` handler, the d
 **Files:**
 - Modify: `hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx` (FlowKind 207-214; import; `LocationHubViewModel` 93-205; flow switch 349-352; NowHub props 439-457 + card 555-561; NowHub render 404-416)
 - Modify: `hushh-webapp/app/one/location/page.tsx` (BusyState 227; imports; drive refs; `handleDriveTo`; movement-loop ETA; recents state; vm fields 4425-4514)
-- Test: reuse Task 8 test; add `hushh-webapp/app/one/location/__tests__/handle-drive-to.test.tsx` is optional — instead verify via typecheck + Task 8 + a focused handler test below.
+- Test: reuse Task 8 test; add an optional dedicated handler test (not created in this plan) is optional — instead verify via typecheck + Task 8 + a focused handler test below.
 
 **Interfaces:**
 - Consumes: `DriveToFlow` (Task 8), `OneLocationService.routeEta`/`placeDetails` (Task 6), `addRecentDestination`/`loadRecentDestinations` (Task 7), drive types (Task 5).
