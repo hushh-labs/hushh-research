@@ -19,7 +19,7 @@ def test_marketplace_recipient_keys_migration_is_registered_at_release_head() ->
     assert manifest["ordered_migrations"].index(MIGRATION_NAME) > manifest[
         "ordered_migrations"
     ].index("077_marketplace_opportunity_signals.sql")
-    assert contract["expected_migration_version"] == 79
+    assert contract["expected_migration_version"] == 80
 
 
 def test_marketplace_recipient_keys_migration_creates_recipient_key_table() -> None:
