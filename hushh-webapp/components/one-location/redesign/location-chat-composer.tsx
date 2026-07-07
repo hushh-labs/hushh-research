@@ -15,7 +15,7 @@ export function ChatComposer(props: {
 }) {
   const { value, onChange, onSend, busy, inputRef } = props;
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex w-full items-end gap-2">
       <textarea
         ref={inputRef}
         data-testid="location-chat-input"

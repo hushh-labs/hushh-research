@@ -41,6 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type {
+  DriveDestination,
   OneLocationAccessRequest,
 
   OneLocationCircleInvite,
@@ -87,6 +88,7 @@ import {
   QuickActionsSection,
 } from "@/components/one-location/redesign/quick-actions";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
+import { DriveToFlow } from "./drive-to-flow";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -184,6 +186,16 @@ export type LocationHubViewModel = {
     message?: string,
   ) => void;
 
+  /* Drive To (quick action) — live location + live ETA to trusted people. */
+  vaultOwnerToken: string | null;
+  driveBusy: boolean;
+  recentDestinations: DriveDestination[];
+  onDriveTo: (
+    destination: DriveDestination,
+    recipientIds: string[],
+    durationHours: string,
+  ) => void;
+
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
   recipientSubtitle: (r: OneLocationRecipient) => string;
@@ -211,6 +223,7 @@ type FlowKind =
   | "invite"
   | "temp-link"
   | "check-in"
+  | "drive-to"
   | "sos";
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
@@ -348,6 +361,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           />
         ) : flow === "check-in" ? (
           <CheckInFlow vm={vm} onClose={closeFlow} />
+        ) : flow === "drive-to" ? (
+          <DriveToFlow vm={vm} onClose={closeFlow} />
         ) : flow === "sos" ? (
           <SosFlow vm={vm} onClose={closeFlow} />
         ) : flow === "invite" ? (
@@ -411,6 +426,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           }}
           onAsk={() => setFlow("ask")}
           onCheckIn={() => setFlow("check-in")}
+          onDriveTo={() => setFlow("drive-to")}
           onSos={() => setFlow("sos")}
           onGoTab={setTab}
         />
@@ -443,6 +459,7 @@ function NowHub({
   onStartShare,
   onAsk,
   onCheckIn,
+  onDriveTo,
   onSos,
   onGoTab,
 }: {
@@ -452,6 +469,7 @@ function NowHub({
   onStartShare: () => void;
   onAsk: () => void;
   onCheckIn: () => void;
+  onDriveTo: () => void;
   onSos: () => void;
   onGoTab: (tab: LocationHubTab) => void;
 }) {
@@ -556,8 +574,8 @@ function NowHub({
           tone="blue"
           icon={<Car className="h-6 w-6" />}
           title="Drive To"
-          subtitle="Navigation"
-          comingSoon
+          subtitle="Share route + ETA"
+          onClick={onDriveTo}
         />
         <QuickActionCard
           tone="amber"
