@@ -134,6 +134,26 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **KEY GOTCHA: a committed fix that isn't in the archived/uploaded build has NOT shipped.** Capacitor has no OTA — bump the build number and re-Archive/upload. "Works on my fresh sim build" ≠ "shipped to the tester." Always confirm the tested build's commit vs the fix commit before re-debugging a "still broken" report.
 - **Verified:** typecheck + lint + design-system; breadcrumbs (agent-origin regression added) / dashboard / top-app-bar.contract / command-executor / consent-sheet-route = 59; iOS build 40 installed; on-device dashboard → Email + Location → back → dashboard.
 
+### B14 — Theme toggle dead on iOS (worked on web)
+- **Symptom:** light/dark switching worked on the website but did nothing in the native iOS app.
+- **Root cause:** NOT a bug — iOS was deliberately pinned to light ("daylight" ship): `app/providers.tsx` forced light via next-themes on `Capacitor.getPlatform()==="ios"` AND `ios/App/App/Info.plist` set `UIUserInterfaceStyle=Light`. The toggle persisted to localStorage but next-themes never applied it.
+- **Fix (fix/voice-intelligence-and-native-ui):** removed both pins; `ThemeProvider attribute="class" defaultTheme="light" enableSystem` on all platforms. `StatusBarManager` already syncs native SystemBars from `resolvedTheme`. Contract test updated: `__tests__/components/providers-theme-contract.test.ts` now asserts NO forced theme anywhere + no `UIUserInterfaceStyle` in Info.plist.
+
+### B15 — Ripple stayed "pressed" after press-and-hold on option tiles (iOS)
+- **Symptom:** long-press on an option tile left the md-ripple pressed overlay stuck until the next interaction.
+- **Root cause:** WKWebView long-press triggers the system callout/text-selection path, which cancels the pointer stream (`pointercancel` swallowed) before `md-ripple` sees `pointerup`. Nothing set `-webkit-touch-callout:none`/`user-select:none` on actionables.
+- **Fix:** `app/globals.css` — actionable roles (a, button, [role=button|radio|tab|menuitem|option]) get `-webkit-touch-callout:none; -webkit-user-select:none; user-select:none`. Inputs keep selection. Also pinned `pointer-events:none` on `md-ripple.morphy-md-ripple` itself (defense vs the historical first-tap-swallow, see material-ripple.tsx comment).
+
+### B16 — Bottom nav sometimes needed a double tap (iOS)
+- **Symptom:** first tap on a bottom-bar tab intermittently did nothing; second tap worked. Correlated with scrolling.
+- **Root cause:** the nav translates off-screen via `--bottom-chrome-progress` (scroll-hide). A tap landing mid-animation had its target translate away between pointerdown and pointerup → no click event. Wrapper also holds `pointer-events-none` while hidden.
+- **Fix:** `snapKaiBottomChromeVisible()` in `lib/navigation/kai-bottom-chrome-visibility.ts` — `onPointerDownCapture` on the nav group freezes the chrome at its resting position when `progress > 0`, so the tap target is stationary at pointerup. File: `components/navbar.tsx`.
+
+### B17 — Search bubble rendered as an oval on iOS (circle on web)
+- **Symptom:** the round Search button next to the bottom pill was visibly non-circular in the native app.
+- **Root cause:** geometry relied on `aspect-square` + `self-stretch` + `h-auto w-auto`; WKWebView resolves `aspect-ratio` against a stretch-derived flex cross size as indefinite → width fell back to content → oval.
+- **Fix:** explicit `h-[52px] w-[52px] self-center` (matches the stacked pill min-height). Hover styles moved behind `[@media(hover:hover)]` so first touch can't latch sticky hover. File: `components/navbar.tsx`.
+
 ### B5 — Redesign leak check (always run when "it shows on the website")
 - **How to verify no leak:** `git merge-base --is-ancestor <redesign-sha> origin/main` for each redesign commit → must be false. The website deploys from `main` only (manual `workflow_dispatch`); the `mobile` branch (pushed as `ankit/iOS-UI-rephrased-v01`) never reaches it.
 

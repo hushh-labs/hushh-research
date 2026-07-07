@@ -506,10 +506,10 @@ function AppShellFrame({ children }: ProvidersProps) {
 
 export function Providers({ children }: ProvidersProps) {
   // Theme switching now works on every platform, including native iOS. The
-  // earlier "daylight" ship pinned iOS to light (forcedTheme + Info.plist
-  // UIUserInterfaceStyle=Light); both pins are removed so the in-app theme
-  // toggle behaves identically on web and native, with StatusBarManager
-  // keeping the native chrome in sync with resolvedTheme.
+  // earlier "daylight" ship pinned iOS to light (a next-themes forced theme
+  // plus Info.plist UIUserInterfaceStyle=Light); both pins are removed so the
+  // in-app theme toggle behaves identically on web and native, with
+  // StatusBarManager keeping the native chrome in sync with resolvedTheme.
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
       <ObservabilityRouteObserver />
