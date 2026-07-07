@@ -2343,6 +2343,16 @@ export function AgentChatWorkspace({
               setConversationId(nextConversationId);
             }
           },
+          onStatus: (statusEvent) => {
+            if (streamAbortController.signal.aborted) return;
+            // Replaces the old silent dead-air before the first token: prepare_turn
+            // (DB reads/writes) and the action-plan model call routinely take
+            // 10-25s combined (see KNOWN_ISSUES.md), during which the UI used to
+            // show nothing but a static thinking-dots placeholder. Reuses the same
+            // ephemeral-message mechanism as tool status text, so the first real
+            // token cleanly replaces it rather than appending after it.
+            upsertToolStatusMessage(statusEvent.message, "streaming");
+          },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             armVoiceStreamWatchdog(

@@ -157,18 +157,6 @@ async def stream_agent_chat(
             runtime_credential=body.runtime_credential,
             runtime_credential_mode=body.runtime_credential_mode,
         )
-        turn = await service.prepare_turn(
-            user_id=body.user_id,
-            message=body.message,
-            conversation_id=body.conversation_id,
-        )
-        action_plan: AgentChatActionPlan | None = await service.plan_action_with_gemini(
-            user_message=body.message,
-            history=turn.history,
-            runtime_client=runtime.client,
-            runtime_model=runtime.model,
-            pkm_context=body.pkm_context,
-        )
     except AgentRuntimeContractError as error:
         logger.warning(
             "agent_chat.runtime_contract_failed user_id=%s error_code=%s mode=%s credential_supplied=%s",
@@ -205,13 +193,40 @@ async def stream_agent_chat(
     async def generate():
         chunks: list[str] = []
         saved = False
+        # prepare_turn/plan_action_with_gemini live inside the generator (not the
+        # outer try above) specifically so the client sees "status" events during
+        # what used to be silent dead air -- DB reads/writes plus the action-plan
+        # model call routinely take 10-25s (see KNOWN_ISSUES.md), during which the
+        # old code sent literally zero bytes and the frontend just showed a static
+        # thinking-dots placeholder the whole time.
+        turn: PreparedAgentChatTurn | None = None
         try:
+            yield _event(
+                "status",
+                {"phase": "preparing", "message": "Reading your message and recent context..."},
+            )
+            turn = await service.prepare_turn(
+                user_id=body.user_id,
+                message=body.message,
+                conversation_id=body.conversation_id,
+            )
             yield _event(
                 "start",
                 {
                     "conversation_id": turn.conversation_id,
                     "model": turn.model,
                 },
+            )
+            yield _event(
+                "status",
+                {"phase": "planning", "message": "Deciding whether Agent needs to do anything..."},
+            )
+            action_plan: AgentChatActionPlan | None = await service.plan_action_with_gemini(
+                user_message=body.message,
+                history=turn.history,
+                runtime_client=runtime.client,
+                runtime_model=runtime.model,
+                pkm_context=body.pkm_context,
             )
             if action_plan is not None:
                 payload = action_plan.to_event_payload()
@@ -273,6 +288,7 @@ async def stream_agent_chat(
                         },
                     )
                     return
+            yield _event("status", {"phase": "responding", "message": "Writing a response..."})
             async for token in service.stream_response(
                 user_message=body.message,
                 history=turn.history,
@@ -313,7 +329,7 @@ async def stream_agent_chat(
                 },
             )
         except asyncio.CancelledError:
-            if not saved:
+            if turn is not None and not saved:
                 await _save_assistant_message(
                     service=service,
                     turn=turn,
@@ -322,14 +338,17 @@ async def stream_agent_chat(
                     status_value="interrupted",
                 )
             raise
-        except AgentRuntimeProviderError as error:
+        except AgentRuntimeContractError as error:
+            # Can surface here now: plan_action_with_gemini runs inside the
+            # generator, after streaming headers are already sent, so this can
+            # no longer become an HTTP 400 the way it does when
+            # prepare_agent_runtime (still outside the generator) rejects it.
             logger.warning(
-                "agent_chat.stream_provider_failed user_id=%s error_code=%s detail=%s",
+                "agent_chat.stream_contract_failed user_id=%s error_code=%s",
                 body.user_id,
                 error.error_code,
-                error.detail,
             )
-            if not saved:
+            if turn is not None and not saved:
                 await _save_assistant_message(
                     service=service,
                     turn=turn,
@@ -344,12 +363,37 @@ async def stream_agent_chat(
                 {
                     "code": error.error_code,
                     "message": error.message,
-                    "conversation_id": turn.conversation_id,
+                    "conversation_id": turn.conversation_id if turn is not None else (body.conversation_id or ""),
+                },
+            )
+        except AgentRuntimeProviderError as error:
+            logger.warning(
+                "agent_chat.stream_provider_failed user_id=%s error_code=%s detail=%s",
+                body.user_id,
+                error.error_code,
+                error.detail,
+            )
+            if turn is not None and not saved:
+                await _save_assistant_message(
+                    service=service,
+                    turn=turn,
+                    user_id=body.user_id,
+                    text=error.message,
+                    status_value="error",
+                    error_code=error.error_code,
+                )
+                saved = True
+            yield _event(
+                "error",
+                {
+                    "code": error.error_code,
+                    "message": error.message,
+                    "conversation_id": turn.conversation_id if turn is not None else (body.conversation_id or ""),
                 },
             )
         except Exception as error:
             logger.exception("agent_chat.stream_failed user_id=%s: %s", body.user_id, error)
-            if not saved:
+            if turn is not None and not saved:
                 await _save_assistant_message(
                     service=service,
                     turn=turn,
@@ -363,7 +407,7 @@ async def stream_agent_chat(
                 "error",
                 {
                     "message": "Agent chat failed. Please try again.",
-                    "conversation_id": turn.conversation_id,
+                    "conversation_id": turn.conversation_id if turn is not None else (body.conversation_id or ""),
                 },
             )
 
@@ -372,8 +416,13 @@ async def stream_agent_chat(
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
         "X-Content-Type-Options": "nosniff",
-        "X-Agent-Conversation-Id": turn.conversation_id,
-        "X-Agent-Model": turn.model,
+        # turn (and its real conversation_id, for new conversations) isn't known
+        # until inside generate() now -- see the comment there for why. The
+        # frontend already treats the "start" SSE event's conversation_id as
+        # authoritative (agent-chat-client.ts), so this header is only a
+        # best-effort hint for an already-existing conversation.
+        "X-Agent-Conversation-Id": body.conversation_id or "",
+        "X-Agent-Model": runtime.model,
     }
     return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 

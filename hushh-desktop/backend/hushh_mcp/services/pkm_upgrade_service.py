@@ -350,6 +350,17 @@ class PkmUpgradeService:
                 or summary.get("readable_projection_version")
                 or "0.0.0"
             )
+            # A domain can have a manifest entry (e.g. an early scaffold row)
+            # with no encrypted blob ever written for it -- there is nothing
+            # to upgrade in that case. Without this check, such a domain
+            # stays permanently "stale" (its version never advances since no
+            # upgrade can actually run), so every start_or_resume_run call
+            # creates a fresh run that immediately fails in
+            # prepareUpgradeArtifacts ("No encrypted PKM domain blob found"),
+            # forever, on every app boot/unlock. Uses the same
+            # get_domain_data check the domain-data route itself uses, so
+            # this can't disagree with what a real upgrade attempt would see.
+            has_domain_data = (await self.pkm_service.get_domain_data(user_id, domain)) is not None
             domain_states.append(
                 {
                     "domain": domain,
@@ -365,11 +376,14 @@ class PkmUpgradeService:
                     "blocked_reasons": self._domain_blockers(manifest),
                     "upgraded_at": manifest.get("upgraded_at") or summary.get("upgraded_at"),
                     "needs_upgrade": (
-                        current_domain_version < target_domain_version
-                        or current_readable_version < target_readable_version
-                        or str(current_pkm_contract_version) != CURRENT_PKM_CONTRACT_VERSION
-                        or str(current_readable_projection_version)
-                        != CURRENT_READABLE_PROJECTION_VERSION
+                        has_domain_data
+                        and (
+                            current_domain_version < target_domain_version
+                            or current_readable_version < target_readable_version
+                            or str(current_pkm_contract_version) != CURRENT_PKM_CONTRACT_VERSION
+                            or str(current_readable_projection_version)
+                            != CURRENT_READABLE_PROJECTION_VERSION
+                        )
                     ),
                 }
             )

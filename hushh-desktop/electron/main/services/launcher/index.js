@@ -83,8 +83,11 @@ function startBackend() {
     exeCommand = PYTHON_EXE;
     exeArgs = [
       "-m", "uvicorn", "server:app",
-      "--port", context.backendPort.toString(),
-      "--reload"
+      "--port", context.backendPort.toString()
+      // No --reload: it spawns a second watcher/reloader process on top of
+      // the actual worker, roughly doubling backend memory for a feature
+      // that's not needed since the app gets restarted after backend edits
+      // anyway.
     ];
     console.log("[launcher] ── Backend diagnostics (Development) ──────");
     console.log("[launcher]   PYTHON_EXE  :", PYTHON_EXE);

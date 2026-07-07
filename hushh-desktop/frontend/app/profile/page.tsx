@@ -4157,9 +4157,17 @@ function ProfilePageContent() {
                         if (!localAiStatus.running) {
                            toast.loading("Spawning NPU Runtime...", { id: "ai-spawn" });
                            void (window as any).hushh?.models?.spawn("Llama-3.2-3B-Instruct")
-                             .then(() => {
-                               toast.success("NPU Runtime active!", { id: "ai-spawn" });
-                               setLocalAiStatus(s => ({ ...s, downloaded: true, running: true, loading: false }));
+                             .then((result: { success: boolean; reason?: string | null }) => {
+                               if (result?.success) {
+                                 toast.success("NPU Runtime active!", { id: "ai-spawn" });
+                                 setLocalAiStatus(s => ({ ...s, downloaded: true, running: true, loading: false }));
+                               } else if (result?.reason === "insufficient_ram") {
+                                 toast.error("Local LLM can't run — insufficient RAM available. Close some apps and try again.", { id: "ai-spawn" });
+                                 setLocalAiStatus(s => ({ ...s, loading: false }));
+                               } else {
+                                 toast.error("Failed to start the local AI engine.", { id: "ai-spawn" });
+                                 setLocalAiStatus(s => ({ ...s, loading: false }));
+                               }
                              })
                              .catch((e: Error) => toast.error(`Failed: ${e.message}`, { id: "ai-spawn" }));
                         } else {

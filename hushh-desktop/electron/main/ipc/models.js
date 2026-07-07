@@ -45,7 +45,7 @@ function registerModelsHandlers() {
   ipcMain.handle("hushh:models:spawn", async (_event, modelId) => {
     const { registry } = require("../services/models/registry");
     const proc = await registry.spawnLocalInferenceEngine(modelId);
-    return proc ? true : false;
+    return { success: !!proc, reason: proc ? null : registry._lastSpawnFailureReason };
   });
 }
 

@@ -582,6 +582,33 @@ async def shutdown_remote_mcp_transport():
 
 
 @app.on_event("startup")
+async def startup_local_model_bridge():
+    """Start the local model bridge (see local_bridge/) as a background
+    uvicorn server on its own fixed port, inside this same process.
+
+    Fixes GenieX's OpenAI-compat gaps (missing streaming finish_reason,
+    no native tool-calling) so on-device chat gets real tool-calling and
+    external Hermes/Open-WebUI-style clients can point at GenieX the same
+    way they'd point at any local llama.cpp/vLLM server. Runs in-process
+    (rather than as a separate spawned process) so it works identically in
+    dev (`uvicorn --reload`) and the packaged PyInstaller build, with no
+    extra Electron process supervision needed -- see docs/KNOWN_ISSUES.md.
+    Harmless to run even when GenieX/local AI isn't in use: it only calls
+    out to GenieX per-request, not at startup.
+    """
+    import asyncio
+
+    import uvicorn
+
+    from local_bridge.server import BRIDGE_PORT
+    from local_bridge.server import app as bridge_app
+
+    config = uvicorn.Config(bridge_app, host="127.0.0.1", port=BRIDGE_PORT, log_level="warning")
+    task = asyncio.create_task(uvicorn.Server(config).serve())
+    _track_startup_background_task(task)
+
+
+@app.on_event("startup")
 async def startup_market_cache_store_table():
     """Ensure the L2 market cache table exists before any request hits it."""
     from hushh_mcp.services.market_cache_store import get_market_cache_store_service

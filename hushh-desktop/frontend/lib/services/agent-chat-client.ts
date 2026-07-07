@@ -37,6 +37,7 @@ export type AgentChatToolEvent = {
 
 export type AgentChatStreamHandlers = {
   onStart?: (payload: { conversationId: string; model?: string }) => void;
+  onStatus?: (payload: { phase: string; message: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
   onToolResult?: (payload: AgentChatToolEvent) => void;
@@ -161,6 +162,13 @@ export async function streamAgentChat(input: {
       model = readString(payload, "model") || model;
       if (conversationId) {
         input.handlers?.onStart?.({ conversationId, model: model || undefined });
+      }
+      return;
+    }
+    if (event === "status") {
+      const message = readString(payload, "message");
+      if (message) {
+        input.handlers?.onStatus?.({ phase: readString(payload, "phase"), message });
       }
       return;
     }

@@ -1,23 +1,88 @@
 "use strict";
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { app } = require("electron");
 
-// The GenieX model identifier, distinct from the internal `modelId` used
-// for on-disk/IPC bookkeeping ("Llama-3.2-3B-Instruct"). Pre-compiled QAIRT
-// asset pulled directly from AI Hub (real NPU execution, no local export
-// needed) -- Meta's Llama variants don't offer this due to licensing, so
-// this is Qwen3-4B-Instruct instead.
-const GENIEX_MODEL_ID = "qualcomm/qwen3_4b_instruct_2507";
-const GENIEX_MODEL_HUB = "aihub";
+// Hybrid setup, split across two models by role. History: tried the 3B to
+// fix the 1B's tendency to deflect open-ended opinion questions, reverted
+// (no reliable sub-minute latency, confidently WRONG compounding math ~70%
+// off). Then tried making Qwen3.5-2B do everything after a same-session live
+// comparison found it the most internally-coherent reasoner on paper -- also
+// reverted at first, because its always-on <think> reasoning trace (no way
+// to disable it -- a "think" JSON field errors, a "/no_think" suffix isn't
+// honored and can trigger runaway repetition loops instead) breaks GenieX's
+// action-plan classifier call whenever `tools` are attached to the request:
+// confirmed live AND via isolated repro down to a single minimal tool with a
+// 5-token completion ask, still `context_length_exceeded` at ~345 prompt
+// tokens -- nowhere near the assumed 4096 window, and not fixable by
+// trimming tool schemas further, since the failure isn't really about total
+// prompt size (it reproduces at small sizes) but about `tools` + this
+// model's forced reasoning trace together.
+//
+// The fix: split by role instead of picking one model for both. The 1B has
+// no such reasoning-trace-driven budget blowup, so it stays on the
+// classifier (`_plan_action_via_bridge`, agent_chat_service.py) which always
+// attaches `tools`. Qwen3.5-2B moves to reply generation
+// (`stream_response`), which never attaches `tools` at all, so it never hits
+// this failure mode, and its better reasoning quality benefits the part of
+// the pipeline that's just conversational text. Math/reasoning guardrail
+// kept regardless (see local_math_guardrail in _build_local_bridge_messages)
+// since neither model is safe to trust blind on arithmetic.
+// No precision suffix here -- `geniex list`'s cache-check and the REST API's
+// `model` field both accept the bare name when only one precision is cached
+// (see the *_PRECISION constants for the one place a suffix is required).
+const GENIEX_MODEL_ID = "unsloth/Qwen3.5-2B-GGUF"; // reply generation
+const GENIEX_MODEL_PRECISION = "Q4_0";
+const GENIEX_CLASSIFIER_MODEL_ID = "unsloth/Llama-3.2-1B-Instruct-GGUF"; // action-plan classifier
+const GENIEX_CLASSIFIER_MODEL_PRECISION = "Q4_0";
+const GENIEX_MODEL_HUB = "hf";
+// GenieX auto-detects the Qwen3.5-2B repo as a "vlm" (vision-language model)
+// despite it being text-only, which crashes `geniex serve` with
+// "SDKError(Multimodal generation failed)" on the SECOND request in a
+// session (confirmed live, twice, on a clean process: first call always
+// succeeds, every call after fails) -- fatal for a persistent multi-turn
+// server even though it's invisible in one-shot `geniex infer` testing.
+// Forcing `--model-type llm` at pull time fixes the detection and the
+// crash. Passed unconditionally below since it's also correct for the 1B.
+const GENIEX_MODEL_TYPE = "llm";
 const GENIEX_PORT = 18181;
 
-// Crash-recovery tuning for the occasional native QAIRT crash under memory
-// pressure -- bounded retries so a genuinely broken install doesn't loop forever.
+// Crash-recovery tuning -- bounded retries so a genuinely broken install
+// doesn't loop forever. Originally sized around the QAIRT native crash
+// (0xc0000005 under memory pressure); kept as-is since a bounded retry is
+// reasonable insurance against a llama.cpp/CPU-GPU crash too, though none
+// has been observed with this runtime yet.
 const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_WINDOW_MS = 5 * 60 * 1000;
 const RESTART_DELAY_MS = 1500;
+
+// With the hybrid split above, a single conversation turn can load BOTH
+// models into the same GenieX process (1B for the classifier call, then
+// Qwen3.5-2B for the reply) -- so the gate/working-set sizing below accounts
+// for both potentially being resident, not just one. Real weight sizes:
+// ~773MB (1B) + ~2.4GB (Qwen3.5-2B) =~ 3.2GB combined. The Qwen3.5-2B-alone
+// RAM curve measured earlier this session (controlled memory-pressure
+// allocator, real tok/s measurement: flat 23-27 tok/s from 4.27GB down to
+// 0.56GB free, first degradation only at 0.49GB) showed llama.cpp weights of
+// this size are far more resilient to pressure than the old QAIRT model, but
+// that curve was for one model resident, not two -- gate padded up from that
+// measurement's 1GB to account for the second model's footprint, not
+// re-measured for the exact combined case.
+const MIN_FREE_RAM_BYTES = 1.5 * 1024 * 1024 * 1024;
+
+// Soft working-set floor/ceiling for the GenieX process itself, distinct from
+// MIN_FREE_RAM_BYTES above (which only gates whether we spawn at all, once,
+// at spawn time). Setting a minimum working set is a hint to Windows to
+// deprioritize trimming GenieX's resident model weights under memory
+// pressure later in the session -- see _pinGenieXWorkingSet. Sized for both
+// models' combined ~3.2GB weight footprint (min) plus headroom for
+// KV-cache/engine overhead and longer Qwen3.5-2B generations (max). This is
+// a soft hint (Win32 SetProcessWorkingSetSize), not a hard reservation --
+// Windows can still trim below it under severe system-wide memory pressure.
+const GENIEX_MIN_WORKING_SET_BYTES = 3.5 * 1024 * 1024 * 1024;
+const GENIEX_MAX_WORKING_SET_BYTES = 5 * 1024 * 1024 * 1024;
 
 class ModelRegistry {
   constructor() {
@@ -27,6 +92,9 @@ class ModelRegistry {
     // not shell out via a synchronous `geniex list` on every call and block the
     // Electron main-process event loop. null = unknown/needs recompute.
     this._downloadedCache = null;
+    // Reason the last spawn attempt failed, if any (e.g. "insufficient_ram"),
+    // surfaced to the renderer via getStatus() for a specific toast message.
+    this._lastSpawnFailureReason = null;
   }
 
   _getModelsDir() {
@@ -127,30 +195,27 @@ class ModelRegistry {
   }
 
   /**
-   * Pulls the GenieX model into its local cache (idempotent — skips if
-   * already present, per `geniex list`).
+   * Pulls a single GenieX model into its local cache (idempotent -- skips if
+   * already present, per `geniex list`). Internal helper for
+   * provisionGenieXModel, which pulls both hybrid-role models below.
    */
-  async provisionGenieXModel(modelId = "Llama-3.2-3B-Instruct") {
-    const geniexExe = this._getGenieXExePath();
-    if (!geniexExe || !fs.existsSync(geniexExe)) {
-        console.error(`[ModelRegistry] ❌ GenieX CLI not found at ${geniexExe}. Install GenieX CLI first.`);
-        return { success: false, status: "error", error: "geniex_not_installed" };
-    }
-
-    if (this.verifyLocalInferenceEngine(modelId)) {
-        console.log(`[ModelRegistry] ✅ ${GENIEX_MODEL_ID} already cached, skipping pull.`);
-        this._downloadedCache = true;
-        return { success: true, status: "downloaded" };
-    }
-
-    console.log(`[ModelRegistry] 🔄 Pulling ${GENIEX_MODEL_ID} via GenieX...`);
-    this._cancelDownloadFlag = false;
-
+  _pullOneGenieXModel(geniexExe, modelRef) {
     const { spawn } = require("child_process");
-    return await new Promise((resolve) => {
+    return new Promise((resolve) => {
+        // Precision suffix is required here even though the rest of the
+        // codebase uses the bare model ID: these assets have 10+ cached
+        // precision variants on their hub, and `geniex pull` without a
+        // ':<precision>' suffix drops into an interactive picker -- which
+        // would hang forever against this spawn's non-interactive stdio.
+        // --model-type llm is required too: GenieX auto-detects the
+        // Qwen3.5-2B repo as a "vlm", which crashes `geniex serve` after
+        // exactly one request (see GENIEX_MODEL_TYPE above) -- forcing the
+        // correct type at pull time is what fixes that. Harmless for the 1B,
+        // which is already correctly detected as "llm".
         const pullProcess = spawn(geniexExe, [
-            "pull", GENIEX_MODEL_ID,
+            "pull", modelRef,
             "--model-hub", GENIEX_MODEL_HUB,
+            "--model-type", GENIEX_MODEL_TYPE,
         ], { stdio: ["pipe", "pipe", "pipe"] });
 
         this._pullProcess = pullProcess;
@@ -164,21 +229,59 @@ class ModelRegistry {
 
         pullProcess.on("exit", (code) => {
             this._pullProcess = null;
-            if (this._cancelDownloadFlag) {
-                console.log(`[ModelRegistry] 🛑 Download cancelled for ${modelId}.`);
-                resolve({ success: false, status: "cancelled" });
-                return;
-            }
-            if (code === 0) {
-                console.log(`[ModelRegistry] ✅ Pull complete for ${GENIEX_MODEL_ID}.`);
-                this._downloadedCache = true;
-                resolve({ success: true, status: "downloaded" });
-            } else {
-                console.error(`[ModelRegistry] ❌ geniex pull exited with code ${code}.`);
-                resolve({ success: false, status: "error", error: `geniex pull exited with code ${code}` });
-            }
+            resolve(code);
         });
     });
+  }
+
+  /**
+   * Pulls both hybrid-role GenieX models into the local cache (idempotent --
+   * skips whichever is already present, per `geniex list`). The classifier
+   * (1B) and reply-generation (Qwen3.5-2B) models are split by role -- see
+   * GENIEX_MODEL_ID's comment above for why -- so both must be provisioned
+   * for local mode to work end-to-end, not just one.
+   */
+  async provisionGenieXModel(modelId = "Llama-3.2-3B-Instruct") {
+    const geniexExe = this._getGenieXExePath();
+    if (!geniexExe || !fs.existsSync(geniexExe)) {
+        console.error(`[ModelRegistry] ❌ GenieX CLI not found at ${geniexExe}. Install GenieX CLI first.`);
+        return { success: false, status: "error", error: "geniex_not_installed" };
+    }
+
+    if (this.verifyLocalInferenceEngine(modelId)) {
+        console.log(`[ModelRegistry] ✅ Both hybrid-role models already cached, skipping pull.`);
+        this._downloadedCache = true;
+        return { success: true, status: "downloaded" };
+    }
+
+    this._cancelDownloadFlag = false;
+    const { spawn } = require("child_process");
+
+    const toPull = [
+        { ref: `${GENIEX_MODEL_ID}:${GENIEX_MODEL_PRECISION}`, name: GENIEX_MODEL_ID },
+        { ref: `${GENIEX_CLASSIFIER_MODEL_ID}:${GENIEX_CLASSIFIER_MODEL_PRECISION}`, name: GENIEX_CLASSIFIER_MODEL_ID },
+    ];
+
+    for (const { ref, name } of toPull) {
+        if (this._cancelDownloadFlag) {
+            console.log(`[ModelRegistry] 🛑 Download cancelled for ${modelId}.`);
+            return { success: false, status: "cancelled" };
+        }
+        console.log(`[ModelRegistry] 🔄 Pulling ${name} via GenieX...`);
+        const code = await this._pullOneGenieXModel(geniexExe, ref);
+        if (this._cancelDownloadFlag) {
+            console.log(`[ModelRegistry] 🛑 Download cancelled for ${modelId}.`);
+            return { success: false, status: "cancelled" };
+        }
+        if (code !== 0) {
+            console.error(`[ModelRegistry] ❌ geniex pull exited with code ${code} for ${name}.`);
+            return { success: false, status: "error", error: `geniex pull exited with code ${code} for ${name}` };
+        }
+        console.log(`[ModelRegistry] ✅ Pull complete for ${name}.`);
+    }
+
+    this._downloadedCache = true;
+    return { success: true, status: "downloaded" };
   }
 
   cancelDownloadLocalInferenceEngine() {
@@ -192,6 +295,9 @@ class ModelRegistry {
   /**
    * Checks GenieX's own model cache (`geniex list`) rather than local
    * scaffold files — GenieX manages its own model storage internally.
+   * Requires BOTH hybrid-role models (see GENIEX_MODEL_ID's comment) to be
+   * cached, since local mode needs both the classifier and reply-generation
+   * models to function end-to-end.
    */
   verifyLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
     const geniexExe = this._getGenieXExePath();
@@ -204,7 +310,8 @@ class ModelRegistry {
         const { execFileSync } = require("child_process");
         const output = execFileSync(geniexExe, ["list", "--format", "json"], { encoding: "utf-8" });
         const cached = JSON.parse(output);
-        const downloaded = cached.some((m) => m.name === GENIEX_MODEL_ID);
+        const cachedNames = new Set(cached.map((m) => m.name));
+        const downloaded = cachedNames.has(GENIEX_MODEL_ID) && cachedNames.has(GENIEX_CLASSIFIER_MODEL_ID);
         this._downloadedCache = downloaded;
         return downloaded;
     } catch (err) {
@@ -244,8 +351,23 @@ class ModelRegistry {
 
     if (!this.verifyLocalInferenceEngine(modelId)) {
         console.error(`[ModelRegistry] ❌ Verification failed. Cannot spawn GenieX server.`);
+        this._lastSpawnFailureReason = "verification_failed";
         return null;
     }
+
+    // Gate on free RAM rather than let a low-memory machine "succeed" into a
+    // ~20x-slower experience with no visible explanation -- see
+    // MIN_FREE_RAM_BYTES for how that number was derived.
+    const freeRamBytes = os.freemem();
+    if (freeRamBytes < MIN_FREE_RAM_BYTES) {
+        console.error(
+            `[ModelRegistry] ❌ Refusing to spawn GenieX: only ${(freeRamBytes / 1024 ** 3).toFixed(1)}GB ` +
+            `free, need ${(MIN_FREE_RAM_BYTES / 1024 ** 3).toFixed(0)}GB for acceptable performance.`
+        );
+        this._lastSpawnFailureReason = "insufficient_ram";
+        return null;
+    }
+    this._lastSpawnFailureReason = null;
 
     console.log(`[ModelRegistry] 🚀 Spawning GenieX server from ${geniexExe} on port ${port}...`);
 
@@ -276,7 +398,7 @@ class ModelRegistry {
             return;
         }
 
-        console.warn(`[ModelRegistry] ⚠️ GenieX server exited unexpectedly (code=${code}, signal=${signal}). This is a known occasional native crash in Qualcomm's QAIRT library, not an app bug -- attempting automatic recovery.`);
+        console.warn(`[ModelRegistry] ⚠️ GenieX server exited unexpectedly (code=${code}, signal=${signal}). Attempting automatic recovery.`);
         this._attemptCrashRecovery(modelId, port);
     });
 
@@ -288,18 +410,59 @@ class ModelRegistry {
         timeout: 60000,
       });
         console.log(`[ModelRegistry] ✅ GenieX server is online and ready!`);
+        this._pinGenieXWorkingSet(this.aiProcess.pid);
         this.broadcastStatusChange(modelId);
         return this.aiProcess;
     } catch (err) {
         console.error(`[ModelRegistry] ❌ GenieX server failed to come online:`, err);
+        this._lastSpawnFailureReason = "startup_timeout";
         this.killLocalInferenceEngine(modelId);
         return null;
     }
   }
 
   /**
-   * Handles an unexpected GenieX exit (e.g. the native QAIRT crash we've seen
-   * under memory pressure) by respawning it automatically, with a bounded
+   * Sets a minimum/maximum working-set size hint on the GenieX process so
+   * Windows deprioritizes trimming its resident model weights under memory
+   * pressure later in the session -- the root cause of the ~20x slowdown
+   * documented above (MIN_FREE_RAM_BYTES only gates spawn time, not this).
+   * Uses .NET's Process.MinWorkingSet/MaxWorkingSet (which wraps Win32's
+   * SetProcessWorkingSetSize) via a short PowerShell call rather than a
+   * native Node addon -- no new build-toolchain dependency for a soft hint.
+   * Best-effort and non-fatal: GenieX keeps running at its unpinned
+   * baseline if this fails for any reason.
+   */
+  _pinGenieXWorkingSet(pid) {
+      if (process.platform !== "win32") return;
+
+      // Max must be raised before Min -- .NET validates Min against the
+      // *current* Max (the small OS default) at assignment time, so setting
+      // Min first against an unraised ceiling fails even when the two
+      // literal values being requested are perfectly consistent.
+      const psCommand =
+          `$p = Get-Process -Id ${pid} -ErrorAction Stop; ` +
+          `$p.MaxWorkingSet = [IntPtr]${GENIEX_MAX_WORKING_SET_BYTES}; ` +
+          `$p.MinWorkingSet = [IntPtr]${GENIEX_MIN_WORKING_SET_BYTES}`;
+
+      const { spawn: spawnPs } = require("child_process");
+      const ps = spawnPs("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCommand]);
+
+      let stderr = "";
+      ps.stderr.on("data", (d) => { stderr += d.toString(); });
+      ps.on("exit", (code) => {
+          if (code === 0) {
+              console.log(
+                  `[ModelRegistry] 📌 Pinned GenieX working set (min ${(GENIEX_MIN_WORKING_SET_BYTES / 1024 ** 3).toFixed(1)}GB / ` +
+                  `max ${(GENIEX_MAX_WORKING_SET_BYTES / 1024 ** 3).toFixed(1)}GB) to reduce paging under memory pressure.`
+              );
+          } else {
+              console.warn(`[ModelRegistry] ⚠️ Could not pin GenieX working set (non-fatal): ${stderr.trim()}`);
+          }
+      });
+  }
+
+  /**
+   * Handles an unexpected GenieX exit by respawning it automatically, with a bounded
    * number of attempts per time window so a truly broken install doesn't
    * crash-loop forever.
    */
@@ -382,7 +545,9 @@ class ModelRegistry {
   }
 
   /**
-   * Removes the model from GenieX's cache to reclaim SSD space.
+   * Removes both hybrid-role models from GenieX's cache to reclaim SSD
+   * space -- both need removing, not just one, or the other would be left
+   * as orphaned dead weight on disk with no way to trigger local mode again.
    */
   async deleteLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
       await this.killLocalInferenceEngine(modelId);
@@ -393,14 +558,16 @@ class ModelRegistry {
           return true;
       }
 
-      try {
-          const { execFileSync } = require("child_process");
-          execFileSync(geniexExe, ["remove", GENIEX_MODEL_ID, "--yes"], { encoding: "utf-8" });
-          console.log(`[ModelRegistry] 🗑️ Removed ${GENIEX_MODEL_ID} from GenieX cache.`);
-          this._downloadedCache = false;
-      } catch (err) {
-          console.error(`[ModelRegistry] Failed to remove GenieX model:`, err.message);
+      const { execFileSync } = require("child_process");
+      for (const name of [GENIEX_MODEL_ID, GENIEX_CLASSIFIER_MODEL_ID]) {
+          try {
+              execFileSync(geniexExe, ["remove", name, "--yes"], { encoding: "utf-8" });
+              console.log(`[ModelRegistry] 🗑️ Removed ${name} from GenieX cache.`);
+          } catch (err) {
+              console.error(`[ModelRegistry] Failed to remove ${name}:`, err.message);
+          }
       }
+      this._downloadedCache = false;
       return true;
   }
   
@@ -411,7 +578,8 @@ class ModelRegistry {
       return {
           downloaded: this._isDownloadedCached(modelId),
           running: !!this.aiProcess,
-          restarting: !!this._restarting
+          restarting: !!this._restarting,
+          lastError: this._lastSpawnFailureReason,
       };
   }
 }

@@ -826,6 +826,54 @@ def _agent_action_tool() -> genai_types.Tool:
     )
 
 
+def _openai_tools_from_agent_action_tool() -> list[dict[str, Any]]:
+    """Translate `_agent_action_tool()`'s Gemini-SDK declarations into the
+    standard OpenAI `tools` array the local bridge expects. Reuses the same
+    declarations rather than maintaining a second copy, so local and cloud
+    action routing stay in sync automatically as the tool set evolves.
+    """
+
+    def _lower_types(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {
+                k: (v.lower() if k == "type" and isinstance(v, str) else _lower_types(v))
+                for k, v in node.items()
+            }
+        if isinstance(node, list):
+            return [_lower_types(v) for v in node]
+        return node
+
+    dumped = _agent_action_tool().model_dump(exclude_none=True)
+    tools: list[dict[str, Any]] = []
+    for decl in dumped.get("function_declarations", []):
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": decl["name"],
+                    "description": decl.get("description", ""),
+                    "parameters": _lower_types(
+                        decl.get("parameters", {"type": "OBJECT", "properties": {}})
+                    ),
+                },
+            }
+        )
+    return tools
+
+
+class _OpenAIFunctionCallShim:
+    """Adapts a bridge/OpenAI-shaped tool call into the Gemini FunctionCall
+    duck type `_action_plan_from_function_call` already expects (`.name`,
+    `.args`, `.id`), so local mode reuses that exact mapping instead of a
+    parallel implementation.
+    """
+
+    def __init__(self, name: str, args: dict[str, Any], call_id: str):
+        self.name = name
+        self.args = args
+        self.id = call_id
+
+
 class AgentChatService:
     """Owns Agent chat LLM streaming and backend-decryptable encrypted history."""
 
@@ -1295,6 +1343,114 @@ class AgentChatService:
         )
         return [self._conversation_from_row(row) for row in result.data or []]
 
+    def _build_local_bridge_messages(
+        self,
+        *,
+        user_message: str,
+        history: list[AgentChatMessage],
+        action_plan: AgentChatActionPlan | None,
+        pkm_context: str | None,
+    ) -> list[dict[str, str]]:
+        """Message-building for the local bridge's actual reply generation
+        (stream_response below). _plan_action_via_bridge builds its own,
+        separate, more minimal context -- see that method for why.
+
+        On-device NPU inference is far more compute-constrained than the
+        cloud path, and prompt-processing time scales with total context
+        size -- keep history/PKM context small so each turn's prefill stays
+        fast instead of growing every turn as the conversation gets longer.
+        """
+        messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+        local_history_limit = 3
+        local_message_char_limit = 320
+        local_pkm_char_limit = 1000
+        for msg in history[-local_history_limit:]:
+            if msg.role not in {"user", "assistant"}:
+                continue
+            messages.append({"role": "user" if msg.role == "user" else "assistant", "content": msg.content[:local_message_char_limit]})
+        local_pkm_context = (pkm_context or "")[:local_pkm_char_limit]
+        turn_context = self._build_turn_context(action_plan=action_plan, pkm_context=local_pkm_context)
+        # The smaller on-device model follows the base system prompt's
+        # "use PKM context when relevant" nuance far less reliably than
+        # Gemini does, and tends to cite the PKM note on every turn even
+        # for plain greetings/chit-chat. Gemini doesn't need this extra
+        # nudge, so it's scoped to the local path only.
+        local_relevance_reminder = (
+            "Only mention or reference the PKM context above if the user's "
+            "latest message is actually asking about their personal data, "
+            "preferences, portfolio, or memory. For greetings, small talk, "
+            "or general questions unrelated to their PKM data, respond "
+            "naturally and do not bring up the PKM note."
+        )
+        # Added after direct testing this session across four candidate
+        # models (1B, 3B, Phi-4-mini, and Qwen3.5-2B -- the one actually
+        # shipped, see stream_response's payload comment): all four get
+        # multi-step financial/compounding math wrong in some way. 1B's
+        # shown work contradicted its own final number; 3B fabricated a
+        # figure ~70% too high; Qwen3.5-2B got the lump-sum piece exactly
+        # right but substituted the wrong period count into the annuity
+        # formula, landing ~53% too low; only Phi-4-mini got a real
+        # compounding test fully correct, but was 0-for-3 on trivial
+        # single-step addition in the same session. No candidate is safe to
+        # trust blind on arithmetic, so this guardrail stays regardless of
+        # which model ships. Scoped to local mode only -- Gemini doesn't have
+        # this failure mode and doesn't need the extra instruction.
+        local_math_guardrail = (
+            "This on-device model is unreliable at arithmetic beyond small "
+            "single-step calculations, and especially unreliable at "
+            "multi-step financial math (compounding, multi-year growth "
+            "projections, portfolio/investment calculations with more than "
+            "one step). For any question requiring that kind of "
+            "calculation: do not present a precise final number as fact, "
+            "and do not show fabricated step-by-step arithmetic that looks "
+            "precise but may not be correct. Instead, give a rough, "
+            "clearly-labeled approximation at most, and explicitly tell the "
+            "user to verify the exact figure with a calculator or Kai's "
+            "Portfolio/Analysis tools. Simple single-step arithmetic with "
+            "small numbers is fine to answer directly."
+        )
+        # Defines this model's actual job, based on what it's demonstrated it
+        # can and can't do reliably this session: fast and accurate at the
+        # mechanical tool-calling tasks (navigation, PKM capture), unreliable
+        # at open-ended reasoning/financial analysis/multi-step math. Rather
+        # than keep trying to make the small on-device model good at
+        # everything Gemini is good at, scope its job to what it's actually
+        # good at and have it defer, briefly and confidently, on the rest.
+        #
+        # This scoping isn't just a quality workaround -- it's the correct
+        # architectural role for this model. GenieX's 4096-token context
+        # can't carry a full generalist agent loop (confirmed directly: real
+        # Hermes Agent refuses to run at all below a 64K-token context), so
+        # this on-device model was never meant to replace that loop. It's
+        # meant to be a narrow, fast, local delegate for specific classifier-
+        # style steps -- intent routing and PKM capture here -- the same
+        # pattern the on-device-inference direction describes elsewhere (Kai
+        # intent classification, Nav's privacy rules engine): small, local,
+        # single-purpose, with the general-reasoning loop staying on a
+        # large-context model. Keep this scope even if a larger/better local
+        # model becomes available -- the point is the role, not the size.
+        local_role_scope = (
+            "Your most valuable and reliable job in this on-device mode is "
+            "helping the user navigate to the right place in the app "
+            "(open_app_surface) and capture or update their PKM data "
+            "(add_to_pkm, update_pkm). Prioritize recognizing those requests "
+            "confidently and precisely. For open-ended financial analysis, "
+            "investment advice, or anything needing real calculation, keep "
+            "your answer brief, do not attempt precise multi-step reasoning, "
+            "and point the user to Kai's cloud-connected mode or Kai's "
+            "Portfolio/Analysis tools for anything that needs real depth or "
+            "precision."
+        )
+        messages.append({
+            "role": "user",
+            "content": (
+                f"{turn_context}\n\n{local_relevance_reminder}\n\n"
+                f"{local_math_guardrail}\n\n{local_role_scope}\n\n"
+                f"Latest user message:\n{user_message}"
+            ),
+        })
+        return messages
+
     async def stream_response(
         self,
         *,
@@ -1310,51 +1466,81 @@ class AgentChatService:
         # error and must surface as such, not silently fall through to local.
         if runtime_model == "Llama-3.2-3B-Instruct":
             import aiohttp
-            url = "http://localhost:18181/v1/chat/completions"
-            messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
-            # On-device NPU inference is far more compute-constrained than the
-            # cloud path, and prompt-processing time scales with total context
-            # size -- keep history/PKM context small so each turn's prefill
-            # stays fast instead of growing every turn as the conversation gets
-            # longer.
-            local_history_limit = 4
-            local_message_char_limit = 400
-            local_pkm_char_limit = 1500
-            for msg in history[-local_history_limit:]:
-                if msg.role not in {"user", "assistant"}:
-                    continue
-                messages.append({"role": "user" if msg.role == "user" else "assistant", "content": msg.content[:local_message_char_limit]})
-            local_pkm_context = (pkm_context or "")[:local_pkm_char_limit]
-            turn_context = self._build_turn_context(action_plan=action_plan, pkm_context=local_pkm_context)
-            # The smaller on-device model follows the base system prompt's
-            # "use PKM context when relevant" nuance far less reliably than
-            # Gemini does, and tends to cite the PKM note on every turn even
-            # for plain greetings/chit-chat. Gemini doesn't need this extra
-            # nudge, so it's scoped to the local path only.
-            local_relevance_reminder = (
-                "Only mention or reference the PKM context above if the user's "
-                "latest message is actually asking about their personal data, "
-                "preferences, portfolio, or memory. For greetings, small talk, "
-                "or general questions unrelated to their PKM data, respond "
-                "naturally and do not bring up the PKM note."
+            # Through the local bridge (local_bridge/), not GenieX directly --
+            # the bridge guarantees a spec-correct finish_reason/[DONE] on the
+            # stream, which GenieX itself doesn't reliably provide. No tools
+            # needed here: action_plan was already resolved separately (see
+            # _plan_action_via_bridge) and is woven into turn_context below.
+            url = "http://localhost:18182/v1/chat/completions"
+            messages = self._build_local_bridge_messages(
+                user_message=user_message,
+                history=history,
+                action_plan=action_plan,
+                pkm_context=pkm_context,
             )
-            messages.append({
-                "role": "user",
-                "content": f"{turn_context}\n\n{local_relevance_reminder}\n\nLatest user message:\n{user_message}",
-            })
 
             payload = {
-                "model": "qualcomm/qwen3_4b_instruct_2507",
+                # Hybrid split: this reply-generation call uses Qwen3.5-2B
+                # (most internally-coherent reasoner of four candidates
+                # tested this session), while the separate action-plan
+                # classifier call below (_plan_action_via_bridge) stays on
+                # the 1B. Qwen3.5-2B's always-on <think> reasoning trace (no
+                # way to disable it -- a "think" JSON field errors,
+                # "/no_think" isn't honored and can trigger runaway
+                # repetition) breaks GenieX whenever `tools` are attached to
+                # a request -- confirmed down to a single minimal tool with
+                # a 5-token completion ask still hitting
+                # `context_length_exceeded` at ~345 prompt tokens, nowhere
+                # near the assumed 4096 window. This call never attaches
+                # `tools` (the classifier already resolved action_plan
+                # separately -- see below), so it never hits that failure
+                # mode, and gets the benefit of this model's better
+                # reasoning for plain conversational replies. See
+                # registry.js's GENIEX_MODEL_ID for the full history.
+                "model": "unsloth/Qwen3.5-2B-GGUF",
                 "messages": messages,
                 "stream": True,
                 "temperature": 0.7,
-                "max_tokens": 4096
+                # `max_tokens` (the field the GenieX docs themselves show) is
+                # silently IGNORED by this installed GenieX version's HTTP
+                # API -- confirmed via direct testing against this exact
+                # endpoint: a request capped at 256 came back with 1,258
+                # completion tokens. `max_completion_tokens` is the field
+                # that's actually honored. Sized at 6000, not 1200: live
+                # testing with the real production message (full
+                # AGENT_SYSTEM_PROMPT plus the turn context, relevance
+                # reminder, math guardrail, and role-scope text all stacked
+                # into the user turn -- see _build_local_bridge_messages)
+                # showed the thinking block alone routinely exceeding both
+                # 1200 and 3000 tokens before ever closing, which meant the
+                # model's raw internal reasoning was shown as the reply
+                # verbatim, cut off mid-thought, with no real answer ever
+                # produced. Verified directly against this exact endpoint,
+                # with this exact message construction, that 6000 is enough
+                # for the model to close its `</think>` block and produce a
+                # complete, coherent answer (used well under budget in that
+                # run). This raises worst-case latency substantially --
+                # accepted tradeoff for a reply that's actually visible at
+                # all; see the </think>-stripping logic below, which is the
+                # other half of this fix.
+                "max_completion_tokens": 6000,
             }
-            
+
             # aiohttp.ClientSession defaults to a 300s total timeout if none
             # is given -- disable it so a genuinely slow (but progressing)
             # on-device generation is never cut off mid-stream.
             no_timeout = aiohttp.ClientTimeout(total=None)
+            # Qwen3.5-2B always reasons before answering and closes that
+            # block with a literal `</think>` marker (no opening tag is
+            # emitted -- confirmed via direct probing of this exact
+            # endpoint). Neither GenieX nor the bridge strips this, so
+            # buffer deltas until the marker appears and only start
+            # yielding text after it; otherwise the model's raw internal
+            # reasoning is shown to the user as the reply, which is exactly
+            # what live testing surfaced before this fix.
+            think_close_marker = "</think>"
+            think_buffer = ""
+            seen_think_close = False
             async with aiohttp.ClientSession(timeout=no_timeout) as session:
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
@@ -1376,10 +1562,31 @@ class AgentChatService:
                             # (slow/heavy) completions it emits a single final
                             # frame in the non-streaming "message" shape instead.
                             delta = choice.get("delta", {}).get("content", "") or choice.get("message", {}).get("content", "")
-                            if delta:
-                                yield delta
                         except Exception as exc:
                             logger.warning(f"[LocalChat] Failed to parse GenieX SSE line: {exc!r} line={payload_str[:200]!r}")
+                            continue
+                        if not delta:
+                            continue
+                        if seen_think_close:
+                            yield delta
+                            continue
+                        think_buffer += delta
+                        marker_idx = think_buffer.find(think_close_marker)
+                        if marker_idx != -1:
+                            seen_think_close = True
+                            remainder = think_buffer[marker_idx + len(think_close_marker):].lstrip("\n")
+                            if remainder:
+                                yield remainder
+                            think_buffer = ""
+            if not seen_think_close:
+                # Ran out of budget while still inside the reasoning block --
+                # nothing real was ever produced. Surface a clear message
+                # instead of either silence or the raw partial reasoning.
+                logger.warning(
+                    "[LocalChat] Qwen3.5-2B never closed its </think> block "
+                    "within max_completion_tokens -- no visible reply produced"
+                )
+                yield "Sorry, that took too long to think through -- please try again."
             return
 
         contents = self._build_contents(
@@ -1426,6 +1633,111 @@ class AgentChatService:
                 raise provider_error from error
             raise
 
+    async def _plan_action_via_bridge(
+        self,
+        *,
+        user_message: str,
+        history: list[AgentChatMessage],
+        pkm_context: str | None = None,
+    ) -> AgentChatActionPlan | None:
+        """Local-mode action-plan classification via the local bridge's
+        tool-calling translation (see local_bridge/), mirroring the cloud
+        path's Gemini function-calling but through GenieX/llama.cpp instead.
+
+        Kept intentionally tight on context -- GenieX's compiled window is a
+        fixed 4096 tokens, and the tool schemas themselves already consume a
+        meaningful chunk of that budget.
+
+        A same-session experiment merged this with the final-reply call
+        (single call, full context, temperature 0.7, max_tokens 640) to cut
+        per-turn latency. Reverted: live testing showed no reliable win --
+        short turns got faster (~39s), but longer/reasoning-heavy turns got
+        WORSE (a timed-out merged call still paid for a full separate
+        stream_response() fallback afterward, nearly 2 minutes total). Kept
+        as two separate, purpose-built calls instead.
+        """
+        import aiohttp
+
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": AGENT_ACTION_PLANNER_PROMPT}
+        ]
+        for msg in history[-2:]:
+            if msg.role not in {"user", "assistant"}:
+                continue
+            messages.append(
+                {
+                    "role": "user" if msg.role == "user" else "assistant",
+                    "content": msg.content[:200],
+                }
+            )
+        clean_pkm = str(pkm_context or "").strip()[:500]
+        planning_context = clean_pkm or "No PKM context was provided for this turn."
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"PKM context for routing only:\n{planning_context}\n\n"
+                    f"Latest user message:\n{user_message}"
+                ),
+            }
+        )
+
+        payload = {
+            "model": "unsloth/Llama-3.2-1B-Instruct-GGUF",
+            "messages": messages,
+            "stream": False,
+            "temperature": 0.0,
+            # `max_tokens` is silently ignored by this GenieX version's HTTP
+            # API (see stream_response's payload comment for the confirmed
+            # repro) -- `max_completion_tokens` is the field that's actually
+            # honored. 200 is fine for the 1B: unlike the reverted
+            # Qwen3.5-2B attempt, it has no always-on reasoning trace eating
+            # into this budget before the tool call itself.
+            "max_completion_tokens": 200,
+            "tools": _openai_tools_from_agent_action_tool(),
+        }
+
+        try:
+            # 45s, not 20s: the 20s figure matched the bridge's old 15s
+            # budget, both sized for the prior QAIRT/Qwen3-4B model's failure
+            # mode (a slow call meant a multi-minute hang past a crash, so
+            # failing fast was correct). The llama.cpp/Llama-3.2-1B runtime
+            # doesn't hang like that -- live testing this session showed this
+            # call normally resolving in 5-25s. (Briefly bumped to 70s during
+            # the same-session Qwen3.5-2B attempt, reverted along with it --
+            # see registry.js's GENIEX_MODEL_ID for why.)
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45)) as session:
+                async with session.post(
+                    "http://localhost:18182/v1/chat/completions", json=payload
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            f"[LocalChat] Action-plan bridge call returned {resp.status}"
+                        )
+                        return None
+                    data = await resp.json()
+        except Exception as exc:
+            logger.warning(f"[LocalChat] Action-plan bridge call failed: {exc!r}")
+            return None
+
+        choice = (data.get("choices") or [{}])[0]
+        tool_calls = choice.get("message", {}).get("tool_calls") or []
+        for call in tool_calls:
+            function = call.get("function", {})
+            try:
+                args = json.loads(function.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            shim = _OpenAIFunctionCallShim(
+                name=function.get("name", ""),
+                args=args,
+                call_id=call.get("id") or _tool_call_id(),
+            )
+            action_plan = self._action_plan_from_function_call(shim)
+            if action_plan is not None:
+                return action_plan
+        return None
+
     async def plan_action_with_gemini(
         self,
         *,
@@ -1438,11 +1750,16 @@ class AgentChatService:
         # Key off the local model only (see stream_response): a missing cloud
         # runtime_client should not silently route into the local fallback.
         if runtime_model == "Llama-3.2-3B-Instruct":
-            # Local models don't get Gemini's structured function-calling (that layer
-            # is Gemini-SDK-specific and only covers routing/navigation intents, not
-            # financial analysis itself). They do get the same deterministic
-            # regex-based action detection cloud mode falls back to when Gemini's
-            # own function call comes up empty.
+            # Real tool-calling through the local bridge first (same mechanism
+            # cloud mode uses, translated for GenieX -- see local_bridge/).
+            # Falls back to the deterministic regex router if the model's
+            # tool call doesn't resolve to a known action, or the bridge/
+            # GenieX isn't reachable, rather than surfacing a hard failure.
+            action_plan = await self._plan_action_via_bridge(
+                user_message=user_message, history=history, pkm_context=pkm_context
+            )
+            if action_plan is not None:
+                return action_plan
             return self.plan_action(user_message)
         crm_action = self._plan_crm_action(user_message)
         if crm_action is not None:
