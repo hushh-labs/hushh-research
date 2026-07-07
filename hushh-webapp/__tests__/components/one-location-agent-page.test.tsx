@@ -766,7 +766,8 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
-  it("shows the entry flow before the main-page skeleton while state refresh is loading", async () => {
+  it("shows the entry flow before the main-page loader while state refresh is loading", async () => {
+
     let resolveState: (value: ReturnType<typeof locationState>) => void = () =>
       undefined;
     mockGetState.mockReturnValueOnce(
@@ -796,12 +797,15 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "Allow location access" }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
-    expect(await screen.findByLabelText("Loading One Location")).toBeTruthy();
+    // The location page now uses the shared HushhLoader (a pulsing "Loading..."
+    // status) instead of the bespoke skeleton, matching every other /one/* page.
+    expect(await screen.findByText("Loading location...")).toBeTruthy();
     expect(
       container.querySelectorAll('[data-slot="skeleton"]').length,
-    ).toBeGreaterThan(0);
+    ).toBe(0);
 
     resolveState(locationState());
+
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy(),
     );

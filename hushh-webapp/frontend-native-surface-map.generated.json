@@ -2015,7 +2015,7 @@
         "app_page_shell": true,
         "page_header": true,
         "settings_ui": false,
-        "shared_loader": false,
+        "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
