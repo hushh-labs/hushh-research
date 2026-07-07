@@ -15,6 +15,24 @@ input[type="reset"],
   touch-action: manipulation;
 }
 
+/* iOS WKWebView: a press-and-hold on an interactive element triggers the
+ * system callout/text-selection path, which cancels the pointer stream with
+ * pointercancel BEFORE md-ripple sees pointerup. The ripple's pressed layer
+ * then sticks until the next interaction. Suppressing the callout and text
+ * selection on actionables keeps the pointer stream intact so the press state
+ * always clears. Inputs keep selection/callout for copy-paste. */
+a,
+button,
+[role="button"],
+[role="radio"],
+[role="tab"],
+[role="menuitem"],
+[role="option"] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* Remove default iOS tap highlight flash */
 * {
   -webkit-tap-highlight-color: transparent;
@@ -1387,7 +1405,11 @@ html.native-ios {
   -webkit-backdrop-filter: blur(24px);
 }
 
-/* Material Web ripple: ensure it fills its host and clips with border-radius. */
+/* Material Web ripple: ensure it fills its host and clips with border-radius.
+ * pointer-events:none belongs on the ripple element itself, not only the host:
+ * the injected <md-ripple> child previously relied on md-ripple's internal
+ * styles staying opaque to hits; a regression there re-introduces the iOS
+ * "first tap swallowed / needs double tap" bug on the bottom nav. */
 md-ripple.morphy-md-ripple {
   position: absolute;
   inset: 0;
@@ -1395,6 +1417,7 @@ md-ripple.morphy-md-ripple {
   width: 100%;
   height: 100%;
   border-radius: inherit;
+  pointer-events: none;
 }
 
 .morphy-ripple-host {

@@ -203,6 +203,23 @@ export function resetKaiBottomChromeVisibility(): void {
 }
 
 /**
+ * Snap the bottom chrome fully visible with NO animation. Called on
+ * pointerdown inside the bottom nav: when a tap lands while the hide/reveal
+ * animation is mid-flight, the buttons translate away between pointerdown and
+ * pointerup and the browser registers no click, which surfaced on iOS as
+ * "sometimes I have to tap the bottom bar twice". Freezing the chrome at its
+ * mean position for the press guarantees the target is stationary at
+ * pointerup.
+ */
+export function snapKaiBottomChromeVisible(): void {
+  cancelAnimation();
+  state.progress = 0;
+  state.targetProgress = 0;
+  state.lastY = readActiveScrollY();
+  emit();
+}
+
+/**
  * Re-seed the singleton from the ACTUAL current scroll position of the active
  * target and animate toward the matching mean/hidden target.
  *
