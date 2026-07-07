@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -93,7 +94,7 @@ class GoogleMapsService:
         async with _async_client() as client:
             try:
                 response = await client.get(
-                    f"{_PLACES_BASE}/v1/places/{place_id}",
+                    f"{_PLACES_BASE}/v1/places/{quote(place_id, safe='')}",
                     headers={
                         "X-Goog-Api-Key": key,
                         "X-Goog-FieldMask": "id,location,displayName,formattedAddress",

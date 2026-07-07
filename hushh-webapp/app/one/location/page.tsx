@@ -2925,6 +2925,8 @@ function OneLocationAgentPageContent() {
           session.lastEtaAt = now;
         } catch {
           // Keep the last known ETA; the share still carries the moving point.
+          session.lastEtaPoint = point;
+          session.lastEtaAt = now;
         }
       }
 
