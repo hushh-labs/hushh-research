@@ -84,10 +84,27 @@ function extractStockTarget(transcript: string): string {
   return sanitizeStockTarget(normalized);
 }
 
+/**
+ * Bare uppercase tokens are only trusted as ticker symbols when they exist in
+ * the cached ticker universe. STT output like "YOUR" matches the 1-5 letter
+ * ticker pattern but is not a listed security; without this membership gate a
+ * misheard word starts a full analysis run against a nonexistent company.
+ * When the universe has not loaded yet (null snapshot) we fall back to
+ * accepting the token: the backend symbol-master gate rejects unknown tickers
+ * before any run starts, so the failure mode is a clean refusal, not a fake
+ * debate.
+ */
+function isKnownUniverseTicker(candidate: string): boolean {
+  const rows = getTickerUniverseSnapshot();
+  if (!rows?.length) return true;
+  return rows.some((row) => row.ticker === candidate);
+}
+
 function tickerFromText(value: string, ignoredTokens: ReadonlySet<string>): string | null {
   for (const match of value.toUpperCase().matchAll(TICKER_PATTERN)) {
     const candidate = match[1];
     if (!candidate || ignoredTokens.has(candidate)) continue;
+    if (!isKnownUniverseTicker(candidate)) continue;
     return candidate;
   }
   return null;
@@ -139,12 +156,16 @@ export function resolveStockTargetSymbol(input: {
   const target = extractStockTarget(input.transcript);
   if (!target) return null;
 
-  const targetTicker = tickerFromText(target, ignoredTokens);
-  if (targetTicker) return targetTicker;
-
+  // Alias resolution runs BEFORE bare-token extraction: a spoken company name
+  // like "Tesla" uppercases into a pattern-valid token ("TESLA") that is not
+  // the real symbol. The alias map is the authoritative mapping for common
+  // company names, so it must win over the raw-token heuristic.
   const key = normalizeCompanyLookupKey(target);
   const alias = STOCK_ALIAS_TO_TICKER[key] || STOCK_ALIAS_TO_TICKER[target.toLowerCase()];
   if (alias) return alias;
+
+  const targetTicker = tickerFromText(target, ignoredTokens);
+  if (targetTicker) return targetTicker;
 
   return tickerFromUniverse(target);
 }

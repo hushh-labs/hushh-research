@@ -181,9 +181,13 @@ function getPlannerCandidate(
 ): OneVoiceActionProposal | null {
   if (!proposal) return null;
   const confidence = proposal.confidence;
+  // A proposal without a finite numeric confidence must NOT bypass the floor:
+  // model self-reports are already optimistic, and a null/absent confidence is
+  // the least trustworthy signal of all. Fail closed and let the lexical
+  // planner rank the transcript from scratch instead.
   if (
-    typeof confidence === "number" &&
-    Number.isFinite(confidence) &&
+    typeof confidence !== "number" ||
+    !Number.isFinite(confidence) ||
     confidence < ACTION_PROPOSAL_CONFIDENCE_FLOOR
   ) {
     return null;
@@ -455,6 +459,21 @@ export class OneVoiceLiveActionBridge {
   }): Promise<boolean> {
     const { plan, transcript, userId, vaultOwnerToken } = input;
     if (plan.status === "blocked") {
+      // A blocked plan WITH an inferred action carries a real prerequisite
+      // explanation ("Unlock the vault...", "Import your portfolio first.").
+      // Speak it so the user hears why, instead of the model improvising or
+      // the turn dying silently. Blocked plans with no action fall through to
+      // the conversational path.
+      if (plan.action && plan.reason) {
+        const turnId = `goal_blocked_${Date.now()}`;
+        await this.speakWithStage({
+          text: plan.reason,
+          turnId,
+          responseId: turnId,
+          segmentType: "final",
+        });
+        return true;
+      }
       return Boolean(this.pendingGoalPlan);
     }
     if (plan.status === "input_needed") {

@@ -231,6 +231,18 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
   private sourceSeq = 0;
+  /**
+   * Turn fence: after a local interrupt we drop any late model audio still in
+   * flight until the provider closes the interrupted turn (turnComplete) or
+   * the app starts a new turn (speakText). Without this, stale audio chunks
+   * resume playback after interrupt() because the relay's interrupt is only a
+   * local acknowledgement.
+   */
+  private suppressModelAudio = false;
+  /** Resolvers waiting for the audio queue to drain (speakText settle). */
+  private playbackDrainResolvers = new Set<() => void>();
+  /** Timestamp of the most recent enqueued audio chunk (drain heuristics). */
+  private lastAudioEnqueueAt = 0;
 
   constructor(handlers: GeminiLiveHandlers = {}) {
     this.handlers = handlers;
@@ -359,7 +371,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         provider: this.provider,
         level,
       });
-      if (this.state !== "speaking") this.setState("listening");
+      // Mic frames stream continuously, so they must never demote the
+      // thinking state (that is why "Thinking" used to flash for one frame
+      // and snap back to "Listening" while the model was still working).
+      if (this.state !== "speaking" && this.state !== "thinking") {
+        this.setState("listening");
+      }
       const sourceRate = this.inputContext?.sampleRate ?? INPUT_SAMPLE_RATE;
       const pcm = floatToPcm16(downsample(frame, sourceRate));
       this.ws.send(
@@ -429,7 +446,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     }
 
     const serverContent = message.serverContent as
-      | { modelTurn?: { parts?: Array<Record<string, unknown>> }; interrupted?: boolean }
+      | {
+          modelTurn?: { parts?: Array<Record<string, unknown>> };
+          interrupted?: boolean;
+          turnComplete?: boolean;
+        }
       | undefined;
 
     const eventOptions = this.nextEventOptions();
@@ -441,6 +462,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       inputTranscription?.text ?? inputTranscription?.transcript ?? inputTranscription?.final
     );
     if (inputText) {
+      // The provider transcribed the user's speech, which means the user's
+      // turn ended and the model is now working on a response. Surface that
+      // processing gap as "thinking" until the first audio chunk arrives so
+      // the user knows they were heard.
+      if (this.state === "listening") {
+        this.setState("thinking");
+      }
       this.handlers.onEvent?.({
         type: "transcript_final",
         provider: this.provider,
@@ -516,13 +544,26 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       return;
     }
 
+    if (serverContent.turnComplete) {
+      // The interrupted (or finished) model turn is closed; stop fencing and
+      // settle back to listening when nothing is queued for playback.
+      this.suppressModelAudio = false;
+      if (this.activeSources.size === 0 && !this.closed && this.state !== "idle") {
+        this.setState("listening");
+        this.resolvePlaybackDrain();
+      }
+      return;
+    }
+
     const parts = serverContent.modelTurn?.parts ?? [];
     for (const part of parts) {
       const inlineData = part.inlineData as
         | { mimeType?: string; data?: string }
         | undefined;
       if (inlineData?.data && (inlineData.mimeType ?? "").startsWith("audio/")) {
-        this.enqueueAudio(bytesFromBase64(inlineData.data));
+        if (!this.suppressModelAudio) {
+          this.enqueueAudio(bytesFromBase64(inlineData.data));
+        }
       }
       const textPart = readString(part.text);
       if (textPart) {
@@ -551,6 +592,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       return false;
     }
     if (input.signal?.aborted) return false;
+    // App speech starts a fresh model turn; lift any interrupt fence so the
+    // synthesized response is audible.
+    this.suppressModelAudio = false;
     this.ws.send(
       JSON.stringify({
         type: "app_speech",
@@ -559,13 +603,71 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         segment_type: input.segmentType ?? "final",
       })
     );
+    // Settle on playback, not on socket send. Resolving at ws.send made the
+    // bridge flip the UI back to "Listening" while the answer was still being
+    // synthesized and played, which read as the agent talking over itself.
+    const audioStarted = await this.waitForAudioStart(4000, input.signal);
+    if (audioStarted) {
+      await this.waitForPlaybackDrain(30000, input.signal);
+    }
     return true;
   }
 
   interrupt(): void {
     this.stopPlayback();
+    // Fence out any model audio still in flight for the interrupted turn;
+    // the relay's interrupt frame is a local acknowledgement, so without the
+    // fence stale chunks resume playing right after this call.
+    this.suppressModelAudio = true;
+    this.resolvePlaybackDrain();
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type: "interrupt" }));
+  }
+
+  private resolvePlaybackDrain(): void {
+    for (const resolve of this.playbackDrainResolvers) resolve();
+    this.playbackDrainResolvers.clear();
+  }
+
+  /** Resolves true when a new audio chunk starts within the timeout. */
+  private waitForAudioStart(timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+    const startedAfter = Date.now();
+    return new Promise((resolve) => {
+      const poll = setInterval(() => {
+        if (this.closed || signal?.aborted) {
+          clearInterval(poll);
+          resolve(false);
+          return;
+        }
+        if (this.lastAudioEnqueueAt >= startedAfter || this.activeSources.size > 0) {
+          clearInterval(poll);
+          resolve(true);
+          return;
+        }
+        if (Date.now() - startedAfter > timeoutMs) {
+          clearInterval(poll);
+          resolve(false);
+        }
+      }, 50);
+    });
+  }
+
+  /** Resolves when the playback queue empties (or the timeout/abort hits). */
+  private waitForPlaybackDrain(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    if (this.activeSources.size === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        clearInterval(abortPoll);
+        this.playbackDrainResolvers.delete(done);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      const abortPoll = setInterval(() => {
+        if (this.closed || signal?.aborted) done();
+      }, 100);
+      this.playbackDrainResolvers.add(done);
+    });
   }
 
   updateContext(context: OneVoiceContextSnapshot): boolean {
@@ -627,6 +729,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const startAt = Math.max(context.currentTime, this.playheadTime);
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
+    this.lastAudioEnqueueAt = Date.now();
     this.setState("speaking");
     this.activeSources.add(node);
     node.onended = () => {
@@ -634,6 +737,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       if (this.activeSources.size === 0 && !this.closed) {
         this.setState("listening");
         this.handlers.onOutputLevel?.(0);
+        this.resolvePlaybackDrain();
       }
     };
   }
@@ -685,6 +789,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    this.resolvePlaybackDrain();
 
     if (this.outputLevelTimer) {
       clearInterval(this.outputLevelTimer);

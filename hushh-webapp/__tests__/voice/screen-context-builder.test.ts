@@ -212,6 +212,26 @@ describe("buildStructuredScreenContext", () => {
     );
   });
 
+  it("always includes global navigation contracts regardless of screen", () => {
+    // Regression: "go to profile" from the Connect tab failed because
+    // route.profile was screen-filtered out of available_action_ids, so the
+    // model was never told the contract existed.
+    window.history.pushState({}, "", "/marketplace");
+    document.body.innerHTML = "<h1>Connect</h1>";
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/marketplace", "marketplace"),
+      voiceContext: {},
+    });
+
+    const availableIds = (
+      context.screen_metadata as { available_action_ids: string[] }
+    ).available_action_ids;
+    expect(availableIds).toEqual(
+      expect.arrayContaining(["route.profile", "route.kai_home", "route.ria_home"])
+    );
+  });
+
   it("caps multi-source context arrays before they enter the voice planner payload", () => {
     const oversizedActions = Array.from({ length: 12 }, (_, index) => ({
       id: `action_${index}`,

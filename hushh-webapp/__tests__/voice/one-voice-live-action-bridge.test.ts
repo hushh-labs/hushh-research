@@ -107,15 +107,22 @@ describe("OneVoiceLiveActionBridge", () => {
       openChatHandoff: vi.fn(),
     });
 
-    await bridge.processTranscript({ transcript: "Analyze TSLA" });
-    expect(speak.mock.lastCall?.[0].text).toContain("Which list");
-    expect(speak.mock.lastCall?.[0].text).toContain("default");
-
-    await bridge.processTranscript({ transcript: "which lists are available" });
-    expect(speak.mock.lastCall?.[0].text).toContain("Available options: default");
+    // The ticker input has no contract default, so a debate request without a
+    // symbol still produces a pending clarification turn.
+    await bridge.processTranscript({
+      transcript: "start the stock debate",
+      candidate: {
+        action_id: "analysis.start",
+        needs_confirmation: false,
+        confidence: 0.9,
+        slots: {},
+        reason: "Debate requested without a symbol.",
+      },
+    });
+    expect(speak.mock.lastCall?.[0].text).toContain("Which stock");
     expect(runOneGoal).not.toHaveBeenCalled();
 
-    await bridge.processTranscript({ transcript: "use default" });
+    await bridge.processTranscript({ transcript: "Tesla please" });
     expect(runOneGoal).toHaveBeenCalledTimes(1);
     expect(vi.mocked(runOneGoal).mock.calls[0]?.[0].plan).toMatchObject({
       status: "ready",
@@ -130,11 +137,7 @@ describe("OneVoiceLiveActionBridge", () => {
     expect(vi.mocked(runOneGoal).mock.calls[0]?.[0].waitForCompletion).toBe(false);
   });
 
-  it.each([
-    "which lists are available",
-    "what sources can I choose",
-    "show available choices",
-  ])("answers option questions during a pending Gemini Live goal: %s", async (optionQuestion) => {
+  it("runs Analyze TSLA immediately using the contract default pick source", async () => {
     const speak = vi.fn().mockResolvedValue(undefined);
     const bridge = new OneVoiceLiveActionBridge({
       userId: "user_1",
@@ -147,10 +150,20 @@ describe("OneVoiceLiveActionBridge", () => {
     });
 
     await bridge.processTranscript({ transcript: "Analyze TSLA" });
-    await bridge.processTranscript({ transcript: optionQuestion });
 
-    expect(speak.mock.lastCall?.[0].text).toContain("Available options: default");
-    expect(runOneGoal).not.toHaveBeenCalled();
+    // No "Which list should Kai use" interruption: pick_source has a declared
+    // contract default, so the goal is dispatched in the same turn.
+    expect(runOneGoal).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runOneGoal).mock.calls[0]?.[0].plan).toMatchObject({
+      status: "ready",
+      action: {
+        action_id: "analysis.start",
+      },
+      slots: {
+        symbol: "TSLA",
+        pickSource: "default",
+      },
+    });
   });
 
   it("preserves pending Gemini Live goal state across bridge config refreshes", async () => {
@@ -166,36 +179,41 @@ describe("OneVoiceLiveActionBridge", () => {
     };
     const bridge = new OneVoiceLiveActionBridge(baseConfig);
 
-    await bridge.processTranscript({ transcript: "Analyze TSLA" });
+    // Symbol has no default, so this parks a pending goal turn.
+    await bridge.processTranscript({
+      transcript: "start the stock debate",
+      candidate: {
+        action_id: "analysis.start",
+        needs_confirmation: false,
+        confidence: 0.9,
+        slots: {},
+        reason: "Debate requested without a symbol.",
+      },
+    });
+    expect(speak.mock.lastCall?.[0].text).toContain("Which stock");
     bridge.updateConfig({
       ...baseConfig,
       getVoiceContext: () => ({ refreshed: true }),
     });
-    await bridge.processTranscript({ transcript: "which lists are available" });
+    await bridge.processTranscript({ transcript: "Tesla" });
 
-    expect(speak.mock.lastCall?.[0].text).toContain("Available options: default");
-    expect(runOneGoal).not.toHaveBeenCalled();
+    expect(runOneGoal).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runOneGoal).mock.calls[0]?.[0].plan).toMatchObject({
+      status: "ready",
+      slots: {
+        symbol: "TSLA",
+        pickSource: "default",
+      },
+    });
   });
 
   it.each([
-    {
-      start: "Analyze TSLA",
-      question: "which lists are available",
-      selection: "use default",
-    },
-    {
-      start: "please research TSLA",
-      question: "what sources can I choose",
-      selection: "default list",
-    },
-    {
-      start: "start a TSLA stock debate",
-      question: "show available choices",
-      selection: "the default one",
-    },
+    "Analyze TSLA",
+    "please research TSLA",
+    "start a TSLA stock debate",
   ])(
-    "chains natural-language Gemini Live goal turns without hardcoded transcript branches: $start",
-    async ({ start, question, selection }) => {
+    "dispatches natural-language debate requests in one turn using contract defaults: %s",
+    async (start) => {
       const speak = vi.fn().mockResolvedValue(undefined);
       const bridge = new OneVoiceLiveActionBridge({
         userId: "user_1",
@@ -208,13 +226,7 @@ describe("OneVoiceLiveActionBridge", () => {
       });
 
       await bridge.processTranscript({ transcript: start });
-      expect(speak.mock.lastCall?.[0].text).toContain("Which list");
 
-      await bridge.processTranscript({ transcript: question });
-      expect(speak.mock.lastCall?.[0].text).toContain("Available options: default");
-      expect(runOneGoal).not.toHaveBeenCalled();
-
-      await bridge.processTranscript({ transcript: selection });
       expect(runOneGoal).toHaveBeenCalledTimes(1);
       expect(vi.mocked(runOneGoal).mock.calls[0]?.[0].plan).toMatchObject({
         status: "ready",
