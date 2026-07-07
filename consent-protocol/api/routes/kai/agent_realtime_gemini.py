@@ -573,6 +573,55 @@ async def create_agent_gemini_live_token(
 _VERTEX_LIVE_INPUT_RATE = 16000
 _ONE_VOICE_ACTION_PROPOSAL_TOOL = "one_voice_propose_action"
 
+# Persona tiers where One may proactively speak after an app context update
+# (screen change) instead of waiting for the user. Onboarding/browsing visitors
+# need guided next steps; signed-in users keep a quieter, user-led session.
+_PROACTIVE_CONTEXT_TIERS: frozenset[str] = frozenset({"anon_onboarding", "anon_browsing"})
+
+
+def _compose_app_context_update(hints: RelayPersonaHints, *, proactive: bool) -> Optional[str]:
+    """Render a redacted app-state update for an active Live session.
+
+    Reuses the same sanitizers as the initial persona composition so mid-session
+    updates can never widen what the model sees beyond the session-start
+    contract. Returns None when the update carries no usable state.
+    """
+    from hushh_mcp.services.agent_persona import sanitize_action_id, sanitize_screen
+
+    parts: list[str] = []
+    screen = sanitize_screen(_hint_str(hints, "screen"))
+    if screen:
+        parts.append(f"The user is now on the '{screen}' screen.")
+    route_family = sanitize_screen(_hint_str(hints, "route_family"))
+    if route_family and route_family != screen:
+        parts.append(f"The route family is '{route_family}'.")
+    action_ids = [
+        clean
+        for clean in (
+            sanitize_action_id(action_id) for action_id in _hint_list(hints, "available_action_ids")
+        )
+        if clean
+    ][:10]
+    if action_ids:
+        parts.append("Available app action contracts here: " + ", ".join(action_ids) + ".")
+    vault_ready = _hint_bool(hints, "vault_ready")
+    if vault_ready is not None:
+        parts.append("Vault is ready." if vault_ready else "Vault is not ready.")
+    if not parts:
+        return None
+    guidance = (
+        "If a short next step would help the user move forward, offer one brief "
+        "sentence of guidance now; otherwise stay quiet and keep listening."
+        if proactive
+        else "Do not respond to this update; use it silently for your next turn."
+    )
+    return (
+        "[App state update - not user speech; never read it aloud verbatim] "
+        + " ".join(parts)
+        + " "
+        + guidance
+    )
+
 
 def _read_attr_or_key(value: Any, key: str) -> Any:
     if isinstance(value, dict):
@@ -917,6 +966,39 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
                         await websocket.send_text(
                             json.dumps({"serverContent": {"interrupted": True}})
                         )
+                        continue
+                    if message.get("type") == "app_context" or "appContext" in message:
+                        # Mid-session redacted context refresh: the browser
+                        # reports a screen change so One stays aware while the
+                        # voice session persists across navigation. Sanitized
+                        # with the same rules as session-start persona hints.
+                        context_payload = message.get("appContext")
+                        if not isinstance(context_payload, dict):
+                            context_payload = (
+                                message.get("context")
+                                if isinstance(message.get("context"), dict)
+                                else {}
+                            )
+                        update_hints = _compact_persona_hints(context_payload)
+                        update_text = _compose_app_context_update(
+                            update_hints,
+                            proactive=persona_tier in _PROACTIVE_CONTEXT_TIERS,
+                        )
+                        if not update_text:
+                            continue
+                        try:
+                            await session.send_client_content(
+                                turns={
+                                    "role": "user",
+                                    "parts": [{"text": update_text}],
+                                },
+                                turn_complete=persona_tier in _PROACTIVE_CONTEXT_TIERS,
+                            )
+                        except Exception as error:  # noqa: BLE001 - context refresh is best-effort
+                            logger.debug(
+                                "agent_gemini_live_context_update_failed error=%s",
+                                error.__class__.__name__,
+                            )
                         continue
                     if message.get("type") == "app_speech" or "appSpeech" in message:
                         speech_payload = message.get("appSpeech")

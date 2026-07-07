@@ -150,6 +150,65 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  // Kai finance subroutes (level 3): back returns to the Kai home (level 2),
+  // which in turn returns to /one (level 1). Keeps the One -> agent -> subtab
+  // hierarchy consistent instead of relying on browser history.
+  const kaiSubroutes: Array<[string, string]> = [
+    [ROUTES.KAI_PORTFOLIO, "Portfolio"],
+    [ROUTES.KAI_INVESTMENTS, "Investments"],
+    [ROUTES.KAI_OPTIMIZE, "Optimize"],
+    [ROUTES.KAI_FUNDING_TRADE, "Funding"],
+  ];
+  for (const [route, label] of kaiSubroutes) {
+    if (pathname === route || pathname.startsWith(`${route}/`)) {
+      return {
+        backHref: ROUTES.KAI_HOME,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label },
+        ],
+      };
+    }
+  }
+
+  // RIA workspace home (level 2 for the adviser persona): back returns to /one.
+  if (pathname === ROUTES.RIA_HOME) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA" },
+      ],
+    };
+  }
+
+  // RIA subtabs (level 3): back returns to the RIA home (level 2).
+  const riaSubroutes: Array<[string, string]> = [
+    [ROUTES.RIA_PICKS, "Picks"],
+    [ROUTES.RIA_WORKSPACE, "Workspace"],
+    [ROUTES.RIA_REQUESTS, "Requests"],
+    [ROUTES.RIA_SETTINGS, "Settings"],
+  ];
+  for (const [route, label] of riaSubroutes) {
+    if (pathname === route || pathname.startsWith(`${route}/`)) {
+      return {
+        backHref: ROUTES.RIA_HOME,
+        width: "content",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.ONE_SETUP_KAI) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
@@ -413,6 +472,19 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  // Connect root (level 2): back returns to /one (level 1).
+  if (pathname === ROUTES.MARKETPLACE) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Connect" },
+      ],
+    };
+  }
+
   if (
     pathname === ROUTES.MARKETPLACE_CONNECTIONS ||
     pathname.startsWith(`${ROUTES.MARKETPLACE_CONNECTIONS}/`)
@@ -436,7 +508,17 @@ export function resolveTopShellBreadcrumb(
     const { panel, detail } = resolveProfileRouteState(pathname, searchParams);
     const panelLabel = profilePanelLabel(panel);
     if (!panelLabel) {
-      return null;
+      // Bare profile root (level 2): back returns to /one (level 1) so the
+      // One -> Profile hierarchy always has a governed exit.
+      return {
+        backHref: ROUTES.ONE_HOME,
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Profile" },
+        ],
+      };
     }
 
     const detailLabel = profileDetailLabel(detail);

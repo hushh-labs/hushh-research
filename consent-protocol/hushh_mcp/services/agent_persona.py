@@ -253,6 +253,41 @@ _PERSONA_LENS: dict[AgentPersona, str] = {
 }
 
 
+def _describe_action_contract(action_id: str, ctx: AgentPersonaContext) -> str:
+    """Render one action id with its manifest label and a coarse lock hint.
+
+    The manifest load is process-cached (lru_cache), so this adds no I/O on the
+    hot token/relay path. Labels give the model semantics beyond bare ids, and
+    the lock hint keeps tier prose and the action list from contradicting each
+    other (the app still enforces every guard at execution time).
+    """
+    try:
+        from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+
+        manifest_action = get_voice_manifest_action(action_id)
+    except Exception:  # noqa: BLE001 - instruction enrichment is best-effort
+        manifest_action = None
+    if not manifest_action:
+        return action_id
+    label = sanitize_label(str(manifest_action.get("label") or ""))
+    guard_ids = {
+        str(guard.get("id") or "").strip()
+        for guard in (manifest_action.get("guards") or [])
+        if isinstance(guard, dict)
+    }
+    locked_hint = ""
+    if "vault_unlocked" in guard_ids and ctx.vault_ready is not True:
+        locked_hint = " [locked until vault unlock]"
+    elif {"auth_signed_in", "auth_required"} & guard_ids and ctx.tier in {
+        "anon_onboarding",
+        "anon_browsing",
+    }:
+        locked_hint = " [requires sign-in]"
+    if label:
+        return f"{action_id} ({label}){locked_hint}"
+    return f"{action_id}{locked_hint}"
+
+
 def _context_clause(ctx: AgentPersonaContext) -> str:
     parts: list[str] = [_PERSONA_LENS[ctx.persona]]
     if ctx.screen:
@@ -262,7 +297,10 @@ def _context_clause(ctx: AgentPersonaContext) -> str:
     if ctx.visible_modules:
         parts.append("Visible app modules: " + ", ".join(ctx.visible_modules) + ".")
     if ctx.available_action_ids:
-        parts.append("Available app action contracts: " + ", ".join(ctx.available_action_ids) + ".")
+        described = [
+            _describe_action_contract(action_id, ctx) for action_id in ctx.available_action_ids
+        ]
+        parts.append("Available app action contracts: " + ", ".join(described) + ".")
     if ctx.voice_state:
         parts.append(f"The current voice transition state is '{ctx.voice_state}'.")
     cache_parts: list[str] = []
@@ -337,12 +375,15 @@ _TIER_STATE: dict[AgentTier, str] = {
         "They are still getting started and have not unlocked their private vault "
         "yet. Help them understand Hussh and how to get set up, and when they want "
         "to do something with their own data, invite them to sign in and unlock "
-        "their vault."
+        "their vault. You may propose the listed low-risk navigation contracts "
+        "(such as continuing onboarding or opening sign-in) to move them forward; "
+        "actions marked as locked need sign-in or vault unlock first."
     ),
     "anon_browsing": (
         "They are browsing Hussh without being signed in. Help them understand "
         "what Hussh can do, and invite them to sign in when they want to act on "
-        "their own data."
+        "their own data. You may propose the listed low-risk navigation contracts "
+        "to guide them; actions marked as locked need sign-in first."
     ),
     "signed_locked": (
         "They are signed in but their vault is locked, so private data is not "

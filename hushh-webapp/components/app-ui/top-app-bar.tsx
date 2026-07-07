@@ -601,7 +601,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
     () =>
       ({
         "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+        // Theme-accurate dark tint: derive from the live --background so the
+        // frosted band never reads lighter (milky) than the page behind it.
+        "--app-bar-glass-bg-dark":
+          "color-mix(in oklab, var(--background) 76%, transparent)",
         "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
         "--app-bar-mask-overscan": "14px",
       }) as React.CSSProperties,

@@ -29,6 +29,25 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.HOME || normalizedPath === ROUTES.ONE_HOME) {
     return { screen: "one_agents", subview: null };
   }
+  if (normalizedPath === ROUTES.GETTING_STARTED) {
+    return { screen: "getting_started", subview: null };
+  }
+  if (normalizedPath === ROUTES.LOGIN) {
+    return { screen: "login", subview: null };
+  }
+  if (normalizedPath === ROUTES.LOGOUT) {
+    return { screen: "logout", subview: null };
+  }
+  if (normalizedPath === "/register-phone") {
+    return { screen: "register_phone", subview: null };
+  }
+  if (
+    normalizedPath === ROUTES.ONE_SETUP ||
+    normalizedPath.startsWith(`${ROUTES.ONE_SETUP}/`)
+  ) {
+    const rest = normalizedPath.slice(ROUTES.ONE_SETUP.length).split("/").filter(Boolean)[0];
+    return { screen: "one_setup", subview: rest || null };
+  }
   if (
     normalizedPath === ROUTES.KAI_HOME ||
     normalizedPath === ROUTES.LEGACY_KAI_HOME ||

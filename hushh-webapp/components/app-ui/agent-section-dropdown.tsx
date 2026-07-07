@@ -1,15 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import {
-  DropdownMenu,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
-import { TopShellDropdownContent } from "@/components/app-ui/top-shell-dropdown";
+import {
+  TOP_SHELL_DROPDOWN_COLLISION_PADDING,
+  TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
+} from "@/components/app-ui/top-shell-dropdown";
 import {
   getAgentSection,
   getAgentSections,
@@ -41,6 +53,7 @@ export function AgentSectionDropdown({
   className,
 }: AgentSectionDropdownProps) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const sections = getAgentSections();
   const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const setAgentNavigationContext = useKaiSession(
@@ -49,6 +62,7 @@ export function AgentSectionDropdown({
   const currentSection = currentAgentSection(pathname, lastAgentSectionId);
 
   const handleNavigate = (section: AgentSection) => {
+    setOpen(false);
     setAgentNavigationContext({
       scope: section.bottomNavScope,
       sectionId: section.id,
@@ -57,10 +71,13 @@ export function AgentSectionDropdown({
   };
 
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
         <button
           type="button"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="agent-section-command-list"
           aria-label="Switch agent section"
           data-testid="top-agent-section-dropdown"
           data-voice-control-id="top_agent_section_dropdown"
@@ -78,39 +95,50 @@ export function AgentSectionDropdown({
           <span className="truncate">{currentSection.label}</span>
           <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
         </button>
-      </DropdownMenuTrigger>
-      <TopShellDropdownContent align="start" className="w-[300px]">
-        <div className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Agents
-        </div>
-        <div className="px-2 pb-2">
-          {sections.map((section) => {
-            const active = section.id === currentSection.id;
-            return (
-              <DropdownMenuItem
-                key={section.id}
-                onSelect={() => handleNavigate(section)}
-                data-voice-control-id={section.controlId}
-                data-testid={section.controlId}
-                className="group"
-              >
-                <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                  <AgentSectionIcon
-                    id={section.id}
-                    icon={section.icon}
-                    tone={section.tone}
-                    size="menu"
-                  />
-                  <span className="truncate">{section.label}</span>
-                </div>
-                {active ? (
-                  <Check className="ml-auto h-4 w-4 shrink-0 text-current" />
-                ) : null}
-              </DropdownMenuItem>
-            );
-          })}
-        </div>
-      </TopShellDropdownContent>
-    </DropdownMenu>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        collisionPadding={TOP_SHELL_DROPDOWN_COLLISION_PADDING}
+        className={cn(TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME, "w-[300px]")}
+      >
+        <Command className="bg-transparent">
+          <CommandInput
+            placeholder="Search agents..."
+            data-testid="agent-section-search"
+          />
+          <CommandList id="agent-section-command-list" className="max-h-[340px] px-1 pb-2">
+            <CommandEmpty>No agent found.</CommandEmpty>
+            <CommandGroup heading="Agents">
+              {sections.map((section) => {
+                const active = section.id === currentSection.id;
+                return (
+                  <CommandItem
+                    key={section.id}
+                    value={section.label}
+                    onSelect={() => handleNavigate(section)}
+                    data-voice-control-id={section.controlId}
+                    data-testid={section.controlId}
+                    className="group gap-2 rounded-lg"
+                  >
+                    <AgentSectionIcon
+                      id={section.id}
+                      icon={section.icon}
+                      tone={section.tone}
+                      size="menu"
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {section.label}
+                    </span>
+                    {active ? (
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-current" />
+                    ) : null}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }

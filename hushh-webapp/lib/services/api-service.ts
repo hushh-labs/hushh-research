@@ -973,6 +973,11 @@ export interface KaiHomeOverviewItem {
   as_of: string | null;
   source: string;
   degraded: boolean;
+  /**
+   * Optional real intraday series (chronological closes) for an honest
+   * sparkline. When absent the UI must not invent a chart shape.
+   */
+  sparkline?: number[] | null;
 }
 
 export interface KaiHomeSpotlightItem {

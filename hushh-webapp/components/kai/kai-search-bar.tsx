@@ -9,7 +9,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Mic, Search, X } from "lucide-react";
+import { Search } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -19,9 +19,7 @@ import {
   type VoiceAmbientMode,
 } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   KAI_COMMAND_BAR_OPEN_EVENT,
   KAI_COMMAND_BAR_TOGGLE_EVENT,
@@ -311,7 +309,9 @@ export function KaiSearchBar({
   appRuntimeState,
   onTtsPlayingChange,
   voiceContext,
-  surfaceVariant = "kai",
+  // Retained in the props contract for callers; the RIA-specific floating bar
+  // was removed so every surface now shares the single bottom-nav launcher.
+  surfaceVariant: _surfaceVariant = "kai",
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
@@ -345,9 +345,6 @@ export function KaiSearchBar({
   const [sessionScopeId] = useState<string>(
     () => `voice_scope_${createVoiceTurnId().replace("vturn_", "")}`,
   );
-
-  const { progress: hideBottomChromeProgress } =
-    useKaiBottomChromeVisibility(true);
 
   const appendDebugEvent = useVoiceSession((s) => s.appendDebugEvent);
   const setLastAssistantReply = useVoiceSession((s) => s.setLastAssistantReply);
@@ -1640,10 +1637,6 @@ export function KaiSearchBar({
     voiceUiState,
   ]);
 
-  const commandBarBottomOffset =
-    "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
-  const visibleCommandBarBottomOffset = `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
-  const isRiaSurface = surfaceVariant === "ria";
   const riaVoiceActive = ambientMode !== "idle";
   const riaVoiceDisabled =
     !riaVoiceActive && (disabled || micDisabled || voiceVisibilityMode === "hidden");
@@ -1671,83 +1664,23 @@ export function KaiSearchBar({
     <>
       <div
         className={cn(
-          // The RIA surface still renders its own in-page search/voice bar.
-          // Everywhere else the bottom-nav Search button (components/navbar.tsx)
-          // is the single visible command-bar launcher, so the collapsed
-          // launcher here is kept mounted (palette + open-event listener +
-          // a11y voice preview) but visually hidden to avoid a duplicate
-          // floating button overlapping the nav.
-          isRiaSurface
-            ? "fixed inset-x-0 z-[121] flex justify-center px-4 pointer-events-none"
-            : "sr-only",
+          // The bottom-nav Search button (components/navbar.tsx) is the single
+          // visible command-bar launcher on EVERY surface, including RIA. The
+          // collapsed launcher here is kept mounted (palette + open-event
+          // listener + a11y voice preview) but visually hidden to avoid a
+          // duplicate floating bar overlapping the shared bottom chrome.
+          "sr-only",
         )}
-        style={
-          isRiaSurface
-            ? {
-                bottom: visibleCommandBarBottomOffset,
-                transform: `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`,
-                opacity: 1,
-              }
-            : undefined
-        }
       >
         <div
           ref={barRef}
-          className={cn(
-            "pointer-events-none w-full",
-            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[548px]"
-          )}
-          style={
-            isRiaSurface
-              ? undefined
-              : {
-                  width:
-                    "var(--app-bottom-route-group-width, min(calc(100vw - 2rem), 560px))",
-                }
-          }
+          className={cn("pointer-events-none w-full", "max-w-[548px]")}
+          style={{
+            width:
+              "var(--app-bottom-route-group-width, min(calc(100vw - 2rem), 560px))",
+          }}
         >
-          {isRiaSurface ? (
-            <div className="relative flex w-full items-end justify-end">
-              <div
-                className="grid w-full grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
-                data-testid="ria-action-bar"
-              >
-                <ShellActionSurface
-                  variant="pill"
-                  wrapperClassName="w-full"
-                  className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
-                  contentClassName="gap-1.5"
-                  aria-label="Search RIA workspace"
-                  aria-expanded={open}
-                  aria-haspopup="dialog"
-                  onClick={() => setOpen(true)}
-                >
-                  <Search className="h-4 w-4 shrink-0" />
-                  <span className="truncate">Search</span>
-                </ShellActionSurface>
-                <ShellActionSurface
-                  variant="pill"
-                  wrapperClassName="w-full"
-                  contentClassName="gap-1.5"
-                  aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
-                  aria-disabled={riaVoiceDisabled}
-                  className={cn(
-                    "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
-                    riaVoiceDisabled && "opacity-60"
-                  )}
-                  onClick={handleRiaVoiceClick}
-                >
-                  {riaVoiceActive ? (
-                    <X className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <Mic className="h-4 w-4 shrink-0" />
-                  )}
-                  <span className="truncate">Voice</span>
-                </ShellActionSurface>
-              </div>
-            </div>
-          ) : (
-            <div className="relative ml-auto flex w-[58px] items-end justify-end">
+          <div className="relative ml-auto flex w-[58px] items-end justify-end">
               <div
                 className={cn(
                   "ml-auto flex w-[58px] items-end justify-end"
@@ -1783,7 +1716,6 @@ export function KaiSearchBar({
                 </div>
               </div>
             </div>
-          )}
           {voiceErrorMessage ? (
             <p className="mt-1 text-center text-[10px] text-destructive">
               {voiceErrorMessage}

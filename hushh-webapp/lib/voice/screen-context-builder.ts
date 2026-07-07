@@ -7,7 +7,7 @@ import type {
   VoiceSurfaceControlDefinition,
   VoiceSurfaceSectionDefinition,
 } from "@/lib/voice/voice-types";
-import { getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
 import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import type {
@@ -281,6 +281,55 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? uniqueStrings(value) : [];
 }
 
+/**
+ * Rank action ids by relevance BEFORE the 10-item context cap slices them, so
+ * the tail that gets dropped is always the least useful part. Priority order:
+ *   1. wired actions whose contract lists the current screen (in-place intent)
+ *   2. other wired actions (mostly cross-screen route.* navigation)
+ *   3. unwired/dead/unknown ids (guidance-only value)
+ * Set-insertion order previously made the truncation nondeterministic; this
+ * keeps the same cap but makes what survives it intentional.
+ */
+function prioritizeAvailableActionIds(
+  candidateIds: string[],
+  screen: string | null
+): string[] {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of candidateIds) {
+    if (typeof raw !== "string") continue;
+    const clean = raw.trim();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    deduped.push(clean);
+  }
+  const rankOf = (actionId: string): number => {
+    const action = getKaiActionById(actionId);
+    if (!action) return 2;
+    if (action.execution_target.status !== "wired") return 2;
+    if (screen && action.reachability.screens.includes(screen)) return 0;
+    return 1;
+  };
+  const ranked = deduped
+    .map((actionId, index) => ({ actionId, index, rank: rankOf(actionId) }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map((entry) => entry.actionId);
+  if (
+    ranked.length > STRUCTURED_CONTEXT_ARRAY_CAP &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    console.debug(
+      "[VOICE_CONTEXT] available_action_ids overflow: keeping",
+      STRUCTURED_CONTEXT_ARRAY_CAP,
+      "of",
+      ranked.length,
+      "for screen",
+      screen
+    );
+  }
+  return enforceArrayDimensionCap(ranked).items;
+}
+
 function stableRevision(values: unknown[]): string {
   const encoded = JSON.stringify(values);
   let hash = 0;
@@ -448,16 +497,19 @@ export function buildStructuredScreenContext(args: {
     ...(publishedSurface?.availableActions || []),
     ...(Array.isArray(rawContext.available_actions) ? rawContext.available_actions : []),
   ]);
-  const availableActionIds = uniqueStrings([
-    ...routeActions.map((action) => action.id),
-    ...derivedControlActionIds,
-    ...((publishedSurface?.controls || [])
-      .map((control) => control.actionId || null)
-      .filter((actionId): actionId is string => Boolean(actionId))),
-    ...((publishedSurface?.actions || [])
-      .flatMap((action) => [action.actionId || null, action.id])
-      .filter((actionId): actionId is string => Boolean(actionId))),
-  ]);
+  const availableActionIds = prioritizeAvailableActionIds(
+    [
+      ...routeActions.map((action) => action.id),
+      ...derivedControlActionIds,
+      ...((publishedSurface?.controls || [])
+        .map((control) => control.actionId || null)
+        .filter((actionId): actionId is string => Boolean(actionId))),
+      ...((publishedSurface?.actions || [])
+        .flatMap((action) => [action.actionId || null, action.id])
+        .filter((actionId): actionId is string => Boolean(actionId))),
+    ],
+    screen
+  );
   const screenMetadata = {
     ...readObject(rawContext.screen_metadata),
     ...readObject(publishedSurface?.screenMetadata),

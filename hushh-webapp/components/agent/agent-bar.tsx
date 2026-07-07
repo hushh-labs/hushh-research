@@ -122,6 +122,8 @@ export function AgentBar() {
   const pendingProposalRef = useRef<OneVoiceActionProposal | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+  // Last context snapshot pushed into the live session (continuity dedupe).
+  const lastPushedSnapshotIdRef = useRef<string | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -381,6 +383,8 @@ export function AgentBar() {
       onEvent: handleTransportEvent,
     });
     liveClientRef.current = client;
+    // The starting snapshot already rides in the relay-session persona hints.
+    lastPushedSnapshotIdRef.current = context?.snapshot_id ?? null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -396,6 +400,24 @@ export function AgentBar() {
     handleTransportEvent,
     stopConversation,
   ]);
+
+  // Continuous voice context: when the user navigates while a live session is
+  // active, push the fresh redacted snapshot into the session so One always
+  // knows the current screen and its action contracts. For onboarding tiers
+  // the relay lets One proactively offer the next step after a screen change.
+  useEffect(() => {
+    if (!conversationActive) {
+      lastPushedSnapshotIdRef.current = null;
+      return;
+    }
+    const context = runtime?.oneVoiceContextSnapshot;
+    const client = liveClientRef.current;
+    if (!context || !client?.updateContext) return;
+    if (lastPushedSnapshotIdRef.current === context.snapshot_id) return;
+    if (client.updateContext(context)) {
+      lastPushedSnapshotIdRef.current = context.snapshot_id;
+    }
+  }, [conversationActive, runtime?.oneVoiceContextSnapshot]);
 
   const handleVoiceStartClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {

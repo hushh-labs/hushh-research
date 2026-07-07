@@ -749,12 +749,16 @@ export function VaultFlow({
       <Card
         variant="none"
         effect="fill"
-        className="border-0 bg-transparent shadow-none"
+        // The morphy fill effect paints its own card surface (rgb(44,44,46) in
+        // dark), which stacked a SECOND panel inside the drawer sheet and made
+        // the vault unlock look like two offset cards. Force full transparency:
+        // the Drawer sheet is the one and only surface.
+        className="!border-0 !bg-transparent !shadow-none [background-image:none]"
       >
         <CardContent className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden">
           {/* Intro / Education Step */}
           {step === "intro" && (
-            <div className="mx-auto max-w-[21rem] animate-in space-y-4 text-center fade-in slide-in-from-bottom-4 duration-500">
+            <div className="motion-step-enter mx-auto max-w-[21rem] space-y-4 text-center">
               <div className="flex justify-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-primary/10 ring-1 ring-primary/10">
                   <Icon icon={Shield} size={26} className="text-primary" />

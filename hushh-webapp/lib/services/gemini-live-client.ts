@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
   OneVoiceActionProposal,
   OneVoiceTransportHandlers,
@@ -565,6 +566,31 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.stopPlayback();
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type: "interrupt" }));
+  }
+
+  updateContext(context: OneVoiceContextSnapshot): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return false;
+    }
+    // Redacted subset only; mirrors the relay-session persona hint shape. The
+    // relay re-sanitizes every field before it reaches the model.
+    this.ws.send(
+      JSON.stringify({
+        type: "app_context",
+        appContext: {
+          screen: context.route.screen,
+          route_family: context.route.route_family,
+          persona: context.persona.active,
+          voice_state: context.voice.state,
+          available_action_ids: context.available_action_ids,
+          visible_modules: context.ui.visible_modules,
+          cache_freshness: context.cache.freshness,
+          vault_ready: context.cache.vault_ready,
+          portfolio_ready: context.cache.portfolio_ready,
+        },
+      })
+    );
+    return true;
   }
 
   private ensureOutputContext(): AudioContext {

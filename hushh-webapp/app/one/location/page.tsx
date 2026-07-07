@@ -1609,7 +1609,7 @@ function OneLocationOnboardingFlow({
         <section className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-[clamp(24px,7vw,34px)] py-3 [-webkit-overflow-scrolling:touch]">
           <div
             key={step}
-            className="flex w-full flex-col items-center text-center animate-in fade-in slide-in-from-right-4 duration-300 motion-reduce:animate-none"
+            className="motion-step-enter flex w-full flex-col items-center text-center"
           >
             {isPermissionStep ? <OneLocationPermissionGlyph /> : <OneLocationIntroMapIllustration />}
 

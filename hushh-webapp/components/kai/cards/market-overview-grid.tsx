@@ -44,6 +44,10 @@ export interface MarketOverviewMetric {
   detailPanel?: MarketOverviewDetailPanel;
   tone: "positive" | "negative" | "neutral" | "warning";
   icon: LucideIcon;
+  /** True when the provider marked this row stale/unavailable. */
+  degraded?: boolean;
+  /** Real intraday points (chronological). Absent = render no sparkline. */
+  sparkline?: number[];
 }
 
 const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {
