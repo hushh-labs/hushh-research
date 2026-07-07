@@ -1533,7 +1533,6 @@ export function AgentChatWorkspace({
           resumeAgentVoiceCapture(voiceTurnEpoch);
         },
         onError: (failure) => {
-          console.warn("[Agent voice] TTS failure", failure);
           if (failure.stage === "fallback") {
             if (!voiceTtsFailureReported) {
               voiceTtsFailureReported = true;
