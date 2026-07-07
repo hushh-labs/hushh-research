@@ -195,7 +195,7 @@ The current actionability model is contract-first:
 4. voice, typed search, UI actionables, analytics, and docs share one stable `action_id`
 5. pure route navigation actions use `route.*`; `nav.*` is reserved for future Nav privacy/consent guardian actions
 6. generated actions carry `speaker_persona` with allowed values `one`, `kai`, `nav`, and `kyc`
-7. delegated specialist actions may carry `delegate_agent_id` with allowed values `one`, `kai`, `nav`, and `kyc`
+7. delegated specialist actions may carry `delegate_agent_id` for wired runtime specialists such as `agent_location`, `agent_connections`, `agent_email`, `agent_personal_information`, and `agent_connected_systems`
 
 Current runtime loop:
 

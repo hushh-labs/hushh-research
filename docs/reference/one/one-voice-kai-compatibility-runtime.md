@@ -326,6 +326,8 @@ Generated actions include `speaker_persona` and may include `delegate_agent_id`:
 - `nav`: privacy, consent, vault, deletion, revocation, and scope-review actions
 - `kyc`: explicit identity/KYC workflow status, missing-document review, approval-gated draft, and structured writeback actions
 
+`speaker_persona` is the public prompt/copy owner. Runtime `delegate_agent_id` can name wired A2A specialists such as `agent_location`, `agent_connections`, `agent_email`, `agent_personal_information`, and `agent_connected_systems` while One remains the user-facing host.
+
 Navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions and must not be used for ordinary route changes.
 
 If the generated manifest is missing, the backend manifest loader degrades to an empty `source: "missing"` manifest instead of failing import. That is a degraded prompt-selection state, not a valid release state; `verify:voice-gateway` and docs/runtime verification should catch it. When a manifest is present but no action ranks for the current screen/transcript, prompt selection falls back to the first generated actions.

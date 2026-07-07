@@ -56,6 +56,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Privacy specialist | `agent_nav` | Consent, scope review, vault friction, deletion, revocation | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people live location workflow | `agent.one.orchestrate` today, device capability tokens per flow |
+| Connections specialist | `agent_connections` | Trusted-connection graph questions and relationship write proposals | `agent.one.orchestrate` today |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | `agent.one.orchestrate` today |
 | Email specialist | `agent_email` | Inbox and Gmail task planning behind One | `agent.one.orchestrate` today |
 | Personal information | `agent_personal_information` | Information marketplace and data-slice workflows | `agent.one.orchestrate` today |
@@ -78,13 +79,14 @@ The hierarchy has three current wiring modes. Do not collapse them into one clai
 | `agent_kai` | `agent.kai.analyze` |
 | `agent_nav` | `agent.nav.review` |
 | `agent_kyc` | `agent.kyc.process` |
+| `agent_connections` | `agent.one.orchestrate` |
 | `agent_location` | `agent.one.orchestrate` |
 | `agent_personal_information` | `agent.one.orchestrate` |
 | `agent_email` | `agent.one.orchestrate` |
 
 ### In-process dispatch registry
 
-The in-process `dispatch` table currently registers `agent_connected_systems`, `agent_email`, `agent_location`, `agent_nav`, and `agent_personal_information`.
+The in-process `dispatch` table currently registers `agent_connected_systems`, `agent_connections`, `agent_email`, `agent_location`, `agent_nav`, and `agent_personal_information`.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 

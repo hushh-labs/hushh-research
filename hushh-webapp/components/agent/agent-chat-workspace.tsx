@@ -26,7 +26,6 @@ import {
   Minus,
   RotateCcw,
   Send,
-  Sparkles,
   ThumbsDown,
   ThumbsUp,
   UserRound,
@@ -49,12 +48,25 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
 import { OpportunityNudgeStack } from "@/components/agent/opportunity-nudge-card";
+import {
+  OneOpportunityService,
+  type OpportunitySignal,
+} from "@/lib/one-marketplace/opportunity-service";
+import {
+  OneMarketplaceService,
+  type MarketplaceRequest,
+  type PublishableSlice,
+} from "@/lib/one-marketplace/service";
 import { SelectionChip } from "@/components/agent/selection-chip";
+import {
+  AgentTurnStreamPanel,
+  agentToolEventToVisibleStreamEvent,
+  type AgentVisibleStreamEvent,
+  type AgentVisibleStreamStatus,
+} from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
-import type { PublishableSlice } from "@/lib/one-marketplace/service";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
-import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -132,6 +144,11 @@ import {
   useOneConversationSession,
   type AgentChatHandoff,
 } from "@/lib/agent/one-conversation-session";
+import {
+  dedupeAdjacentAgentMessages,
+  releaseAgentTurnSubmitLock,
+  tryAcquireAgentTurnSubmitLock,
+} from "@/lib/agent/agent-chat-turn-safety";
 import { planOneGoal } from "@/lib/one-goal/one-goal-planner";
 import { runOneGoal } from "@/lib/one-goal/one-goal-runner";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
@@ -147,6 +164,7 @@ type AgentMessage = {
   ephemeral?: boolean;
   kind?: "selection";
   specialistDirective?: SpecialistDirectiveEvent | null;
+  streamEvents?: AgentVisibleStreamEvent[];
 };
 
 function goalUsesService(
@@ -163,6 +181,18 @@ type AgentDebugEvent = {
   event: string;
   payload: unknown;
 };
+
+function upsertVisibleStreamEvent(
+  events: AgentVisibleStreamEvent[] | undefined,
+  event: AgentVisibleStreamEvent
+): AgentVisibleStreamEvent[] {
+  const current = events ?? [];
+  const existingIndex = current.findIndex((item) => item.id === event.id);
+  if (existingIndex >= 0) {
+    return current.map((item, index) => (index === existingIndex ? event : item));
+  }
+  return [...current, event].slice(-10);
+}
 
 type AgentPkmReview = {
   id: string;
@@ -614,7 +644,6 @@ function AgentWelcomePanel({
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          <Sparkles className="h-3.5 w-3.5 text-primary max-sm:text-[#9C7434] dark:max-sm:text-[#D4AF6A]" />
           One workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
@@ -830,6 +859,7 @@ function AgentBubble({
   onRetry,
   retryDisabled = false,
   busyConsentItemId = null,
+  turnPanelOpportunities,
   onConsentRevoke,
   onConsentDetails,
   onPendingConsentApprove,
@@ -840,6 +870,7 @@ function AgentBubble({
   onRetry?: () => void;
   retryDisabled?: boolean;
   busyConsentItemId?: string | null;
+  turnPanelOpportunities?: ReactNode;
   onConsentRevoke?: (item: SpecialistConsentActionItem) => Promise<void> | void;
   onConsentDetails?: (item: SpecialistConsentActionItem) => void;
   onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
@@ -852,9 +883,10 @@ function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
+  const streamEvents = message.streamEvents ?? [];
+  const shouldRenderStreamPanel = !isUser && (isStreaming || streamEvents.length > 0);
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
-  const showStreamingAffordance = !isUser && animated.isAnimating;
   const consentActionsPayload = !isUser
     ? getConsentActionsPayload(message.specialistDirective ?? null)
     : null;
@@ -897,7 +929,10 @@ function AgentBubble({
       ) : null}
       <div
         className={cn(
-          "min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]",
+          "min-w-0",
+          shouldRenderStreamPanel && !isUser
+            ? "w-full max-w-none"
+            : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
           isUser && "order-first sm:max-w-[min(76%,42rem)]"
         )}
       >
@@ -914,6 +949,15 @@ function AgentBubble({
         >
           {isUser ? (
             <span className="whitespace-pre-wrap break-words">{message.text}</span>
+          ) : shouldRenderStreamPanel ? (
+            <AgentTurnStreamPanel
+              streamEvents={streamEvents}
+              responseText={assistantText}
+              isStreaming={isStreaming}
+              isError={isError}
+              opportunities={turnPanelOpportunities}
+              response={assistantText ? <AgentMarkdown text={assistantText} /> : null}
+            />
           ) : assistantText ? (
             <AgentMarkdown text={assistantText} />
           ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
@@ -921,14 +965,6 @@ function AgentBubble({
           ) : (
             <AgentThinkingDots />
           )}
-          {showStreamingAffordance ? (
-            <StreamingCursor
-              isStreaming={isStreaming}
-              color={isError ? "error" : "primary"}
-              size="md"
-              className="ml-1"
-            />
-          ) : null}
         </div>
         <div
           className={cn(
@@ -1176,6 +1212,16 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
+  const [opportunitiesDismissedForVaultSession, setOpportunitiesDismissedForVaultSession] =
+    useState(false);
+  const [marketplaceOpportunitySignals, setMarketplaceOpportunitySignals] = useState<
+    OpportunitySignal[]
+  >([]);
+  const [marketplaceOpportunityRequests, setMarketplaceOpportunityRequests] = useState<
+    MarketplaceRequest[]
+  >([]);
+  const [marketplaceOpportunitiesLoading, setMarketplaceOpportunitiesLoading] = useState(false);
+  const marketplaceOpportunityLoadKeyRef = useRef<string | null>(null);
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1210,6 +1256,7 @@ export function AgentChatWorkspace({
   const voiceSttAbortControllerRef = useRef<AbortController | null>(null);
   const voiceSessionEpochRef = useRef(0);
   const voiceTtsSpeakingRef = useRef(false);
+  const agentTurnSubmitLockRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
@@ -1597,6 +1644,11 @@ export function AgentChatWorkspace({
     setActivePkmToolCount(0);
     setPkmReviews([]);
     setPkmActivity([]);
+    setOpportunitiesDismissedForVaultSession(false);
+    setMarketplaceOpportunitySignals([]);
+    setMarketplaceOpportunityRequests([]);
+    setMarketplaceOpportunitiesLoading(false);
+    marketplaceOpportunityLoadKeyRef.current = null;
     setVoiceState("idle");
     setVoiceTranscriptReview(null);
     resetGlobalVoiceState();
@@ -1607,6 +1659,7 @@ export function AgentChatWorkspace({
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
     setSpecialistBusyItemId(null);
+    releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     historyLoadKeyRef.current = null;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
@@ -1623,6 +1676,22 @@ export function AgentChatWorkspace({
 
   const appendMessage = (message: AgentMessage) => {
     setMessages((current) => [...current, message]);
+  };
+
+  const upsertMessageStreamEvent = (
+    messageId: string,
+    event: AgentVisibleStreamEvent
+  ) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              streamEvents: upsertVisibleStreamEvent(message.streamEvents, event),
+            }
+          : message
+      )
+    );
   };
 
   useEffect(() => {
@@ -1654,6 +1723,9 @@ export function AgentChatWorkspace({
       timestamp,
       status: "done",
     });
+    if (handoff.specialistDirective) {
+      setPendingSpecialistDirective(handoff.specialistDirective);
+    }
     setMessages((current) => [...current, ...nextMessages]);
     consumeHandoff(handoff.id);
   }, [consumeHandoff, handoff]);
@@ -1839,6 +1911,50 @@ export function AgentChatWorkspace({
       cancelled = true;
     };
   }, [hasChatAccess, user?.uid, vaultOwnerToken]);
+
+  const loadMarketplaceOpportunities = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (
+        !hasChatAccess ||
+        !user?.uid ||
+        !vaultOwnerToken ||
+        opportunitiesDismissedForVaultSession
+      ) {
+        return;
+      }
+      const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
+      if (!options?.force && marketplaceOpportunityLoadKeyRef.current === loadKey) return;
+      marketplaceOpportunityLoadKeyRef.current = loadKey;
+      setMarketplaceOpportunitiesLoading(true);
+      const [dueResult, requestResult] = await Promise.allSettled([
+        OneOpportunityService.listDue({ vaultOwnerToken }),
+        OneMarketplaceService.listRequests({ vaultOwnerToken, status: "pending" }),
+      ]);
+      setMarketplaceOpportunitySignals(
+        dueResult.status === "fulfilled"
+          ? dueResult.value.filter((signal) => signal.status === "active" || signal.status === "snoozed")
+          : [],
+      );
+      setMarketplaceOpportunityRequests(
+        requestResult.status === "fulfilled"
+          ? requestResult.value.filter((request) => request.status === "pending")
+          : [],
+      );
+      setMarketplaceOpportunitiesLoading(false);
+    },
+    [hasChatAccess, opportunitiesDismissedForVaultSession, user?.uid, vaultOwnerToken],
+  );
+
+  useEffect(() => {
+    if (!hasChatAccess || opportunitiesDismissedForVaultSession) {
+      setMarketplaceOpportunitySignals([]);
+      setMarketplaceOpportunityRequests([]);
+      setMarketplaceOpportunitiesLoading(false);
+      marketplaceOpportunityLoadKeyRef.current = null;
+      return;
+    }
+    void loadMarketplaceOpportunities();
+  }, [hasChatAccess, loadMarketplaceOpportunities, opportunitiesDismissedForVaultSession]);
 
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
@@ -2110,7 +2226,6 @@ export function AgentChatWorkspace({
     let toolStatusMessageId: string | null = null;
     let pkmStatusItemId: string | null = null;
     let voiceTtsFailureReported = false;
-    let assistantHasToken = false;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pkmAddToolHandled = false;
     let pendingAssistantDelta = "";
@@ -2155,7 +2270,6 @@ export function AgentChatWorkspace({
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      assistantHasToken = true;
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.ephemeral ? delta : `${message.text}${delta}`,
@@ -2207,56 +2321,32 @@ export function AgentChatWorkspace({
         ...message,
         text: message.text || (isVoiceTurn ? "Voice turn canceled." : "Agent turn canceled."),
         status: "done",
+        streamEvents: [],
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
+    };
+
+    const upsertTurnStreamEvent = (event: AgentVisibleStreamEvent) => {
+      upsertMessageStreamEvent(assistantMessageId, event);
     };
 
     const upsertToolStatusMessage = (
       messageText: string,
       status: AgentMessage["status"] = "streaming"
     ) => {
-      const cleanText = messageText.trim() || "Working on that in Kai...";
-      if (toolStatusMessageId) {
-        if (toolStatusMessageId === assistantMessageId && assistantHasToken) {
-          toolStatusMessageId = `msg-${turnId}-tool-status`;
-          appendMessage({
-            id: toolStatusMessageId,
-            role: "assistant",
-            text: cleanText,
-            timestamp: formatNow(),
-            status,
-            ephemeral: true,
-          });
-          return;
-        }
-        updateMessage(toolStatusMessageId, (message) => ({
-          ...message,
-          text: cleanText,
-          status,
-          ephemeral: true,
-        }));
-        return;
-      }
-      if (assistantHasToken) {
-        toolStatusMessageId = `msg-${turnId}-tool-status`;
-        appendMessage({
-          id: toolStatusMessageId,
-          role: "assistant",
-          text: cleanText,
-          timestamp: formatNow(),
-          status,
-          ephemeral: true,
-        });
-        return;
-      }
-      toolStatusMessageId = assistantMessageId;
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text: cleanText,
-        status,
-        ephemeral: true,
-      }));
+      const cleanText = messageText.trim() || "Working on that.";
+      const visibleStatus: AgentVisibleStreamStatus =
+        status === "error" ? "error" : status === "done" ? "done" : "running";
+      const nextId = toolStatusMessageId || `turn-status-${turnId}`;
+      toolStatusMessageId = nextId;
+      upsertTurnStreamEvent({
+        id: nextId,
+        label: "Progress",
+        message: cleanText,
+        status: visibleStatus,
+        createdAtMs: Date.now(),
+      });
     };
 
     const upsertPkmStatusMessage = (
@@ -2506,6 +2596,7 @@ export function AgentChatWorkspace({
         const cards = preview.cards;
         const autoSaveCards = getAutoSavePkmCards(cards);
         const reviewCards = getReviewRequiredPkmCards(cards);
+        const confirmationCards = [...autoSaveCards, ...reviewCards];
         const ignoredCards = getIgnoredPkmCards(cards);
 
         appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
@@ -2519,36 +2610,7 @@ export function AgentChatWorkspace({
           cards,
         });
 
-        if (autoSaveCards.length > 0) {
-          upsertPkmStatusMessage("Saving durable memory to PKM...", "streaming");
-          appendDebugEvent(debugTurnId, "pkm_memory_save_start", {
-            candidate_count: autoSaveCards.length,
-          });
-          const saveResult = await addToPKM({
-            userId,
-            cards: autoSaveCards,
-            sourceMessage: text,
-            vaultKey,
-            vaultOwnerToken: token,
-            source: "agent_chat_auto",
-          });
-          if (signal.aborted) return;
-          appendDebugEvent(debugTurnId, "pkm_memory_save_result", saveResult);
-          upsertPkmStatusMessage(
-            formatAgentPkmSaveSummary(saveResult),
-            saveResult.saved > 0 ? "done" : "error"
-          );
-          if (saveResult.saved > 0) {
-            void loadAgentPkmContext({
-              userId,
-              vaultOwnerToken: token,
-              vaultKey,
-              forceRefresh: true,
-            }).catch(() => undefined);
-          }
-        }
-
-        if (reviewCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+        if (confirmationCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
           if (signal.aborted) return;
           setPkmReviews((current) => [
             ...current.filter((review) => review.turnId !== debugTurnId),
@@ -2556,23 +2618,22 @@ export function AgentChatWorkspace({
               id: `${debugTurnId}-pkm-review`,
               turnId: debugTurnId,
               sourceMessage: text,
-              cards: reviewCards,
+              cards: confirmationCards,
               saving: false,
             },
           ]);
           appendDebugEvent(debugTurnId, "pkm_memory_review_required", {
-            candidate_count: reviewCards.length,
-            cards: reviewCards,
+            candidate_count: confirmationCards.length,
+            auto_save_candidates_requiring_confirmation: autoSaveCards.length,
+            cards: confirmationCards,
           });
-          if (autoSaveCards.length === 0) {
-            upsertPkmStatusMessage(
-              "Agent found PKM memory that needs your review before saving.",
-              "done"
-            );
-          }
+          upsertPkmStatusMessage(
+            "Agent found PKM memory that needs your review before saving.",
+            "done"
+          );
         }
 
-        if (autoSaveCards.length === 0 && reviewCards.length === 0) {
+        if (confirmationCards.length === 0) {
           upsertPkmStatusMessage("", "done");
         }
       } catch (error) {
@@ -2623,12 +2684,14 @@ export function AgentChatWorkspace({
     setPkmActivity([]);
     setIsChatLoading(true);
     setIsStreaming(true);
+    void loadMarketplaceOpportunities({ force: true });
 
     if (!token) {
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: "Vault access expired. Unlock again to continue.",
         status: "error",
+        streamEvents: [],
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -2645,6 +2708,7 @@ export function AgentChatWorkspace({
         ...message,
         text: goalPlan.prompt.prompt,
         status: "done",
+        streamEvents: [],
       }));
       speakVoiceReceipt(goalPlan.prompt.prompt);
       setIsChatLoading(false);
@@ -2654,17 +2718,24 @@ export function AgentChatWorkspace({
     if (
       goalPlan.status === "ready" &&
       goalPlan.action.execution_policy === "allow_direct" &&
-      (!goalPlan.action.delegate_agent_id || goalPlan.action.delegate_agent_id === "one")
+      (!goalPlan.action.delegate_agent_id ||
+        goalPlan.action.delegate_agent_id === "one" ||
+        goalUsesService(goalPlan, "specialist_chat.turn"))
     ) {
       try {
         upsertToolStatusMessage(`Running ${goalPlan.action.label}...`, "streaming");
-        await runOneGoal({
+        const goalResult = await runOneGoal({
           plan: goalPlan,
           userId,
           vaultOwnerToken: token,
           vaultKey,
           router,
           setAnalysisParams,
+          screenContext: buildOneVoiceStructuredScreenContext({
+            appRuntimeState: appRuntimeStateRef.current,
+            state: useAgentVoiceState.getState().oneVoiceState,
+            lastTransition: useAgentVoiceState.getState().lastTransition,
+          }) as unknown as Record<string, unknown>,
           executeAction: (actionId, slots) =>
             executeAgentGatewayAction({
               actionId,
@@ -2690,11 +2761,30 @@ export function AgentChatWorkspace({
                 text: messageText,
                 status: "done",
                 ephemeral: false,
+                streamEvents: [],
               }));
               speakVoiceReceipt(messageText);
             },
           },
         });
+        if (goalResult.actionResult.data?.requiresChatHandoff === true) {
+          const specialistDirective =
+            goalResult.actionResult.data.specialistDirective &&
+            typeof goalResult.actionResult.data.specialistDirective === "object"
+              ? (goalResult.actionResult.data.specialistDirective as SpecialistDirectiveEvent)
+              : null;
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: goalResult.resultSummary.text,
+            status: "done",
+            ephemeral: false,
+            streamEvents: [],
+          }));
+          if (specialistDirective) {
+            setPendingSpecialistDirective(specialistDirective);
+          }
+          speakVoiceReceipt(goalResult.resultSummary.text);
+        }
       } catch (error) {
         const message =
           error instanceof Error && error.message
@@ -2705,6 +2795,7 @@ export function AgentChatWorkspace({
           text: message,
           status: "error",
           ephemeral: false,
+          streamEvents: [],
         }));
         speakVoiceReceipt(message);
       } finally {
@@ -2743,6 +2834,7 @@ export function AgentChatWorkspace({
         ...current,
         text: current.text || message,
         status: "error",
+        streamEvents: [],
       }));
       voiceTtsQueueRef.current?.flushStream();
       voiceTtsQueueRef.current?.speakNow(message);
@@ -2835,7 +2927,7 @@ export function AgentChatWorkspace({
         VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
         "Agent voice response timed out before it started. Please try again."
       );
-      await streamAgentChat({
+      const streamResult = await streamAgentChat({
         userId,
         message: text,
         conversationId,
@@ -2865,6 +2957,7 @@ export function AgentChatWorkspace({
               "Agent voice tool call stalled. Please try again."
             );
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
+            upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("start", toolEvent));
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
@@ -2873,11 +2966,9 @@ export function AgentChatWorkspace({
               "Agent voice tool call stalled. Please try again."
             );
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
-            upsertToolStatusMessage(
-              toolEvent.message || "Working on that in Kai...",
-              "streaming"
-            );
-            speakVoiceReceipt(toolEvent.message || "Working on that in Kai...");
+            const visibleEvent = agentToolEventToVisibleStreamEvent("waiting", toolEvent);
+            upsertTurnStreamEvent(visibleEvent);
+            speakVoiceReceipt(visibleEvent.message);
             executeToolIfNeeded(toolEvent);
           },
           onToolResult: (toolEvent) => {
@@ -2887,12 +2978,10 @@ export function AgentChatWorkspace({
               "Agent voice tool result stalled. Please try again."
             );
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
+            const visibleEvent = agentToolEventToVisibleStreamEvent("result", toolEvent);
+            upsertTurnStreamEvent(visibleEvent);
             if (toolEvent.execution === "blocked" || toolEvent.status === "blocked") {
-              upsertToolStatusMessage(
-                toolEvent.message || "That action is blocked in Agent.",
-                "error"
-              );
-              speakVoiceReceipt(toolEvent.message || "That action is blocked in Agent.");
+              speakVoiceReceipt(visibleEvent.message || "That action needs attention.");
             }
           },
           onToken: (delta) => {
@@ -2920,6 +3009,7 @@ export function AgentChatWorkspace({
                 text: message.text.trim() ? message.text : event.message || "",
                 status: "done",
                 specialistDirective: event,
+                streamEvents: [],
               }));
               return;
             }
@@ -2927,7 +3017,7 @@ export function AgentChatWorkspace({
               current.flatMap((message) => {
                 if (message.id !== assistantMessageId) return [message];
                 if (!message.text.trim()) return [];
-                return [{ ...message, status: "done" }];
+                return [{ ...message, status: "done", streamEvents: [] }];
               })
             );
             setPendingSpecialistDirective(event);
@@ -2946,6 +3036,7 @@ export function AgentChatWorkspace({
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
+              streamEvents: [],
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -2962,6 +3053,7 @@ export function AgentChatWorkspace({
               ...current,
               text: current.text || message,
               status: "error",
+              streamEvents: [],
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
@@ -2978,6 +3070,9 @@ export function AgentChatWorkspace({
       }
       clearVoiceStreamWatchdog();
       flushAssistantDelta();
+      if (streamResult.conversationId) {
+        setConversationId(streamResult.conversationId);
+      }
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
         scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
@@ -2988,6 +3083,7 @@ export function AgentChatWorkspace({
           ...message,
           text: message.text || "I couldn't generate a response. Please try again.",
           status: "done",
+          streamEvents: [],
         };
       });
       if (
@@ -3022,6 +3118,7 @@ export function AgentChatWorkspace({
         ...current,
         text: current.text || message,
         status: "error",
+        streamEvents: [],
       }));
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
@@ -3100,13 +3197,14 @@ export function AgentChatWorkspace({
     latestVisibleTurnIdRef.current = debugTurnId;
     setIsChatLoading(true);
     setIsStreaming(true);
+    void loadMarketplaceOpportunities({ force: true });
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
 
     try {
-      await streamAgentChat({
+      const streamResult = await streamAgentChat({
         userId,
         message: "",
         conversationId,
@@ -3193,6 +3291,9 @@ export function AgentChatWorkspace({
         return;
       }
       flushAssistantDelta();
+      if (streamResult.conversationId) {
+        setConversationId(streamResult.conversationId);
+      }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
         return {
@@ -3298,6 +3399,7 @@ export function AgentChatWorkspace({
     setInput("");
     setIsChatLoading(true);
     setIsStreaming(true);
+    void loadMarketplaceOpportunities({ force: true });
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
@@ -3404,12 +3506,23 @@ export function AgentChatWorkspace({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const text = input.trim();
+    if (!text || isChatLoading || isStreaming) return;
+    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
     if (hasChatAccess) {
-      await runAgentTurn(input, { source: "typed" });
+      try {
+        await runAgentTurn(text, { source: "typed" });
+      } finally {
+        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+      }
       return;
     }
     // Pre-vault / anonymous: single bar degrades to the informational tier.
-    await runIntroTurn(input);
+    try {
+      await runIntroTurn(text);
+    } finally {
+      releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+    }
   };
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
@@ -3914,17 +4027,40 @@ export function AgentChatWorkspace({
     [user?.displayName, user?.email]
   );
   const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
-  const visibleMessages = messages.filter((message) => {
-    if (message.id === "agent-greeting") return false;
-    if (
-      pendingSpecialistDirective &&
-      message.role === "assistant" &&
-      !message.text.trim()
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const visibleMessages = dedupeAdjacentAgentMessages(
+    messages.filter((message) => {
+      if (message.id === "agent-greeting") return false;
+      if (
+        pendingSpecialistDirective &&
+        message.role === "assistant" &&
+        !message.text.trim()
+      ) {
+        return false;
+      }
+      return true;
+    })
+  );
+  const activeStreamPanelMessageId =
+    [...visibleMessages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.status === "streaming")?.id ??
+    null;
+  const renderMarketplaceOpportunities = () =>
+    hasChatAccess ? (
+      <OpportunityNudgeStack
+        userId={user?.uid ?? null}
+        vaultOwnerToken={vaultOwnerToken}
+        vaultKey={vaultKey}
+        onRequireUnlock={() => setVaultDialogOpen(true)}
+        variant="accordion"
+        dismissed={opportunitiesDismissedForVaultSession}
+        onDismissPanel={() => setOpportunitiesDismissedForVaultSession(true)}
+        signals={marketplaceOpportunitySignals}
+        requests={marketplaceOpportunityRequests}
+        loading={marketplaceOpportunitiesLoading}
+        onRefresh={() => void loadMarketplaceOpportunities({ force: true })}
+      />
+    ) : null;
   const trailingSpecialistLoadingMessages = pendingSpecialistDirective
     ? messages.filter(
         (message) =>
@@ -3955,19 +4091,24 @@ export function AgentChatWorkspace({
       toast.error("No previous message found to retry.");
       return;
     }
+    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
     setPkmReviews([]);
     setPkmActivity([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
     if (!hasChatAccess) {
-      void runIntroTurn(retryText);
+      void runIntroTurn(retryText).finally(() => {
+        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+      });
       return;
     }
     void runAgentTurn(retryText, {
       source: "typed",
       appendUserMessage: false,
       replaceAssistantMessageId: messageId,
+    }).finally(() => {
+      releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     });
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
@@ -4030,7 +4171,8 @@ export function AgentChatWorkspace({
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
-    collapsed = false
+    collapsed = false,
+    mode: "desktop" | "mobile" = "desktop"
   ) => (
     <AgentHistorySidebar
       conversations={conversations}
@@ -4040,6 +4182,7 @@ export function AgentChatWorkspace({
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}
+      mode={mode}
       onClose={onClose}
       onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
       onCreateNew={handleSidebarCreateNewChat}
@@ -4094,8 +4237,11 @@ export function AgentChatWorkspace({
           inert={!isHistoryDrawerOpen}
           onKeyDown={handleHistoryDrawerKeyDown}
         >
-          {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
-            setIsHistoryDrawerOpen(false)
+          {renderHistorySidebar(
+            "h-full w-full",
+            () => setIsHistoryDrawerOpen(false),
+            false,
+            "mobile"
           )}
         </div>
 
@@ -4249,6 +4395,11 @@ export function AgentChatWorkspace({
                         : undefined
                     }
                     busyConsentItemId={specialistBusyItemId}
+                    turnPanelOpportunities={
+                      message.id === activeStreamPanelMessageId
+                        ? renderMarketplaceOpportunities()
+                        : undefined
+                    }
                     onConsentRevoke={async (item) => {
                       setSpecialistBusyItemId(item.id);
                       try {
@@ -4334,14 +4485,7 @@ export function AgentChatWorkspace({
                 />
               ))}
 
-              {hasChatAccess ? (
-                <OpportunityNudgeStack
-                  userId={user?.uid ?? null}
-                  vaultOwnerToken={vaultOwnerToken}
-                  vaultKey={vaultKey}
-                  onRequireUnlock={() => setVaultDialogOpen(true)}
-                />
-              ) : null}
+              {!activeStreamPanelMessageId ? renderMarketplaceOpportunities() : null}
 
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
@@ -4468,7 +4612,7 @@ export function AgentChatWorkspace({
                           kind: "selection",
                         });
                         await sendDelegateResult({
-                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
                           promptKind: prompt.kind,
@@ -4496,7 +4640,7 @@ export function AgentChatWorkspace({
                           kind: "selection",
                         });
                         await sendDelegateResult({
-                          delegate_agent_id: evt.delegateAgentId as "agent_location",
+                          delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
                           promptKind: prompt.kind,
@@ -4522,7 +4666,7 @@ export function AgentChatWorkspace({
                         kind: "selection",
                       });
                       await sendDelegateResult({
-                        delegate_agent_id: evt.delegateAgentId as "agent_location",
+                        delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "selection",
                         id: prompt.id,
                         promptKind: prompt.kind,
@@ -4695,7 +4839,7 @@ export function AgentChatWorkspace({
                         kind: "selection",
                       });
                       await sendDelegateResult({
-                        delegate_agent_id: directive.delegateAgentId as "agent_location",
+                        delegate_agent_id: directive.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "action",
                         id: String(
                           (directive.directive.payload as Record<string, unknown>).id ?? "",

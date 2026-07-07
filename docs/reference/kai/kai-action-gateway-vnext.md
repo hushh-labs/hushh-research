@@ -51,7 +51,7 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 22 source contracts, 22 surfaces, and 85 actions. Source contracts:
+Current generated coverage includes 23 source contracts, 23 surfaces, and 90 actions. Source contracts:
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/page.voice-action-contract.json)
@@ -68,6 +68,7 @@ Current generated coverage includes 22 source contracts, 22 surfaces, and 85 act
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/requests/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/settings/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/workspace/page.voice-action-contract.json)
+- [specialist-turns.voice-action-contract.json](../../../hushh-webapp/components/agent/specialist-turns.voice-action-contract.json)
 - [consent-center-page.voice-action-contract.json](../../../hushh-webapp/components/consent/consent-center-page.voice-action-contract.json)
 - [kai-command-bar-global.voice-action-contract.json](../../../hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json)
 - [dashboard-master-view.voice-action-contract.json](../../../hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json)
@@ -192,7 +193,9 @@ Each action declares `speaker_persona`:
 
 Speaker persona is presentation and prompt ownership only. It does not create authorization and must never bypass auth, vault, consent, persona, workspace, or rollout gates.
 
-`delegate_agent_id` is nullable and declares which specialist executes a user-facing action when One frames the handoff. Allowed values are `one`, `kai`, `nav`, and `kyc`.
+`delegate_agent_id` is nullable and declares which runtime specialist executes a user-facing action when One frames the handoff. Public `speaker_persona` remains limited to `one`, `kai`, `nav`, and `kyc`; delegate ids may name wired backend A2A specialists. Allowed delegate values are `one`, `kai`, `nav`, `kyc`, `agent_connected_systems`, `agent_connections`, `agent_email`, `agent_location`, and `agent_personal_information`.
+
+Specialist-turn goals use `execution_target.target = "specialist_chat.turn"` and run through the existing Agent Chat A2A stream. Gemini Live or another provider may propose those action ids, but the One Goal planner remains authoritative and the backend only dispatches to a registered specialist. Read-only specialist turns may execute directly when the generated policy is `allow_direct`; write-like or confirmation-bound turns use `confirm_required` and settle into the governed chat/card path.
 
 Action namespace rules:
 

@@ -5,7 +5,7 @@
 
 Canonical visual owner: [Streaming Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-Use this pattern for any new Kai streaming feature.
+Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import streaming feature.
 
 ## 1. Backend Producer
 
@@ -36,6 +36,17 @@ Use this pattern for any new Kai streaming feature.
 - Validate envelopes with `hushh-webapp/lib/streaming/kai-stream-types.ts`.
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
+- In Agent Chat, consume the Agent SSE protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; `token` frames are the only source of incremental assistant response text.
+
+## 4.1 UI Stream Mapping
+
+The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.
+
+- `Response` renders only real assistant/model text: SSE `token` deltas, or a final non-streamed assistant result when the backend did not stream tokens. Do not simulate token streaming from placeholders, staged strings, tool names, or progress events.
+- `Progress` renders app-owned lifecycle events: `tool_start`, `tool_waiting`, `tool_result`, route/action settlement, import stages, cancellation state, and backend progress frames.
+- `Thinking` is optional provider telemetry. It must never be required for control flow, and it must never replace app-owned progress rows.
+- Marketplace recommendations and other proactive cards should be preloaded by the workspace/session owner, then passed into the stream surface. Do not start durable fetches from a render-only accordion path when the workspace can load them at access or turn start.
+- Provider/auth details such as Vertex ADC, API-key transport, Gemini Live, or OpenAI Realtime stay below this UI contract. The UI consumes normalized token/progress/thinking events only.
 
 ## 5. UI State Machines
 

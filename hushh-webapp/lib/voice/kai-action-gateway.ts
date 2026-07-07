@@ -8,7 +8,16 @@ import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
-export type KaiActionDelegateAgentId = "one" | "kai" | "nav" | "kyc";
+export type KaiActionDelegateAgentId =
+  | "one"
+  | "kai"
+  | "nav"
+  | "kyc"
+  | "agent_connected_systems"
+  | "agent_connections"
+  | "agent_email"
+  | "agent_location"
+  | "agent_personal_information";
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
@@ -239,7 +248,12 @@ function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | nul
     normalized === "one" ||
     normalized === "kai" ||
     normalized === "nav" ||
-    normalized === "kyc"
+    normalized === "kyc" ||
+    normalized === "agent_connected_systems" ||
+    normalized === "agent_connections" ||
+    normalized === "agent_email" ||
+    normalized === "agent_location" ||
+    normalized === "agent_personal_information"
   ) {
     return normalized;
   }

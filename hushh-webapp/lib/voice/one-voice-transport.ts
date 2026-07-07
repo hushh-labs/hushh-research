@@ -1,6 +1,7 @@
 "use client";
 
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
+import type { KaiActionDelegateAgentId, KaiActionSpeakerPersona } from "@/lib/voice/kai-action-gateway";
 import type { OneVoiceUiState } from "@/lib/voice/voice-ui-state-machine";
 
 export type OneVoiceProvider = "gemini_live" | "openai_realtime";
@@ -107,8 +108,8 @@ export interface RealtimeVoiceTransport {
 
 export type OneVoiceActionProposal = {
   action_id: string;
-  speaker_persona?: "one" | "kai" | "nav" | "kyc" | null;
-  delegate_agent_id?: "one" | "kai" | "nav" | "kyc" | null;
+  speaker_persona?: KaiActionSpeakerPersona | null;
+  delegate_agent_id?: KaiActionDelegateAgentId | null;
   needs_confirmation: boolean;
   confidence?: number | null;
   slots?: Record<string, unknown>;

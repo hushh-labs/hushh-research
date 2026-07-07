@@ -2778,6 +2778,7 @@ export class ApiService {
     timezone?: string;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
+    delegateAgentId?: string | null;
     delegateResult?: Record<string, unknown>;
     signal?: AbortSignal;
   }): Promise<Response> {
@@ -2795,6 +2796,7 @@ export class ApiService {
         timezone: data.timezone || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
+        delegate_agent_id: data.delegateAgentId || undefined,
         delegate_result: data.delegateResult || undefined,
       }),
       signal: data.signal,

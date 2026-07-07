@@ -105,6 +105,16 @@ export type VoiceCapturePkmMemoryCall = {
   };
 };
 
+export type VoiceSpecialistChatTurnCall = {
+  tool_name: "specialist_chat.turn";
+  args: {
+    delegate_agent_id?: string;
+    transcript?: string;
+    slots?: Record<string, unknown>;
+    reason?: string;
+  };
+};
+
 export type VoiceToolCall =
   | VoiceExecuteKaiCommandCall
   | VoiceNavigateBackCall
@@ -112,7 +122,8 @@ export type VoiceToolCall =
   | VoiceCancelActiveAnalysisCall
   | VoiceClarifyCall
   | VoiceSwitchPersonaCall
-  | VoiceCapturePkmMemoryCall;
+  | VoiceCapturePkmMemoryCall
+  | VoiceSpecialistChatTurnCall;
 
 export type AppRuntimeState = {
   auth: {

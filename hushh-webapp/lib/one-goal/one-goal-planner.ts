@@ -209,6 +209,11 @@ function inferSlots(input: OneGoalPlannerInput, action: KaiActionDefinition): Re
       Object.assign(slots, resolveTickerSymbol({ transcript, action, slots, slot }));
     } else if (requiredInput.resolver === "kai_pick_source") {
       Object.assign(slots, resolveKaiPickSource({ transcript, slots, slot }));
+    } else if (requiredInput.resolver === "user_utterance" && !readString(slots[slot])) {
+      const utterance = readString(transcript);
+      if (utterance) {
+        slots[slot] = utterance;
+      }
     }
   }
   return slots;

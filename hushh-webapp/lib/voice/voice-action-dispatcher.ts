@@ -117,7 +117,8 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     toolName === "resume_active_analysis" ||
     toolName === "cancel_active_analysis" ||
     toolName === "switch_persona" ||
-    toolName === "capture_pkm_memory";
+    toolName === "capture_pkm_memory" ||
+    toolName === "specialist_chat.turn";
 
   const canonicalAction = getInvestorKaiActionByVoiceToolCall(toolCall);
   const canonicalActionId = canonicalAction?.id ?? null;
@@ -602,6 +603,27 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
         }),
       });
     }
+  }
+
+  if (toolCall.tool_name === "specialist_chat.turn") {
+    return buildDispatchResult({
+      status: "blocked",
+      toolName,
+      reason: "requires_one_goal_runner",
+      actionResult: buildVoiceActionResult({
+        status: "blocked",
+        actionId: canonicalActionId,
+        routeBefore: currentRoute,
+        screenBefore: currentScreen,
+        resultSummary:
+          "This specialist turn must run through One Goal and Agent Chat, not direct voice dispatch.",
+        data: {
+          toolName,
+          reason: "requires_one_goal_runner",
+          delegateAgentId: toolCall.args.delegate_agent_id ?? null,
+        },
+      }),
+    });
   }
 
   return buildDispatchResult({

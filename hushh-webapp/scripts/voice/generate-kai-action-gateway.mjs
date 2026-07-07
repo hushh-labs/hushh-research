@@ -20,8 +20,18 @@ const WEBAPP_MANIFEST_OUTPUT_PATH = path.resolve(
   "contracts/kai/voice-action-manifest.v1.json"
 );
 
-const AGENT_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
-const SPEAKER_PERSONAS = AGENT_PERSONAS;
+const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
+const AGENT_PERSONAS = new Set([
+  "one",
+  "kai",
+  "nav",
+  "kyc",
+  "agent_connected_systems",
+  "agent_connections",
+  "agent_email",
+  "agent_location",
+  "agent_personal_information",
+]);
 const DEFAULT_TRIGGER = {
   primary: "voice",
   supported: ["voice", "tap", "keyboard", "programmatic"],

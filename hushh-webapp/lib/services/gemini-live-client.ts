@@ -198,7 +198,12 @@ function normalizeProposal(raw: unknown): OneVoiceActionProposal | null {
       delegateAgentId === "one" ||
       delegateAgentId === "kai" ||
       delegateAgentId === "nav" ||
-      delegateAgentId === "kyc"
+      delegateAgentId === "kyc" ||
+      delegateAgentId === "agent_connected_systems" ||
+      delegateAgentId === "agent_connections" ||
+      delegateAgentId === "agent_email" ||
+      delegateAgentId === "agent_location" ||
+      delegateAgentId === "agent_personal_information"
         ? delegateAgentId
         : null,
     needs_confirmation: record.needs_confirmation === true || record.needsConfirmation === true,

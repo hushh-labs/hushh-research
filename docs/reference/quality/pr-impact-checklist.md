@@ -91,3 +91,7 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
   or canonical production-code test surface.
 - Tests that only exercise mocks, copied helpers, or test-local stand-ins do not
   prove production behavior.
+- One-time, manual, skipped-by-default, or source-string tests are test bloat
+  unless they guard a current architecture boundary with no cheaper behavioral
+  proof. Prefer reusable helpers and behavior-level tests; delete stale legacy,
+  migration, or compatibility tests once the live removal boundary is gone.

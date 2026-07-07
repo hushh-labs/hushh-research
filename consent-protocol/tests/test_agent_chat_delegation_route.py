@@ -122,6 +122,40 @@ def test_location_turn_is_delegated(monkeypatch):
     assert events == ["start", "token", "specialist_directive", "complete"]
 
 
+def test_explicit_delegate_agent_id_is_delegated(monkeypatch):
+    """Generated One Goal contracts can force a wired specialist without re-classifying text."""
+
+    async def stub(task):
+        return SpecialistTurnResult(
+            conversation_id="c-email",
+            text="Two threads need a reply today.",
+            directive=None,
+            is_complete=True,
+            state_changed=False,
+            model="one+email",
+        )
+
+    monkeypatch.setitem(dispatch_mod._REGISTRY, "agent_email", stub)
+    service = _MinimalFakeService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    app = _make_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/agent/chat/stream",
+        json={
+            "user_id": "u1",
+            "message": "what needs a reply today?",
+            "delegate_agent_id": "agent_email",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "Two threads need a reply today." in resp.text
+    events = _parse_sse(resp.text)
+    assert events == ["start", "token", "complete"]
+
+
 def test_non_location_turn_uses_existing_path(monkeypatch):
     """A general message is NOT delegated; it hits the planner path and never emits
     specialist_directive."""

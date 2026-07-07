@@ -29,6 +29,7 @@
   ],
   "required_commands": [
     "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",
+    "cd hushh-webapp && npx vitest run components/agent/__tests__/agent-turn-stream-panel.test.tsx __tests__/components/import-progress-view.test.tsx",
     "cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q"
   ],
   "verification_bundles": [
@@ -36,10 +37,12 @@
       "id": "streaming-contracts",
       "commands": [
         "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",
+        "cd hushh-webapp && npx vitest run components/agent/__tests__/agent-turn-stream-panel.test.tsx __tests__/components/import-progress-view.test.tsx",
         "cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q"
       ],
       "tests": [
         "cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts",
+        "cd hushh-webapp && npx vitest run components/agent/__tests__/agent-turn-stream-panel.test.tsx __tests__/components/import-progress-view.test.tsx",
         "cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q"
       ]
     }

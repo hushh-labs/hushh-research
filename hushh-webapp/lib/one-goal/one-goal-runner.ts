@@ -7,6 +7,10 @@ import {
   type DebateRunTask,
   type EnsureRunResult,
 } from "@/lib/services/debate-run-manager";
+import {
+  streamAgentChat,
+  type SpecialistDirectiveEvent,
+} from "@/lib/services/agent-chat-client";
 import { getStockContext } from "@/lib/services/kai-service";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -37,6 +41,7 @@ export type RunOneGoalOptions = {
   vaultKey?: string | null;
   router?: RouterLike | null;
   setAnalysisParams?: (params: AnalysisParams | null) => void;
+  screenContext?: Record<string, unknown> | null;
   executeAction: (
     actionId: string,
     slots?: Record<string, unknown>
@@ -188,6 +193,18 @@ function analysisActiveRoute(ticker: string): string {
 
 function hasWorkflowService(plan: Extract<OneGoalPlan, { status: "ready" }>, service: string): boolean {
   return plan.action.goal.workflow_steps.some((step) => step.service === service);
+}
+
+function firstSettlementTarget(plan: Extract<OneGoalPlan, { status: "ready" }>): {
+  route?: string;
+  screen?: string;
+} | null {
+  for (const step of plan.action.goal.workflow_steps) {
+    if (step.settlement_target) {
+      return step.settlement_target;
+    }
+  }
+  return null;
 }
 
 function waitForDebateCompletion(input: {
@@ -464,10 +481,161 @@ async function runAnalysisGoal(options: RunOneGoalOptions): Promise<OneGoalRunne
   };
 }
 
+async function runSpecialistChatGoal(options: RunOneGoalOptions): Promise<OneGoalRunnerResult> {
+  const { plan } = options;
+  const actionId = plan.action.action_id;
+  const delegateAgentId = plan.action.delegate_agent_id;
+  if (!delegateAgentId || delegateAgentId === "one") {
+    throw new Error("Specialist chat goal is missing a specialist delegate.");
+  }
+  const utterance = readString(plan.slots.utterance) || readString(plan.slots.message);
+  if (!utterance) {
+    throw new Error("Specialist chat goal is missing the user utterance.");
+  }
+
+  const store = useOneGoalSessionStore.getState();
+  const session = store.startSession({
+    goalId: plan.goalId,
+    actionId,
+    slots: plan.slots,
+  });
+  appendGoalEvent(
+    session.id,
+    createEvent({
+      goalId: plan.goalId,
+      actionId,
+      state: "started",
+      message: `Delegating to ${plan.action.label}.`,
+      data: { delegateAgentId },
+    }),
+    options.callbacks
+  );
+
+  let directive: SpecialistDirectiveEvent | null = null;
+  const response = await streamAgentChat({
+    userId: options.userId,
+    message: utterance,
+    vaultOwnerToken: options.vaultOwnerToken,
+    screenContext: options.screenContext,
+    delegateAgentId,
+    handlers: {
+      onSpecialistDirective: (event) => {
+        directive = event;
+        appendGoalEvent(
+          session.id,
+          createEvent({
+            goalId: plan.goalId,
+            actionId,
+            state: event.directive.kind === "prompt" ? "input_needed" : "preview",
+            message: event.message || "The specialist needs the governed interface.",
+            data: {
+              delegateAgentId: event.delegateAgentId,
+              directive: event.directive,
+              stateChanged: event.stateChanged,
+            },
+          }),
+          options.callbacks
+        );
+      },
+    },
+  });
+
+  const settlement = firstSettlementTarget(plan);
+  const directiveEvent = directive as SpecialistDirectiveEvent | null;
+  const summaryText =
+    readString(directiveEvent?.message) ||
+    readString(response.text) ||
+    `${plan.action.label} returned no spoken result.`;
+  if (directiveEvent) {
+    const summary = {
+      text: summaryText,
+      route: settlement?.route || null,
+    };
+    appendGoalEvent(
+      session.id,
+      createEvent({
+        goalId: plan.goalId,
+        actionId,
+        state: "blocked",
+        message: summaryText,
+        data: {
+          delegateAgentId,
+          delegatedConversationId: response.conversationId,
+          specialistDirective: directiveEvent,
+          requiresChatHandoff: true,
+        },
+      }),
+      options.callbacks
+    );
+    const blocked = updateGoalResult(session.id, "blocked", summary);
+    return {
+      session: blocked,
+      actionResult: buildSyntheticActionResult({
+        status: "blocked",
+        actionId,
+        label: plan.action.label,
+        routeAfter: settlement?.route,
+        screenAfter: settlement?.screen,
+        resultSummary: summaryText,
+        reason: "specialist_directive_requires_chat",
+        data: {
+          delegateAgentId,
+          delegatedConversationId: response.conversationId,
+          specialistDirective: directiveEvent,
+          requiresChatHandoff: true,
+        },
+      }),
+      resultSummary: summary,
+    };
+  }
+
+  const summary = {
+    text: summaryText,
+    route: settlement?.route || null,
+  };
+  appendGoalEvent(
+    session.id,
+    createEvent({
+      goalId: plan.goalId,
+      actionId,
+      state: "completed",
+      message: summaryText,
+      data: {
+        delegateAgentId,
+        delegatedConversationId: response.conversationId,
+        model: response.model,
+      },
+    }),
+    options.callbacks
+  );
+  await options.callbacks?.onFinalText?.(summaryText);
+  const completed = updateGoalResult(session.id, "completed", summary);
+  return {
+    session: completed,
+    actionResult: buildSyntheticActionResult({
+      status: "succeeded",
+      actionId,
+      label: plan.action.label,
+      routeAfter: settlement?.route,
+      screenAfter: settlement?.screen,
+      resultSummary: summaryText,
+      data: {
+        delegateAgentId,
+        delegatedConversationId: response.conversationId,
+        model: response.model,
+      },
+    }),
+    resultSummary: summary,
+  };
+}
+
 export async function runOneGoal(options: RunOneGoalOptions): Promise<OneGoalRunnerResult> {
   const { plan } = options;
   if (hasWorkflowService(plan, "kai_debate.ensure_run")) {
     return runAnalysisGoal(options);
+  }
+  if (hasWorkflowService(plan, "specialist_chat.turn")) {
+    return runSpecialistChatGoal(options);
   }
 
   const session = useOneGoalSessionStore.getState().startSession({

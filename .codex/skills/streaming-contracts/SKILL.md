@@ -53,7 +53,9 @@ Non-owned surfaces:
 
 1. Treat backend events, frontend parsers, and streaming docs as one contract surface.
 2. Keep degraded-state handling explicit in both docs and tests.
-3. Route broad quality-policy work to `quality-contracts` and broad backend routing to `backend`.
+3. Keep UI stream mapping explicit: model/assistant token frames produce response text, app-owned tool/stage events produce progress rows, and optional provider thinking telemetry never drives control flow. Do not simulate tokens from progress placeholders.
+4. When changing Agent Chat, One Voice, or portfolio-import stream UI, update the shared stream primitive, the implementation guide, and focused component/parser tests together.
+5. Route broad quality-policy work to `quality-contracts` and broad backend routing to `backend`.
 
 ## Handoff Rules
 
@@ -65,5 +67,6 @@ Non-owned surfaces:
 
 ```bash
 cd hushh-webapp && npm test -- __tests__/streaming/sse-parser.test.ts
+cd hushh-webapp && npx vitest run components/agent/__tests__/agent-turn-stream-panel.test.tsx __tests__/components/import-progress-view.test.tsx
 cd consent-protocol && python3 -m pytest tests/test_kai_stream_contract.py -q
 ```

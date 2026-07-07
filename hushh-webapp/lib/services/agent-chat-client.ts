@@ -137,6 +137,7 @@ export async function streamAgentChat(input: {
   screenContext?: Record<string, unknown> | null;
   runtimeCredential?: string | null;
   runtimeCredentialMode?: string | null;
+  delegateAgentId?: string | null;
   delegateResult?: Record<string, unknown>;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -152,6 +153,7 @@ export async function streamAgentChat(input: {
     ...(timezone ? { timezone } : {}),
     runtimeCredential: input.runtimeCredential,
     runtimeCredentialMode: input.runtimeCredentialMode,
+    delegateAgentId: input.delegateAgentId,
     delegateResult: input.delegateResult,
     signal: input.signal,
   });

@@ -29,7 +29,18 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
     if speaker_persona not in {"one", "kai", "nav", "kyc"}:
         speaker_persona = "one"
     delegate_agent_id = str(raw.get("delegate_agent_id") or "").strip().lower() or None
-    if delegate_agent_id not in {None, "one", "kai", "nav", "kyc"}:
+    if delegate_agent_id not in {
+        None,
+        "one",
+        "kai",
+        "nav",
+        "kyc",
+        "agent_connected_systems",
+        "agent_connections",
+        "agent_email",
+        "agent_location",
+        "agent_personal_information",
+    }:
         delegate_agent_id = None
     scope = (
         raw.get("reachability")
