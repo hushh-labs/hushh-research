@@ -252,9 +252,58 @@ export function useMarketplaceConsentActions(
     [emitComplete, requireToken, runWithLock],
   );
 
+  /**
+   * Revoke a previously approved marketplace access request: withdraw the buyer's
+   * access and delete any delivered ciphertext server-side. Owner-scoped (only the
+   * seller who granted can revoke). Keyed by scope so the shared consent center's
+   * scope-level revoke spinner (`isScopeBusy`) lights up correctly.
+   */
+  const handleRevoke = useCallback(
+    (entry: MarketplaceConsentActionEntry): Promise<void> => {
+      const ref = parseMarketplaceConsentEntry(entry);
+      const requestId = ref.requestId;
+      if (!requestId) {
+        toast.error("This marketplace request can no longer be opened here.");
+        return Promise.resolve();
+      }
+      const scope = String(entry.scope || "").trim();
+      const actionKey = `revoke:${requestId}`;
+      return runWithLock(
+        { key: actionKey, kind: "revoke", requestId, scope },
+        async () => {
+          const vaultOwnerToken = requireToken();
+          if (!vaultOwnerToken) return;
+
+          const promise = (async () => {
+            await OneMarketplaceService.revokeRequest({ vaultOwnerToken, requestId });
+            return "Access revoked.";
+          })();
+
+          toast.promise(promise, {
+            id: actionKey,
+            loading: "Revoking marketplace access...",
+            success: (message) => `✅ ${message}`,
+            error: (error) => `❌ ${actionError(error, "Could not revoke access.")}`,
+            duration: 3000,
+          });
+
+          try {
+            await promise;
+            emitComplete({ action: "revoke", requestId, scope });
+          } catch (error) {
+            console.error("[MarketplaceConsent] revoke failed:", error);
+            throw error;
+          }
+        },
+      );
+    },
+    [emitComplete, requireToken, runWithLock],
+  );
+
   return {
     handleApprove,
     handleDeny,
+    handleRevoke,
     activeAction,
     activeActions,
     isRequestBusy,

@@ -290,4 +290,18 @@ export class OneMarketplaceService {
       { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
   }
+
+  /**
+   * Revoke a previously approved request (owner-scoped): withdraws the buyer's
+   * access and deletes any delivered ciphertext server-side.
+   */
+  static async revokeRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<void> {
+    await apiJson(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/revoke`,
+      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
+  }
 }

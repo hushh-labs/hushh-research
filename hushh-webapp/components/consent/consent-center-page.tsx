@@ -1327,6 +1327,7 @@ export function ConsentCenterPage() {
   const {
     handleApprove: handleMarketplaceApprove,
     handleDeny: handleMarketplaceDeny,
+    handleRevoke: handleMarketplaceRevoke,
     activeAction: marketplaceActiveAction,
     isRequestBusy: isMarketplaceRequestBusy,
     isScopeBusy: isMarketplaceScopeBusy,
@@ -1410,10 +1411,20 @@ export function ConsentCenterPage() {
         void handleLocationRevoke(entry);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceRevoke(entry);
+        return;
+      }
       if (!entry.scope) return;
       void handleRevoke(entry.scope);
     },
-    [handleLocationRevoke, handleRevoke, isLocationEntry],
+    [
+      handleLocationRevoke,
+      handleMarketplaceRevoke,
+      handleRevoke,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
 
   const idTokenLoader = async () => user?.getIdToken();
