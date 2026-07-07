@@ -474,8 +474,10 @@ async def request_incoming_choice() -> dict[str, Any]:
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_confirmation")
 async def request_confirmation(summary: str, destructive: bool = True) -> dict[str, Any]:
     """Ask the user to confirm an irreversible or bulk action before it runs. Returns
-    a coordinate-free yes/no confirm prompt. Use before creating a public link,
-    sharing with everyone, or stopping all shares."""
+    a coordinate-free yes/no confirm prompt. Use before sharing with everyone or
+    stopping all shares. Do NOT use before propose_public_link — the browser shows
+    its own owner-confirmation card for the link, so confirming here would make
+    the user confirm twice."""
     _ctx()
     return {
         "prompt": {
