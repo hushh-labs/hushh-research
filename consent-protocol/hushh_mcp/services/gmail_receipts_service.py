@@ -796,7 +796,7 @@ class GmailReceiptsService:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
 
     def _llm_model(self) -> str:
-        return _clean_text(os.getenv("GMAIL_RECEIPT_LLM_MODEL"), "gemini-2.5-flash-lite")
+        return _clean_text(os.getenv("GMAIL_RECEIPT_LLM_MODEL"), "gemini-3.1-flash-lite")
 
     def _build_state_token(self, *, user_id: str, redirect_uri: str) -> str:
         payload = {
