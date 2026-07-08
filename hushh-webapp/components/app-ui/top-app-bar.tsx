@@ -492,11 +492,13 @@ export function TopAppBar({ className }: TopAppBarProps) {
   );
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked;
+  // The agent switcher (with its search combobox) renders on the /one home
+  // route too: the dashboard grid and the dropdown expose the same roster, so
+  // agent search is available everywhere, including the launcher screen.
   const showAgentSectionDropdown =
     isAuthenticated &&
     !showOnboardingActions &&
-    normalizedPathname !== ROUTES.HOME &&
-    normalizedPathname !== ROUTES.ONE_HOME;
+    normalizedPathname !== ROUTES.HOME;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,

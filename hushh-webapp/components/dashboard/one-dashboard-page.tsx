@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  Briefcase,
   Check,
   ChevronRight,
   Circle,
@@ -48,10 +49,30 @@ const ONE_AGENT_TILE_WIDTH_CLASSNAME = "w-[5.75rem]";
 const ONE_AGENT_GRID_CLASSNAME =
   "grid grid-cols-[repeat(auto-fill,minmax(5.75rem,5.75rem))] justify-start gap-x-6 gap-y-5 sm:gap-x-8 md:gap-x-10";
 
+/**
+ * RIA is a standalone top-level agent (workspace persona) rather than a setup
+ * capability, so it has no CapabilityStatus. It sits directly after Finance,
+ * mirroring the top-bar agent switcher roster exactly: the /one grid and the
+ * dropdown must always present the same agents. /ria self-guards (non-RIA
+ * users are redirected to RIA onboarding), so exposing the tile is safe.
+ */
+const RIA_AGENT_MODE: OneAgentMode = {
+  id: "ria",
+  title: "RIA",
+  description: "Advisor workspace: clients, picks, and requests.",
+  href: `${ROUTES.RIA_HOME}?from=${ROUTES.ONE_HOME}`,
+  icon: Briefcase,
+  status: "Explore",
+  statusTone: "muted",
+  tone: "finance",
+  locked: false,
+  isExploreOnly: true,
+};
+
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneAgentMode[] {
-  return ONE_CAPABILITIES.map((cap) => {
+  const modes = ONE_CAPABILITIES.map((cap) => {
     const status = statusById[cap.id];
     const display = status
       ? getCapabilityStatusDisplay(status, { isExploreOnly: cap.isExploreOnly })
@@ -75,6 +96,9 @@ function buildModes(
       isExploreOnly: cap.isExploreOnly === true,
     };
   });
+  const financeIndex = modes.findIndex((mode) => mode.id === "finance");
+  modes.splice(financeIndex >= 0 ? financeIndex + 1 : modes.length, 0, RIA_AGENT_MODE);
+  return modes;
 }
 
 function statusClassName(mode: OneAgentMode): string {
