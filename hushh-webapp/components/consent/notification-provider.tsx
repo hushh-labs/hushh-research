@@ -484,8 +484,7 @@ export function ConsentNotificationProvider({
           bundleId: consent.bundleId,
           openedVia,
         });
-      } catch (error) {
-        console.warn("[NotificationProvider] Failed to acknowledge pending consent:", error);
+      } catch (_error) {
       } finally {
         if (isNativePlatform) {
           void clearDeliveredConsentNotifications({
