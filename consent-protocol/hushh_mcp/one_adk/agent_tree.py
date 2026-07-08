@@ -64,7 +64,13 @@ APP_ROUTES: dict[str, str] = {
     "profile": "/profile",
 }
 
+# Voice head target is gemini-3.1 Live. As of 2026-07-07 this project cannot
+# reach it on either lane (Vertex global: 1008 model-not-found for every 3.x
+# Live id; Developer API: 1008 project denied), so the default stays on the
+# newest Live model Vertex actually serves. Flip AGENT_ONE_ADK_MODEL (e.g. to
+# gemini-3.1-flash-live-preview) the moment entitlement lands; no code change.
 _ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash").strip()
+# All worker agents run the same generation: gemini-3.5-flash.
 _SPECIALIST_MODEL = (os.getenv("AGENT_ONE_SPECIALIST_MODEL") or "gemini-3.5-flash").strip()
 
 ONE_IDENTITY_INSTRUCTION = (
