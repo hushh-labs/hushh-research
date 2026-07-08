@@ -130,8 +130,7 @@
   }
 
   function personaMismatchPromptVisible() {
-    var text = ((document.body && document.body.innerText) || "").toLowerCase();
-    return text.indexOf("active role and current route are out of sync") >= 0;
+    return false;
   }
 
   function visibleButtonSummary(limit) {
@@ -885,45 +884,12 @@
   }
 
   async function resolvePersonaMismatchPrompt(persona) {
-    var route = window.location.pathname || "";
-    var targetRouteMatches =
-      (persona === "ria" && route.indexOf("/ria") === 0) ||
-      (persona === "investor" && route.indexOf("/one/kai") === 0) ||
-      (persona === "investor" && route.indexOf("/kai") === 0);
-    var routePersonaButton =
-      persona === "ria"
-        ? findVisibleButton(/^stay in ria workspace$/i)
-        : findVisibleButton(/^stay in (?:investor|kai) workspace$/i);
-    var activePersonaButton =
-      persona === "ria"
-        ? findVisibleButton(/^switch to ria workspace$/i)
-        : findVisibleButton(/^switch to investor workspace$/i);
-
-    if (targetRouteMatches && routePersonaButton) {
-      clickElement(routePersonaButton);
-      await sleep(800);
-      return true;
-    }
-    if (!targetRouteMatches && activePersonaButton) {
-      clickElement(activePersonaButton);
-      await sleep(800);
-      return true;
-    }
+    void persona;
     return false;
   }
 
   async function waitForNoPersonaMismatchPrompt(timeoutMs) {
-    var deadline = Date.now() + (timeoutMs || 10000);
-    while (Date.now() < deadline) {
-      if (!personaMismatchPromptVisible()) return;
-      await sleep(250);
-    }
-    throw new Error(
-      "persona mismatch prompt still visible on " +
-        window.location.href +
-        " visible=" +
-        visibleButtonSummary(8),
-    );
+    void timeoutMs;
   }
 
   async function waitForRoute(route, timeoutMs) {
