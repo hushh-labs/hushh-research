@@ -63,6 +63,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
+    STATE_SCREEN,
     STATE_TIMEZONE,
     STATE_USER_ID,
     get_one_runner,
@@ -204,6 +205,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 timezone_name = context_payload.get("timezone")
                 if isinstance(timezone_name, str) and timezone_name.strip():
                     state_delta[STATE_TIMEZONE] = timezone_name.strip()[:64]
+                screen_value = context_payload.get("screen")
+                if isinstance(screen_value, str) and screen_value.strip():
+                    state_delta[STATE_SCREEN] = screen_value.strip()[:64]
                 if state_delta:
                     await runner.session_service.append_event(
                         session,

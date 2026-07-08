@@ -20,6 +20,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
+from hushh_mcp.one_adk import agent_tree as _tree
+from hushh_mcp.one_adk.action_tools import (
+    _STATE_PENDING_DIRECTIVE,
+    _STATE_SCREEN,
+    list_app_actions,
+    run_app_action,
+)
 from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
@@ -42,6 +49,8 @@ class TestAgentTreeShape:
         }
         assert "google_search" in tool_names
         assert "open_screen" in tool_names
+        assert "run_app_action" in tool_names
+        assert "list_app_actions" in tool_names
         assert "finance" in tool_names
         assert "ria" in tool_names
         assert {
@@ -170,3 +179,83 @@ class TestOpenScreen:
         assert result["status"] == "unknown_screen"
         assert STATE_PENDING_DIRECTIVE not in state
         assert "valid_screens" in result
+
+
+class TestRunAppAction:
+    def test_state_keys_stay_in_sync_with_agent_tree(self):
+        assert _STATE_PENDING_DIRECTIVE == _tree.STATE_PENDING_DIRECTIVE
+        assert _STATE_SCREEN == _tree.STATE_SCREEN
+
+    @pytest.mark.asyncio
+    async def test_unknown_action_returns_suggestions(self):
+        state: dict = {}
+        result = await run_app_action("totally.bogus.action", {}, _tool_context(state))
+        assert result["status"] == "unknown_action"
+        assert isinstance(result["suggestions"], list)
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_specialist_owned_action_redirects_not_executes(self):
+        # email.chat.turn belongs to agent_email; ownership is contract-enforced.
+        state: dict = {}
+        result = await run_app_action("email.chat.turn", {}, _tool_context(state))
+        assert result["status"] == "delegated"
+        assert result["use_tool"] == "ask_email_agent"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_kyc_manual_only_action_is_refused(self):
+        # KYC draft approval stays a human action in the app (agent chat lane
+        # continues to own the KYC card flow; voice must not trigger it).
+        state: dict = {}
+        result = await run_app_action("kyc.draft.approve_send", {}, _tool_context(state))
+        assert result["status"] == "manual_only"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_kyc_confirm_required_parks_confirmation_directive(self):
+        state: dict = {}
+        result = await run_app_action("kyc.draft.reject", {}, _tool_context(state))
+        assert result["status"] == "confirm_pending"
+        directive = state[_STATE_PENDING_DIRECTIVE]
+        assert directive["kind"] == "action"
+        assert directive["payload"]["needsConfirmation"] is True
+
+    @pytest.mark.asyncio
+    async def test_allow_direct_missing_slot_asks_exactly_one_input(self):
+        state: dict = {}
+        result = await run_app_action("analysis.start", {}, _tool_context(state))
+        assert result["status"] == "input_needed"
+        assert result["missing_slot"] == "symbol"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_allow_direct_with_slots_parks_action_directive(self):
+        state: dict = {}
+        result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
+        assert result["status"] == "ok"
+        directive = state[_STATE_PENDING_DIRECTIVE]
+        assert directive == {
+            "kind": "action",
+            "payload": {"actionId": "analysis.start", "slots": {"symbol": "NVDA"}},
+        }
+
+    @pytest.mark.asyncio
+    async def test_route_action_is_direct(self):
+        state: dict = {}
+        result = await run_app_action("route.consents", {}, _tool_context(state))
+        assert result["status"] == "ok"
+        assert state[_STATE_PENDING_DIRECTIVE]["payload"]["actionId"] == "route.consents"
+
+
+class TestListAppActions:
+    @pytest.mark.asyncio
+    async def test_ranked_results_are_bounded_and_marked(self):
+        state = {_STATE_SCREEN: "one_agents"}
+        result = await list_app_actions("check my email", _tool_context(state))
+        assert result["status"] == "ok"
+        assert result["total_actions"] >= 90
+        assert 0 < len(result["results"]) <= 10
+        by_id = {r["action_id"]: r for r in result["results"]}
+        if "email.chat.turn" in by_id:
+            assert by_id["email.chat.turn"]["use_tool"] == "ask_email_agent"

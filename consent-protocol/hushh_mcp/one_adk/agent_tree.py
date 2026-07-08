@@ -31,6 +31,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
+from hushh_mcp.one_adk.action_tools import list_app_actions, run_app_action
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ STATE_USER_ID = "hussh:user_id"
 STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 STATE_CONVERSATION_ID = "hussh:conversation_id"
 STATE_TIMEZONE = "hussh:timezone"
+# Current app screen id (from app_context frames); used to rank action search.
+STATE_SCREEN = "hussh:screen"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
@@ -64,11 +67,10 @@ APP_ROUTES: dict[str, str] = {
     "profile": "/profile",
 }
 
-# Voice head runs the GA native-audio Live model on Vertex (regional only;
-# it is NOT published on the global endpoint, so the live client pins a
-# region). Long-term target remains gemini-3.1 Live: as of 2026-07-07 the
-# 3.x Live ids are Developer-API-only and that lane is project-denied, so
-# flip AGENT_ONE_ADK_MODEL the moment entitlement lands; no code change.
+# Voice head runs the GA native-audio Live model on Vertex ADC (regional
+# only; it is NOT published on the global endpoint, so the live client pins
+# a region via AGENT_ONE_ADK_LOCATION). Model is env-swappable through
+# AGENT_ONE_ADK_MODEL with no code change.
 _ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash-native-audio").strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
 # All worker agents run the same generation: gemini-3.5-flash.
@@ -115,8 +117,12 @@ ONE_IDENTITY_INSTRUCTION = (
     "Delegate naturally: when a request belongs to a specialist's domain, call "
     "that specialist's tool with the user's request. When the user asks to go "
     "somewhere in the app ('take me to profile', 'open location'), call "
-    "open_screen; it works from any screen. Use google_search when the user "
-    "needs fresh public information from the web. Answer general "
+    "open_screen; it works from any screen. For app actions (starting an "
+    "analysis, opening a workspace tab, connecting Gmail), call run_app_action "
+    "with the exact action id, using list_app_actions first when unsure. "
+    "Actions owned by a specialist must go through that specialist's ask_ "
+    "tool; run_app_action will redirect you if needed. Use google_search when "
+    "the user needs fresh public information from the web. Answer general "
     "questions yourself. Never invent tool results; if a specialist reports "
     "it cannot act (missing consent, locked vault, no data), relay that "
     "honestly and tell the user what would unlock it. You never execute "
@@ -302,6 +308,8 @@ def build_one_root_agent() -> LlmAgent:
         tools=[
             google_search,
             open_screen,
+            run_app_action,
+            list_app_actions,
             AgentTool(agent=_build_finance_agent()),
             AgentTool(agent=_build_ria_agent()),
             ask_email_agent,

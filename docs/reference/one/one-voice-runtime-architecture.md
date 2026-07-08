@@ -44,10 +44,12 @@ agent tree on the backend.
 What shipped:
 
 - `consent-protocol/hushh_mcp/one_adk/agent_tree.py` builds One as the root
-  `LlmAgent` (name `one`, model `gemini-live-2.5-flash` via
-  `AGENT_ONE_ADK_MODEL`) with the full roster wired as tools:
-  `google_search`, `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and
-  six dispatch-backed specialist turn functions.
+  `LlmAgent` (name `one`, model `gemini-live-2.5-flash-native-audio` via
+  `AGENT_ONE_ADK_MODEL`; the native-audio Live model is served regionally on
+  Vertex, so the live client pins `AGENT_ONE_ADK_LOCATION`, default
+  `us-central1`) with the full roster wired as tools: `google_search`,
+  `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and six
+  dispatch-backed specialist turn functions.
 - `consent-protocol/api/routes/one/adk_live.py` is the only voice relay:
   `POST /api/one/adk/relay-session` mints a signed one-time ticket
   (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
@@ -57,6 +59,16 @@ What shipped:
   planner (`lib/voice/one-voice-live-action-bridge.ts`), and the
   `action_proposal` transport event were deleted. There is no second
   decision-maker anywhere in the voice path.
+
+Voice responder contract (who makes LLM calls, who speaks):
+
+- The root Live model is the ONLY audio producer. Specialists never speak.
+- `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
+  `run_async` call on the specialist model inside the live turn; the root
+  model folds the result into its spoken answer.
+- The six `ask_*` specialist turn tools and `open_screen` make ZERO extra
+  LLM calls: they are deterministic handlers (A2A dispatch / directive
+  parking) whose structured results return to the root model.
 
 Why this fixes the "random commands" class of bugs by construction:
 
