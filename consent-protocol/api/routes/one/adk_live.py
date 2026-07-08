@@ -176,6 +176,27 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
     await websocket.send_text(json.dumps({"setupComplete": {}}))
 
+    # Proactive greeting: the session should never open in silence. This
+    # kickoff is app-composed (not user speech) and runs through the same
+    # single ordered event stream, so a user who starts talking immediately
+    # simply barges in over it.
+    queue.send_content(
+        genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part(
+                    text=(
+                        "[Session start - not user speech] Greet the user right "
+                        "now in one short, warm sentence as One. Vary your "
+                        "greeting naturally between sessions; do not repeat a "
+                        "stock phrase, do not list capabilities, and do not "
+                        "ask more than one light question."
+                    )
+                )
+            ],
+        )
+    )
+
     async def pump_browser_to_queue() -> None:
         while True:
             raw = await websocket.receive_text()
