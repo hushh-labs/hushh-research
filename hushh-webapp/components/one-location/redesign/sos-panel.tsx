@@ -23,6 +23,14 @@ function initialOf(label: string): string {
   return trimmed ? trimmed[0]!.toUpperCase() : "?";
 }
 
+// Alert list cap: trusted circles can be long, so show ~4 rows then scroll.
+// max-h fits four ~48px rows (avatar h-8 + py-2 = 32 + 16) plus the 6px
+// space-y gaps (210px), leaving a sliver of the fifth to signal there's more.
+// Thin, touch-friendly scrollbar keeps it unobtrusive on mobile — mirrors the
+// People-tab pattern.
+const ALERT_LIST_SCROLL_CLASS =
+  "max-h-[224px] space-y-1.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
+
 /**
  * SOS panic panel for the Location Now tab. Idle: a red "TAP TO PANIC" button
  * that arms a short countdown (cancellable) before firing. Active: a
@@ -169,7 +177,7 @@ export function SosPanel({
             No trusted contacts yet.
           </p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className={ALERT_LIST_SCROLL_CLASS}>
             {recipients.map((r) => {
               const ready = isRecipientShareReady(r);
               return (

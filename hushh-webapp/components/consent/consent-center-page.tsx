@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
@@ -60,6 +61,7 @@ import {
 import {
   useConsentActions,
   useOneLocationConsentActions,
+  useMarketplaceConsentActions,
   type ConsentActionState,
   type ConsentMutationDetail,
   type PendingConsent,
@@ -81,6 +83,7 @@ import {
   locationConsentSummary,
   locationConsentWorkflowHref,
 } from "@/lib/consent/location-consent";
+import { isMarketplaceConsent } from "@/lib/consent/marketplace-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 
 import {
@@ -1184,7 +1187,7 @@ export function ConsentCenterPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
-  const { getVaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultOwnerToken, isVaultUnlocked, vaultKey } = useVault();
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1290,6 +1293,40 @@ export function ConsentCenterPage() {
     searchParams,
   ]);
 
+  // Fulfil agent-driven marketplace approvals. Agent One (A2A) and the
+  // marketplace chat agent can only flip a request to `approved` server-side —
+  // they have no browser/vault key to seal the encrypted slice, so the seller's
+  // device must complete delivery. The unlock-warm sweep runs at most once per
+  // session and usually fires before the agent approval exists, leaving slices
+  // approved-but-undelivered. Opening the Consent Guardian is exactly when the
+  // seller is present with an unlocked vault, so we sweep again here (guard-free
+  // relative to unlock-warm, once per mount) to seal + deliver those requests.
+  const marketplaceSweptRef = useRef(false);
+  useEffect(() => {
+    if (marketplaceSweptRef.current) return;
+    if (!isVaultUnlocked || !user?.uid || !vaultKey) return;
+    const vaultOwnerToken = getVaultOwnerToken();
+    if (!vaultOwnerToken) return;
+    marketplaceSweptRef.current = true;
+    void runMarketplaceDeliverySweep({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .then((result) => {
+        // Refresh the lists so freshly delivered grants reflect their new state.
+        if (result.delivered > 0) {
+          setMutationTick((value) => value + 1);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          "[ConsentCenter] marketplace delivery sweep failed:",
+          error,
+        );
+      });
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
+
   const {
     handleApprove,
     handleDeny,
@@ -1317,16 +1354,37 @@ export function ConsentCenterPage() {
     userId: user?.uid,
   });
 
-  const activeAction = genericActiveAction ?? locationActiveAction;
+  // Information Marketplace rows are end-to-end encrypted slice deliveries and
+  // must go through the dedicated marketplace approve endpoint + envelope publish
+  // (build safe-summary export -> seal to the buyer's recipient key -> post
+  // ciphertext only), NOT the generic developer-consent flow. See
+  // lib/consent/use-marketplace-consent-actions.ts.
+  const {
+    handleApprove: handleMarketplaceApprove,
+    handleDeny: handleMarketplaceDeny,
+    handleRevoke: handleMarketplaceRevoke,
+    activeAction: marketplaceActiveAction,
+    isRequestBusy: isMarketplaceRequestBusy,
+    isScopeBusy: isMarketplaceScopeBusy,
+  } = useMarketplaceConsentActions({
+    userId: user?.uid,
+  });
+
+  const activeAction =
+    genericActiveAction ?? locationActiveAction ?? marketplaceActiveAction;
   const isRequestBusy = useCallback(
     (requestId?: string | null) =>
-      isGenericRequestBusy(requestId) || isLocationRequestBusy(requestId),
-    [isGenericRequestBusy, isLocationRequestBusy],
+      isGenericRequestBusy(requestId) ||
+      isLocationRequestBusy(requestId) ||
+      isMarketplaceRequestBusy(requestId),
+    [isGenericRequestBusy, isLocationRequestBusy, isMarketplaceRequestBusy],
   );
   const isScopeBusy = useCallback(
     (scope?: string | null) =>
-      isGenericScopeBusy(scope) || isLocationScopeBusy(scope),
-    [isGenericScopeBusy, isLocationScopeBusy],
+      isGenericScopeBusy(scope) ||
+      isLocationScopeBusy(scope) ||
+      isMarketplaceScopeBusy(scope),
+    [isGenericScopeBusy, isLocationScopeBusy, isMarketplaceScopeBusy],
   );
 
   // Route a consent entry to the correct backend pipeline. Location rows
@@ -1337,15 +1395,30 @@ export function ConsentCenterPage() {
       isLocationConsent(entry.metadata, entry.scope),
     [],
   );
+  const isMarketplaceEntry = useCallback(
+    (entry: ConsentCenterEntry) =>
+      isMarketplaceConsent(entry.metadata, entry.scope),
+    [],
+  );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
       if (isLocationEntry(entry)) {
         void handleLocationApprove(entry, durationHours);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceApprove(entry);
+        return;
+      }
       void handleApprove(toPendingConsent(entry, durationHours));
     },
-    [handleApprove, handleLocationApprove, isLocationEntry],
+    [
+      handleApprove,
+      handleLocationApprove,
+      handleMarketplaceApprove,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
@@ -1353,9 +1426,19 @@ export function ConsentCenterPage() {
         void handleLocationDeny(entry);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceDeny(entry);
+        return;
+      }
       void handleDeny(entry.request_id || entry.id);
     },
-    [handleDeny, handleLocationDeny, isLocationEntry],
+    [
+      handleDeny,
+      handleLocationDeny,
+      handleMarketplaceDeny,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
@@ -1363,10 +1446,20 @@ export function ConsentCenterPage() {
         void handleLocationRevoke(entry);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceRevoke(entry);
+        return;
+      }
       if (!entry.scope) return;
       void handleRevoke(entry.scope);
     },
-    [handleLocationRevoke, handleRevoke, isLocationEntry],
+    [
+      handleLocationRevoke,
+      handleMarketplaceRevoke,
+      handleRevoke,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
 
   const idTokenLoader = async () => user?.getIdToken();

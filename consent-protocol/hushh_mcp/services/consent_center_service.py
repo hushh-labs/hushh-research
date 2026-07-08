@@ -19,6 +19,22 @@ from hushh_mcp.services.ria_iam_service import (
 logger = logging.getLogger(__name__)
 
 
+def _marketplace_consent_center_enabled() -> bool:
+    """Feature flag: union Information Marketplace access requests into the
+    consent center so a seller approves/denies data-slice requests in the shared
+    Consent Guardian instead of a redundant marketplace inbox.
+
+    Defaults ON. The contributor only surfaces safe-summary metadata and the
+    merge is wrapped in try/except, so a marketplace failure can never
+    destabilize the consent surface. Set the env var to a falsey value
+    ("0"/"false"/"off") to explicitly disable.
+    """
+    raw = os.getenv("MARKETPLACE_CONSENT_CENTER_ENABLED", "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
+
+
 def _one_location_consent_center_enabled() -> bool:
     """Feature flag: union One Location rows into the consent center.
 
@@ -68,6 +84,47 @@ class ConsentCenterService:
                     exc,
                 )
                 self._location_center = None
+        self._marketplace_center = None
+        if _marketplace_consent_center_enabled():
+            try:
+                from hushh_mcp.services.marketplace_center_contributor import (
+                    MarketplaceCenterContributor,
+                )
+
+                self._marketplace_center = MarketplaceCenterContributor()
+            except Exception as exc:  # never block the consent surface
+                logger.warning(
+                    "consent_center.marketplace_contributor_init_failed error=%s",
+                    exc,
+                )
+                self._marketplace_center = None
+
+    async def _marketplace_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Information Marketplace access-request entries grouped by consent
+        bucket. Returns empty buckets when the flag is off or the contributor is
+        unavailable, so the shared consent surface is never destabilized.
+
+        Unlike the One Location contributor (sync db_client), the marketplace
+        request service is natively async, so this is awaited directly.
+        """
+        empty = {
+            "incoming_requests": [],
+            "outgoing_requests": [],
+            "active_grants": [],
+            "history": [],
+            "invites": [],
+        }
+        if not self._marketplace_center:
+            return empty
+        try:
+            return await self._marketplace_center.collect(user_id)
+        except Exception as exc:
+            logger.warning(
+                "consent_center.marketplace_collect_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+            return empty
 
     def _location_buckets(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
         """Coordinate-free One Location entries grouped by consent bucket.
@@ -1398,6 +1455,18 @@ class ConsentCenterService:
                     location_count = len(location_buckets["active_grants"])
                 else:
                     location_count = len(location_buckets["history"])
+            marketplace_buckets = (
+                await self._marketplace_buckets_async(user_id)
+                if normalized_mode == "consents"
+                else None
+            )
+            if marketplace_buckets:
+                if surface == "pending":
+                    location_count += len(marketplace_buckets["incoming_requests"])
+                elif surface == "active":
+                    location_count += len(marketplace_buckets["active_grants"])
+                else:
+                    location_count += len(marketplace_buckets["history"])
             if surface == "pending":
                 return (
                     len(
@@ -1628,6 +1697,20 @@ class ConsentCenterService:
             outgoing_entries = [*outgoing_entries, *location_buckets["outgoing_requests"]]
             invite_entries = [*invite_entries, *location_buckets["invites"]]
 
+        marketplace_buckets = (
+            await self._marketplace_buckets_async(user_id)
+            if (actor is None or normalized_actor != "ria")
+            else None
+        )
+        if marketplace_buckets:
+            if need_incoming:
+                incoming = [*incoming, *marketplace_buckets["incoming_requests"]]
+            if need_active:
+                active_entries = [*active_entries, *marketplace_buckets["active_grants"]]
+            if need_history:
+                history_entries = [*history_entries, *marketplace_buckets["history"]]
+            outgoing_entries = [*outgoing_entries, *marketplace_buckets["outgoing_requests"]]
+
         return {
             "user_id": user_id,
             "persona_state": persona_state,
@@ -1776,6 +1859,18 @@ class ConsentCenterService:
                     entries = [*entries, *location_buckets["active_grants"]]
                 else:
                     entries = [*entries, *location_buckets["history"]]
+            marketplace_buckets = (
+                await self._marketplace_buckets_async(user_id)
+                if normalized_mode == "consents"
+                else None
+            )
+            if marketplace_buckets:
+                if normalized_surface == "pending":
+                    entries = [*entries, *marketplace_buckets["incoming_requests"]]
+                elif normalized_surface == "active":
+                    entries = [*entries, *marketplace_buckets["active_grants"]]
+                else:
+                    entries = [*entries, *marketplace_buckets["history"]]
             paged = self._paginate_entries(
                 entries,
                 page=safe_page,

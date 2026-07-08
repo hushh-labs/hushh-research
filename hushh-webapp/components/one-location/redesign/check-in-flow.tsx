@@ -39,6 +39,14 @@ const UNTIL_STOP_VALUE = "24";
 const DEFAULT_CHECK_IN_MESSAGE = "I've checked in here, let's catch up";
 const CHECK_IN_MESSAGE_MAX_LENGTH = 120;
 
+// Contact list cap: trusted circles can be long, so show ~4 rows then scroll.
+// max-h fits four ~64px rows (avatar h-10 + p-3) plus the 10px space-y gaps,
+// with a sliver of the fifth peeking to signal there's more. A thin,
+// touch-friendly scrollbar keeps it unobtrusive on mobile. Mirrors the
+// People-tab pattern (PEOPLE_LIST_SCROLL_CLASS) for visual consistency.
+const CONTACT_LIST_SCROLL_CLASS =
+  "max-h-[300px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
+
 function initialsOf(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
   if (words.length >= 2) {
@@ -256,7 +264,12 @@ export function CheckInFlow({
           onChange={setSearch}
           placeholder="Search contacts..."
         />
-        <div className="mt-3 space-y-2.5">
+        <div
+          className={cn(
+            "mt-3",
+            filtered.length ? CONTACT_LIST_SCROLL_CLASS : "space-y-2.5",
+          )}
+        >
           {filtered.length ? (
             filtered.map((recipient, index) => (
               <ContactRow

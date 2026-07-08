@@ -21,9 +21,13 @@ const STOP_WORDS = new Set([
   "CAN",
   "DO",
   "FOR",
+  "GO",
+  "HER",
+  "HIS",
   "I",
   "IN",
   "IT",
+  "ITS",
   "KAI",
   "ME",
   "MY",
@@ -31,13 +35,21 @@ const STOP_WORDS = new Set([
   "ON",
   "ONE",
   "OR",
+  "OUR",
   "PLEASE",
+  "SHOW",
   "START",
+  "TAKE",
+  "THAT",
   "THE",
+  "THEIR",
+  "THIS",
   "TO",
   "USE",
+  "WHAT",
   "WITH",
   "YOU",
+  "YOUR",
 ]);
 
 function readString(value: unknown): string | null {
@@ -159,6 +171,17 @@ function rankActionsForTranscript(
     .sort((left, right) => right.score - left.score || left.action.action_id.localeCompare(right.action.action_id));
 }
 
+const NAVIGATION_INTENT_PATTERN =
+  /\b(?:go(?:\s+back)?\s+to|navigate\s+to|take\s+me\s+(?:to|back)|open|switch\s+to|show\s+me\s+the|back\s+to)\b/i;
+
+/**
+ * When the user utters an explicit navigation verb ("navigate to Investor",
+ * "take me to profile"), a route candidate must never be displaced by a
+ * higher-scoring input-collecting action. The old behavior let a ticker false
+ * positive (misheard STT tokens matching the 1-5 letter pattern) hijack a
+ * plain navigation request into an analysis flow that then asked unrelated
+ * clarifying questions.
+ */
 function shouldOverrideCandidate(input: {
   candidate: KaiActionDefinition;
   top: { action: KaiActionDefinition; score: number } | undefined;
@@ -170,6 +193,8 @@ function shouldOverrideCandidate(input: {
   const candidateIsRouteOnly =
     candidate.action_id.startsWith("route.") &&
     candidate.goal.required_inputs.length === 0;
+  const explicitNavigationIntent = NAVIGATION_INTENT_PATTERN.test(transcript);
+  if (candidateIsRouteOnly && explicitNavigationIntent) return false;
   const topResolvesTicker =
     top.action.goal.input_resolvers.includes("ticker_symbol") &&
     Boolean(resolveTickerFromTranscript(transcript, top.action));
@@ -201,6 +226,40 @@ function inferAction(input: OneGoalPlannerInput): KaiActionDefinition | null {
     return candidate;
   }
   return ranked[0]?.action ?? null;
+}
+
+/**
+ * When state gating removed every viable match, find the action the user most
+ * likely MEANT (pure lexical ranking, no availability filter) and explain the
+ * real prerequisite. "Unlock your vault to start the stock debate" is a
+ * useful answer; "One could not map that request" reads as a hallucinating
+ * agent that did not listen.
+ */
+function explainBlockedIntent(input: OneGoalPlannerInput): {
+  action: KaiActionDefinition;
+  reason: string;
+} | null {
+  const appRuntimeState = input.appRuntimeState;
+  if (!appRuntimeState) return null;
+  const transcript = input.transcript || "";
+  if (!transcript.trim()) return null;
+  const lexical = KAI_ACTION_GATEWAY.actions
+    .map((action) => ({ action, score: scoreActionForTranscript(action, transcript) }))
+    .filter((entry) => entry.score >= 6)
+    .sort((left, right) => right.score - left.score);
+  const top = lexical[0];
+  if (!top) return null;
+  const availability = evaluateKaiActionAvailability({
+    action: top.action,
+    appRuntimeState,
+    allowPersonaRouteSettlement: true,
+  });
+  if (availability.status === "available") return null;
+  const reason =
+    availability.reason ||
+    availability.blocked_guidance ||
+    `${top.action.label} is not available right now.`;
+  return { action: top.action, reason };
 }
 
 function resolveTickerFromTranscript(
@@ -271,6 +330,26 @@ function isInputSatisfied(slotValue: unknown): boolean {
   return typeof slotValue === "string" ? slotValue.trim().length > 0 : slotValue !== undefined && slotValue !== null;
 }
 
+/**
+ * Contract-declared defaults satisfy an input without a spoken clarifying
+ * question. This is what stops the planner from asking "Which list should Kai
+ * use for this debate?" when the contract already says pick_source defaults
+ * to "default" and offers no other option.
+ */
+function applyDefaultValue(
+  input: KaiActionDefinition["goal"]["required_inputs"][number],
+  slots: Record<string, unknown>,
+  slot: string
+): boolean {
+  const defaultValue = readString(input.default_value);
+  if (!defaultValue) return false;
+  slots[slot] = defaultValue;
+  if (slot === "pickSource") {
+    slots.pickSource = defaultValue;
+  }
+  return true;
+}
+
 function nextMissingInput(
   action: KaiActionDefinition,
   slots: Record<string, unknown>
@@ -279,6 +358,7 @@ function nextMissingInput(
     if (input.required === false) continue;
     const slot = input.slot || input.name;
     if (isInputSatisfied(slots[slot])) continue;
+    if (applyDefaultValue(input, slots, slot)) continue;
     return {
       inputName: input.name,
       slot,
@@ -292,6 +372,16 @@ function nextMissingInput(
 export function planOneGoal(input: OneGoalPlannerInput): OneGoalPlan {
   const action = inferAction(input);
   if (!action) {
+    const blockedIntent = explainBlockedIntent(input);
+    if (blockedIntent) {
+      return {
+        status: "blocked",
+        goalId: blockedIntent.action.goal.goal_id,
+        action: blockedIntent.action,
+        slots: { ...(input.slots || {}) },
+        reason: blockedIntent.reason,
+      };
+    }
     return {
       status: "blocked",
       goalId: null,

@@ -115,7 +115,9 @@ class AgentGeminiLiveTokenRequest(BaseModel):
     route_family: Optional[str] = Field(default=None, max_length=64)
     voice_state: Optional[str] = Field(default=None, max_length=32)
     access_tier: Optional[str] = Field(default=None, max_length=32)
-    available_action_ids: list[str] = Field(default_factory=list, max_length=10)
+    # 18 = screen-ranked segment (10) + reserved global navigation segment (8).
+    # Mirrors AVAILABLE_ACTION_IDS_CAP in hushh-webapp screen-context-builder.ts.
+    available_action_ids: list[str] = Field(default_factory=list, max_length=18)
     visible_modules: list[str] = Field(default_factory=list, max_length=10)
     cache_freshness: Optional[str] = Field(default=None, max_length=32)
     vault_ready: Optional[bool] = None
@@ -199,13 +201,16 @@ def _compact_persona_hints(raw: RelayPersonaHints) -> RelayPersonaHints:
         value = raw.get(key)
         if isinstance(value, bool):
             hints[key] = value
-    for key in ("available_action_ids", "visible_modules"):
+    # available_action_ids carries the screen segment plus the reserved global
+    # navigation segment (mirrors frontend AVAILABLE_ACTION_IDS_CAP = 18).
+    _hint_list_limits = {"available_action_ids": 18, "visible_modules": 10}
+    for key, item_limit in _hint_list_limits.items():
         value = raw.get(key)
         if not isinstance(value, list):
             continue
         clean_items = [
             item.strip()[:96] for item in value if isinstance(item, str) and item.strip()
-        ][:10]
+        ][:item_limit]
         if clean_items:
             hints[key] = clean_items
     return hints
@@ -601,9 +606,16 @@ def _compose_app_context_update(hints: RelayPersonaHints, *, proactive: bool) ->
             sanitize_action_id(action_id) for action_id in _hint_list(hints, "available_action_ids")
         )
         if clean
-    ][:10]
+    ][:18]
     if action_ids:
-        parts.append("Available app action contracts here: " + ", ".join(action_ids) + ".")
+        # "here" previously implied these were the ONLY contracts anywhere,
+        # which made the model refuse cross-screen navigation ("go to
+        # profile"). The list now includes a global navigation segment, so the
+        # wording must say navigation contracts work from any screen.
+        parts.append(
+            "Available app action contracts (route.* navigation contracts work "
+            "from any screen): " + ", ".join(action_ids) + "."
+        )
     vault_ready = _hint_bool(hints, "vault_ready")
     if vault_ready is not None:
         parts.append("Vault is ready." if vault_ready else "Vault is not ready.")
@@ -817,8 +829,15 @@ def _build_action_proposal_tools(genai_types: Any) -> Optional[list[Any]]:
         declaration = genai_types.FunctionDeclaration(
             name=_ONE_VOICE_ACTION_PROPOSAL_TOOL,
             description=(
-                "Proposal-only signal for Hussh One Voice. Provide a generated "
-                "action_id, slots, confidence, and reason. Never execute the action."
+                "Propose an app action for Hussh One to run, exactly like "
+                "calling a tool: pick the action_id from the available action "
+                "contracts and fill slots from what the user said plus the "
+                "contract's stated defaults. The app validates and executes; "
+                "you only propose. Set confidence honestly: 0.9+ only when the "
+                "user's words map directly onto one contract, 0.6-0.8 when you "
+                "inferred the mapping, below 0.6 when guessing. Do not ask the "
+                "user for an input whose contract line shows a default; pass "
+                "the default in slots instead."
             ),
             parameters={
                 "type": "object",
@@ -829,7 +848,7 @@ def _build_action_proposal_tools(genai_types: Any) -> Optional[list[Any]]:
                     "reason": {"type": "string"},
                     "needs_confirmation": {"type": "boolean"},
                 },
-                "required": ["action_id"],
+                "required": ["action_id", "confidence"],
             },
         )
         return [genai_types.Tool(function_declarations=[declaration])]
@@ -840,14 +859,23 @@ def _build_action_proposal_tools(genai_types: Any) -> Optional[list[Any]]:
 def _with_live_proposal_instructions(instructions: str) -> str:
     return (
         f"{instructions}\n\n"
-        "Gemini Live action bridge: operate Agent First. Use the system "
-        "instruction, active app state, and generated action contracts to infer "
-        "the user's goal. When the user asks for an app action, you may call "
-        f"{_ONE_VOICE_ACTION_PROPOSAL_TOOL} with a generated action id, slots, "
-        "confidence, and reason as a proposal only. The provider must never claim "
-        "execution. Hussh One will validate guards, confirmation policy, A2A "
+        "Gemini Live action bridge: treat the available app action contracts "
+        "like a tool catalog. Each contract line reads "
+        "'action_id (Label; inputs: slot=<resolver>, slot default value)'. "
+        "When the user asks for something an action covers, call "
+        f"{_ONE_VOICE_ACTION_PROPOSAL_TOOL} naturally in your flow, the way an "
+        "agent calls a tool: choose the single best-matching action_id, fill "
+        "slots from the user's words, and use contract defaults for anything "
+        "the user did not specify instead of asking a clarifying question. "
+        "Only ask the user when a required input has no default and cannot be "
+        "inferred. route.* navigation contracts work from any screen, so "
+        "requests like 'go to profile' always map to their route action even "
+        "when the user is elsewhere in the app. You never execute anything "
+        "yourself: Hussh One validates guards, confirmation policy, A2A "
         "delegation, and route settlement through the generated gateway before "
-        "any action occurs."
+        "any action occurs, and it will tell the user if something is blocked. "
+        "If no contract fits, just answer conversationally; never invent an "
+        "action_id."
     )
 
 
@@ -960,9 +988,33 @@ async def agent_gemini_live_relay(websocket: WebSocket) -> None:
                     except (TypeError, ValueError):
                         continue
                     if message.get("type") == "interrupt" or message.get("interrupt") is True:
-                        # The provider stream owns actual interruption semantics;
-                        # locally we acknowledge the app request and let the next
-                        # realtime audio frame continue the session.
+                        # Signal the provider for real: Live sessions cancel
+                        # in-flight generation when new client content arrives,
+                        # so a non-prompting content update aborts the current
+                        # model turn instead of letting stale audio keep
+                        # streaming after the app-side interrupt. Best-effort;
+                        # the browser also fences late audio locally.
+                        try:
+                            await session.send_client_content(
+                                turns={
+                                    "role": "user",
+                                    "parts": [
+                                        {
+                                            "text": (
+                                                "[App interrupt - not user speech] Stop the "
+                                                "current spoken response immediately and wait "
+                                                "silently for the user's next request."
+                                            )
+                                        }
+                                    ],
+                                },
+                                turn_complete=False,
+                            )
+                        except Exception as error:  # noqa: BLE001 - interrupt is best-effort
+                            logger.debug(
+                                "agent_gemini_live_interrupt_signal_failed error=%s",
+                                error.__class__.__name__,
+                            )
                         await websocket.send_text(
                             json.dumps({"serverContent": {"interrupted": True}})
                         )

@@ -9,8 +9,9 @@ owner's durable inbox (migration 076), not against themselves.
 Discovery source is `pkm_default_available_projections` (migration 063): every
 active row (`revoked_at IS NULL`) is a slice its owner set to `default_available`
 and published a safe summary for. We read that table cross-user, exclude the
-viewer's own rows, and never expose the real owner user_id or name — only a
-stable hash (`ownerRef`) and an opaque `listingId` (the projection row id). The
+viewer's own rows, and never expose the real owner user_id — only a stable hash
+(`ownerRef`), the owner's public display name (`ownerName`, so a buyer can see who
+they'd be buying from), and an opaque `listingId` (the projection row id). The
 server keeps the listingId -> owner map internal (see `resolve_listing`).
 
 Consent safety mirrors the owner-side read model: we surface only the published
@@ -33,6 +34,7 @@ from hushh_mcp.pricing import (
     category_from_sensitivity,
     compute_suggested_price,
 )
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelService,
 )
@@ -59,6 +61,23 @@ def _owner_ref(user_id: str) -> str:
     """
     digest = hashlib.sha256((user_id or "").encode("utf-8")).hexdigest()
     return f"own_{digest[:16]}"
+
+
+def _owner_display_name(identity: dict[str, Any] | None, owner_ref: str) -> str:
+    """Public, buyer-facing name for the seller behind a listing. Prefers the
+    owner's real display name, then the local-part of their email, and finally a
+    short label derived from the opaque ref so the UI always has something to show.
+    Only names/emails the identity cache already holds are used — no raw user id."""
+    identity = identity or {}
+    display_name = str(identity.get("display_name") or "").strip()
+    if display_name:
+        return display_name
+    email = str(identity.get("email") or "").strip()
+    if email:
+        local = email.split("@", 1)[0].strip()
+        if local:
+            return local
+    return f"Seller {owner_ref[-6:]}"
 
 
 def _coerce_payload(value: Any) -> dict[str, Any]:
@@ -181,6 +200,7 @@ class MarketplaceCatalogService:
         pkm_service: PersonalKnowledgeModelService | None = None,
     ) -> None:
         self._pkm = pkm_service or PersonalKnowledgeModelService()
+        self._identity = ActorIdentityService()
         self._supabase = None
 
     @property
@@ -257,6 +277,18 @@ class MarketplaceCatalogService:
 
     # --- directory --------------------------------------------------------
 
+    async def _resolve_owner_identities(self, owner_ids: set[str]) -> dict[str, dict[str, Any]]:
+        """Best-effort batch lookup of seller display names. Identity resolution
+        must never break the directory, so any failure degrades to empty (each
+        listing then falls back to a ref-derived seller label)."""
+        if not owner_ids:
+            return {}
+        try:
+            return await self._identity.get_many(owner_ids)
+        except Exception:
+            logger.warning("marketplace.owner_identity_resolution_failed", exc_info=True)
+            return {}
+
     async def list_available_listings(self, *, viewer_user_id: str) -> list[dict[str, Any]]:
         """Every active published slice from OTHER users, anonymized. The viewer's
         own listings are excluded (you don't buy your own data)."""
@@ -269,6 +301,14 @@ class MarketplaceCatalogService:
         )
         result = await self._execute_query(query)
         rows = getattr(result, "data", None) or []
+        # Resolve every distinct owner's public display name in one batch so the
+        # directory can show who published each slice (identity cache only).
+        owner_ids = {
+            str(row.get("user_id") or "")
+            for row in rows
+            if str(row.get("user_id") or "") and str(row.get("user_id")) != viewer_user_id
+        }
+        identities = await self._resolve_owner_identities(owner_ids)
         registry_cache: dict[tuple[str, str], dict] = {}
         listings: list[dict[str, Any]] = []
         for row in rows:
@@ -289,10 +329,12 @@ class MarketplaceCatalogService:
             )
             attribute_count = _attribute_count_for(entry, presentation)
             price_cents, currency = self._price_for(entry, attribute_count=attribute_count)
+            owner_ref = _owner_ref(owner_user_id)
             listings.append(
                 {
                     "listingId": str(row.get("id")),
-                    "ownerRef": _owner_ref(owner_user_id),
+                    "ownerRef": owner_ref,
+                    "ownerName": _owner_display_name(identities.get(owner_user_id), owner_ref),
                     "domain": domain,
                     "domainTitle": _domain_title(domain),
                     "label": label,

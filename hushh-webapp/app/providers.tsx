@@ -505,19 +505,13 @@ function AppShellFrame({ children }: ProvidersProps) {
 }
 
 export function Providers({ children }: ProvidersProps) {
-  // iOS ships in forced LIGHT ("daylight") mode: the native side is pinned via
-  // Info.plist UIUserInterfaceStyle=Light, and next-themes is pinned here so no
-  // persisted/system "dark" can re-apply the .dark class.
-  const forceNativeDaylight =
-    Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
-
+  // Theme switching now works on every platform, including native iOS. The
+  // earlier "daylight" ship pinned iOS to light (a next-themes forced theme
+  // plus Info.plist UIUserInterfaceStyle=Light); both pins are removed so the
+  // in-app theme toggle behaves identically on web and native, with
+  // StatusBarManager keeping the native chrome in sync with resolvedTheme.
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="light"
-      forcedTheme={forceNativeDaylight ? "light" : undefined}
-      enableSystem={!forceNativeDaylight}
-    >
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
       <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />

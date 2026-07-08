@@ -61,7 +61,9 @@ describe("OneDashboardPage", () => {
     // when the href already has a query) so the surface's top-bar back button
     // returns to the dashboard, not Profile. See resolveTopShellBreadcrumb.
     const fromOne = `from=${ROUTES.ONE_HOME}`;
-    const financeLink = screen.getByRole("link", { name: "Open Finance" });
+    // "Finance" was renamed to "Investor" when Investor/RIA became standalone
+    // top-level agents.
+    const financeLink = screen.getByRole("link", { name: "Open Investor" });
     expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(

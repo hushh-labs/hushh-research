@@ -22,11 +22,13 @@ type EvalCase =
     };
 
 const EVAL_CASES: EvalCase[] = [
-  { kind: "goal", transcript: "Analyze TSLA", expectedStatus: "input_needed", expectedActionId: "analysis.start", expectedSymbol: "TSLA" },
+  // Contract defaults satisfy pick_source without a clarifying question, so a
+  // plain "Analyze TSLA" is immediately ready (MCP-tool-style default filling).
+  { kind: "goal", transcript: "Analyze TSLA", expectedStatus: "ready", expectedActionId: "analysis.start", expectedSymbol: "TSLA", expectedPickSource: "default" },
   { kind: "goal", transcript: "Analyze TSLA using default", expectedStatus: "ready", expectedActionId: "analysis.start", expectedSymbol: "TSLA", expectedPickSource: "default" },
   { kind: "goal", transcript: "analyzing nvidia using default", expectedStatus: "ready", expectedActionId: "analysis.start", expectedSymbol: "NVDA", expectedPickSource: "default" },
   { kind: "goal", transcript: "start the debate for Microsoft with the default list", candidateActionId: "analysis.start", slots: { symbol: "MSFT", pickSource: "default" }, expectedStatus: "ready", expectedActionId: "analysis.start", expectedSymbol: "MSFT", expectedPickSource: "default" },
-  { kind: "goal", transcript: "start the debate for Tesla", candidateActionId: "analysis.start", slots: { symbol: "TSLA" }, expectedStatus: "input_needed", expectedActionId: "analysis.start", expectedSymbol: "TSLA" },
+  { kind: "goal", transcript: "start the debate for Tesla", candidateActionId: "analysis.start", slots: { symbol: "TSLA" }, expectedStatus: "ready", expectedActionId: "analysis.start", expectedSymbol: "TSLA", expectedPickSource: "default" },
   { kind: "goal", transcript: "use default for the pending stock debate", candidateActionId: "analysis.start", slots: { pickSource: "default" }, expectedStatus: "input_needed", expectedActionId: "analysis.start", expectedPickSource: "default" },
   { kind: "goal", transcript: "open analysis", candidateActionId: "route.kai_analysis", expectedStatus: "ready", expectedActionId: "route.kai_analysis" },
   { kind: "goal", transcript: "show analysis history", candidateActionId: "route.analysis_history", expectedStatus: "ready", expectedActionId: "route.analysis_history" },
