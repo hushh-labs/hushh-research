@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Maximize2, RotateCcw } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
 import { ActionConfirmCard } from "./action-confirm-card";
 import { ClarificationCard } from "./clarification-card";
 import { BotAvatar } from "./location-chat-atoms";
@@ -20,6 +21,7 @@ export function LocationChatPanel(props: {
   onStateChanged?: () => void;
 }) {
   const { vaultOwnerToken, userId, onStateChanged } = props;
+  const { vaultKey } = useVault();
   const [input, setInput] = useState("");
   const [overlayOpen, setOverlayOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -27,6 +29,7 @@ export function LocationChatPanel(props: {
   const chat = useLocationChat({
     vaultOwnerToken: vaultOwnerToken ?? "",
     userId,
+    vaultKey,
     onStateChanged,
   });
 

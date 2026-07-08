@@ -100,10 +100,13 @@ function BodyPortal({ children }: { children: ReactNode }) {
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 
 import {
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
   decryptLocationEnvelope,
   encryptLocationForRecipient,
   ensureLocationRecipientKey,
+  ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
@@ -1703,7 +1706,7 @@ function OneLocationAgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
-  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
     [searchParams],
@@ -1783,6 +1786,14 @@ function OneLocationAgentPageContent() {
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
   const [decryptedPoints, setDecryptedPoints] = useState<
     Record<string, PlainLocationPoint>
+  >({});
+  // Per-grant, recipient-facing message shown when a received share can't be
+  // decrypted because the on-device key no longer matches (e.g. the key rotated
+  // after WKWebView storage loss). Drives the inline "ask them to share again"
+  // recovery state instead of a raw crypto error. Keyed by grant id, mirrors
+  // `decryptedPoints`.
+  const [grantViewErrors, setGrantViewErrors] = useState<
+    Record<string, string>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
   // Bumped whenever the recipient unwatches a share, so the memoized
@@ -3142,15 +3153,69 @@ function OneLocationAgentPageContent() {
               vaultOwnerToken,
               grantId: grant.id,
             });
-            return decryptLocationEnvelope({
-              userId: activeUserId,
-              envelope: response.envelope,
-            });
+            try {
+              return await decryptLocationEnvelope({
+                userId: activeUserId,
+                envelope: response.envelope,
+              });
+            } catch (decryptError) {
+              // Brand-new device (or not-yet-synced): pull the vault-synced key
+              // shared across the user's devices and retry once before giving up.
+              if (
+                decryptError instanceof Error &&
+                decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE &&
+                vaultKey &&
+                state?.myRecipientKey?.encryptedPrivateKeyJwk
+              ) {
+                await ensureVaultSyncedRecipientKey({
+                  userId: activeUserId,
+                  vaultKey,
+                  remoteBackup: state.myRecipientKey,
+                }).catch(() => {});
+                return await decryptLocationEnvelope({
+                  userId: activeUserId,
+                  envelope: response.envelope,
+                });
+              }
+              throw decryptError;
+            }
           },
         });
         setDecryptedPoints((current) => ({ ...current, [grant.id]: point }));
+        // Recovered — clear any prior "ask them to share again" state.
+        setGrantViewErrors((current) => {
+          if (!(grant.id in current)) return current;
+          const next = { ...current };
+          delete next[grant.id];
+          return next;
+        });
       } catch (error) {
-        if (!silent) {
+        const keyUnavailable =
+          error instanceof Error &&
+          error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
+        if (keyUnavailable) {
+          // The recipient's device key rotated / was lost, so this envelope was
+          // encrypted for a key we no longer hold. Self-heal: re-register our
+          // current (now durable) key so future shares work, and surface an
+          // actionable inline state prompting the owner to share again — instead
+          // of a raw crypto error toast (manual) or a silent console.warn.
+          void bootstrapCurrentUserLocationRecipientKey({
+            userId: activeUserId,
+            vaultOwnerToken,
+            vaultKey: vaultKey ?? undefined,
+          }).catch((bootstrapError) => {
+            console.warn(
+              "[OneLocationAgent] Recipient key re-registration failed:",
+              bootstrapError,
+            );
+          });
+          setGrantViewErrors((current) => ({
+            ...current,
+            [grant.id]: `Couldn't open ${receivedGrantOwnerLabel(
+              grant,
+            )}'s live location — the secure key changed. Ask them to share again.`,
+          }));
+        } else if (!silent) {
           toast.error(
             error instanceof Error
               ? error.message
@@ -3164,6 +3229,35 @@ function OneLocationAgentPageContent() {
         }
       } finally {
         if (!silent) setBusy(null);
+      }
+    },
+    [auth.userId, vaultOwnerToken, vaultKey, state?.myRecipientKey],
+  );
+
+  // Recipient-side "ask them to share again": re-request access from the owner
+  // of a share we can no longer decrypt. Reuses the standard request flow so the
+  // owner gets a location_access_request notification; when they re-share, the
+  // fresh grant snapshots our current key and live updates resume.
+  const handleAskReshare = useCallback(
+    async (grant: OneLocationGrant) => {
+      if (!vaultOwnerToken || !auth.userId) return;
+      const ownerUserId = String(grant.ownerUserId || "").trim();
+      if (!ownerUserId) return;
+      setBusy("request");
+      try {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId,
+          message: `Please share your live location again — my secure key was refreshed.`,
+        });
+        playOneLocationNotificationSound();
+        toast.success(
+          `Asked ${receivedGrantOwnerLabel(grant)} to share their location again.`,
+        );
+      } catch (error) {
+        toast.error(oneLocationErrorMessage(error, "Could not send request."));
+      } finally {
+        setBusy(null);
       }
     },
     [auth.userId, vaultOwnerToken],
@@ -3192,6 +3286,12 @@ function OneLocationAgentPageContent() {
         delete next[grant.id];
         return next;
       });
+      setGrantViewErrors((current) => {
+        if (!(grant.id in current)) return current;
+        const next = { ...current };
+        delete next[grant.id];
+        return next;
+      });
       toast.success(
         `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`,
       );
@@ -3213,6 +3313,18 @@ function OneLocationAgentPageContent() {
       for (const [grantId, point] of Object.entries(current)) {
         if (activeGrantIds.has(grantId)) {
           next[grantId] = point;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+    setGrantViewErrors((current) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+      for (const [grantId, message] of Object.entries(current)) {
+        if (activeGrantIds.has(grantId)) {
+          next[grantId] = message;
         } else {
           changed = true;
         }
@@ -5727,6 +5839,7 @@ function OneLocationAgentPageContent() {
                   {visibleReceivedGrants.length ? (
                     visibleReceivedGrants.map((grant, index) => {
                       const point = decryptedPoints[grant.id];
+                      const viewError = grantViewErrors[grant.id];
                       return (
                         <div
                           key={grant.id}
@@ -5793,6 +5906,34 @@ function OneLocationAgentPageContent() {
                           {point ? (
                             <div className="px-3.5 pb-3.5">
                               <LocalMapPreview point={point} />
+                            </div>
+                          ) : viewError && grant.status === "active" ? (
+                            <div className="px-3.5 pb-3.5">
+                              <div className="flex flex-col gap-2.5 rounded-2xl border border-[#ff9f0a]/25 bg-[#ff9f0a]/[0.08] p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle
+                                    className="mt-0.5 h-4 w-4 shrink-0 text-[#c77700] dark:text-[#ffb340]"
+                                    aria-hidden="true"
+                                  />
+                                  <p className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-[#8a5a00] [overflow-wrap:anywhere] dark:text-[#ffcf8a]">
+                                    {viewError}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleAskReshare(grant)}
+                                  disabled={busy === "request"}
+                                  className="w-full shrink-0 rounded-full border-[#ff9f0a]/30 bg-white/70 text-[#8a5a00] hover:bg-white sm:w-auto dark:border-[#ffb340]/25 dark:bg-white/10 dark:text-[#ffcf8a] dark:hover:bg-white/15"
+                                >
+                                  {busy === "request" ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                                  )}
+                                  Ask to share again
+                                </Button>
+                              </div>
                             </div>
                           ) : null}
                         </div>

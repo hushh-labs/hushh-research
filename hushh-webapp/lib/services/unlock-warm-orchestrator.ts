@@ -177,12 +177,14 @@ export class UnlockWarmOrchestrator {
   private static queueLocationRecipientKeyBootstrap(params: {
     userId: string;
     vaultOwnerToken: string;
+    vaultKey: string;
   }): void {
     if (this.locationKeyBootstrappedByUser.has(params.userId)) return;
     this.locationKeyBootstrappedByUser.add(params.userId);
     void bootstrapCurrentUserLocationRecipientKey({
       userId: params.userId,
       vaultOwnerToken: params.vaultOwnerToken,
+      vaultKey: params.vaultKey,
     }).catch((error) => {
       // Never block unlock warming; allow a later retry this session.
       this.locationKeyBootstrappedByUser.delete(params.userId);
@@ -635,6 +637,7 @@ export class UnlockWarmOrchestrator {
     this.queueLocationRecipientKeyBootstrap({
       userId: params.userId,
       vaultOwnerToken: params.vaultOwnerToken,
+      vaultKey: params.vaultKey,
     });
     // Same rationale for the marketplace: every user auto-publishes a recipient
     // key on unlock so a seller can deliver a slice to them at approve time.
