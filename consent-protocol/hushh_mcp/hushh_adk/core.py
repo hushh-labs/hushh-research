@@ -12,9 +12,11 @@ from typing import Any, Dict, List, Optional
 _ADK_AVAILABLE = False
 
 try:
-    # Try importing from google-adk if available in env
+    # google.adk.model.ModelClient never existed in shipped ADK releases; the
+    # old import of it silently forced the stub path even when ADK WAS
+    # installed, so HushhAgent had been running on the dev stub in production.
+    # Import only what actually exists so real ADK loads.
     from google.adk.agents import LlmAgent
-    from google.adk.model import ModelClient
 
     _ADK_AVAILABLE = True
 except ImportError:
@@ -35,9 +37,6 @@ except ImportError:
 
         def run(self, **kwargs: Any) -> Any:  # pragma: no cover
             raise RuntimeError(self._INSTALL_HINT)
-
-    class ModelClient:  # type: ignore[no-redef]
-        """Development stub for google.adk.model.ModelClient."""
 
 
 from hushh_mcp.consent.token import validate_token  # noqa: E402
@@ -64,10 +63,17 @@ class HushhAgent(LlmAgent):
     agent = HushhAgent.from_manifest("agents/kai/manifest.yaml")
     """
 
+    # ADK 2.x LlmAgent is a pydantic model with extra="forbid"; Hussh-specific
+    # state must be declared as fields (plain attribute assignment raises).
+    # Declared only when real ADK is present; the stub path keeps plain attrs.
+    if _ADK_AVAILABLE:
+        hushh_name: str = ""
+        required_scopes: List[str] = []
+
     def __init__(
         self,
         name: str,
-        model: Any,  # ModelClient or string
+        model: Any,  # model name string or ADK model object
         tools: Optional[List[Any]] = None,
         system_prompt: str = "",
         required_scopes: Optional[List[str]] = None,
@@ -77,21 +83,33 @@ class HushhAgent(LlmAgent):
 
         Args:
             name: Agent identifier
-            model: The LLM client (ADK ModelClient) or a model name string
+            model: The LLM model name string (or ADK model object)
             tools: List of @hushh_tool decorated functions
             system_prompt: Core instruction
             required_scopes: List of scopes this agent MUST have to even start
         """
-        self.hushh_name = name
-        self.required_scopes = required_scopes or []
         tools = tools or []
 
-        # Initialize parent ADK agent with correct parameters
-        super().__init__(
-            model=model,
-            tools=tools,
-            system_instruction=system_prompt,  # ADK uses 'system_instruction' not 'prompt'
-        )
+        if _ADK_AVAILABLE:
+            # ADK 2.x: name is a required pydantic field that must be a valid
+            # Python identifier. Manifests carry display names ("Agent One",
+            # "Test Agent"), so sanitize for ADK while hushh_name keeps the
+            # original display identity. Manifest model entries may be an
+            # AgentModelConfig object; ADK wants the model name string.
+            adk_name = name if name.isidentifier() else _sanitize_agent_name(name)
+            adk_model = model if isinstance(model, str) else getattr(model, "name", str(model))
+            super().__init__(
+                name=adk_name,
+                model=adk_model,
+                tools=tools,
+                instruction=system_prompt,
+                hushh_name=name,
+                required_scopes=list(required_scopes or []),
+            )
+        else:
+            super().__init__()
+            self.hushh_name = name
+            self.required_scopes = list(required_scopes or [])
 
     # ------------------------------------------------------------------
     # Factory
@@ -194,6 +212,19 @@ class HushhAgent(LlmAgent):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _sanitize_agent_name(name: str) -> str:
+    """Convert a display name into a valid Python identifier for ADK.
+
+    "Test Agent" -> "test_agent". Falls back to "hussh_agent" when nothing
+    identifier-like survives sanitization.
+    """
+    cleaned = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name.strip().lower())
+    cleaned = cleaned.strip("_") or "hussh_agent"
+    if cleaned[0].isdigit():
+        cleaned = f"agent_{cleaned}"
+    return cleaned
 
 
 _TOOL_PACKAGE_PREFIX = "hushh_mcp."

@@ -17,20 +17,26 @@ logger = logging.getLogger(__name__)
 class LocationAgent(HushhAgent):
     """Trusted-people live-location workflow agent under One."""
 
+    # Pydantic fields (ADK 2.x LlmAgent is a pydantic model with extra="forbid");
+    # plain attribute assignment before super().__init__ raises there.
+    manifest: Any = None
+    hushh_tools: Any = None
+
     def __init__(self, tools: list[Any] | None = None) -> None:
         manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
-        self.manifest = ManifestLoader.load(manifest_path)
+        manifest = ManifestLoader.load(manifest_path)
 
         selected_tools = tools if tools is not None else LOCATION_AGENT_TOOLS
-        self.hushh_tools = selected_tools
 
         super().__init__(
-            name=self.manifest.name,
-            model=self.manifest.model,
-            system_prompt=self.manifest.system_instruction,
+            name=manifest.name,
+            model=manifest.model,
+            system_prompt=manifest.system_instruction,
             tools=selected_tools,
-            required_scopes=self.manifest.required_scopes,
+            required_scopes=manifest.required_scopes,
         )
+        self.manifest = manifest
+        self.hushh_tools = selected_tools
 
     def handle_message(
         self,
