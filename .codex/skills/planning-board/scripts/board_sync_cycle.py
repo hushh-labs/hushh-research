@@ -133,10 +133,17 @@ def initiate_local_plans_if_needed(repo: str, dry_run: bool = False) -> list[dic
 
     # 1. Check for unpushed commits on the active branch
     try:
+        # Try checking against the upstream tracking branch first (most accurate for unpushed commits)
         proc = subprocess.run(
-            ["git", "-C", local_repo_path, "log", "origin/main..HEAD", "--oneline"],
-            capture_output=True, text=True, check=True, timeout=10
+            ["git", "-C", local_repo_path, "log", "@{u}..HEAD", "--oneline"],
+            capture_output=True, text=True, check=False, timeout=10
         )
+        if proc.returncode != 0:
+            # If no upstream is configured, fall back to checking against origin/main, but limit to operator's own commits
+            proc = subprocess.run(
+                ["git", "-C", local_repo_path, "log", f"--author={OPERATOR_LOGIN}", "origin/main..HEAD", "--oneline"],
+                capture_output=True, text=True, check=True, timeout=10
+            )
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
     except Exception:
         lines = []
@@ -158,8 +165,14 @@ def initiate_local_plans_if_needed(repo: str, dry_run: bool = False) -> list[dic
         if len(parts) < 2:
             continue
         sha, msg = parts
+        
+        # Exclude merge commits
+        msg_lower = msg.lower().strip()
+        if msg_lower.startswith("merge ") or "pull request #" in msg_lower:
+            continue
+            
         # If the commit message relates to our active local plans (like reverse-auction/ucp/ap2/campaign)
-        if any(k in msg.lower() for k in ["ucp", "ap2", "reverse-auction", "consent", "campaign"]):
+        if any(k in msg_lower for k in ["ucp", "ap2", "reverse-auction", "consent", "campaign"]):
             local_detected_plans.append({"source": f"local commit {sha}", "title": msg})
 
     # Process untracked files
@@ -238,6 +251,180 @@ def initiate_local_plans_if_needed(repo: str, dry_run: bool = False) -> list[dic
     return new_issues
 
 
+def sync_hierarchy_field(dry_run: bool = False) -> tuple[list[str], bool]:
+    """Keep the 'Hierarchy' single-select correct for EVERY board item, derived
+    from each item's GitHub assignee via board_ops.ASSIGNEE_HIERARCHY_DEFAULTS.
+
+    This is the board-wide hygiene pass that the operator-scoped sync omits — it
+    is what stops non-operator items (Neelesh, Akshat, Akash, ...) from drifting
+    to a blank/wrong Hierarchy and the board looking "under no hierarchy".
+
+    Cross-contributor by design (Hierarchy is an org-wide planning label, not a
+    content mutation): it only ever sets the project Hierarchy field, never edits
+    another person's issue body, status, or dates. Unmapped assignees are left
+    untouched (never guessed).
+    """
+    notes: list[str] = []
+    changed = False
+    import subprocess
+    try:
+        project_id = board_ops.get_project_id()
+        fields = board_ops.get_field_catalog()
+        hfield = fields.get("Hierarchy")
+        if not hfield:
+            return ["- ⚠️ Hierarchy field not found; skipped."], False
+        opt_ids = {o["name"]: o["id"] for o in hfield.get("options", [])}
+        # Use fast, non-flaky paginated GraphQL fetch instead of gh CLI item-list
+        items = board_ops.fetch_items_graphql()
+    except Exception as exc:  # noqa: BLE001
+        return [f"- ⚠️ Hierarchy sync skipped: {exc}"], False
+
+    fixed = 0
+    for it in items:
+        assignees = it.get("assignees") or []
+        target = None
+        for a in assignees:
+            login = a.get("login") if isinstance(a, dict) else a
+            if login in board_ops.ASSIGNEE_HIERARCHY_DEFAULTS:
+                target = board_ops.ASSIGNEE_HIERARCHY_DEFAULTS[login]
+                break
+        if target is None or target not in opt_ids:
+            continue
+        if it.get("hierarchy") == target:
+            continue
+        item_id = it.get("id")
+        if not item_id:
+            continue
+        if dry_run:
+            fixed += 1
+            changed = True
+            continue
+        try:
+            board_ops.set_project_field(
+                item_id=item_id,
+                project_id=project_id,
+                field_id=hfield["id"],
+                single_select_option_id=opt_ids[target],
+            )
+            fixed += 1
+            changed = True
+        except Exception:  # noqa: BLE001
+            pass
+
+    if fixed:
+        verb = "would set" if dry_run else "set"
+        notes.append(f"- 🧭 Hierarchy {verb} on {fixed} item(s) from assignee mapping.")
+    else:
+        notes.append("- ✓ Hierarchy field clean across all items.")
+    return notes, changed
+
+
+# --- Taxonomy (Sector + Workstream) derivation, mirrors backfill_taxonomy.py --
+_SECTOR_BY_REPO = {
+    "hushh-labs/hushh-research": "Hushh Research",
+    "hushh-labs/hussh-dev-platform": "Dev Platform",
+    "hushh-labs/hussh-matrix-dashboard": "Dev Platform",
+    "hushh-labs/hushh_Tech_website": "HushhTech",
+    "hushh-labs/hushh-search-console": "HushhTech",
+    "hushh-labs/hushh.ai-website": "Hushh AI",
+    "hushh-labs/HushhVoice": "HushhVoice",
+    "RGlodAkshat/HushhVoice": "HushhVoice",
+    "hushh-labs/HusshOne": "Hussh One",
+    "hushh-labs/hermes-agent": "Hussh One",
+}
+
+_WORKSTREAM_RULES = [
+    ("Voice/Kai",        r"(?i)\bvoice\b|\bkai\b|dictation|\btts\b|\bstt\b|speech|hushhvoice"),
+    ("Location",         r"(?i)location|geo\b|kirkland|\bmaps?\b|nearby"),
+    ("Portfolio/Invest", r"(?i)portfolio|\bfund\b|stock|ticker|investor|\bria\b|alpaca|plaid|debate|losers|advisor"),
+    ("Consent",          r"(?i)consent|vault|trustlink|pchp|\bcrt\b|reverse.?auction|\bucp\b|\bap2\b"),
+    ("MCP",              r"(?i)\bmcp\b|connector"),
+    ("SDK",              r"(?i)\bsdk\b|husshkit|swift|kotlin|\bmlx\b|capacitor|passkey"),
+    ("Marketplace",      r"(?i)marketplace|certif|listing|promot"),
+    ("Onboarding",       r"(?i)onboard|portal|workspace|getting.?started|signup|sign.?in|login|account"),
+    ("Agents",           r"(?i)\bagent\b|gemini|realtime|\bllm\b|hallucinat|debate engine|alphaagent"),
+    ("UI/UX",            r"(?i)\bui\b|\bux\b|ui/ux|design|theme|responsiv|landing|footer|icon|step indicator|progress bar|revamp"),
+    ("Website",          r"(?i)website|blog|\bseo\b|sitemap|marketing|demo|community"),
+    ("Backend/Data",     r"(?i)backend|supabase|database|sqlite|sync|migrat|observability|world model|\bmail\b|gmail|calendar|routes|\bapi\b"),
+    ("Security",         r"(?i)security|privacy|\btoken\b|hmac|\bpii\b|exception|vulnerab|hardening|\bauth\b"),
+    ("Infra/CI",         r"(?i)\bci\b|deploy|build|pipeline|janitor|coverage|unit test|console"),
+    ("Docs/Learning",    r"(?i)^\[read\]|^\[learn\]|read .*\.md|studied|understand |readme|getting started|docs:"),
+]
+
+
+def _derive_workstream(title: str) -> str:
+    for name, pat in _WORKSTREAM_RULES:
+        if re.search(pat, title or ""):
+            return name
+    return "Platform"
+
+
+def sync_taxonomy_fields(dry_run: bool = False) -> tuple[list[str], bool]:
+    """Keep Sector (from repo) + Workstream (from title) correct for EVERY item.
+
+    Mirrors the org convention (MuleSoft #80 Workstream, Bug Tracker #79 Sector):
+    field-based grouping, never native parent/sub-issue nesting. Cross-contributor
+    SAFE — only ever sets two project fields, never edits issue content. Idempotent.
+    """
+    import subprocess
+    notes: list[str] = []
+    changed = False
+    try:
+        project_id = board_ops.get_project_id()
+        cat = json.loads(subprocess.run(
+            ["gh", "project", "field-list", str(board_ops.PROJECT_NUMBER),
+             "--owner", board_ops.OWNER, "--format", "json", "-L", "60"],
+            text=True, capture_output=True, timeout=60, check=True).stdout)
+        fields = {}
+        for f in cat["fields"]:
+            if f.get("name") in ("Sector", "Workstream"):
+                fields[f["name"]] = {"id": f["id"],
+                                     "options": {o["name"]: o["id"] for o in f.get("options", [])}}
+        if "Sector" not in fields or "Workstream" not in fields:
+            return ["- ⚠️ Sector/Workstream field missing; skipped."], False
+        # Use fast, non-flaky paginated GraphQL fetch instead of gh CLI item-list
+        items = board_ops.fetch_items_graphql()
+    except Exception as exc:  # noqa: BLE001
+        return [f"- ⚠️ Taxonomy sync skipped: {exc}"], False
+
+    sec_n = ws_n = 0
+    for it in items:
+        c = it.get("content") or {}
+        repo = c.get("repository")
+        title = c.get("title") or ""
+        tgt_sec = _SECTOR_BY_REPO.get(repo or "")
+        tgt_ws = _derive_workstream(title)
+        if tgt_sec and tgt_sec in fields["Sector"]["options"] and it.get("sector") != tgt_sec:
+            if not dry_run:
+                try:
+                    board_ops.set_project_field(
+                        item_id=it["id"], project_id=project_id,
+                        field_id=fields["Sector"]["id"],
+                        single_select_option_id=fields["Sector"]["options"][tgt_sec])
+                except Exception:  # noqa: BLE001
+                    pass
+            sec_n += 1
+            changed = True
+        if tgt_ws in fields["Workstream"]["options"] and it.get("workstream") != tgt_ws:
+            if not dry_run:
+                try:
+                    board_ops.set_project_field(
+                        item_id=it["id"], project_id=project_id,
+                        field_id=fields["Workstream"]["id"],
+                        single_select_option_id=fields["Workstream"]["options"][tgt_ws])
+                except Exception:  # noqa: BLE001
+                    pass
+            ws_n += 1
+            changed = True
+
+    if sec_n or ws_n:
+        verb = "would set" if dry_run else "set"
+        notes.append(f"- 🗂️ Sector {verb} on {sec_n}, Workstream {verb} on {ws_n} item(s).")
+    else:
+        notes.append("- ✓ Sector & Workstream clean across all items.")
+    return notes, changed
+
+
 def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     repo = board_ops.DEFAULT_REPO
     has_changes = False
@@ -266,49 +453,44 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     prs = get_owned_prs(repo, LOOKBACK_DAYS)
     issues = get_owned_issues(repo, LOOKBACK_DAYS)
 
-    # Auto-detect and initiate local unpushed plans/commits
+    # Fetch all project items once at the start to completely optimize lookup queries and avoid duplicates
     try:
-        local_issues = initiate_local_plans_if_needed(repo, dry_run)
-        issues.extend(local_issues)
+        project_items = board_ops.normalize_items(board_ops.fetch_project_items())
     except Exception as exc:
-        out.append(f"*(Note: Local plan auto-detector skipped: {exc})*")
+        project_items = []
+        print(f"Warning: failed to fetch project items: {exc}", file=sys.stderr)
+
+    project_item_by_num = {
+        (item["repo"], item["number"]): item
+        for item in project_items
+        if item.get("repo") and item.get("number")
+    }
+
+    # Auto-detect of local unpushed plans/commits is DISABLED (bloat source).
+    # It auto-created GitHub issues from local commits/untracked files every run,
+    # growing the board to 751 items (83% Done). Issue creation is now a
+    # deliberate human action. Opt back in with HUSSH_BOARD_AUTOCREATE=1.
+    if os.environ.get("HUSSH_BOARD_AUTOCREATE") == "1":
+        try:
+            local_issues = initiate_local_plans_if_needed(repo, dry_run)
+            issues.extend(local_issues)
+        except Exception as exc:
+            out.append(f"*(Note: Local plan auto-detector skipped: {exc})*")
 
     # --- 1. Completion & Delivery: merged/closed owned PRs & closed owned issues
     out.append("## 🏁 Completion & Delivery")
     completed: list[str] = []
 
-    # 1a. Process owned closed/merged PRs and link their referenced issues
+    # 1a. Process owned merged/closed PRs by completing their LINKED ISSUES.
+    #     PRs are implementation artifacts, NOT board items — we never add a PR
+    #     itself to the board (that bloated it with promotion/merge/train PRs
+    #     like "Promote PR train to main"). The board tracks the ISSUE a PR
+    #     closes; the PR just drives that issue to Done.
     for pr in prs:
         if pr["state"] not in ("MERGED", "CLOSED"):
             continue
         if not is_owned_by_operator(pr):
             continue  # safety: never act on others' PRs
-
-        # Ensure the closed PR itself is on the project board and marked Done
-        try:
-            # Map start and target dates to real PR creation and merge timelines
-            start_date = pr["createdAt"][:10]
-            target_date = pr["updatedAt"][:10]
-            key = f"pr#{pr['number']}"
-            sig = f"{signature(pr, 'pr')}:Done"
-            if prev_state.get(key) == sig:
-                cur_state[key] = sig
-            else:
-                if dry_run:
-                    completed.append(f"PR #{pr['number']} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
-                    has_changes = True
-                else:
-                    board_ops.ensure_issue_on_project(repo, pr["number"])
-                    board_ops.update_task(
-                        repo=repo, issue_number=pr["number"], status="Done",
-                        start_date=start_date, target_date=target_date, labels=None,
-                        sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
-                    )
-                    completed.append(f"PR #{pr['number']} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
-                    has_changes = True
-                cur_state[key] = sig
-        except Exception:
-            pass
 
         # Linked issues from PR body or branch name
         refs = set(extract_referenced_issues(pr.get("body", "")))
@@ -327,7 +509,11 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
                 target_date = pr["updatedAt"][:10] # finished when PR was merged/closed
                 key = f"issue#{num}"
                 sig = f"{signature(details, 'issue')}:Done"
-                if prev_state.get(key) == sig:
+                
+                item_entry = project_item_by_num.get((repo, num))
+                item_status = item_entry.get("status") if item_entry else None
+                
+                if prev_state.get(key) == sig or item_status == "Done":
                     cur_state[key] = sig
                 else:
                     if dry_run:
@@ -361,7 +547,11 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             target_date = issue["updatedAt"][:10]
             key = f"issue#{num}"
             sig = f"{signature(issue, 'issue')}:Done"
-            if prev_state.get(key) == sig:
+            
+            item_entry = project_item_by_num.get((repo, num))
+            item_status = item_entry.get("status") if item_entry else None
+            
+            if prev_state.get(key) == sig or item_status == "Done":
                 cur_state[key] = sig
             else:
                 if dry_run:
@@ -398,21 +588,27 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             continue
         try:
             status = "In progress"
-            item_id = board_ops.get_project_item_id_for_issue(repo, issue["number"])
-            if item_id:
-                d = board_ops.get_issue_json(repo, issue["number"])
-                for pi in d.get("projectItems", []):
-                    if pi.get("title") == board_ops.PROJECT_TITLE:
-                        cur = (pi.get("status") or {}).get("name")
-                        if cur in ("In review", "Backlog"):
-                            status = cur
+            item_entry = project_item_by_num.get((repo, issue["number"]))
+            if item_entry:
+                cur = item_entry.get("status")
+                if cur in ("In review", "Backlog", "Done", "In progress", "Ready"):
+                    status = cur
 
             # Align start and target date to actual creation and standard sprint buffer
             start_date = issue["createdAt"][:10]
             target_date = (dt.date.today() + dt.timedelta(days=1)).isoformat() # Tightly bounded forward target
             key = f"issue#{issue['number']}"
             sig = f"{signature(issue, 'issue')}:{status}"
-            if prev_state.get(key) == sig:
+            
+            actual_matches = False
+            if item_entry:
+                actual_matches = (
+                    item_entry.get("status") == status and
+                    item_entry.get("startDate") == start_date and
+                    item_entry.get("targetDate") == target_date
+                )
+                
+            if prev_state.get(key) == sig or actual_matches:
                 cur_state[key] = sig
             else:
                 if dry_run:
@@ -431,20 +627,37 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
         except Exception as exc:  # noqa: BLE001
             out.append(f"- ⚠️ Failed to sync issue #{issue['number']}: {exc}")
 
+    # Open PRs are NOT board items. We only reflect a PR's status onto the board
+    # if its item is ALREADY there (legacy) — we never ADD a PR to the board.
+    # New PR work surfaces via the linked ISSUE, not the PR.
     for pr in prs:
         if pr["state"] != "OPEN" or not is_owned_by_operator(pr):
             continue
+        item_entry = project_item_by_num.get((repo, pr["number"]))
+        if not item_entry:
+            continue  # PR not on board -> leave it off (no bloat)
         try:
             status = "In progress" if pr.get("isDraft") else "In review"
+            cur = item_entry.get("status")
+            if cur in ("In review", "Backlog", "Done", "In progress", "Ready"):
+                status = cur
+
             start_date = pr["createdAt"][:10]
             target_date = (dt.date.today() + dt.timedelta(days=1)).isoformat()
             key = f"pr#{pr['number']}"
             sig = f"{signature(pr, 'pr')}:{status}"
-            if prev_state.get(key) == sig:
+
+            actual_matches = (
+                item_entry.get("status") == status and
+                item_entry.get("startDate") == start_date and
+                item_entry.get("targetDate") == target_date
+            )
+
+            if prev_state.get(key) == sig or actual_matches:
                 cur_state[key] = sig
             else:
                 if dry_run:
-                    active.append(f"PR #{pr['number']} *{pr['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
+                    active.append(f"PR #{pr['number']} *{pr['title']}* -> would set **{status}** (already on board)")
                     has_changes = True
                     continue
                 board_ops.update_task(
@@ -467,7 +680,7 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     # --- 3. Hygiene audit: REPORT-ONLY, auto-fix ONLY operator-owned drift
     out.append("\n## 🔍 Board Hygiene & Audit")
     try:
-        items = board_ops.normalize_items(board_ops.fetch_project_items())
+        items = project_items
         issue_items = [i for i in items if i.get("type") == "Issue" and i.get("repo") == repo]
         closed_not_done = [i for i in issue_items
                            if i.get("state") == "CLOSED" and i.get("status") != "Done"]
@@ -508,10 +721,53 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     except Exception as exc:  # noqa: BLE001
         out.append(f"- ❌ Audit failed: {exc}")
 
+    # --- 3b. Hierarchy field maintenance: board-wide, assignee-derived ---------
+    out.append("\n## 🧭 Hierarchy Field Maintenance")
+    try:
+        hier_notes, hier_changed = sync_hierarchy_field(dry_run=dry_run)
+        out.extend(hier_notes)
+        has_changes = has_changes or hier_changed
+    except Exception as exc:  # noqa: BLE001
+        out.append(f"- ❌ Hierarchy maintenance failed: {exc}")
+
+    # --- 3c. Taxonomy maintenance: Sector (repo) + Workstream (title) ----------
+    out.append("\n## 🗂️ Taxonomy Maintenance (Sector + Workstream)")
+    try:
+        tax_notes, tax_changed = sync_taxonomy_fields(dry_run=dry_run)
+        out.extend(tax_notes)
+        has_changes = has_changes or tax_changed
+    except Exception as exc:  # noqa: BLE001
+        out.append(f"- ❌ Taxonomy maintenance failed: {exc}")
+
+    # --- 3d. Date alignment: Start=createdAt, Target=closedAt|sprint-end --------
+    out.append("\n## 📅 Date Alignment (Start + Target vs Sprint)")
+    try:
+        import align_dates  # stable copy lives beside this file in board_lib/
+        # align_dates prints its own report; capture it.
+        import io
+        import contextlib
+        buf = io.StringIO()
+        argv_saved = sys.argv
+        sys.argv = ["align_dates.py"] + (["--dry-run"] if dry_run else [])
+        try:
+            with contextlib.redirect_stdout(buf):
+                align_dates.main()
+        finally:
+            sys.argv = argv_saved
+        report = buf.getvalue().strip()
+        # Surface the result lines; flag changes for the watchdog.
+        for line in report.splitlines():
+            if line.startswith("- "):
+                out.append(line)
+                if "set:" in line and not line.rstrip().endswith(" 0"):
+                    has_changes = True
+    except Exception as exc:  # noqa: BLE001
+        out.append(f"- ❌ Date alignment failed: {exc}")
+
     # --- 4. Stats (read-only) --------------------------------------------------
     out.append("\n## 📊 Board Statistics (read-only)")
     try:
-        all_items = board_ops.normalize_items(board_ops.fetch_project_items())
+        all_items = project_items
         research = [i for i in all_items if i.get("repo") == repo]
         counts = Counter(i.get("status", "No Status") for i in research)
         out.append(f"**Total tasks in {repo}:** {len(research)}")
