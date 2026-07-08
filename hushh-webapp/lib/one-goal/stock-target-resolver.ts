@@ -85,6 +85,18 @@ function extractStockTarget(transcript: string): string {
 }
 
 /**
+ * True when the transcript contains an explicit analyze/research/debate verb
+ * pattern ("analyze Nvidia", "run a debate on TSLA"). This is INTENT
+ * evidence. A ticker resolved without such a pattern (bare-transcript
+ * fallback) is only a slot value: "Hi" uppercases into "HI", a real listed
+ * ticker, and must never rank an analysis action by itself.
+ */
+export function hasExplicitAnalyzeIntent(transcript: string): boolean {
+  const normalized = transcript.replace(/^\s*please\b[\s,!?-]*/i, "");
+  return ANALYZE_TARGET_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/**
  * Bare uppercase tokens are only trusted as ticker symbols when they exist in
  * the cached ticker universe. STT output like "YOUR" matches the 1-5 letter
  * ticker pattern but is not a listed security; without this membership gate a
