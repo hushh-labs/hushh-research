@@ -62,6 +62,7 @@ from api.routes.kai.agent_realtime_gemini import (
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
+    STATE_PENDING_DIRECTIVE,
     STATE_TIMEZONE,
     STATE_USER_ID,
     get_one_runner,
@@ -131,6 +132,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     """Bridge the browser wire protocol onto Runner.run_live."""
     from google.adk.agents.live_request_queue import LiveRequestQueue
     from google.adk.agents.run_config import RunConfig, StreamingMode
+    from google.adk.events import Event as AdkEvent
+    from google.adk.events import EventActions
     from google.genai import types as genai_types
 
     await websocket.accept()
@@ -191,12 +194,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if not isinstance(context_payload, dict):
                     context_payload = {}
                 # Governed credentials ride in session state for tools only.
+                # The session object here is a service-returned copy, so state
+                # must be persisted through append_event (state_delta), never
+                # by mutating session.state directly.
+                state_delta: dict[str, Any] = {}
                 consent_token = context_payload.get("consent_token")
                 if isinstance(consent_token, str) and consent_token.strip():
-                    session.state[STATE_CONSENT_TOKEN] = consent_token.strip()
+                    state_delta[STATE_CONSENT_TOKEN] = consent_token.strip()
                 timezone_name = context_payload.get("timezone")
                 if isinstance(timezone_name, str) and timezone_name.strip():
-                    session.state[STATE_TIMEZONE] = timezone_name.strip()[:64]
+                    state_delta[STATE_TIMEZONE] = timezone_name.strip()[:64]
+                if state_delta:
+                    await runner.session_service.append_event(
+                        session,
+                        AdkEvent(
+                            author="user",
+                            invocation_id="app_context",
+                            actions=EventActions(state_delta=state_delta),
+                        ),
+                    )
                 screen = context_payload.get("screen")
                 if isinstance(screen, str) and screen.strip():
                     queue.send_content(
@@ -228,6 +244,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                     )
                                 )
                             ],
+                        )
+                    )
+                continue
+            if message.get("type") == "user_text":
+                # Typed user turn (chat parity / accessibility): a real user
+                # message, NOT app-composed speech.
+                text = message.get("text")
+                if isinstance(text, str) and text.strip():
+                    queue.send_content(
+                        genai_types.Content(
+                            role="user",
+                            parts=[genai_types.Part(text=text.strip()[:4000])],
                         )
                     )
                 continue
@@ -269,6 +297,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 await websocket.send_text(
                     json.dumps({"serverContent": {"modelTurn": {"parts": parts}}})
                 )
+            # Tools park client directives (navigation etc.) in their event's
+            # state_delta; forward each exactly once, ordered with the stream.
+            actions = getattr(event, "actions", None)
+            delta = getattr(actions, "state_delta", None) or {}
+            directive = delta.get(STATE_PENDING_DIRECTIVE)
+            if isinstance(directive, dict) and directive:
+                await websocket.send_text(json.dumps({"clientDirective": directive}))
             if getattr(event, "turn_complete", False):
                 await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))
 

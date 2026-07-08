@@ -21,12 +21,15 @@ import pytest
 
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
 from hushh_mcp.one_adk.agent_tree import (
+    APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
     STATE_CONSENT_TOKEN,
+    STATE_PENDING_DIRECTIVE,
     STATE_USER_ID,
     _specialist_turn,
     build_one_root_agent,
     get_one_runner,
+    open_screen,
 )
 
 
@@ -38,6 +41,7 @@ class TestAgentTreeShape:
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
         }
         assert "google_search" in tool_names
+        assert "open_screen" in tool_names
         assert "finance" in tool_names
         assert "ria" in tool_names
         assert {
@@ -112,15 +116,18 @@ class TestSpecialistTurn:
             model="test",
         )
         with patch("hushh_mcp.one_adk.agent_tree.dispatch", new=AsyncMock(return_value=turn)):
+            state = {STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}
             result = await _specialist_turn(
                 "agent_location",
                 "share my location",
-                _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}),
+                _tool_context(state),
             )
         assert result["directive"] == {
             "kind": "action",
             "payload": {"clientAction": "share"},
         }
+        # Parked in state so the relay forwards it to the client.
+        assert state[STATE_PENDING_DIRECTIVE] == result["directive"]
 
     @pytest.mark.asyncio
     async def test_specialist_exception_is_contained(self):
@@ -135,3 +142,31 @@ class TestSpecialistTurn:
             )
         assert result["status"] == "error"
         assert "boom" not in result["message"]
+
+
+class TestOpenScreen:
+    @pytest.mark.asyncio
+    async def test_navigates_to_known_screen(self):
+        state: dict = {}
+        result = await open_screen("profile", _tool_context(state))
+        assert result["status"] == "ok"
+        assert result["route"] == "/profile"
+        assert state[STATE_PENDING_DIRECTIVE] == {
+            "kind": "navigate",
+            "payload": {"route": "/profile", "screen": "profile"},
+        }
+
+    @pytest.mark.asyncio
+    async def test_normalizes_screen_names(self):
+        state: dict = {}
+        result = await open_screen("Connected Systems", _tool_context(state))
+        assert result["status"] == "ok"
+        assert result["route"] == APP_ROUTES["connected_systems"]
+
+    @pytest.mark.asyncio
+    async def test_refuses_unknown_screen(self):
+        state: dict = {}
+        result = await open_screen("admin_panel", _tool_context(state))
+        assert result["status"] == "unknown_screen"
+        assert STATE_PENDING_DIRECTIVE not in state
+        assert "valid_screens" in result

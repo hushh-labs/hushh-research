@@ -43,6 +43,26 @@ STATE_USER_ID = "hussh:user_id"
 STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 STATE_CONVERSATION_ID = "hussh:conversation_id"
 STATE_TIMEZONE = "hussh:timezone"
+# Pending client directive (navigation etc.) the relay forwards to the browser
+# after the current event batch; written by tools, cleared by the relay.
+STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+
+# Governed navigation allowlist: screen id -> app route. Mirrors the /one
+# roster plus core account surfaces. One can ONLY navigate here; anything
+# else is refused by construction.
+APP_ROUTES: dict[str, str] = {
+    "home": "/one",
+    "finance": "/one/kai",
+    "ria": "/ria",
+    "gmail": "/one/gmail",
+    "email": "/one/kyc",
+    "location": "/one/location",
+    "personal_data": "/one/pkm",
+    "consent": "/consents",
+    "marketplace": "/one/marketplace",
+    "connected_systems": "/one/connected-systems",
+    "profile": "/profile",
+}
 
 _ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash").strip()
 _SPECIALIST_MODEL = (os.getenv("AGENT_ONE_SPECIALIST_MODEL") or "gemini-3.5-flash").strip()
@@ -65,8 +85,10 @@ ONE_IDENTITY_INSTRUCTION = (
     "- Information Marketplace: governed data-slice requests and delivery.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
     "Delegate naturally: when a request belongs to a specialist's domain, call "
-    "that specialist's tool with the user's request. Use google_search when "
-    "the user needs fresh public information from the web. Answer general "
+    "that specialist's tool with the user's request. When the user asks to go "
+    "somewhere in the app ('take me to profile', 'open location'), call "
+    "open_screen; it works from any screen. Use google_search when the user "
+    "needs fresh public information from the web. Answer general "
     "questions yourself. Never invent tool results; if a specialist reports "
     "it cannot act (missing consent, locked vault, no data), relay that "
     "honestly and tell the user what would unlock it. You never execute "
@@ -136,11 +158,33 @@ async def _specialist_turn(
         "is_complete": result.is_complete,
     }
     if result.directive is not None:
-        payload["directive"] = {
+        directive = {
             "kind": result.directive.kind,
             "payload": result.directive.payload,
         }
+        payload["directive"] = directive
+        # Park it in state so the relay forwards it to the client for execution.
+        tool_context.state[STATE_PENDING_DIRECTIVE] = directive
     return payload
+
+
+async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Navigate the app to a screen. Valid screens: home, finance, ria, gmail,
+    email, location, personal_data, consent, marketplace, connected_systems,
+    profile. Works from anywhere in the app."""
+    key = str(screen or "").strip().lower().replace("-", "_").replace(" ", "_")
+    route = APP_ROUTES.get(key)
+    if not route:
+        return {
+            "status": "unknown_screen",
+            "message": f"'{screen}' is not a screen I can open.",
+            "valid_screens": sorted(APP_ROUTES),
+        }
+    tool_context.state[STATE_PENDING_DIRECTIVE] = {
+        "kind": "navigate",
+        "payload": {"route": route, "screen": key},
+    }
+    return {"status": "ok", "message": f"Opening {key.replace('_', ' ')}.", "route": route}
 
 
 async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -229,6 +273,7 @@ def build_one_root_agent() -> LlmAgent:
         instruction=ONE_IDENTITY_INSTRUCTION,
         tools=[
             google_search,
+            open_screen,
             AgentTool(agent=_build_finance_agent()),
             AgentTool(agent=_build_ria_agent()),
             ask_email_agent,
