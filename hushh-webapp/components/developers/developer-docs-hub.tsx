@@ -154,7 +154,9 @@ async function copyText(value: string, label: string) {
     }
     toast.success(`${label} copied`);
   } catch (error) {
-    console.error("[developers] copy failed", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[developers] copy failed", error);
+    }
     toast.error(`Could not copy ${label.toLowerCase()}`);
   }
 }
@@ -1137,7 +1139,9 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       setAccess(null);
       setRevealedToken(null);
     } catch (error) {
-      console.error("[developers] sign out failed", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[developers] sign out failed", error);
+      }
       toast.error("Could not sign out");
     }
   }
