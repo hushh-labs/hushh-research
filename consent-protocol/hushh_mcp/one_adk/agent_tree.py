@@ -64,14 +64,36 @@ APP_ROUTES: dict[str, str] = {
     "profile": "/profile",
 }
 
-# Voice head target is gemini-3.1 Live. As of 2026-07-07 this project cannot
-# reach it on either lane (Vertex global: 1008 model-not-found for every 3.x
-# Live id; Developer API: 1008 project denied), so the default stays on the
-# newest Live model Vertex actually serves. Flip AGENT_ONE_ADK_MODEL (e.g. to
-# gemini-3.1-flash-live-preview) the moment entitlement lands; no code change.
-_ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash").strip()
+# Voice head runs the GA native-audio Live model on Vertex (regional only;
+# it is NOT published on the global endpoint, so the live client pins a
+# region). Long-term target remains gemini-3.1 Live: as of 2026-07-07 the
+# 3.x Live ids are Developer-API-only and that lane is project-denied, so
+# flip AGENT_ONE_ADK_MODEL the moment entitlement lands; no code change.
+_ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash-native-audio").strip()
+_ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
 # All worker agents run the same generation: gemini-3.5-flash.
 _SPECIALIST_MODEL = (os.getenv("AGENT_ONE_SPECIALIST_MODEL") or "gemini-3.5-flash").strip()
+
+
+def _build_one_live_model():
+    """Live model for One's voice head.
+
+    Wraps the model id in an ADK ``Gemini`` with an explicit regional
+    location when running on Vertex, because the native-audio Live model is
+    served regionally (us-central1 etc.), not on the global endpoint the
+    genai client defaults to.
+    """
+    from google.adk.models import Gemini
+
+    use_vertex = (os.getenv("GOOGLE_GENAI_USE_VERTEXAI") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if use_vertex and _ONE_LIVE_LOCATION:
+        return Gemini(model=_ONE_MODEL, client_kwargs={"location": _ONE_LIVE_LOCATION})
+    return _ONE_MODEL
+
 
 ONE_IDENTITY_INSTRUCTION = (
     "You are One, the personal agent inside Hussh, and the head of a team of "
@@ -274,7 +296,7 @@ def build_one_root_agent() -> LlmAgent:
 
     return LlmAgent(
         name="one",
-        model=_ONE_MODEL,
+        model=_build_one_live_model(),
         description="One, the Hussh head personal agent and orchestrator.",
         instruction=ONE_IDENTITY_INSTRUCTION,
         tools=[
