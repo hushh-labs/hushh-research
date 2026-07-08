@@ -56,7 +56,6 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
-import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
@@ -330,7 +329,6 @@ function AppShellFrame({ children }: ProvidersProps) {
             <NativeTestRouter />
             <NativeTestBootstrap />
             <NativeTestRouteStatus />
-            <PersonaBootstrapRedirect />
             <Suspense
               fallback={
                 <>

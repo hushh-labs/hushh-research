@@ -95,7 +95,6 @@ const TERMINAL_DATA_STATES = new Set([
 const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[NotificationProvider] Initial fetch error: TypeError: Failed to fetch",
   "[NativeTestBootstrap] Vault bootstrap failed: TypeError: Failed to fetch",
-  "[PersonaBootstrapRedirect] Failed to resolve route mismatch: TypeError: Failed to fetch",
   "[ProfileReceiptsPage] Failed to build receipt summary: TypeError: Failed to fetch",
   "[gmail-connector-store] Failed to refresh Gmail status: TypeError: Failed to fetch",
   "[KaiHistory] Failed to get history: TypeError: Failed to fetch",

@@ -9,8 +9,7 @@
     "consent-protocol/api/routes/iam.py",
     "consent-protocol/api/routes/consent.py",
     "hushh-webapp/lib/consent",
-    "hushh-webapp/components/consent",
-    "hushh-webapp/components/iam"
+    "hushh-webapp/components/consent"
   ],
   "non_owned_paths": [
     "security-audit",

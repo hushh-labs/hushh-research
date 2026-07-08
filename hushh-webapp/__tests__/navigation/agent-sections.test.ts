@@ -8,7 +8,7 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("agent sections", () => {
-  it("exposes Investor and RIA as standalone adjacent top-level agents", () => {
+  it("exposes Finance and RIA as standalone adjacent top-level agents", () => {
     const sections = getAgentSections();
     const ids = sections.map((section) => section.id);
 
@@ -19,7 +19,7 @@ describe("agent sections", () => {
     // naming only, never a surfaced product agent).
     expect(ids.indexOf("ria")).toBe(ids.indexOf("finance") + 1);
 
-    expect(getAgentSection("finance")?.label).toBe("Investor");
+    expect(getAgentSection("finance")?.label).toBe("Finance");
     expect(getAgentSection("ria")?.label).toBe("RIA");
   });
 
@@ -37,10 +37,10 @@ describe("agent sections", () => {
     expect(resolveAgentSectionForPath(`${ROUTES.RIA_PICKS}`)?.id).toBe("ria");
   });
 
-  it("keeps the Investor agent on the Kai home route (internal naming)", () => {
+  it("keeps the Finance agent on the Kai home route (internal naming)", () => {
     const finance = getAgentSection("finance");
     expect(finance?.href).toBe(ROUTES.KAI_HOME);
     expect(finance?.bottomNavScope).toBe("investor");
-    expect(finance?.label).toBe("Investor");
+    expect(finance?.label).toBe("Finance");
   });
 });

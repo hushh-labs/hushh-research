@@ -61,14 +61,17 @@ describe("OneDashboardPage", () => {
     // when the href already has a query) so the surface's top-bar back button
     // returns to the dashboard, not Profile. See resolveTopShellBreadcrumb.
     const fromOne = `from=${ROUTES.ONE_HOME}`;
-    // "Finance" was renamed to "Investor" when Investor/RIA became standalone
-    // top-level agents.
-    const financeLink = screen.getByRole("link", { name: "Open Investor" });
+    // The finance tile is publicly named "Finance"; Kai stays internal.
+    const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
       "w-[5.75rem]",
     );
+    // The /one grid mirrors the top-bar agent switcher roster: RIA sits
+    // directly after Finance as a standalone top-level agent.
+    const riaLink = screen.getByRole("link", { name: "Open RIA" });
+    expect(riaLink.getAttribute("href")).toBe(`${ROUTES.RIA_HOME}?${fromOne}`);
     // Agents model: the route link is a normal app-icon tile, not a large
     // colored workflow card.
     expect(financeLink.className).not.toContain("border-emerald-500");
@@ -110,10 +113,11 @@ describe("OneDashboardPage", () => {
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("title"),
     ).toBe("Receipt sync and purchase-memory review.");
-    // All 8 capabilities render as tappable launcher links.
+    // All 8 capabilities plus the standalone RIA agent tile render as
+    // tappable launcher links (grid mirrors the top-bar switcher roster).
     expect(
       container.querySelectorAll('a[aria-label^="Open "]').length,
-    ).toBe(8);
+    ).toBe(9);
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 

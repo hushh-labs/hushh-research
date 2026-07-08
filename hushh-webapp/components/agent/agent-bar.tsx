@@ -40,17 +40,12 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import {
-  OneVoiceLiveActionBridge,
-  type OneVoiceLiveActionBridgeConfig,
-} from "@/lib/voice/one-voice-live-action-bridge";
+import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type {
-  OneVoiceActionProposal,
   OneVoiceSessionEvent,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import type { AgentVoiceEventOptions, AgentVoiceStatus } from "@/lib/agent/agent-voice-state";
 
 type PrewarmedGeminiRelay = {
@@ -98,7 +93,7 @@ export function AgentBar() {
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
   const { user } = useAuth();
-  const { vaultOwnerToken, vaultKey } = useVault();
+  const { vaultOwnerToken } = useVault();
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
@@ -118,12 +113,14 @@ export function AgentBar() {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
-  const liveActionBridgeRef = useRef<OneVoiceLiveActionBridge | null>(null);
-  const pendingProposalRef = useRef<OneVoiceActionProposal | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
-  // Last context snapshot pushed into the live session (continuity dedupe).
-  const lastPushedSnapshotIdRef = useRef<string | null>(null);
+  // Last SCREEN pushed into the live session. Deduping on snapshot_id was a
+  // bug: snapshot_id churns with every voice state transition (voiceRevision
+  // = transitionSeq), so each listening/speaking flip re-pushed app_context,
+  // and each push preempted One's active model turn (speech cut mid-sentence,
+  // greetings cancelled). Navigation continuity only needs the screen.
+  const lastPushedScreenRef = useRef<string | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -183,19 +180,10 @@ export function AgentBar() {
       });
       return;
     }
-    if (event.type === "action_proposal") {
-      pendingProposalRef.current = event.proposal;
-      liveClientRef.current?.interrupt?.();
-      if (event.transcript) {
-        void liveActionBridgeRef.current?.processTranscript({
-          transcript: event.transcript,
-          candidate: event.proposal,
-        });
-        pendingProposalRef.current = null;
-      }
-      return;
-    }
     if (event.type === "transcript_final") {
+      // Mirror the user's transcript into the conversation session. One's
+      // agent tree decides everything server-side; there is no client-side
+      // planner to feed here.
       const transcript = event.text.trim();
       const previous = lastTranscriptRef.current;
       if (
@@ -213,12 +201,63 @@ export function AgentBar() {
         turnId: event.turnId ?? null,
       });
       setVoiceStatus("thinking", "Understanding", eventOptions);
-      const proposal = pendingProposalRef.current;
-      pendingProposalRef.current = null;
-      void liveActionBridgeRef.current?.processTranscript({
-        transcript,
-        candidate: proposal,
-      });
+      return;
+    }
+    if (event.type === "client_directive") {
+      // One's tools decided this (single decision-maker); the client only
+      // executes through the same governed gateway the app uses.
+      if (event.directive.kind === "navigate") {
+        const route =
+          typeof event.directive.payload?.route === "string"
+            ? event.directive.payload.route
+            : null;
+        if (route && route.startsWith("/")) {
+          router.push(route);
+        }
+        return;
+      }
+      if (event.directive.kind === "action") {
+        const actionId =
+          typeof event.directive.payload?.actionId === "string"
+            ? event.directive.payload.actionId
+            : null;
+        if (!actionId) return;
+        const slots =
+          event.directive.payload?.slots &&
+          typeof event.directive.payload.slots === "object"
+            ? (event.directive.payload.slots as Record<string, unknown>)
+            : undefined;
+        if (event.directive.payload?.needsConfirmation === true) {
+          // Sensitive actions confirm in the audited chat surface, never
+          // silently from voice.
+          const handoff = createHandoff({
+            reason: "action_requires_chat",
+            transcript: null,
+            assistantText: `Confirm before running: ${actionId}`,
+            actionId,
+          });
+          liveClientRef.current?.interrupt?.();
+          agentPopover?.openAgent({ handoff });
+          return;
+        }
+        const runtimeState = runtime?.appRuntimeState;
+        if (!runtimeState) return;
+        void executeAgentGatewayAction({
+          actionId,
+          slots,
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: runtimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          hasPortfolioData:
+            runtimeState.portfolio.has_portfolio_data ||
+            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+        });
+        return;
+      }
       return;
     }
     if (event.type === "handoff") {
@@ -243,7 +282,19 @@ export function AgentBar() {
       if (erroredRef.current) return;
       setConversationActive(false);
     }
-  }, [agentPopover, appendMirrorEvent, createHandoff, setVoiceLevel, setVoiceStatus]);
+  }, [
+    agentPopover,
+    appendMirrorEvent,
+    busyOperations,
+    createHandoff,
+    router,
+    runtime,
+    setAnalysisParams,
+    setVoiceLevel,
+    setVoiceStatus,
+    switchPersona,
+    user?.uid,
+  ]);
 
   const stopConversation = useCallback(() => {
     erroredRef.current = false;
@@ -259,107 +310,6 @@ export function AgentBar() {
     agentPopover?.openAgent();
   }, [agentPopover, conversationActive]);
 
-  useEffect(() => {
-    if (!runtime) {
-      liveActionBridgeRef.current?.cancel("agent_bar_runtime_unavailable");
-      liveActionBridgeRef.current = null;
-      return;
-    }
-    const bridgeConfig: OneVoiceLiveActionBridgeConfig = {
-      userId: user?.uid,
-      vaultOwnerToken,
-      vaultKey,
-      getAppRuntimeState: () => runtime.appRuntimeState,
-      getVoiceContext: () =>
-        runtime.oneVoiceContextSnapshot as unknown as Record<string, unknown>,
-      executeAction: (actionId, slots) =>
-        executeAgentGatewayAction({
-          actionId,
-          slots,
-          userId: user?.uid ?? "",
-          router,
-          appRuntimeState: runtime.appRuntimeState,
-          surfaceMetadata: getVoiceSurfaceMetadata(),
-          hasPortfolioData:
-            runtime.appRuntimeState.portfolio.has_portfolio_data ||
-            runtime.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-          busyOperations,
-          setAnalysisParams,
-          switchPersona,
-        }),
-      router,
-      setAnalysisParams,
-      speak: async ({ text, turnId, segmentType }) => {
-        appendMirrorEvent({
-          role: "assistant",
-          text,
-          source: "one_voice_orchestrator",
-          turnId,
-        });
-        const spoken = await liveClientRef.current?.speakText?.({
-          text,
-          turnId,
-          segmentType,
-        });
-        if (!spoken) {
-          setVoiceStatus("speaking", text, {
-            sessionId: null,
-            sourceId: "one_voice_orchestrator",
-            sourceSeq: null,
-          });
-        }
-      },
-      mirrorAssistantText: ({ text, turnId }) => {
-        appendMirrorEvent({
-          role: "assistant",
-          text,
-          source: "one_voice_orchestrator",
-          turnId,
-        });
-      },
-      openChatHandoff: (handoffInput) => {
-        const handoff = createHandoff(handoffInput);
-        liveClientRef.current?.interrupt?.();
-        agentPopover?.openAgent({ handoff });
-        stopConversation();
-      },
-      setStage: (stage) => {
-        if (stage === "planning" || stage === "dispatch") {
-          setVoiceStatus("thinking", stage === "planning" ? "Understanding" : "Acting");
-        } else if (stage === "speaking_ack" || stage === "speaking_final") {
-          setVoiceStatus("speaking");
-        } else if (stage === "idle" && conversationActive) {
-          setVoiceStatus("listening");
-        }
-      },
-      onDebug: (event, payload) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.debug("[ONE_VOICE_LIVE_BRIDGE]", event, payload || {});
-        }
-      },
-    };
-    if (liveActionBridgeRef.current) {
-      liveActionBridgeRef.current.updateConfig(bridgeConfig);
-      return;
-    }
-    liveActionBridgeRef.current = new OneVoiceLiveActionBridge(bridgeConfig);
-  }, [
-    agentPopover,
-    appendMirrorEvent,
-    busyOperations,
-    conversationActive,
-    createHandoff,
-    router,
-    runtime,
-    setAnalysisParams,
-    setVoiceStatus,
-    stopConversation,
-    switchPersona,
-    user?.uid,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
-
   const startConversation = useCallback(() => {
     // Toggle off when a session (live OR an error still on screen) exists.
     if (liveClientRef.current || erroredRef.current || conversationActive) {
@@ -370,10 +320,10 @@ export function AgentBar() {
     setConversationActive(true);
     const context = runtime?.oneVoiceContextSnapshot ?? null;
     const prewarmedRelay = prewarmedRelayRef.current;
+    // The prewarmed ticket is context-free (context rides in app_context
+    // frames after connect), so only tier match and freshness gate reuse.
     const relayUrl =
       prewarmedRelay &&
-      context &&
-      prewarmedRelay.snapshotId === context.snapshot_id &&
       prewarmedRelay.accessTier === runtime?.tier &&
       prewarmedRelay.expiresAtMs > Date.now()
         ? prewarmedRelay.relayUrl
@@ -383,14 +333,15 @@ export function AgentBar() {
       onEvent: handleTransportEvent,
     });
     liveClientRef.current = client;
-    // The starting snapshot already rides in the relay-session persona hints.
-    lastPushedSnapshotIdRef.current = context?.snapshot_id ?? null;
+    // The client pushes the starting snapshot as app_context on setupComplete.
+    lastPushedScreenRef.current = context?.route.screen ?? null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
       relayUrl,
       sessionMirrorId: mirrorSessionId,
       allowedActionIds: context?.available_action_ids ?? null,
+      consentToken: vaultOwnerToken ?? null,
     });
   }, [
     conversationActive,
@@ -399,6 +350,7 @@ export function AgentBar() {
     mirrorSessionId,
     handleTransportEvent,
     stopConversation,
+    vaultOwnerToken,
   ]);
 
   // Continuous voice context: when the user navigates while a live session is
@@ -407,15 +359,18 @@ export function AgentBar() {
   // the relay lets One proactively offer the next step after a screen change.
   useEffect(() => {
     if (!conversationActive) {
-      lastPushedSnapshotIdRef.current = null;
+      lastPushedScreenRef.current = null;
       return;
     }
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    if (lastPushedSnapshotIdRef.current === context.snapshot_id) return;
+    // Only a real screen change warrants a push; anything finer-grained
+    // (voice transitions, cache freshness ticks) preempts One's active
+    // model turn on the Live API and audibly cuts speech.
+    if (lastPushedScreenRef.current === context.route.screen) return;
     if (client.updateContext(context)) {
-      lastPushedSnapshotIdRef.current = context.snapshot_id;
+      lastPushedScreenRef.current = context.route.screen;
     }
   }, [conversationActive, runtime?.oneVoiceContextSnapshot]);
 
@@ -445,19 +400,9 @@ export function AgentBar() {
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void ApiService.getGeminiLiveRelayUrl({
-        screen: context.route.screen,
-        persona: context.persona.active,
-        routeFamily: context.route.route_family,
-        voiceState: context.voice.state,
-        accessTier,
-        availableActionIds: context.available_action_ids,
-        visibleModules: context.ui.visible_modules,
-        cacheFreshness: context.cache.freshness,
-        vaultReady: context.cache.vault_ready,
-        portfolioReady: context.cache.portfolio_ready,
-        signal: controller.signal,
-      })
+      // Context (screen, consent token) rides in post-connect app_context
+      // frames, so the prewarmed URL only carries the opaque relay ticket.
+      void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
         .then((relayUrl) => {
           if (controller.signal.aborted) return;
           prewarmedRelayRef.current = {
@@ -504,8 +449,6 @@ export function AgentBar() {
   // "listening") does not leak to other consumers after the bar is gone.
   useEffect(() => {
     return () => {
-      liveActionBridgeRef.current?.cancel("agent_bar_unmounted");
-      liveActionBridgeRef.current = null;
       liveClientRef.current?.stop();
       liveClientRef.current = null;
       prewarmedRelayRef.current = null;

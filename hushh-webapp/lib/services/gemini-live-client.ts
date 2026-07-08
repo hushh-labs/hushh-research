@@ -3,7 +3,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
-  OneVoiceActionProposal,
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
   RealtimeVoiceTransport,
@@ -178,42 +177,6 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function normalizeProposal(raw: unknown): OneVoiceActionProposal | null {
-  const record = readRecord(raw);
-  if (!record) return null;
-  const actionId = readString(record.action_id ?? record.actionId);
-  if (!actionId) return null;
-  const speakerPersona = readString(record.speaker_persona ?? record.speakerPersona);
-  const delegateAgentId = readString(record.delegate_agent_id ?? record.delegateAgentId);
-  const slots = readRecord(record.slots);
-  return {
-    action_id: actionId,
-    speaker_persona:
-      speakerPersona === "one" ||
-      speakerPersona === "kai" ||
-      speakerPersona === "nav" ||
-      speakerPersona === "kyc"
-        ? speakerPersona
-        : null,
-    delegate_agent_id:
-      delegateAgentId === "one" ||
-      delegateAgentId === "kai" ||
-      delegateAgentId === "nav" ||
-      delegateAgentId === "kyc" ||
-      delegateAgentId === "agent_connected_systems" ||
-      delegateAgentId === "agent_connections" ||
-      delegateAgentId === "agent_email" ||
-      delegateAgentId === "agent_location" ||
-      delegateAgentId === "agent_personal_information"
-        ? delegateAgentId
-        : null,
-    needs_confirmation: record.needs_confirmation === true || record.needsConfirmation === true,
-    confidence: readNumber(record.confidence),
-    slots: slots || undefined,
-    reason: readString(record.reason),
-  };
-}
-
 export class GeminiLiveClient implements RealtimeVoiceTransport {
   readonly provider = "gemini_live" as const;
   private handlers: GeminiLiveHandlers;
@@ -231,6 +194,18 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
   private sourceSeq = 0;
+  /** Snapshot captured at start(), pushed as app_context after setup. */
+  private startContext: OneVoiceContextSnapshot | null = null;
+  /** Consent token for One's specialist tools; rides only in app_context frames. */
+  private consentToken: string | null = null;
+  /**
+   * True while the model's turn is open (audio received since the last
+   * turnComplete/interrupted). The Live API closes a model turn with
+   * turnComplete, NOT when our playback buffer happens to drain; chunks
+   * arrive with network gaps, so an empty queue mid-turn must stay
+   * "speaking" instead of flickering back to "listening".
+   */
+  private modelTurnOpen = false;
   /**
    * Turn fence: after a local interrupt we drop any late model audio still in
    * flight until the provider closes the interrupted turn (turnComplete) or
@@ -284,25 +259,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.setState("connecting");
 
     const context = options?.context ?? null;
+    this.startContext = context;
+    this.consentToken = options?.consentToken ?? null;
     let relayUrl: string;
     try {
-      relayUrl =
-        options?.relayUrl ||
-        (await ApiService.getGeminiLiveRelayUrl({
-          voice: options?.voice ?? null,
-          screen: context?.route.screen ?? null,
-          persona: context?.persona.active ?? null,
-          routeFamily: context?.route.route_family ?? null,
-          voiceState: context?.voice.state ?? null,
-          accessTier: options?.accessTier ?? null,
-          availableActionIds: options?.allowedActionIds ?? context?.available_action_ids ?? null,
-          visibleModules: context?.ui.visible_modules ?? null,
-          cacheFreshness: context?.cache.freshness ?? null,
-          vaultReady: context?.cache.vault_ready ?? null,
-          portfolioReady: context?.cache.portfolio_ready ?? null,
-        }));
+      relayUrl = options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : "Could not start Gemini Live.");
+      this.fail(error instanceof Error ? error.message : "Could not start One voice.");
       return;
     }
 
@@ -441,7 +404,33 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if ("setupComplete" in message) {
       this.setupComplete = true;
+      // Push the initial app context (screen + governed consent token) now
+      // that the session is live; the relay never accepts these in the URL.
+      if (this.startContext) {
+        this.updateContext(this.startContext);
+        this.startContext = null;
+      } else if (this.consentToken) {
+        this.sendAppContext({});
+      }
       this.setState("listening");
+      return;
+    }
+
+    const clientDirective = readRecord(message.clientDirective);
+    const directiveKind = readString(clientDirective?.kind);
+    if (clientDirective && directiveKind) {
+      const eventOptions = this.nextEventOptions();
+      this.handlers.onEvent?.({
+        type: "client_directive",
+        provider: this.provider,
+        directive: {
+          kind: directiveKind,
+          payload: readRecord(clientDirective.payload) || undefined,
+        },
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
       return;
     }
 
@@ -502,21 +491,6 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       });
     }
 
-    const proposal =
-      normalizeProposal(message.actionProposal) ||
-      normalizeProposal(readRecord(message.toolCall)?.args);
-    if (proposal) {
-      this.handlers.onEvent?.({
-        type: "action_proposal",
-        provider: this.provider,
-        proposal,
-        transcript: readString(message.transcript),
-        sessionId: eventOptions.sessionId,
-        sourceId: eventOptions.sourceId,
-        sourceSeq: eventOptions.sourceSeq,
-      });
-    }
-
     const handoff = readRecord(message.handoff);
     const handoffTarget = readString(handoff?.target);
     const handoffReason = readString(handoff?.reason);
@@ -539,6 +513,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (!serverContent) return;
 
     if (serverContent.interrupted) {
+      this.modelTurnOpen = false;
       this.stopPlayback();
       this.setState("listening");
       return;
@@ -547,6 +522,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (serverContent.turnComplete) {
       // The interrupted (or finished) model turn is closed; stop fencing and
       // settle back to listening when nothing is queued for playback.
+      // When audio is still queued, the last node's onended settles instead.
+      this.modelTurnOpen = false;
       this.suppressModelAudio = false;
       if (this.activeSources.size === 0 && !this.closed && this.state !== "idle") {
         this.setState("listening");
@@ -671,24 +648,39 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   updateContext(context: OneVoiceContextSnapshot): boolean {
+    return this.sendAppContext({
+      screen: context.route.screen,
+      route_family: context.route.route_family,
+      persona: context.persona.active,
+      voice_state: context.voice.state,
+      available_action_ids: context.available_action_ids,
+      visible_modules: context.ui.visible_modules,
+      cache_freshness: context.cache.freshness,
+      vault_ready: context.cache.vault_ready,
+      portfolio_ready: context.cache.portfolio_ready,
+    });
+  }
+
+  /**
+   * Send an app_context frame. The governed consent token and timezone ride
+   * here (post-connect, never in the URL) so One's specialist tools can act;
+   * the relay stores them in session state and they never reach the model.
+   */
+  private sendAppContext(appContext: Record<string, unknown>): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
       return false;
     }
-    // Redacted subset only; mirrors the relay-session persona hint shape. The
-    // relay re-sanitizes every field before it reaches the model.
+    const timezone =
+      typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : undefined;
     this.ws.send(
       JSON.stringify({
         type: "app_context",
         appContext: {
-          screen: context.route.screen,
-          route_family: context.route.route_family,
-          persona: context.persona.active,
-          voice_state: context.voice.state,
-          available_action_ids: context.available_action_ids,
-          visible_modules: context.ui.visible_modules,
-          cache_freshness: context.cache.freshness,
-          vault_ready: context.cache.vault_ready,
-          portfolio_ready: context.cache.portfolio_ready,
+          ...appContext,
+          ...(this.consentToken ? { consent_token: this.consentToken } : {}),
+          ...(timezone ? { timezone } : {}),
         },
       })
     );
@@ -730,11 +722,17 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
     this.lastAudioEnqueueAt = Date.now();
+    this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
     node.onended = () => {
       this.activeSources.delete(node);
       if (this.activeSources.size === 0 && !this.closed) {
+        if (this.modelTurnOpen) {
+          // Transient buffer underrun mid-turn: more chunks are coming
+          // (the provider has not sent turnComplete). Stay "speaking".
+          return;
+        }
         this.setState("listening");
         this.handlers.onOutputLevel?.(0);
         this.resolvePlaybackDrain();

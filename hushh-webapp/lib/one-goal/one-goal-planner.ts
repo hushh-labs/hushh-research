@@ -11,7 +11,10 @@ import type {
   OneGoalPlan,
   OneGoalPlannerInput,
 } from "@/lib/one-goal/one-goal-types";
-import { resolveStockTargetSymbol } from "@/lib/one-goal/stock-target-resolver";
+import {
+  hasExplicitAnalyzeIntent,
+  resolveStockTargetSymbol,
+} from "@/lib/one-goal/stock-target-resolver";
 
 const STOP_WORDS = new Set([
   "A",
@@ -105,7 +108,15 @@ function scoreActionForTranscript(action: KaiActionDefinition, transcript: strin
   for (const token of tokenize(normalizedTranscript)) {
     if (actionTokens.has(token)) score += 2;
   }
+  // Foundation rule: a resolvable ticker is a SLOT AMPLIFIER, never an
+  // intent creator. The bonus applies only when the transcript shows intent
+  // for this action: dictionary overlap (score > 0) or an explicit
+  // analyze/research/debate verb pattern. Without this gate, a bare
+  // greeting like "Hi" uppercased into "HI" (a real listed ticker,
+  // Hillenbrand), scored 8 for analysis.start with zero intent evidence,
+  // and ran a debate for "Hi". Slots fill goals; words express intent.
   if (
+    (score > 0 || hasExplicitAnalyzeIntent(transcript)) &&
     action.goal.input_resolvers.includes("ticker_symbol") &&
     resolveTickerFromTranscript(transcript, action)
   ) {

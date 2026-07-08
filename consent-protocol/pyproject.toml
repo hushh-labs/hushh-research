@@ -14,8 +14,15 @@ dependencies = [
     "fastapi>=0.115.0",
     "firebase-admin==7.1.0",
     "flask>=3.0.0",
-    "google-adk==1.28.1",
+    # ADK 2.x: real Runner/run_live/Task API runtime for One's orchestration.
+    # Deliberately WITHOUT the gcp extra: that keeps google-cloud-aiplatform
+    # (which pins google-genai<2) out of the graph so genai 2.x can resolve.
+    "google-adk==2.4.0",
     "google-api-core==2.29.0",
+    # Explicit floor: ADK 2.x requires google-genai>=2.9,<3. All first-party
+    # call sites use GenerateContent/Live/types surfaces that are unchanged
+    # from 1.x (2.0's breaking changes were Interactions-API-only).
+    "google-genai>=2.9,<3",
     "google-auth>=2.14.1",
     "google-cloud-storage>=2.18.2",
     "grpcio==1.76.0",

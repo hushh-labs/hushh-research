@@ -64,7 +64,7 @@ Current One Voice foundation:
 - `/api/one/voice/session`, `/api/one/voice/plan`, and `/api/one/voice/compose` are product-facing wrappers over the existing Kai-era compatibility runtime.
 - The wrappers preserve the same `VAULT_OWNER`, request `user_id`, rollout, canary, kill-switch, planner, composer, and settlement rules.
 - Frontend One Voice state is represented through the shared One Voice FSM and redacted `OneVoiceContextSnapshot`; the snapshot augments existing structured screen context instead of replacing it.
-- Gemini Live is an active realtime provider adapter for in-bar conversation. It receives redacted route/action/cache readiness hints from `OneVoiceContextSnapshot` and may emit proposal-only action ids, but execution stays app-owned through the One planner, generated gateway, guard evaluation, A2A/chat dispatch, and settlement.
+- In-bar realtime conversation now runs through One's ADK agent tree over `/api/one/adk/live` (see [One Voice Runtime Architecture](./one-voice-runtime-architecture.md)). The legacy proposal-only Gemini Live relay was deleted; the compatibility paths on this page serve typed chat, chained voice, and planner surfaces, not the in-bar realtime lane.
 - One Goal is the product execution layer above these compatibility paths. Gemini Live, Agent Chat, typed search, command bar, and UI actions should enter [One Goal](./one-goal-framework.md) before executing generated actions.
 
 See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for the current One Voice contract layer.
@@ -446,23 +446,18 @@ Important analysis actions include:
 
 The same action plane now also powers typed search suggestions and control-id mapping in the Kai search bar.
 
-## Gemini Live Finance Context
+## Realtime Finance Context
 
-The realtime Gemini relay uses `compose_voice_instructions` in `consent-protocol/hushh_mcp/services/agent_persona.py`.
-
-The frontend sends the redacted One Voice snapshot projection through `ApiService.getGeminiLiveRelayUrl`:
-
-- `screen`
-- `persona`
-- `route_family`
-- `voice_state`
-- `available_action_ids`
-- `visible_modules`
-- `cache_freshness`
-- `vault_ready`
-- `portfolio_ready`
-
-The relay-session ticket binds those hints before the WebSocket opens, and the WebSocket query remains a compatibility fallback. The prompt treats Kai finance routes and action ids such as `route.kai_analysis`, `analysis.start`, `route.kai_dashboard`, `route.kai_investments`, and `route.kai_optimize` as finance-capability evidence.
+The in-bar realtime lane now runs through One's ADK agent tree
+(`consent-protocol/hushh_mcp/one_adk/agent_tree.py`); the Finance and RIA
+specialists are `AgentTool` members of that tree, so finance capability is
+declared in One's identity instruction rather than per-session prompt hints.
+The client pushes the redacted `OneVoiceContextSnapshot` (screen, route
+family, persona, voice state, action ids, cache posture) as post-connect
+`app_context` frames on `/api/one/adk/live`; nothing rides in the ws URL
+except the opaque relay ticket. `compose_voice_instructions` in
+`consent-protocol/hushh_mcp/services/agent_persona.py` still serves the
+chained-voice and intro chat surfaces.
 
 Expected behavior:
 

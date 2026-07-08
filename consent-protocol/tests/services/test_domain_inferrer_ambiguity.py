@@ -13,73 +13,13 @@ Tests cover:
 7. Value hint breaks ambiguity tie correctly
 """
 
-import importlib.util
-import sys
-import types
-from enum import Enum
-
-# ─────────────────────────────────────────────
-# Step 1: Add consent-protocol to path
-# ─────────────────────────────────────────────
-
-CONSENT_PATH = "D:/Learn Ai/Hush_clone/hushh-research/consent-protocol"
-if CONSENT_PATH not in sys.path:
-    sys.path.insert(0, CONSENT_PATH)
-
-
-# ─────────────────────────────────────────────
-# Step 2: Mock heavy dependencies before import
-# ─────────────────────────────────────────────
-
-
-class ConsentScope(str, Enum):
-    VAULT_OWNER = "vault.owner"
-    PKM_READ = "pkm.read"
-    PKM_WRITE = "pkm.write"
-
-
-def mock_mod(name, **attrs):
-    m = types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-
-
-mock_mod("hushh_mcp.constants", ConsentScope=ConsentScope, GEMINI_MODEL="mock")
-mock_mod("hushh_mcp.types", UserID=str)
-mock_mod("hushh_mcp.consent.token")
-mock_mod("hushh_mcp.consent.scope_helpers", scope_matches=lambda a, b: a == b)
-mock_mod("hushh_mcp.consent.scope_generator")
-mock_mod("hushh_mcp.consent.scope_bundles")
-mock_mod("hushh_mcp.services.consent_db", ConsentDBService=object)
-mock_mod("hushh_mcp.services")
-mock_mod("hushh_mcp.config")
-mock_mod("hushh_mcp.runtime_settings")
-mock_mod("hushh_mcp.db.connection")
-mock_mod("hushh_mcp.db")
-
-
-# ─────────────────────────────────────────────
-# Step 3: Load domain_inferrer directly
-# bypasses __init__.py and avoids full app startup
-# ─────────────────────────────────────────────
-
-
-def load_module(file_path, module_name):
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_mod = load_module(
-    "D:/Learn Ai/Hush_clone/hushh-research/consent-protocol/hushh_mcp/services/domain_inferrer.py",
-    "hushh_mcp.services.domain_inferrer",
-)
-DomainInferrer = _mod.DomainInferrer
-
+# domain_inferrer has no heavy dependencies (stdlib logging/re/typing only),
+# so a plain import is all this needs. The previous version hardcoded a
+# contributor's local Windows path AND installed fake hushh_mcp.* modules into
+# sys.modules at import time; when the hardcoded path failed to load on any
+# other machine, the leftover mocks poisoned collection of every later test
+# module in the session (113 collection errors).
+from hushh_mcp.services.domain_inferrer import DomainInferrer
 
 # ─────────────────────────────────────────────
 # Factory

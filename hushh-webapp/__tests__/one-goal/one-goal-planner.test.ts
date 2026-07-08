@@ -114,6 +114,22 @@ describe("planOneGoal", () => {
     expect(plan.slots.symbol).toBeUndefined();
   });
 
+  it("never maps greetings or small talk to an action", () => {
+    // Regression: "Hi" uppercased into "HI", a REAL listed ticker
+    // (Hillenbrand). The unconditional ticker bonus made analysis.start the
+    // top-ranked action for a bare greeting and chat ran a debate for "Hi".
+    // A resolvable ticker must amplify existing intent, never create it.
+    for (const transcript of ["Hi", "Hello", "hey there", "ok", "thanks"]) {
+      const plan = planOneGoal({ transcript, entrypoint: "chat" });
+      expect(
+        plan.status === "ready" || plan.status === "input_needed"
+          ? plan.action?.action_id
+          : null,
+        `"${transcript}" must not map to an action`
+      ).not.toBe("analysis.start");
+    }
+  });
+
   it("explains the real prerequisite when state gating blocks the matched intent", () => {
     const plan = planOneGoal({
       transcript: "Analyze TSLA",

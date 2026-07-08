@@ -9,6 +9,7 @@ import os
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
 from uuid import uuid4
@@ -78,22 +79,61 @@ Do not call a function for normal finance questions, explanations, brainstorming
 When unsure, do not call a function.
 """
 
-_APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
-    "consent_center": ("route.consents", "Open Consent Center"),
-    "pkm": ("route.profile_pkm_agent_lab", "Open PKM"),
-    "profile": ("route.profile", "Open Profile"),
-    "portfolio_import": ("route.kai_import", "Open Portfolio Import"),
-    "portfolio_dashboard": ("route.kai_dashboard", "Open Portfolio Dashboard"),
-    "analysis_history": ("route.analysis_history", "Open Analysis History"),
-    "optimize": ("route.kai_optimize", "Open Optimize Surface"),
-    "market_home": ("route.kai_home", "Open Market Home"),
-    # NOTE: the Information Marketplace surface is intentionally NOT exposed to the
-    # LLM action planner. The planner opens surfaces too eagerly (it would navigate
-    # on questions and on a bare "marketplace"). Marketplace navigation is handled
-    # deterministically by _plan_marketplace_navigation (qualified open-intent only),
-    # and marketplace questions are answered by the delegated specialist.
-    "connected_systems": ("route.profile_connected_systems", "Open Connected Systems"),
+# Curated allowlist of surfaces the chat action planner may open. The KEYS
+# are a deliberate product decision (the Information Marketplace is
+# intentionally absent: the planner opens surfaces too eagerly, so
+# marketplace navigation stays deterministic in _plan_marketplace_navigation
+# and marketplace questions go to the delegated specialist). The VALUES
+# (action id validity, label, policy) are governed by the generated action
+# gateway manifest: _resolved_app_surface_actions() drops any entry whose
+# contract disappeared or stopped being allow_direct, so this map can never
+# silently drift from the contract the rest of the app executes.
+_APP_SURFACE_ACTION_IDS: dict[str, str] = {
+    "consent_center": "route.consents",
+    "pkm": "route.profile_pkm_agent_lab",
+    "profile": "route.profile",
+    "portfolio_import": "route.kai_import",
+    "portfolio_dashboard": "route.kai_dashboard",
+    "analysis_history": "route.analysis_history",
+    "optimize": "route.kai_optimize",
+    "market_home": "route.kai_home",
+    "connected_systems": "route.profile_connected_systems",
 }
+
+
+@lru_cache(maxsize=1)
+def _resolved_app_surface_actions() -> dict[str, tuple[str, str]]:
+    """Surface -> (action_id, label), validated against the generated manifest.
+
+    Fail-closed: an entry whose action id is missing from the manifest or is
+    no longer allow_direct is dropped (and logged) instead of letting the
+    planner open a surface the contract no longer permits.
+    """
+    from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+
+    resolved: dict[str, tuple[str, str]] = {}
+    for surface, action_id in _APP_SURFACE_ACTION_IDS.items():
+        entry = get_voice_manifest_action(action_id)
+        if entry is None:
+            logger.error(
+                "agent_chat.surface_action_missing_from_manifest surface=%s action_id=%s",
+                surface,
+                action_id,
+            )
+            continue
+        policy = str((entry.get("risk") or {}).get("execution_policy") or "")
+        if policy != "allow_direct":
+            logger.error(
+                "agent_chat.surface_action_not_direct surface=%s action_id=%s policy=%s",
+                surface,
+                action_id,
+                policy,
+            )
+            continue
+        label = str(entry.get("label") or "").strip() or action_id
+        resolved[surface] = (action_id, label)
+    return resolved
+
 
 MessageRole = Literal["user", "assistant", "system", "tool"]
 MessageStatus = Literal["complete", "interrupted", "error"]
@@ -849,7 +889,7 @@ def _agent_action_tool() -> genai_types.Tool:
                     {
                         "surface": _schema_string(
                             "Frontend surface to open.",
-                            enum=list(_APP_SURFACE_ACTIONS.keys()),
+                            enum=list(_resolved_app_surface_actions().keys()),
                         )
                     },
                     required=["surface"],
@@ -1852,7 +1892,7 @@ class AgentChatService:
 
         if name == "open_app_surface":
             surface = str(args.get("surface") or "").strip()
-            action = _APP_SURFACE_ACTIONS.get(surface)
+            action = _resolved_app_surface_actions().get(surface)
             if action is None:
                 return None
             action_id, label = action

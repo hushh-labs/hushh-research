@@ -67,7 +67,11 @@ describe("Top app bar responsive contract", () => {
     );
     expect(source).toContain("resolveCommonRouteBreadcrumb");
     expect(source).toContain("const showAgentSectionDropdown");
-    expect(source).toContain("normalizedPathname !== ROUTES.ONE_HOME");
+    // The switcher renders on /one too (roster parity with the dashboard
+    // grid + agent search available on the launcher screen); only the
+    // marketing HOME route stays excluded.
+    expect(source).toContain("normalizedPathname !== ROUTES.HOME");
+    expect(source).not.toContain("normalizedPathname !== ROUTES.ONE_HOME");
     expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
     expect(dropdown).toContain("<button");
     expect(dropdown).not.toContain("ShellActionSurface");

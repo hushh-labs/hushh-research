@@ -27,7 +27,7 @@ describe("AgentSectionDropdown", () => {
     const trigger = screen.getByRole("combobox", {
       name: "Switch agent section",
     });
-    expect(trigger.textContent).toContain("Investor");
+    expect(trigger.textContent).toContain("Finance");
 
     // Regression: PopoverContent previously passed the conditional scrim +
     // Radix Content as two JSX siblings, which crashed every popover on open
@@ -68,6 +68,6 @@ describe("AgentSectionDropdown", () => {
     expect(
       screen.getByRole("combobox", { name: "Switch agent section" })
         .textContent,
-    ).toContain("Investor");
+    ).toContain("Finance");
   });
 });

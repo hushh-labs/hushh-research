@@ -5,14 +5,17 @@
 ```mermaid
 flowchart TD
   user["User"]
-  one["One<br/>agent_one"]
-  voice["One Voice + typed Agent Chat"]
-  gateway["Generated action gateway<br/>speaker_persona + delegate_agent_id"]
+  voice["One Voice (ADK run_live)<br/>+ typed Agent Chat"]
+  runner["ADK Runner<br/>hushh_mcp/one_adk"]
+  one["One root LlmAgent<br/>agent_one"]
+  search["google_search"]
+  nav_tool["open_screen<br/>governed navigation"]
+  agenttools["AgentTool specialists<br/>Finance (Kai runtime), RIA"]
   a2a["A2A dispatch + specialist scope map"]
   kai["Kai<br/>agent_kai"]
   nav["Nav<br/>agent_nav"]
   kyc["KYC<br/>agent_kyc"]
-  support["Location, Email,<br/>Connected Systems, Personal Info"]
+  support["Location, Email, Connections,<br/>Connected Systems, Personal Info"]
   memory["World Model agents<br/>PKM structure + memory reducers"]
   operons["Tools + operons"]
   services["Services + encrypted PKM/vault"]
@@ -20,9 +23,12 @@ flowchart TD
   codex["Codex evidence subagents<br/>read-only engineering lanes"]
 
   user --> voice
-  voice --> one
-  one --> gateway
-  gateway --> a2a
+  voice --> runner
+  runner --> one
+  one --> search
+  one --> nav_tool
+  one --> agenttools
+  one --> a2a
   a2a --> kai
   a2a --> nav
   a2a --> kyc
@@ -94,13 +100,15 @@ Therefore, not every scope-gated specialist is registered in the in-process disp
 
 ## Execution Stack
 
-1. One Voice or typed Agent Chat captures intent and active app state.
-2. The generated action gateway grounds allowed actions with `speaker_persona`, `delegate_agent_id`, confirmation policy, and transition metadata.
-3. One routes specialist work through deterministic routing and A2A contracts.
+1. One Voice (ADK `run_live` through `/api/one/adk/live`) or typed Agent Chat captures intent and active app state.
+2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, `AgentTool` specialists (Finance, RIA), and dispatch-backed specialist turn functions. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
+3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.
 6. Operons hold business logic. Pure operons avoid side effects; impure operons validate consent before network, LLM, or storage work.
 7. Services are the only persistence layer and own encrypted PKM, vault, audit, and external integration storage.
+
+See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for the wire protocol, directive channel, and consent boundary details.
 
 ## Authority Cascade
 

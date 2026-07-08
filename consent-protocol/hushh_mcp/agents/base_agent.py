@@ -8,28 +8,25 @@ It wraps the Google ADK patterns but injects our strict security loop.
 import logging
 from typing import Any, Dict, List, Optional
 
-try:
-    # Try importing from google-adk if available in env
-    from google.adk.agents import LlmAgent
-    from google.adk.model import ModelClient
-except ImportError:
-    # Fallback/stub for development context where ADK might not be installed yet
-    # or for defining the interface before linking
-    class LlmAgent:
-        def __init__(self, **kwargs):
-            pass
-
-        def run(self, **kwargs):
-            pass
-
-    class ModelClient:
-        pass
-
-
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.hushh_adk.context import HushhContext
 
 logger = logging.getLogger(__name__)
+
+
+# INTENTIONAL STUB: this legacy base powers the Kai debate agents
+# (fundamental/sentiment/valuation/orchestrator/portfolio_import), which were
+# built against stub semantics: plain attribute assignment before
+# super().__init__ and display names with spaces. ADK 2.x's pydantic LlmAgent
+# (extra="forbid", identifier-validated names) rejects both, and these agents
+# never invoke ADK's model loop (DebateEngine calls their methods directly).
+# Real ADK agents live in the One orchestration runtime, not here.
+class LlmAgent:
+    def __init__(self, **kwargs):
+        pass
+
+    def run(self, **kwargs):
+        pass
 
 
 class HushhAgent(LlmAgent):

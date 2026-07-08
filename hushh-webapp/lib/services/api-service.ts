@@ -2837,156 +2837,49 @@ export class ApiService {
     });
   }
 
-  /**
-   * Mint a short-lived, constrained Gemini Live ephemeral token for in-bar
-   * full-duplex voice. The browser connects directly to the Gemini Live API
-   * with this token, so the managed Gemini key never leaves the backend.
-   *
-   * Firebase auth is attached when available so the backend can pick the full
-   * (signed-in) vs. intro (pre-vault / onboarding) persona; anonymous callers
-   * send no Authorization header, which this route accepts.
-   */
-  static async fetchGeminiLiveToken(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
-    accessTier?: string | null;
-    availableActionIds?: string[] | null;
-    visibleModules?: string[] | null;
-    cacheFreshness?: string | null;
-    vaultReady?: boolean | null;
-    portfolioReady?: boolean | null;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    return ApiService.apiFetch("/api/kai/agent/realtime/gemini/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
-      },
-      body: JSON.stringify({
-        voice: data?.voice || undefined,
-        screen: data?.screen || undefined,
-        persona: data?.persona || undefined,
-        route_family: data?.routeFamily || undefined,
-        voice_state: data?.voiceState || undefined,
-        access_tier: data?.accessTier || undefined,
-        available_action_ids: data?.availableActionIds || undefined,
-        visible_modules: data?.visibleModules || undefined,
-        cache_freshness: data?.cacheFreshness || undefined,
-        vault_ready: data?.vaultReady ?? undefined,
-        portfolio_ready: data?.portfolioReady ?? undefined,
-      }),
-      signal: data?.signal,
-    });
-  }
-
-  static async createGeminiLiveRelaySession(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
-    accessTier?: string | null;
-    availableActionIds?: string[] | null;
-    visibleModules?: string[] | null;
-    cacheFreshness?: string | null;
-    vaultReady?: boolean | null;
-    portfolioReady?: boolean | null;
+  static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
     relay_ticket: string;
     expires_at: number;
     model: string;
-    voice: string;
     tier: string;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch(
-      "/api/kai/agent/realtime/gemini/relay-session",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
-        },
-        body: JSON.stringify({
-          voice: data?.voice || undefined,
-          screen: data?.screen || undefined,
-          persona: data?.persona || undefined,
-          route_family: data?.routeFamily || undefined,
-          voice_state: data?.voiceState || undefined,
-          access_tier: data?.accessTier || undefined,
-          available_action_ids: data?.availableActionIds || undefined,
-          visible_modules: data?.visibleModules || undefined,
-          cache_freshness: data?.cacheFreshness || undefined,
-          vault_ready: data?.vaultReady ?? undefined,
-          portfolio_ready: data?.portfolioReady ?? undefined,
-        }),
-        signal: data?.signal,
-      }
-    );
+    const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({}),
+      signal: data?.signal,
+    });
     if (!response.ok) {
-      throw new Error(`Gemini Live relay session failed: ${response.status}`);
+      throw new Error(`One voice relay session failed: ${response.status}`);
     }
     return response.json();
   }
 
   /**
-   * Build the WebSocket URL for the server-side Gemini Live relay.
+   * Build the WebSocket URL for the server-side One ADK live relay.
    *
-   * Unlike the ephemeral-token path (browser connects straight to Google), this
-   * relay runs Gemini Live over Vertex AI on the backend via ADC, so it works
-   * on projects where the Developer API is restricted. The browser opens a
-   * WebSocket to our backend; the backend bridges audio to/from Vertex.
+   * The relay runs One's agent tree through ADK's Runner over Vertex AI via
+   * ADC on the backend; the browser only streams audio frames.
    *
-   * WebSockets cannot carry an Authorization header from the browser and do not
-   * pass through the Next.js middleware proxy, so the browser first mints a
-   * short-lived opaque relay ticket over HTTPS. The WebSocket URL carries that
-   * ticket plus redacted route/action hints, never the Firebase bearer.
+   * WebSockets cannot carry an Authorization header from the browser and do
+   * not pass through the Next.js middleware proxy, so the browser first mints
+   * a short-lived opaque relay ticket over HTTPS. The WebSocket URL carries
+   * only that ticket, never the Firebase bearer. App context (screen, consent
+   * token) rides in post-connect app_context frames.
    */
-  static async getGeminiLiveRelayUrl(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
-    accessTier?: string | null;
-    availableActionIds?: string[] | null;
-    visibleModules?: string[] | null;
-    cacheFreshness?: string | null;
-    vaultReady?: boolean | null;
-    portfolioReady?: boolean | null;
-    signal?: AbortSignal;
-  }): Promise<string> {
+  static async getOneAdkLiveRelayUrl(data?: { signal?: AbortSignal }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
     const wsBase = base.replace(/^http/i, "ws");
-    const url = new URL(`${wsBase}/api/kai/agent/realtime/gemini/live`);
-    const relaySession = await this.createGeminiLiveRelaySession(data);
+    const url = new URL(`${wsBase}/api/one/adk/live`);
+    const relaySession = await this.createOneAdkRelaySession(data);
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
-    if (data?.voice) url.searchParams.set("voice", data.voice);
-    if (data?.screen) url.searchParams.set("screen", data.screen);
-    if (data?.persona) url.searchParams.set("persona", data.persona);
-    if (data?.routeFamily) url.searchParams.set("route_family", data.routeFamily);
-    if (data?.voiceState) url.searchParams.set("voice_state", data.voiceState);
-    if (data?.accessTier) url.searchParams.set("access_tier", data.accessTier);
-    if (data?.cacheFreshness) url.searchParams.set("cache_freshness", data.cacheFreshness);
-    if (typeof data?.vaultReady === "boolean") {
-      url.searchParams.set("vault_ready", data.vaultReady ? "1" : "0");
-    }
-    if (typeof data?.portfolioReady === "boolean") {
-      url.searchParams.set("portfolio_ready", data.portfolioReady ? "1" : "0");
-    }
-    for (const actionId of data?.availableActionIds || []) {
-      if (actionId) url.searchParams.append("action_id", actionId);
-    }
-    for (const moduleName of data?.visibleModules || []) {
-      if (moduleName) url.searchParams.append("module", moduleName);
-    }
     return url.toString();
   }
 

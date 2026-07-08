@@ -1,7 +1,6 @@
 "use client";
 
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
-import type { KaiActionDelegateAgentId, KaiActionSpeakerPersona } from "@/lib/voice/kai-action-gateway";
 import type { OneVoiceUiState } from "@/lib/voice/voice-ui-state-machine";
 
 export type OneVoiceProvider = "gemini_live" | "openai_realtime";
@@ -60,20 +59,19 @@ export type OneVoiceSessionEvent =
       sourceSeq?: number | null;
     }
   | {
-      type: "action_proposal";
-      provider: OneVoiceProvider;
-      proposal: OneVoiceActionProposal;
-      transcript?: string | null;
-      sessionId?: string | null;
-      sourceId?: string | null;
-      sourceSeq?: number | null;
-    }
-  | {
       type: "handoff";
       provider: OneVoiceProvider;
       target: "chat" | "consent" | "route";
       reason: string;
       payload?: Record<string, unknown>;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
+      type: "client_directive";
+      provider: OneVoiceProvider;
+      directive: { kind: string; payload?: Record<string, unknown> };
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;
@@ -90,6 +88,12 @@ export type OneVoiceTransportStartOptions = {
   relayUrl?: string | null;
   sessionMirrorId?: string | null;
   allowedActionIds?: string[] | null;
+  /**
+   * Vault owner consent token, sent post-connect inside the app_context
+   * frame (never in the URL) so One's specialist tools can act on the
+   * user's behalf. Tools fail closed without it.
+   */
+  consentToken?: string | null;
   signal?: AbortSignal;
 };
 
@@ -111,13 +115,3 @@ export interface RealtimeVoiceTransport {
   interrupt?(): void;
   stop(): void;
 }
-
-export type OneVoiceActionProposal = {
-  action_id: string;
-  speaker_persona?: KaiActionSpeakerPersona | null;
-  delegate_agent_id?: KaiActionDelegateAgentId | null;
-  needs_confirmation: boolean;
-  confidence?: number | null;
-  slots?: Record<string, unknown>;
-  reason?: string | null;
-};
