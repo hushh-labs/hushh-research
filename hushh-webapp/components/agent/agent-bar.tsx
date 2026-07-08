@@ -24,6 +24,8 @@ import { AudioLines, X } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
+import { useAuth } from "@/hooks/use-auth";
+import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
@@ -34,8 +36,11 @@ import {
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
+import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type {
   OneVoiceSessionEvent,
@@ -87,7 +92,11 @@ export function AgentBar() {
   // for tier-aware presentation and to detect the home/onboarding surfaces
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
+  const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
+  const { switchPersona } = usePersonaState();
+  const busyOperations = useKaiSession((state) => state.busyOperations);
+  const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
   const appendMirrorEvent = useOneConversationSession((state) => state.appendMirrorEvent);
   const createHandoff = useOneConversationSession((state) => state.createHandoff);
   const mirrorSessionId = useOneConversationSession((state) => state.sessionId);
@@ -192,7 +201,7 @@ export function AgentBar() {
     }
     if (event.type === "client_directive") {
       // One's tools decided this (single decision-maker); the client only
-      // executes. Navigation is the only directive kind handled inline.
+      // executes through the same governed gateway the app uses.
       if (event.directive.kind === "navigate") {
         const route =
           typeof event.directive.payload?.route === "string"
@@ -201,6 +210,49 @@ export function AgentBar() {
         if (route && route.startsWith("/")) {
           router.push(route);
         }
+        return;
+      }
+      if (event.directive.kind === "action") {
+        const actionId =
+          typeof event.directive.payload?.actionId === "string"
+            ? event.directive.payload.actionId
+            : null;
+        if (!actionId) return;
+        const slots =
+          event.directive.payload?.slots &&
+          typeof event.directive.payload.slots === "object"
+            ? (event.directive.payload.slots as Record<string, unknown>)
+            : undefined;
+        if (event.directive.payload?.needsConfirmation === true) {
+          // Sensitive actions confirm in the audited chat surface, never
+          // silently from voice.
+          const handoff = createHandoff({
+            reason: "action_requires_chat",
+            transcript: null,
+            assistantText: `Confirm before running: ${actionId}`,
+            actionId,
+          });
+          liveClientRef.current?.interrupt?.();
+          agentPopover?.openAgent({ handoff });
+          return;
+        }
+        const runtimeState = runtime?.appRuntimeState;
+        if (!runtimeState) return;
+        void executeAgentGatewayAction({
+          actionId,
+          slots,
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: runtimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          hasPortfolioData:
+            runtimeState.portfolio.has_portfolio_data ||
+            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+        });
+        return;
       }
       return;
     }
@@ -226,7 +278,19 @@ export function AgentBar() {
       if (erroredRef.current) return;
       setConversationActive(false);
     }
-  }, [agentPopover, appendMirrorEvent, createHandoff, router, setVoiceLevel, setVoiceStatus]);
+  }, [
+    agentPopover,
+    appendMirrorEvent,
+    busyOperations,
+    createHandoff,
+    router,
+    runtime,
+    setAnalysisParams,
+    setVoiceLevel,
+    setVoiceStatus,
+    switchPersona,
+    user?.uid,
+  ]);
 
   const stopConversation = useCallback(() => {
     erroredRef.current = false;

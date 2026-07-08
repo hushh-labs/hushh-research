@@ -191,6 +191,13 @@ async def _specialist_turn(
         "text": result.text,
         "is_complete": result.is_complete,
     }
+    if not result.is_complete:
+        # Proactive next step: an incomplete turn means the specialist is
+        # waiting on the user; tell One to relay exactly that.
+        payload["next_step"] = (
+            "The specialist needs a reply from the user. Relay its question "
+            "and send the user's answer back through this same tool."
+        )
     if result.directive is not None:
         directive = {
             "kind": result.directive.kind,
@@ -199,6 +206,10 @@ async def _specialist_turn(
         payload["directive"] = directive
         # Park it in state so the relay forwards it to the client for execution.
         tool_context.state[STATE_PENDING_DIRECTIVE] = directive
+        if result.directive.kind == "prompt":
+            payload["next_step"] = (
+                "The app is showing the user a choice card. Tell the user to pick an option there."
+            )
     return payload
 
 
