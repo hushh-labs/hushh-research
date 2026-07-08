@@ -169,7 +169,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     queue = LiveRequestQueue()
     run_config = RunConfig(
         streaming_mode=StreamingMode.BIDI,
-        response_modalities=["AUDIO"],
+        response_modalities=[genai_types.Modality.AUDIO],
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
     )
