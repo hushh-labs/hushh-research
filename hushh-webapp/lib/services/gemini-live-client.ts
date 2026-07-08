@@ -199,6 +199,14 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   /**
+   * True while the model's turn is open (audio received since the last
+   * turnComplete/interrupted). The Live API closes a model turn with
+   * turnComplete, NOT when our playback buffer happens to drain; chunks
+   * arrive with network gaps, so an empty queue mid-turn must stay
+   * "speaking" instead of flickering back to "listening".
+   */
+  private modelTurnOpen = false;
+  /**
    * Turn fence: after a local interrupt we drop any late model audio still in
    * flight until the provider closes the interrupted turn (turnComplete) or
    * the app starts a new turn (speakText). Without this, stale audio chunks
@@ -505,6 +513,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (!serverContent) return;
 
     if (serverContent.interrupted) {
+      this.modelTurnOpen = false;
       this.stopPlayback();
       this.setState("listening");
       return;
@@ -513,6 +522,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (serverContent.turnComplete) {
       // The interrupted (or finished) model turn is closed; stop fencing and
       // settle back to listening when nothing is queued for playback.
+      // When audio is still queued, the last node's onended settles instead.
+      this.modelTurnOpen = false;
       this.suppressModelAudio = false;
       if (this.activeSources.size === 0 && !this.closed && this.state !== "idle") {
         this.setState("listening");
@@ -711,11 +722,17 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
     this.lastAudioEnqueueAt = Date.now();
+    this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
     node.onended = () => {
       this.activeSources.delete(node);
       if (this.activeSources.size === 0 && !this.closed) {
+        if (this.modelTurnOpen) {
+          // Transient buffer underrun mid-turn: more chunks are coming
+          // (the provider has not sent turnComplete). Stay "speaking".
+          return;
+        }
         this.setState("listening");
         this.handlers.onOutputLevel?.(0);
         this.resolvePlaybackDrain();
