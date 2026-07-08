@@ -588,3 +588,59 @@ def test_one_location_route_preserves_db_error_mapping_without_db_client_import(
         "message": "Database temporarily unavailable.",
         "hint": "Retry later.",
     }
+
+
+def test_recipient_key_blob_is_returned_to_owner_and_never_leaks_to_others(monkeypatch) -> None:
+    """The vault-encrypted private key blob enables cross-device recovery: the owner
+    gets it back via `myRecipientKey`, but it must NEVER appear in the recipients
+    directory shown to other users."""
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    blob = {
+        "ciphertext": "OWNER_ONLY_CIPHERTEXT",
+        "iv": "IV",
+        "tag": "TAG",
+        "algorithm": "aes-256-gcm",
+    }
+
+    # user_a registers WITH an encrypted private key blob.
+    current_user["user_id"] = "user_a"
+    resp = client.post(
+        "/api/one/location/recipient-keys",
+        json={
+            "keyId": "key-user_a",
+            "publicKeyJwk": {"kty": "EC", "crv": "P-256", "x": "a", "y": "a"},
+            "encryptedPrivateKeyJwk": blob,
+        },
+    )
+    assert resp.status_code == 200
+
+    # user_b registers WITHOUT a blob (legacy device-local key).
+    current_user["user_id"] = "user_b"
+    resp = client.post(
+        "/api/one/location/recipient-keys",
+        json={
+            "keyId": "key-user_b",
+            "publicKeyJwk": {"kty": "EC", "crv": "P-256", "x": "b", "y": "b"},
+        },
+    )
+    assert resp.status_code == 200
+
+    # Owner (user_a) gets their OWN blob back for cross-device recovery.
+    current_user["user_id"] = "user_a"
+    state_a = client.get("/api/one/location/state").json()
+    assert state_a["myRecipientKey"]["keyId"] == "key-user_a"
+    assert state_a["myRecipientKey"]["encryptedPrivateKeyJwk"] == blob
+    for recipient in state_a["recipients"]:
+        assert "encryptedPrivateKeyJwk" not in recipient
+
+    # user_b must NEVER receive user_a's private blob — not in myRecipientKey, not
+    # in the recipients directory, not anywhere in the payload.
+    current_user["user_id"] = "user_b"
+    state_b = client.get("/api/one/location/state").json()
+    assert state_b["myRecipientKey"]["encryptedPrivateKeyJwk"] is None
+    for recipient in state_b["recipients"]:
+        assert "encryptedPrivateKeyJwk" not in recipient
+    assert "OWNER_ONLY_CIPHERTEXT" not in json.dumps(state_b)

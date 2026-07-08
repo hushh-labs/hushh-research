@@ -5,9 +5,12 @@ import { useCallback, useRef, useState } from "react";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
   decryptLocationEnvelope,
   encryptLocationForRecipient,
+  ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import type {
   ActionResult,
   ClientAction,
@@ -54,9 +57,10 @@ export const LOCATION_CHAT_ERROR_TEXT =
 export function useLocationChat(params: {
   vaultOwnerToken: string;
   userId?: string;
+  vaultKey?: string | null;
   onStateChanged?: () => void;
 }): UseLocationChat {
-  const { vaultOwnerToken, userId = "", onStateChanged } = params;
+  const { vaultOwnerToken, userId = "", vaultKey = null, onStateChanged } = params;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState<ClientAction | null>(null);
@@ -265,9 +269,53 @@ export function useLocationChat(params: {
           vaultOwnerToken,
           grantId,
         });
-        const point = await decryptLocationEnvelope({ userId, envelope });
-        setViewedPoint(point);
-        await report({ id: action.id, type: action.type, status: "completed" });
+        try {
+          const point = await decryptLocationEnvelope({ userId, envelope });
+          setViewedPoint(point);
+          await report({ id: action.id, type: action.type, status: "completed" });
+        } catch (decryptError) {
+          if (
+            decryptError instanceof Error &&
+            decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE
+          ) {
+            // Brand-new device: try to recover the vault-synced key shared across
+            // the user's devices and retry once before giving up.
+            if (vaultKey) {
+              try {
+                const state = await OneLocationService.getState(vaultOwnerToken);
+                if (state.myRecipientKey?.encryptedPrivateKeyJwk) {
+                  await ensureVaultSyncedRecipientKey({
+                    userId,
+                    vaultKey,
+                    remoteBackup: state.myRecipientKey,
+                  });
+                  const point = await decryptLocationEnvelope({ userId, envelope });
+                  setViewedPoint(point);
+                  await report({ id: action.id, type: action.type, status: "completed" });
+                  return;
+                }
+              } catch {
+                // Fall through to re-register + actionable message.
+              }
+            }
+            // Key rotated / not recoverable: re-register our current key so future
+            // shares work, and report an actionable message (not a raw crypto error).
+            void bootstrapCurrentUserLocationRecipientKey({
+              userId,
+              vaultOwnerToken,
+              vaultKey,
+            }).catch(() => {});
+            await report({
+              id: action.id,
+              type: action.type,
+              status: "failed",
+              detail:
+                "Couldn't open this live location — the secure key changed. Ask them to share again.",
+            });
+            return;
+          }
+          throw decryptError;
+        }
       } else if (action.type === "create_public_link") {
         const locationSnapshot = await OneLocationService.captureCurrentPosition();
         const { publicUrl } = await OneLocationService.createPublicInvite({
@@ -350,7 +398,7 @@ export function useLocationChat(params: {
       const detail = error instanceof Error ? error.message : undefined;
       await report({ id: action.id, type: action.type, status: "failed", detail });
     }
-  }, [pendingAction, busy, vaultOwnerToken, userId, report]);
+  }, [pendingAction, busy, vaultOwnerToken, userId, vaultKey, report]);
 
   const cancelAction = useCallback(async () => {
     const action = pendingAction;

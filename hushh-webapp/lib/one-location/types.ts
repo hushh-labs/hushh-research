@@ -257,8 +257,28 @@ export type OneLocationNetworkConnection = {
   revokedAt?: string | null;
 };
 
+// Opaque vault-key-encrypted (AES-256-GCM) blob wrapping the recipient's ECDH
+// private key JWK. Produced/consumed on the client; the server stores it verbatim.
+export type OneLocationEncryptedPrivateKey = {
+  ciphertext: string;
+  iv: string;
+  tag: string;
+  algorithm?: string;
+};
+
+// The caller's OWN active recipient key, returned only to that user by list_state.
+// Lets any of the user's devices recover the same keypair after vault unlock.
+export type OneLocationMyRecipientKey = {
+  keyId: string | null;
+  publicKeyJwk?: JsonWebKey | null;
+  keyAlgorithm: string;
+  encryptedPrivateKeyJwk?: OneLocationEncryptedPrivateKey | null;
+  keyRegisteredAt?: string | null;
+};
+
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
+  myRecipientKey?: OneLocationMyRecipientKey | null;
   kaiCircleCandidates?: KaiCircleCandidate[];
   viewerCapabilities?: OneLocationViewerCapabilities;
   ownerGrants: OneLocationGrant[];

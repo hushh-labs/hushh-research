@@ -38,6 +38,12 @@ class RecipientKeyRequest(_CamelModel):
     key_id: str | None = Field(default=None, alias="keyId", min_length=8, max_length=160)
     public_key_jwk: dict[str, Any] = Field(alias="publicKeyJwk")
     algorithm: str = Field(default="ECDH-P256-AES256-GCM", max_length=80)
+    # Opaque client-encrypted (vault-key AES-256-GCM) private key blob. Stored
+    # verbatim so the user can recover the same keypair on any device. Server never
+    # decrypts it.
+    encrypted_private_key_jwk: dict[str, Any] | None = Field(
+        default=None, alias="encryptedPrivateKeyJwk"
+    )
 
 
 class CreateGrantRequest(_CamelModel):
@@ -337,6 +343,7 @@ async def register_location_recipient_key(
                 key_id=payload.key_id,
                 public_key_jwk=payload.public_key_jwk,
                 algorithm=payload.algorithm,
+                encrypted_private_key_jwk=payload.encrypted_private_key_jwk,
             )
         }
     except Exception as exc:

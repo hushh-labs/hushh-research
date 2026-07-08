@@ -116,6 +116,7 @@
     "cross-env": "^10.1.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.4",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^25.0.0",
     "playwright": "^1.59.1",
     "tailwindcss": "^4",

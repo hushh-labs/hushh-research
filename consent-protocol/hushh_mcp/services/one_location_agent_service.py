@@ -2272,6 +2272,7 @@ class OneLocationAgentService:
         public_key_jwk: dict[str, Any],
         key_id: str | None = None,
         algorithm: str = "ECDH-P256-AES256-GCM",
+        encrypted_private_key_jwk: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not user_id:
             raise OneLocationAgentError(
@@ -2301,15 +2302,25 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id, "key_id": normalized_key_id},
         )
+        # Opaque client-encrypted (vault-key) private key blob, stored verbatim so
+        # every device the user signs into can recover the SAME keypair. COALESCE on
+        # update so a device that only re-registers the public key doesn't wipe an
+        # existing blob.
+        encrypted_private_key_json = (
+            json.dumps(encrypted_private_key_jwk, sort_keys=True, separators=(",", ":"))
+            if isinstance(encrypted_private_key_jwk, dict)
+            else None
+        )
         row = self._execute_one(
             """
             INSERT INTO one_location_recipient_keys (
               user_id, key_id, public_key_jwk, public_key_fingerprint, algorithm,
-              status, created_at, updated_at, metadata
+              status, created_at, updated_at, metadata, encrypted_private_key_jwk
             )
             VALUES (
               :user_id, :key_id, CAST(:public_key_jwk AS JSONB), :fingerprint,
-              :algorithm, 'active', NOW(), NOW(), '{}'::jsonb
+              :algorithm, 'active', NOW(), NOW(), '{}'::jsonb,
+              CAST(:encrypted_private_key_jwk AS JSONB)
             )
             ON CONFLICT (user_id, key_id) DO UPDATE SET
               public_key_jwk = EXCLUDED.public_key_jwk,
@@ -2317,7 +2328,11 @@ class OneLocationAgentService:
               algorithm = EXCLUDED.algorithm,
               status = 'active',
               revoked_at = NULL,
-              updated_at = NOW()
+              updated_at = NOW(),
+              encrypted_private_key_jwk = COALESCE(
+                EXCLUDED.encrypted_private_key_jwk,
+                one_location_recipient_keys.encrypted_private_key_jwk
+              )
             RETURNING user_id, key_id, public_key_jwk, algorithm, created_at AS key_created_at, TRUE AS phone_verified
             """,
             {
@@ -2326,6 +2341,7 @@ class OneLocationAgentService:
                 "public_key_jwk": json.dumps(public_key_jwk, sort_keys=True, separators=(",", ":")),
                 "fingerprint": fingerprint,
                 "algorithm": algorithm,
+                "encrypted_private_key_jwk": encrypted_private_key_json,
             },
         )
         self._insert_event(
@@ -3628,8 +3644,37 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
+        # The caller's OWN active recipient key, including the opaque
+        # vault-key-encrypted private blob. Scoped to this user_id and returned only
+        # here (never in the `recipients` list shown to other users), so a device the
+        # user signs into can recover the shared keypair after vault unlock.
+        my_recipient_key_rows = _safe_many(
+            "my_recipient_key",
+            """
+            SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
+                   created_at AS key_created_at
+            FROM one_location_recipient_keys
+            WHERE user_id = :user_id
+              AND status = 'active'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        my_recipient_key = None
+        if my_recipient_key_rows:
+            _mrk = my_recipient_key_rows[0]
+            my_recipient_key = {
+                "keyId": str(_mrk.get("key_id") or "") or None,
+                "publicKeyJwk": _loads_json(_mrk.get("public_key_jwk")),
+                "keyAlgorithm": str(_mrk.get("algorithm") or "ECDH-P256-AES256-GCM"),
+                "encryptedPrivateKeyJwk": _loads_json(_mrk.get("encrypted_private_key_jwk")),
+                "keyRegisteredAt": _iso(_mrk.get("key_created_at")),
+            }
+
         return {
             "recipients": recipients,
+            "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload for row in owner_grants if (payload := self._grant_payload(row))
             ],

@@ -289,6 +289,16 @@ class FourUserMemoryService(OneLocationAgentService):
         params = params or {}
         if "UPDATE one_location_share_grants" in sql and "expires_at <= NOW()" in sql:
             return []
+        if "FROM one_location_recipient_keys" in sql and "encrypted_private_key_jwk" in sql:
+            # list_state's own-key lookup (myRecipientKey).
+            user_id = params.get("user_id")
+            rows = [
+                key
+                for (key_user_id, _), key in self.keys.items()
+                if key_user_id == user_id and key.get("status") == "active"
+            ]
+            rows.sort(key=lambda k: k.get("created_at"), reverse=True)
+            return rows[:1]
         if "FROM actor_identity_cache a" in sql:
             owner = params["owner_user_id"]
             rows = []
@@ -752,12 +762,23 @@ class FourUserMemoryService(OneLocationAgentService):
         if "INSERT INTO one_location_recipient_keys" in sql:
             user_id = params["user_id"]
             key_id = params["key_id"]
+            new_blob = (
+                json.loads(params["encrypted_private_key_jwk"])
+                if params.get("encrypted_private_key_jwk")
+                else None
+            )
+            # Mirror the real ON CONFLICT COALESCE: keep an existing blob when the
+            # re-registration doesn't supply a new one.
+            existing = self.keys.get((user_id, key_id))
+            if new_blob is None and existing is not None:
+                new_blob = existing.get("encrypted_private_key_jwk")
             row = {
                 "user_id": user_id,
                 "key_id": key_id,
                 "public_key_jwk": json.loads(params["public_key_jwk"]),
                 "algorithm": params["algorithm"],
                 "status": "active",
+                "encrypted_private_key_jwk": new_blob,
                 "created_at": datetime.now(timezone.utc),
                 "key_created_at": datetime.now(timezone.utc),
                 "phone_verified": True,
