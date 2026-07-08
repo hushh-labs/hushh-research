@@ -197,7 +197,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         )
     )
 
+    # Last screen injected as model-visible context. Screen changes arrive as
+    # app_context frames; sending content mid-generation PREEMPTS the model's
+    # current turn on the Live API, so screen text is injected only when the
+    # screen truly changed (never for the first frame; session state already
+    # carries it for tools).
+    last_injected_screen: Optional[str] = None
+    first_app_context_seen = False
+
     async def pump_browser_to_queue() -> None:
+        nonlocal last_injected_screen, first_app_context_seen
         while True:
             raw = await websocket.receive_text()
             try:
@@ -239,21 +248,27 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         ),
                     )
                 screen = context_payload.get("screen")
-                if isinstance(screen, str) and screen.strip():
-                    queue.send_content(
-                        genai_types.Content(
-                            role="user",
-                            parts=[
-                                genai_types.Part(
-                                    text=(
-                                        "[App state update - not user speech] The user "
-                                        f"is now on the '{screen.strip()[:64]}' screen. "
-                                        "Use this silently."
+                clean_screen = screen.strip()[:64] if isinstance(screen, str) else ""
+                if clean_screen:
+                    is_first = not first_app_context_seen
+                    changed = clean_screen != last_injected_screen
+                    last_injected_screen = clean_screen
+                    if changed and not is_first:
+                        queue.send_content(
+                            genai_types.Content(
+                                role="user",
+                                parts=[
+                                    genai_types.Part(
+                                        text=(
+                                            "[App state update - not user speech] The "
+                                            f"user is now on the '{clean_screen}' "
+                                            "screen. Use this silently."
+                                        )
                                     )
-                                )
-                            ],
+                                ],
+                            )
                         )
-                    )
+                first_app_context_seen = True
                 continue
             if message.get("type") == "app_speech" or "appSpeech" in message:
                 text = message.get("text")

@@ -115,8 +115,12 @@ export function AgentBar() {
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
-  // Last context snapshot pushed into the live session (continuity dedupe).
-  const lastPushedSnapshotIdRef = useRef<string | null>(null);
+  // Last SCREEN pushed into the live session. Deduping on snapshot_id was a
+  // bug: snapshot_id churns with every voice state transition (voiceRevision
+  // = transitionSeq), so each listening/speaking flip re-pushed app_context,
+  // and each push preempted One's active model turn (speech cut mid-sentence,
+  // greetings cancelled). Navigation continuity only needs the screen.
+  const lastPushedScreenRef = useRef<string | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -330,7 +334,7 @@ export function AgentBar() {
     });
     liveClientRef.current = client;
     // The client pushes the starting snapshot as app_context on setupComplete.
-    lastPushedSnapshotIdRef.current = context?.snapshot_id ?? null;
+    lastPushedScreenRef.current = context?.route.screen ?? null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -355,15 +359,18 @@ export function AgentBar() {
   // the relay lets One proactively offer the next step after a screen change.
   useEffect(() => {
     if (!conversationActive) {
-      lastPushedSnapshotIdRef.current = null;
+      lastPushedScreenRef.current = null;
       return;
     }
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    if (lastPushedSnapshotIdRef.current === context.snapshot_id) return;
+    // Only a real screen change warrants a push; anything finer-grained
+    // (voice transitions, cache freshness ticks) preempts One's active
+    // model turn on the Live API and audibly cuts speech.
+    if (lastPushedScreenRef.current === context.route.screen) return;
     if (client.updateContext(context)) {
-      lastPushedSnapshotIdRef.current = context.snapshot_id;
+      lastPushedScreenRef.current = context.route.screen;
     }
   }, [conversationActive, runtime?.oneVoiceContextSnapshot]);
 
