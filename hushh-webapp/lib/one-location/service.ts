@@ -9,6 +9,7 @@ import type {
   OneLocationActivityResponse,
   OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
+  OneLocationEncryptedPrivateKey,
   OneLocationGrant,
   OneLocationNetworkConnection,
   OneLocationPublicInvite,
@@ -123,6 +124,7 @@ export class OneLocationService {
     keyId: string;
     publicKeyJwk: JsonWebKey;
     algorithm: string;
+    encryptedPrivateKeyJwk?: OneLocationEncryptedPrivateKey | null;
   }): Promise<OneLocationRecipient> {
     const response = await apiJson<{ recipientKey: OneLocationRecipient }>(
       "/api/one/location/recipient-keys",
@@ -133,6 +135,9 @@ export class OneLocationService {
           keyId: params.keyId,
           publicKeyJwk: params.publicKeyJwk,
           algorithm: params.algorithm,
+          ...(params.encryptedPrivateKeyJwk
+            ? { encryptedPrivateKeyJwk: params.encryptedPrivateKeyJwk }
+            : {}),
         }),
       },
     );

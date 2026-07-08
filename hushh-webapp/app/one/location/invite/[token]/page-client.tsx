@@ -78,7 +78,7 @@ export default function OneLocationCircleInvitePageClient() {
   const router = useRouter();
   const params = useParams<{ token?: string }>();
   const auth = useAuth();
-  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
   const inviteToken = useMemo(
     () => String(params?.token || "").trim(),
     [params?.token],
@@ -166,6 +166,7 @@ export default function OneLocationCircleInvitePageClient() {
       await bootstrapCurrentUserLocationRecipientKey({
         userId: auth.userId,
         vaultOwnerToken,
+        vaultKey,
       });
       await OneLocationService.claimCircleInvite({
         vaultOwnerToken,
@@ -188,7 +189,7 @@ export default function OneLocationCircleInvitePageClient() {
     } finally {
       setClaiming(false);
     }
-  }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken]);
+  }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken, vaultKey]);
 
   const signedIn = Boolean(auth.userId && auth.isAuthenticated);
   const canClaim =
