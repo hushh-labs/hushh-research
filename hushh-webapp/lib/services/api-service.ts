@@ -2837,53 +2837,6 @@ export class ApiService {
     });
   }
 
-  /**
-   * Mint a short-lived, constrained Gemini Live ephemeral token for in-bar
-   * full-duplex voice. The browser connects directly to the Gemini Live API
-   * with this token, so the managed Gemini key never leaves the backend.
-   *
-   * Firebase auth is attached when available so the backend can pick the full
-   * (signed-in) vs. intro (pre-vault / onboarding) persona; anonymous callers
-   * send no Authorization header, which this route accepts.
-   */
-  static async fetchGeminiLiveToken(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
-    accessTier?: string | null;
-    availableActionIds?: string[] | null;
-    visibleModules?: string[] | null;
-    cacheFreshness?: string | null;
-    vaultReady?: boolean | null;
-    portfolioReady?: boolean | null;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    return ApiService.apiFetch("/api/kai/agent/realtime/gemini/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
-      },
-      body: JSON.stringify({
-        voice: data?.voice || undefined,
-        screen: data?.screen || undefined,
-        persona: data?.persona || undefined,
-        route_family: data?.routeFamily || undefined,
-        voice_state: data?.voiceState || undefined,
-        access_tier: data?.accessTier || undefined,
-        available_action_ids: data?.availableActionIds || undefined,
-        visible_modules: data?.visibleModules || undefined,
-        cache_freshness: data?.cacheFreshness || undefined,
-        vault_ready: data?.vaultReady ?? undefined,
-        portfolio_ready: data?.portfolioReady ?? undefined,
-      }),
-      signal: data?.signal,
-    });
-  }
-
   static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{

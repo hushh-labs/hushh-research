@@ -24,8 +24,6 @@ import { AudioLines, X } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
-import { useAuth } from "@/hooks/use-auth";
-import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
@@ -36,21 +34,13 @@ import {
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
-import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import {
-  OneVoiceLiveActionBridge,
-  type OneVoiceLiveActionBridgeConfig,
-} from "@/lib/voice/one-voice-live-action-bridge";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type {
-  OneVoiceActionProposal,
   OneVoiceSessionEvent,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import type { AgentVoiceEventOptions, AgentVoiceStatus } from "@/lib/agent/agent-voice-state";
 
 type PrewarmedGeminiRelay = {
@@ -97,11 +87,7 @@ export function AgentBar() {
   // for tier-aware presentation and to detect the home/onboarding surfaces
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
-  const { user } = useAuth();
-  const { vaultOwnerToken, vaultKey } = useVault();
-  const { switchPersona } = usePersonaState();
-  const busyOperations = useKaiSession((state) => state.busyOperations);
-  const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
+  const { vaultOwnerToken } = useVault();
   const appendMirrorEvent = useOneConversationSession((state) => state.appendMirrorEvent);
   const createHandoff = useOneConversationSession((state) => state.createHandoff);
   const mirrorSessionId = useOneConversationSession((state) => state.sessionId);
@@ -118,8 +104,6 @@ export function AgentBar() {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
-  const liveActionBridgeRef = useRef<OneVoiceLiveActionBridge | null>(null);
-  const pendingProposalRef = useRef<OneVoiceActionProposal | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
   // Last context snapshot pushed into the live session (continuity dedupe).
@@ -183,19 +167,10 @@ export function AgentBar() {
       });
       return;
     }
-    if (event.type === "action_proposal") {
-      pendingProposalRef.current = event.proposal;
-      liveClientRef.current?.interrupt?.();
-      if (event.transcript) {
-        void liveActionBridgeRef.current?.processTranscript({
-          transcript: event.transcript,
-          candidate: event.proposal,
-        });
-        pendingProposalRef.current = null;
-      }
-      return;
-    }
     if (event.type === "transcript_final") {
+      // Mirror the user's transcript into the conversation session. One's
+      // agent tree decides everything server-side; there is no client-side
+      // planner to feed here.
       const transcript = event.text.trim();
       const previous = lastTranscriptRef.current;
       if (
@@ -213,12 +188,6 @@ export function AgentBar() {
         turnId: event.turnId ?? null,
       });
       setVoiceStatus("thinking", "Understanding", eventOptions);
-      const proposal = pendingProposalRef.current;
-      pendingProposalRef.current = null;
-      void liveActionBridgeRef.current?.processTranscript({
-        transcript,
-        candidate: proposal,
-      });
       return;
     }
     if (event.type === "client_directive") {
@@ -272,107 +241,6 @@ export function AgentBar() {
     if (conversationActive) return;
     agentPopover?.openAgent();
   }, [agentPopover, conversationActive]);
-
-  useEffect(() => {
-    if (!runtime) {
-      liveActionBridgeRef.current?.cancel("agent_bar_runtime_unavailable");
-      liveActionBridgeRef.current = null;
-      return;
-    }
-    const bridgeConfig: OneVoiceLiveActionBridgeConfig = {
-      userId: user?.uid,
-      vaultOwnerToken,
-      vaultKey,
-      getAppRuntimeState: () => runtime.appRuntimeState,
-      getVoiceContext: () =>
-        runtime.oneVoiceContextSnapshot as unknown as Record<string, unknown>,
-      executeAction: (actionId, slots) =>
-        executeAgentGatewayAction({
-          actionId,
-          slots,
-          userId: user?.uid ?? "",
-          router,
-          appRuntimeState: runtime.appRuntimeState,
-          surfaceMetadata: getVoiceSurfaceMetadata(),
-          hasPortfolioData:
-            runtime.appRuntimeState.portfolio.has_portfolio_data ||
-            runtime.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-          busyOperations,
-          setAnalysisParams,
-          switchPersona,
-        }),
-      router,
-      setAnalysisParams,
-      speak: async ({ text, turnId, segmentType }) => {
-        appendMirrorEvent({
-          role: "assistant",
-          text,
-          source: "one_voice_orchestrator",
-          turnId,
-        });
-        const spoken = await liveClientRef.current?.speakText?.({
-          text,
-          turnId,
-          segmentType,
-        });
-        if (!spoken) {
-          setVoiceStatus("speaking", text, {
-            sessionId: null,
-            sourceId: "one_voice_orchestrator",
-            sourceSeq: null,
-          });
-        }
-      },
-      mirrorAssistantText: ({ text, turnId }) => {
-        appendMirrorEvent({
-          role: "assistant",
-          text,
-          source: "one_voice_orchestrator",
-          turnId,
-        });
-      },
-      openChatHandoff: (handoffInput) => {
-        const handoff = createHandoff(handoffInput);
-        liveClientRef.current?.interrupt?.();
-        agentPopover?.openAgent({ handoff });
-        stopConversation();
-      },
-      setStage: (stage) => {
-        if (stage === "planning" || stage === "dispatch") {
-          setVoiceStatus("thinking", stage === "planning" ? "Understanding" : "Acting");
-        } else if (stage === "speaking_ack" || stage === "speaking_final") {
-          setVoiceStatus("speaking");
-        } else if (stage === "idle" && conversationActive) {
-          setVoiceStatus("listening");
-        }
-      },
-      onDebug: (event, payload) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.debug("[ONE_VOICE_LIVE_BRIDGE]", event, payload || {});
-        }
-      },
-    };
-    if (liveActionBridgeRef.current) {
-      liveActionBridgeRef.current.updateConfig(bridgeConfig);
-      return;
-    }
-    liveActionBridgeRef.current = new OneVoiceLiveActionBridge(bridgeConfig);
-  }, [
-    agentPopover,
-    appendMirrorEvent,
-    busyOperations,
-    conversationActive,
-    createHandoff,
-    router,
-    runtime,
-    setAnalysisParams,
-    setVoiceStatus,
-    stopConversation,
-    switchPersona,
-    user?.uid,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
 
   const startConversation = useCallback(() => {
     // Toggle off when a session (live OR an error still on screen) exists.
@@ -510,8 +378,6 @@ export function AgentBar() {
   // "listening") does not leak to other consumers after the bar is gone.
   useEffect(() => {
     return () => {
-      liveActionBridgeRef.current?.cancel("agent_bar_unmounted");
-      liveActionBridgeRef.current = null;
       liveClientRef.current?.stop();
       liveClientRef.current = null;
       prewarmedRelayRef.current = null;

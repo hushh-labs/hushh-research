@@ -52,12 +52,12 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from api.middlewares.rate_limit import RateLimits, limiter
-from api.routes.kai.agent_realtime_gemini import (
-    _consume_relay_ticket,
-    _gemini_live_enabled,
-    _issue_relay_ticket,
-    _resolve_optional_uid,
-    _resolve_persona_tier,
+from api.routes.one.relay_auth import (
+    consume_relay_ticket,
+    issue_relay_ticket,
+    one_voice_enabled,
+    resolve_optional_uid,
+    resolve_persona_tier,
 )
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
@@ -90,14 +90,14 @@ async def create_one_adk_relay_session(
     authorization: Optional[str] = Header(default=None),
 ) -> OneAdkRelaySessionResponse:
     """Mint a short-lived relay ticket for the One ADK live WebSocket."""
-    if not _gemini_live_enabled():
+    if not one_voice_enabled():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="One voice is not enabled.",
         )
-    uid = await _resolve_optional_uid(authorization)
-    persona_tier = _resolve_persona_tier(uid, None)
-    ticket, expires_at = _issue_relay_ticket(uid, persona_tier, {})
+    uid = await resolve_optional_uid(authorization)
+    persona_tier = resolve_persona_tier(uid, None)
+    ticket, expires_at = issue_relay_ticket(uid, persona_tier)
     return OneAdkRelaySessionResponse(
         relay_ticket=ticket,
         expires_at=expires_at,
@@ -138,12 +138,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
     await websocket.accept()
 
-    if not _gemini_live_enabled():
+    if not one_voice_enabled():
         await websocket.close(code=1011, reason="One voice is not enabled.")
         return
 
     relay_ticket = websocket.query_params.get("relay_ticket")
-    accepted, uid, _persona_tier, _hints = _consume_relay_ticket(relay_ticket)
+    accepted, uid, _persona_tier = consume_relay_ticket(relay_ticket)
     if not accepted:
         await websocket.close(code=1008, reason="Voice relay ticket is expired.")
         return

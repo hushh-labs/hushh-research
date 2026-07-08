@@ -3,7 +3,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
-  OneVoiceActionProposal,
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
   RealtimeVoiceTransport,
@@ -176,42 +175,6 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function normalizeProposal(raw: unknown): OneVoiceActionProposal | null {
-  const record = readRecord(raw);
-  if (!record) return null;
-  const actionId = readString(record.action_id ?? record.actionId);
-  if (!actionId) return null;
-  const speakerPersona = readString(record.speaker_persona ?? record.speakerPersona);
-  const delegateAgentId = readString(record.delegate_agent_id ?? record.delegateAgentId);
-  const slots = readRecord(record.slots);
-  return {
-    action_id: actionId,
-    speaker_persona:
-      speakerPersona === "one" ||
-      speakerPersona === "kai" ||
-      speakerPersona === "nav" ||
-      speakerPersona === "kyc"
-        ? speakerPersona
-        : null,
-    delegate_agent_id:
-      delegateAgentId === "one" ||
-      delegateAgentId === "kai" ||
-      delegateAgentId === "nav" ||
-      delegateAgentId === "kyc" ||
-      delegateAgentId === "agent_connected_systems" ||
-      delegateAgentId === "agent_connections" ||
-      delegateAgentId === "agent_email" ||
-      delegateAgentId === "agent_location" ||
-      delegateAgentId === "agent_personal_information"
-        ? delegateAgentId
-        : null,
-    needs_confirmation: record.needs_confirmation === true || record.needsConfirmation === true,
-    confidence: readNumber(record.confidence),
-    slots: slots || undefined,
-    reason: readString(record.reason),
-  };
 }
 
 export class GeminiLiveClient implements RealtimeVoiceTransport {
@@ -514,21 +477,6 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         text: outputText,
         turnId: readString(outputTranscription?.turn_id ?? outputTranscription?.turnId),
         source: "provider",
-        sessionId: eventOptions.sessionId,
-        sourceId: eventOptions.sourceId,
-        sourceSeq: eventOptions.sourceSeq,
-      });
-    }
-
-    const proposal =
-      normalizeProposal(message.actionProposal) ||
-      normalizeProposal(readRecord(message.toolCall)?.args);
-    if (proposal) {
-      this.handlers.onEvent?.({
-        type: "action_proposal",
-        provider: this.provider,
-        proposal,
-        transcript: readString(message.transcript),
         sessionId: eventOptions.sessionId,
         sourceId: eventOptions.sourceId,
         sourceSeq: eventOptions.sourceSeq,

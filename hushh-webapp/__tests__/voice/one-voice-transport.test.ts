@@ -48,7 +48,7 @@ describe("One Voice realtime transports", () => {
     );
   });
 
-  it("normalizes Gemini relay transcripts and action proposals", async () => {
+  it("normalizes ADK relay transcripts and client directives", async () => {
     const onEvent = vi.fn();
     const transport = new GeminiLiveTransport({ onEvent });
     const testTransport = transport as unknown as {
@@ -66,11 +66,13 @@ describe("One Voice realtime transports", () => {
         outputTranscription: {
           text: "I can help with that.",
         },
-        actionProposal: {
-          action_id: "route.kai_portfolio",
-          slots: { tab: "overview" },
-          confidence: 0.8,
-          reason: "User asked for portfolio.",
+      })
+    );
+    await testTransport.handleSocketMessage(
+      JSON.stringify({
+        clientDirective: {
+          kind: "navigate",
+          payload: { route: "/one/kai", screen: "finance" },
         },
       })
     );
@@ -91,11 +93,12 @@ describe("One Voice realtime transports", () => {
     );
     expect(onEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "action_proposal",
-        proposal: expect.objectContaining({
-          action_id: "route.kai_portfolio",
-          slots: { tab: "overview" },
-        }),
+        type: "client_directive",
+        provider: "gemini_live",
+        directive: {
+          kind: "navigate",
+          payload: { route: "/one/kai", screen: "finance" },
+        },
       })
     );
   });
