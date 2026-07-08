@@ -426,7 +426,7 @@ def sync_taxonomy_fields(dry_run: bool = False) -> tuple[list[str], bool]:
 
 
 def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
-    repo = board_ops.DEFAULT_REPO
+    tracked_repos = ["hushh-labs/hushh-research", "hushh-labs/hushh-search-console"]
     has_changes = False
     prev_state = _load_state()
     cur_state: dict[str, str] = {}
@@ -449,9 +449,16 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     out.append("> Scope guardrail: only issues/PRs owned by the operator are mutated. "
                "Other contributors' tasks are reported, never modified.\n")
 
-    # Fetch fresh GitHub activity
-    prs = get_owned_prs(repo, LOOKBACK_DAYS)
-    issues = get_owned_issues(repo, LOOKBACK_DAYS)
+    # Fetch fresh GitHub activity across all tracked repos
+    prs = []
+    issues = []
+    for r in tracked_repos:
+        for pr in get_owned_prs(r, LOOKBACK_DAYS):
+            pr["repo"] = r
+            prs.append(pr)
+        for issue in get_owned_issues(r, LOOKBACK_DAYS):
+            issue["repo"] = r
+            issues.append(issue)
 
     # Fetch all project items once at the start to completely optimize lookup queries and avoid duplicates
     try:
@@ -472,7 +479,9 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     # deliberate human action. Opt back in with HUSSH_BOARD_AUTOCREATE=1.
     if os.environ.get("HUSSH_BOARD_AUTOCREATE") == "1":
         try:
-            local_issues = initiate_local_plans_if_needed(repo, dry_run)
+            local_issues = initiate_local_plans_if_needed(board_ops.DEFAULT_REPO, dry_run)
+            for li in local_issues:
+                li["repo"] = board_ops.DEFAULT_REPO
             issues.extend(local_issues)
         except Exception as exc:
             out.append(f"*(Note: Local plan auto-detector skipped: {exc})*")
@@ -495,41 +504,42 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
         # Linked issues from PR body or branch name
         refs = set(extract_referenced_issues(pr.get("body", "")))
         refs.update(extract_referenced_issues(pr.get("headRefName", "")))
+        r = pr["repo"]
         for num in refs:
             try:
-                details = board_ops.get_issue_json(repo, num)
+                details = board_ops.get_issue_json(r, num)
                 # OWNERSHIP CHECK on the linked item itself
                 if not is_owned_by_operator(details):
-                    out.append(f"- ⏭️ #{num} linked by PR #{pr['number']} but owned by "
+                    out.append(f"- ⏭️ {r}#{num} linked by PR #{pr['number']} but owned by "
                                f"another contributor — left untouched.")
                     continue
 
                 # Determine timeline from actual issue creation and completion
                 start_date = details["createdAt"][:10]
                 target_date = pr["updatedAt"][:10] # finished when PR was merged/closed
-                key = f"issue#{num}"
+                key = f"{r}-issue#{num}"
                 sig = f"{signature(details, 'issue')}:Done"
                 
-                item_entry = project_item_by_num.get((repo, num))
+                item_entry = project_item_by_num.get((r, num))
                 item_status = item_entry.get("status") if item_entry else None
                 
                 if prev_state.get(key) == sig or item_status == "Done":
                     cur_state[key] = sig
                 else:
                     if dry_run:
-                        completed.append(f"#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+                        completed.append(f"{r}#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
                         has_changes = True
                         continue
                     # Ensure it is added to the board (adds if missing)
-                    board_ops.ensure_issue_on_project(repo, num)
+                    board_ops.ensure_issue_on_project(r, num)
                     if details["state"] == "OPEN":
-                        board_ops.run_gh(["issue", "close", str(num), "--repo", repo])
+                        board_ops.run_gh(["issue", "close", str(num), "--repo", r])
                     board_ops.update_task(
-                        repo=repo, issue_number=num, status="Done",
+                        repo=r, issue_number=num, status="Done",
                         start_date=start_date, target_date=target_date, labels=None,
                         sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
                     )
-                    completed.append(f"#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
+                    completed.append(f"{r}#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
                     has_changes = True
                     cur_state[key] = sig
             except Exception:  # noqa: BLE001
@@ -542,30 +552,31 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
         if not is_owned_by_operator(issue):
             continue
         try:
+            r = issue["repo"]
             num = issue["number"]
             start_date = issue["createdAt"][:10]
             target_date = issue["updatedAt"][:10]
-            key = f"issue#{num}"
+            key = f"{r}-issue#{num}"
             sig = f"{signature(issue, 'issue')}:Done"
             
-            item_entry = project_item_by_num.get((repo, num))
+            item_entry = project_item_by_num.get((r, num))
             item_status = item_entry.get("status") if item_entry else None
             
             if prev_state.get(key) == sig or item_status == "Done":
                 cur_state[key] = sig
             else:
                 if dry_run:
-                    completed.append(f"#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+                    completed.append(f"{r}#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
                     has_changes = True
                     continue
                 # Ensure it is added to the board (adds if missing)
-                board_ops.ensure_issue_on_project(repo, num)
+                board_ops.ensure_issue_on_project(r, num)
                 board_ops.update_task(
-                    repo=repo, issue_number=num, status="Done",
+                    repo=r, issue_number=num, status="Done",
                     start_date=start_date, target_date=target_date, labels=None,
                     sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
                 )
-                completed.append(f"#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
+                completed.append(f"{r}#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
                 has_changes = True
                 cur_state[key] = sig
         except Exception:  # noqa: BLE001
@@ -587,8 +598,9 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
         if issue["state"] != "OPEN" or not is_owned_by_operator(issue):
             continue
         try:
+            r = issue["repo"]
             status = "In progress"
-            item_entry = project_item_by_num.get((repo, issue["number"]))
+            item_entry = project_item_by_num.get((r, issue["number"]))
             if item_entry:
                 cur = item_entry.get("status")
                 if cur in ("In review", "Backlog", "Done", "In progress", "Ready"):
@@ -597,7 +609,7 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             # Align start and target date to actual creation and standard sprint buffer
             start_date = issue["createdAt"][:10]
             target_date = (dt.date.today() + dt.timedelta(days=1)).isoformat() # Tightly bounded forward target
-            key = f"issue#{issue['number']}"
+            key = f"{r}-issue#{issue['number']}"
             sig = f"{signature(issue, 'issue')}:{status}"
             
             actual_matches = False
@@ -612,20 +624,21 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
                 cur_state[key] = sig
             else:
                 if dry_run:
-                    active.append(f"#{issue['number']} *{issue['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
+                    active.append(f"{r}#{issue['number']} *{issue['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
                     has_changes = True
                     continue
+                board_ops.ensure_issue_on_project(r, issue["number"])
                 board_ops.update_task(
-                    repo=repo, issue_number=issue["number"], status=status,
+                    repo=r, issue_number=issue["number"], status=status,
                     start_date=start_date, target_date=target_date,
                     labels=[l["name"] for l in issue.get("labels", [])],
                     sync_current_sprint=True, hierarchy=OPERATOR_HIERARCHY,
                 )
                 cur_state[key] = sig
-                active.append(f"🔧 #{issue['number']} *{issue['title']}* -> **{status}**")
+                active.append(f"🔧 {r}#{issue['number']} *{issue['title']}* -> **{status}**")
                 has_changes = True
         except Exception as exc:  # noqa: BLE001
-            out.append(f"- ⚠️ Failed to sync issue #{issue['number']}: {exc}")
+            out.append(f"- ⚠️ Failed to sync issue {r}#{issue['number']}: {exc}")
 
     # Open PRs are NOT board items. We only reflect a PR's status onto the board
     # if its item is ALREADY there (legacy) — we never ADD a PR to the board.
@@ -633,7 +646,8 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     for pr in prs:
         if pr["state"] != "OPEN" or not is_owned_by_operator(pr):
             continue
-        item_entry = project_item_by_num.get((repo, pr["number"]))
+        r = pr["repo"]
+        item_entry = project_item_by_num.get((r, pr["number"]))
         if not item_entry:
             continue  # PR not on board -> leave it off (no bloat)
         try:
@@ -644,7 +658,7 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
 
             start_date = pr["createdAt"][:10]
             target_date = (dt.date.today() + dt.timedelta(days=1)).isoformat()
-            key = f"pr#{pr['number']}"
+            key = f"{r}-pr#{pr['number']}"
             sig = f"{signature(pr, 'pr')}:{status}"
 
             actual_matches = (
@@ -657,17 +671,17 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
                 cur_state[key] = sig
             else:
                 if dry_run:
-                    active.append(f"PR #{pr['number']} *{pr['title']}* -> would set **{status}** (already on board)")
+                    active.append(f"PR {r}#{pr['number']} *{pr['title']}* -> would set **{status}** (already on board)")
                     has_changes = True
                     continue
                 board_ops.update_task(
-                    repo=repo, issue_number=pr["number"], status=status,
+                    repo=r, issue_number=pr["number"], status=status,
                     start_date=start_date, target_date=target_date,
                     labels=[l["name"] for l in pr.get("labels", [])],
                     sync_current_sprint=True, hierarchy=OPERATOR_HIERARCHY,
                 )
                 cur_state[key] = sig
-                active.append(f"🚀 PR #{pr['number']} *{pr['title']}* -> **{status}**")
+                active.append(f"🚀 PR {r}#{pr['number']} *{pr['title']}* -> **{status}**")
                 has_changes = True
         except Exception:  # noqa: BLE001
             pass
@@ -681,43 +695,46 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     out.append("\n## 🔍 Board Hygiene & Audit")
     try:
         items = project_items
-        issue_items = [i for i in items if i.get("type") == "Issue" and i.get("repo") == repo]
-        closed_not_done = [i for i in issue_items
-                           if i.get("state") == "CLOSED" and i.get("status") != "Done"]
-        open_done = [i for i in issue_items
-                     if i.get("state") == "OPEN" and i.get("status") == "Done"]
+        drift_found = False
+        for r in tracked_repos:
+            issue_items = [i for i in items if i.get("type") == "Issue" and i.get("repo") == r]
+            closed_not_done = [i for i in issue_items
+                               if i.get("state") == "CLOSED" and i.get("status") != "Done"]
+            open_done = [i for i in issue_items
+                         if i.get("state") == "OPEN" and i.get("status") == "Done"]
 
-        if not closed_not_done and not open_done:
+            if closed_not_done or open_done:
+                drift_found = True
+                if closed_not_done:
+                    out.append(f"### Closed issues in {r} not marked Done:")
+                    for it in closed_not_done:
+                        # Only auto-fix if it's the operator's own item
+                        owned = False
+                        try:
+                            d = board_ops.get_issue_json(r, it["number"])
+                            owned = is_owned_by_operator(d)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        if owned and not dry_run:
+                            board_ops.update_task(
+                                repo=r, issue_number=it["number"], status="Done",
+                                start_date=None, target_date=None, labels=None,
+                                sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
+                            )
+                            has_changes = True
+                            out.append(f"  - ✓ {r}#{it['number']} {it['title']} — auto-fixed to **Done** (yours)")
+                        elif owned and dry_run:
+                            has_changes = True
+                            out.append(f"  - {r}#{it['number']} {it['title']} — would auto-fix (yours)")
+                        else:
+                            out.append(f"  - 👀 {r}#{it['number']} {it['title']} — drift, "
+                                       f"NOT yours, reporting only")
+                if open_done:
+                    out.append(f"### Open issues in {r} marked Done (verify):")
+                    for it in open_done:
+                        out.append(f"  - 👀 {r}#{it['number']} {it['title']} — reporting only")
+        if not drift_found:
             out.append("- ✓ **Audit Clean:** no drift detected.")
-        else:
-            if closed_not_done:
-                out.append("### Closed issues not marked Done:")
-                for it in closed_not_done:
-                    # Only auto-fix if it's the operator's own item
-                    owned = False
-                    try:
-                        d = board_ops.get_issue_json(repo, it["number"])
-                        owned = is_owned_by_operator(d)
-                    except Exception:  # noqa: BLE001
-                        pass
-                    if owned and not dry_run:
-                        board_ops.update_task(
-                            repo=repo, issue_number=it["number"], status="Done",
-                            start_date=None, target_date=None, labels=None,
-                            sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
-                        )
-                        has_changes = True
-                        out.append(f"  - ✓ #{it['number']} {it['title']} — auto-fixed to **Done** (yours)")
-                    elif owned and dry_run:
-                        has_changes = True
-                        out.append(f"  - #{it['number']} {it['title']} — would auto-fix (yours)")
-                    else:
-                        out.append(f"  - 👀 #{it['number']} {it['title']} — drift, "
-                                   f"NOT yours, reporting only")
-            if open_done:
-                out.append("### Open issues marked Done (verify):")
-                for it in open_done:
-                    out.append(f"  - 👀 #{it['number']} {it['title']} — reporting only")
     except Exception as exc:  # noqa: BLE001
         out.append(f"- ❌ Audit failed: {exc}")
 
@@ -768,11 +785,14 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
     out.append("\n## 📊 Board Statistics (read-only)")
     try:
         all_items = project_items
-        research = [i for i in all_items if i.get("repo") == repo]
-        counts = Counter(i.get("status", "No Status") for i in research)
-        out.append(f"**Total tasks in {repo}:** {len(research)}")
-        for st, c in sorted(counts.items()):
-            out.append(f"- **{st}:** {c}")
+        for r in tracked_repos:
+            research = [i for i in all_items if i.get("repo") == r]
+            if not research:
+                continue
+            counts = Counter(i.get("status", "No Status") for i in research)
+            out.append(f"**Total tasks in {r}:** {len(research)}")
+            for st, c in sorted(counts.items()):
+                out.append(f"- **{st}:** {c}")
     except Exception as exc:  # noqa: BLE001
         out.append(f"- Failed to fetch statistics: {exc}")
 
