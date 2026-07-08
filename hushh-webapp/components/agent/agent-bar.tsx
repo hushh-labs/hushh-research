@@ -221,6 +221,20 @@ export function AgentBar() {
       });
       return;
     }
+    if (event.type === "client_directive") {
+      // One's tools decided this (single decision-maker); the client only
+      // executes. Navigation is the only directive kind handled inline.
+      if (event.directive.kind === "navigate") {
+        const route =
+          typeof event.directive.payload?.route === "string"
+            ? event.directive.payload.route
+            : null;
+        if (route && route.startsWith("/")) {
+          router.push(route);
+        }
+      }
+      return;
+    }
     if (event.type === "handoff") {
       const transcript =
         typeof event.payload?.transcript === "string" ? event.payload.transcript : null;
@@ -243,7 +257,7 @@ export function AgentBar() {
       if (erroredRef.current) return;
       setConversationActive(false);
     }
-  }, [agentPopover, appendMirrorEvent, createHandoff, setVoiceLevel, setVoiceStatus]);
+  }, [agentPopover, appendMirrorEvent, createHandoff, router, setVoiceLevel, setVoiceStatus]);
 
   const stopConversation = useCallback(() => {
     erroredRef.current = false;
@@ -370,10 +384,10 @@ export function AgentBar() {
     setConversationActive(true);
     const context = runtime?.oneVoiceContextSnapshot ?? null;
     const prewarmedRelay = prewarmedRelayRef.current;
+    // The prewarmed ticket is context-free (context rides in app_context
+    // frames after connect), so only tier match and freshness gate reuse.
     const relayUrl =
       prewarmedRelay &&
-      context &&
-      prewarmedRelay.snapshotId === context.snapshot_id &&
       prewarmedRelay.accessTier === runtime?.tier &&
       prewarmedRelay.expiresAtMs > Date.now()
         ? prewarmedRelay.relayUrl
@@ -383,7 +397,7 @@ export function AgentBar() {
       onEvent: handleTransportEvent,
     });
     liveClientRef.current = client;
-    // The starting snapshot already rides in the relay-session persona hints.
+    // The client pushes the starting snapshot as app_context on setupComplete.
     lastPushedSnapshotIdRef.current = context?.snapshot_id ?? null;
     void client.start({
       context,
@@ -391,6 +405,7 @@ export function AgentBar() {
       relayUrl,
       sessionMirrorId: mirrorSessionId,
       allowedActionIds: context?.available_action_ids ?? null,
+      consentToken: vaultOwnerToken ?? null,
     });
   }, [
     conversationActive,
@@ -399,6 +414,7 @@ export function AgentBar() {
     mirrorSessionId,
     handleTransportEvent,
     stopConversation,
+    vaultOwnerToken,
   ]);
 
   // Continuous voice context: when the user navigates while a live session is
@@ -445,19 +461,9 @@ export function AgentBar() {
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void ApiService.getGeminiLiveRelayUrl({
-        screen: context.route.screen,
-        persona: context.persona.active,
-        routeFamily: context.route.route_family,
-        voiceState: context.voice.state,
-        accessTier,
-        availableActionIds: context.available_action_ids,
-        visibleModules: context.ui.visible_modules,
-        cacheFreshness: context.cache.freshness,
-        vaultReady: context.cache.vault_ready,
-        portfolioReady: context.cache.portfolio_ready,
-        signal: controller.signal,
-      })
+      // Context (screen, consent token) rides in post-connect app_context
+      // frames, so the prewarmed URL only carries the opaque relay ticket.
+      void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
         .then((relayUrl) => {
           if (controller.signal.aborted) return;
           prewarmedRelayRef.current = {

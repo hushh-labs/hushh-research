@@ -231,6 +231,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
   private sourceSeq = 0;
+  /** Snapshot captured at start(), pushed as app_context after setup. */
+  private startContext: OneVoiceContextSnapshot | null = null;
+  /** Consent token for One's specialist tools; rides only in app_context frames. */
+  private consentToken: string | null = null;
   /**
    * Turn fence: after a local interrupt we drop any late model audio still in
    * flight until the provider closes the interrupted turn (turnComplete) or
@@ -284,25 +288,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.setState("connecting");
 
     const context = options?.context ?? null;
+    this.startContext = context;
+    this.consentToken = options?.consentToken ?? null;
     let relayUrl: string;
     try {
-      relayUrl =
-        options?.relayUrl ||
-        (await ApiService.getGeminiLiveRelayUrl({
-          voice: options?.voice ?? null,
-          screen: context?.route.screen ?? null,
-          persona: context?.persona.active ?? null,
-          routeFamily: context?.route.route_family ?? null,
-          voiceState: context?.voice.state ?? null,
-          accessTier: options?.accessTier ?? null,
-          availableActionIds: options?.allowedActionIds ?? context?.available_action_ids ?? null,
-          visibleModules: context?.ui.visible_modules ?? null,
-          cacheFreshness: context?.cache.freshness ?? null,
-          vaultReady: context?.cache.vault_ready ?? null,
-          portfolioReady: context?.cache.portfolio_ready ?? null,
-        }));
+      relayUrl = options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : "Could not start Gemini Live.");
+      this.fail(error instanceof Error ? error.message : "Could not start One voice.");
       return;
     }
 
@@ -441,7 +433,33 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if ("setupComplete" in message) {
       this.setupComplete = true;
+      // Push the initial app context (screen + governed consent token) now
+      // that the session is live; the relay never accepts these in the URL.
+      if (this.startContext) {
+        this.updateContext(this.startContext);
+        this.startContext = null;
+      } else if (this.consentToken) {
+        this.sendAppContext({});
+      }
       this.setState("listening");
+      return;
+    }
+
+    const clientDirective = readRecord(message.clientDirective);
+    const directiveKind = readString(clientDirective?.kind);
+    if (clientDirective && directiveKind) {
+      const eventOptions = this.nextEventOptions();
+      this.handlers.onEvent?.({
+        type: "client_directive",
+        provider: this.provider,
+        directive: {
+          kind: directiveKind,
+          payload: readRecord(clientDirective.payload) || undefined,
+        },
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
       return;
     }
 
@@ -671,24 +689,39 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   updateContext(context: OneVoiceContextSnapshot): boolean {
+    return this.sendAppContext({
+      screen: context.route.screen,
+      route_family: context.route.route_family,
+      persona: context.persona.active,
+      voice_state: context.voice.state,
+      available_action_ids: context.available_action_ids,
+      visible_modules: context.ui.visible_modules,
+      cache_freshness: context.cache.freshness,
+      vault_ready: context.cache.vault_ready,
+      portfolio_ready: context.cache.portfolio_ready,
+    });
+  }
+
+  /**
+   * Send an app_context frame. The governed consent token and timezone ride
+   * here (post-connect, never in the URL) so One's specialist tools can act;
+   * the relay stores them in session state and they never reach the model.
+   */
+  private sendAppContext(appContext: Record<string, unknown>): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
       return false;
     }
-    // Redacted subset only; mirrors the relay-session persona hint shape. The
-    // relay re-sanitizes every field before it reaches the model.
+    const timezone =
+      typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : undefined;
     this.ws.send(
       JSON.stringify({
         type: "app_context",
         appContext: {
-          screen: context.route.screen,
-          route_family: context.route.route_family,
-          persona: context.persona.active,
-          voice_state: context.voice.state,
-          available_action_ids: context.available_action_ids,
-          visible_modules: context.ui.visible_modules,
-          cache_freshness: context.cache.freshness,
-          vault_ready: context.cache.vault_ready,
-          portfolio_ready: context.cache.portfolio_ready,
+          ...appContext,
+          ...(this.consentToken ? { consent_token: this.consentToken } : {}),
+          ...(timezone ? { timezone } : {}),
         },
       })
     );

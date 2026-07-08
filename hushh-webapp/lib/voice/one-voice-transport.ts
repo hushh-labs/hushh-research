@@ -77,6 +77,14 @@ export type OneVoiceSessionEvent =
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;
+    }
+  | {
+      type: "client_directive";
+      provider: OneVoiceProvider;
+      directive: { kind: string; payload?: Record<string, unknown> };
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
     };
 
 export type OneVoiceTransportHandlers = {
@@ -90,6 +98,12 @@ export type OneVoiceTransportStartOptions = {
   relayUrl?: string | null;
   sessionMirrorId?: string | null;
   allowedActionIds?: string[] | null;
+  /**
+   * Vault owner consent token, sent post-connect inside the app_context
+   * frame (never in the URL) so One's specialist tools can act on the
+   * user's behalf. Tools fail closed without it.
+   */
+  consentToken?: string | null;
   signal?: AbortSignal;
 };
 

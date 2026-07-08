@@ -260,15 +260,14 @@ describe("ApiService voice planning contract", () => {
     expect(ttsHeaders["X-Voice-Turn-Id"]).toBe("vturn_tts_1");
   });
 
-  it("builds Gemini relay URLs with an opaque ticket instead of Firebase bearer", async () => {
+  it("builds One ADK relay URLs with only an opaque ticket, never context or bearer", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
           relay_ticket: "relay_ticket_123",
           expires_at: 123,
-          model: "gemini-live",
-          voice: "Sulafat",
+          model: "adk",
           tier: "full",
         }),
         {
@@ -278,47 +277,19 @@ describe("ApiService voice planning contract", () => {
       )
     );
 
-    const relayUrl = await ApiService.getGeminiLiveRelayUrl({
-      voice: "Sulafat",
-      screen: "one_agents",
-      persona: "investor",
-      routeFamily: "/one",
-      voiceState: "listening",
-      accessTier: "signed_unlocked",
-      availableActionIds: ["route.profile", "profile.security.open_vault"],
-      visibleModules: ["Profile settings"],
-      cacheFreshness: "fresh_or_stale_safe",
-      vaultReady: true,
-      portfolioReady: false,
-    });
+    const relayUrl = await ApiService.getOneAdkLiveRelayUrl();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
-      "/api/kai/agent/realtime/gemini/relay-session"
-    );
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("/api/one/adk/relay-session");
     const request = fetchSpy.mock.calls[0]?.[1];
     const headers = request?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer firebase_token");
-    const body = JSON.parse(String(request?.body || "{}")) as Record<string, unknown>;
-    expect(body).toMatchObject({
-      access_tier: "signed_unlocked",
-      available_action_ids: ["route.profile", "profile.security.open_vault"],
-      visible_modules: ["Profile settings"],
-      cache_freshness: "fresh_or_stale_safe",
-      vault_ready: true,
-      portfolio_ready: false,
-    });
     const parsed = new URL(relayUrl);
+    expect(parsed.pathname).toBe("/api/one/adk/live");
     expect(parsed.searchParams.get("relay_ticket")).toBe("relay_ticket_123");
-    expect(parsed.searchParams.get("access_tier")).toBe("signed_unlocked");
-    expect(parsed.searchParams.get("cache_freshness")).toBe("fresh_or_stale_safe");
-    expect(parsed.searchParams.get("vault_ready")).toBe("1");
-    expect(parsed.searchParams.get("portfolio_ready")).toBe("0");
-    expect(parsed.searchParams.getAll("action_id")).toEqual([
-      "route.profile",
-      "profile.security.open_vault",
-    ]);
-    expect(parsed.searchParams.getAll("module")).toEqual(["Profile settings"]);
+    // The ticket is the ONLY query param: app context and the consent token
+    // ride in post-connect app_context frames, never in the URL.
+    expect([...parsed.searchParams.keys()]).toEqual(["relay_ticket"]);
     expect(parsed.searchParams.has("authorization")).toBe(false);
     expect(relayUrl).not.toContain("firebase_token");
   });
