@@ -23,7 +23,6 @@ Owned repo surfaces:
 3. `consent-protocol/api/routes/consent.py`
 4. `hushh-webapp/lib/consent`
 5. `hushh-webapp/components/consent`
-6. `hushh-webapp/components/iam`
 
 Non-owned surfaces:
 
