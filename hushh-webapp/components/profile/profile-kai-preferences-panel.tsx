@@ -74,7 +74,7 @@ export function ProfileKaiPreferencesPanel({
           <button
             type="button"
             onClick={onRequestUnlock}
-            className="inline-flex h-10 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] px-4 text-sm font-medium text-foreground transition-[background-color,border-color] hover:bg-muted/80"
+            className="inline-flex h-10 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] px-4 text-sm font-medium text-foreground transition-[background-color,border-color] hover:bg-muted/80 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring focus-visible:outline-none"
           >
             Unlock vault
           </button>
@@ -140,9 +140,7 @@ export function ProfileKaiPreferencesPanel({
             setProfile(refreshed);
             toast.success("Preferences updated");
           } catch (error) {
-            if (process.env.NODE_ENV !== "production") {
-              console.error("[ProfileKaiPreferencesPanel] Save failed:", error);
-            }
+            console.error("[ProfileKaiPreferencesPanel] Save failed:", error);
             toast.error("Couldn't save preferences. Please retry.");
           } finally {
             setLoading(false);

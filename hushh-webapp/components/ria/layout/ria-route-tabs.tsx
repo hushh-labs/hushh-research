@@ -20,7 +20,6 @@ export function RiaRouteTabs({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div
-      role="tablist"
       className={cn(
         "w-full pb-2",
         embedded ? "pt-1" : "pt-2"
@@ -32,6 +31,8 @@ export function RiaRouteTabs({ embedded = false }: { embedded?: boolean }) {
         variant="none"
         effect="glass"
         className="grid w-full grid-cols-4 gap-2 p-1.5"
+        role="tablist"
+        aria-label="RIA navigation"
       >
         {RIA_ROUTE_TABS.map((tab) => {
           const isActive = tab.id === activeTab;
@@ -40,10 +41,9 @@ export function RiaRouteTabs({ embedded = false }: { embedded?: boolean }) {
               key={tab.id}
               type="button"
               role="tab"
+              aria-selected={isActive}
               data-voice-control-id={`ria_route_tab_${tab.id}`}
               onClick={() => router.push(tab.href)}
-              aria-selected={isActive}
-              aria-current={isActive ? "page" : undefined}
               className={cn(
                 "min-h-11 rounded-[18px] px-2 text-[12px] font-semibold tracking-tight transition-all",
                 isActive
