@@ -1,0 +1,258 @@
+"""One's ADK agent tree: head agent + the /one roster as subagent tools.
+
+Architecture (0->1 rebuild of One's orchestration):
+
+- ``one`` is the root :class:`LlmAgent`. It owns identity, tone, and the
+  delegation decision. There is exactly ONE decision-maker per turn: ADK's
+  own function-calling flow. No parallel lexical re-ranker.
+- Every product agent on the /one home grid is a subagent exposed to One as
+  a callable tool (specialist turn functions delegating to the existing
+  ``adk_bridge`` handlers, which own consent validation and business logic).
+- ``google_search`` gives One real web access for fresh public information.
+- Session state carries the caller's identity/consent posture; tools read it
+  from ``tool_context.state`` so the LLM never sees or supplies credentials.
+
+The roster mirrors hushh-webapp/lib/onboarding/one-capabilities.ts plus the
+standalone RIA agent: Finance (Kai internal), RIA, Gmail, Email, Location,
+Personal Data, Consent, Information Marketplace, Connected Systems.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any, Optional
+
+from google.adk.agents import LlmAgent
+from google.adk.runners import Runner
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.adk.tools import google_search
+from google.adk.tools.tool_context import ToolContext
+
+from hushh_mcp.adk_bridge.contract import A2ATask
+from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
+
+logger = logging.getLogger(__name__)
+
+ONE_APP_NAME = "hussh_one"
+
+# Session-state keys the relay seeds before the first turn. Tools read them
+# via tool_context.state; the model neither sees nor supplies them.
+STATE_USER_ID = "hussh:user_id"
+# State KEY name, not a credential value (the token itself arrives at runtime).
+STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
+STATE_CONVERSATION_ID = "hussh:conversation_id"
+STATE_TIMEZONE = "hussh:timezone"
+
+_ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash").strip()
+_SPECIALIST_MODEL = (os.getenv("AGENT_ONE_SPECIALIST_MODEL") or "gemini-3.5-flash").strip()
+
+ONE_IDENTITY_INSTRUCTION = (
+    "You are One, the personal agent inside Hussh, and the head of a team of "
+    "specialist agents. If anyone asks your name or who you are, answer "
+    'simply: "I\'m One." Never call yourself Kai, Gemini, or any other name. '
+    "You hold the relationship layer: speak warmly, concisely, and in plain "
+    "English.\n\n"
+    "Your specialist agents (your arms) and what they own:\n"
+    "- Finance: markets, portfolio, stock analysis and debates, RIA handoff "
+    "(internally the Kai runtime).\n"
+    "- RIA: the advisor workspace with clients, picks, and requests.\n"
+    "- Gmail: receipt sync and purchase-memory review.\n"
+    "- Email: approval drafts and client request workflows.\n"
+    "- Location: live sharing with trusted people and local context.\n"
+    "- Personal Data: saved knowledge the user can review (PKM).\n"
+    "- Consent: what the user has shared and with whom.\n"
+    "- Information Marketplace: governed data-slice requests and delivery.\n"
+    "- Connected Systems: CRM and external system workflows.\n\n"
+    "Delegate naturally: when a request belongs to a specialist's domain, call "
+    "that specialist's tool with the user's request. Use google_search when "
+    "the user needs fresh public information from the web. Answer general "
+    "questions yourself. Never invent tool results; if a specialist reports "
+    "it cannot act (missing consent, locked vault, no data), relay that "
+    "honestly and tell the user what would unlock it. You never execute "
+    "sensitive actions directly: specialists validate consent and the app "
+    "confirms every state change."
+)
+
+
+def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2ATask]:
+    """Build a specialist task from governed session state.
+
+    Returns None when the session has no authenticated user context, in which
+    case the tool reports a consent boundary instead of calling the specialist.
+    """
+    state = tool_context.state
+    user_id = str(state.get(STATE_USER_ID) or "").strip()
+    consent_token = str(state.get(STATE_CONSENT_TOKEN) or "").strip()
+    if not user_id or not consent_token:
+        return None
+    conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
+    timezone_name = str(state.get(STATE_TIMEZONE) or "").strip() or None
+    return A2ATask(
+        user_id=user_id,
+        consent_token=consent_token,
+        conversation_id=conversation_id,
+        message=request,
+        timezone=timezone_name,
+    )
+
+
+async def _specialist_turn(
+    agent_id: str, request: str, tool_context: ToolContext
+) -> dict[str, Any]:
+    """Run one governed specialist turn through the existing A2A dispatch."""
+    # Importing adk_bridge registers the built-in specialists at import time.
+    import hushh_mcp.adk_bridge  # noqa: F401 - side-effect registration
+
+    if not is_wired_specialist(agent_id):
+        return {
+            "status": "unavailable",
+            "message": f"The {agent_id} specialist is not available right now.",
+        }
+    task = _task_from_context(tool_context, request)
+    if task is None:
+        return {
+            "status": "needs_auth",
+            "message": (
+                "This needs the user to be signed in with an unlocked vault. "
+                "Invite them to sign in or unlock first."
+            ),
+        }
+    try:
+        result = await dispatch(agent_id, task)
+    except PermissionError as exc:
+        return {"status": "consent_denied", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - specialist failures must not kill the session
+        logger.exception("one_adk.specialist_turn_failed agent_id=%s", agent_id)
+        return {
+            "status": "error",
+            "message": "The specialist hit an internal error on that request.",
+        }
+    if result.conversation_id:
+        tool_context.state[STATE_CONVERSATION_ID] = result.conversation_id
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "text": result.text,
+        "is_complete": result.is_complete,
+    }
+    if result.directive is not None:
+        payload["directive"] = {
+            "kind": result.directive.kind,
+            "payload": result.directive.payload,
+        }
+    return payload
+
+
+async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Email specialist about inbox tasks, approval drafts, or client request workflows."""
+    return await _specialist_turn("agent_email", request, tool_context)
+
+
+async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Location specialist about live location sharing with trusted people, check-ins, or SOS."""
+    return await _specialist_turn("agent_location", request, tool_context)
+
+
+async def ask_connections_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Connections specialist about the user's trusted people and connection requests."""
+    return await _specialist_turn("agent_connections", request, tool_context)
+
+
+async def ask_marketplace_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Information Marketplace specialist about data-slice subscriptions, requests, and approvals."""
+    return await _specialist_turn("agent_personal_information", request, tool_context)
+
+
+async def ask_connected_systems_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Connected Systems specialist about CRM records and external system workflows."""
+    return await _specialist_turn("agent_connected_systems", request, tool_context)
+
+
+async def ask_consent_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Consent specialist (Nav) what the user has shared, with whom, and how to revoke it."""
+    return await _specialist_turn("agent_nav", request, tool_context)
+
+
+def _build_finance_agent() -> LlmAgent:
+    """Finance subagent: the public face of the internal Kai runtime.
+
+    Finance turns run through the Kai chat/analysis services; the debate
+    engine itself stays a governed app goal (the app confirms and renders
+    runs), so this agent answers market/portfolio questions and frames the
+    governed next step rather than claiming execution.
+    """
+    return LlmAgent(
+        name="finance",
+        model=_SPECIALIST_MODEL,
+        description=(
+            "Finance specialist: markets, portfolio context, stock analysis "
+            "framing, and RIA handoff. Internally the Kai runtime."
+        ),
+        instruction=(
+            "You are Finance, One's markets and portfolio specialist (the Kai "
+            "runtime internally). Answer market and portfolio questions from "
+            "provided context. Analysis runs and trades are governed app "
+            "actions confirmed by the app; explain what the user can start, "
+            "never claim you executed anything."
+        ),
+    )
+
+
+def _build_ria_agent() -> LlmAgent:
+    """RIA subagent: advisor workspace persona."""
+    return LlmAgent(
+        name="ria",
+        model=_SPECIALIST_MODEL,
+        description="RIA specialist: the advisor workspace with clients, picks, and requests.",
+        instruction=(
+            "You are RIA, One's advisor-workspace specialist. Help with "
+            "advisor workflows: clients, picks, and requests. Workspace "
+            "mutations are governed app actions confirmed by the app."
+        ),
+    )
+
+
+def build_one_root_agent() -> LlmAgent:
+    """Build the One head agent with the full /one roster as tools.
+
+    AgentTool wraps the LLM-backed specialists (Finance, RIA) so One can
+    consult them as tools; the dispatch-backed specialists (email, location,
+    connections, marketplace, connected systems, consent) are plain function
+    tools that call the existing governed adk_bridge handlers.
+    """
+    from google.adk.tools.agent_tool import AgentTool
+
+    return LlmAgent(
+        name="one",
+        model=_ONE_MODEL,
+        description="One, the Hussh head personal agent and orchestrator.",
+        instruction=ONE_IDENTITY_INSTRUCTION,
+        tools=[
+            google_search,
+            AgentTool(agent=_build_finance_agent()),
+            AgentTool(agent=_build_ria_agent()),
+            ask_email_agent,
+            ask_location_agent,
+            ask_connections_agent,
+            ask_marketplace_agent,
+            ask_connected_systems_agent,
+            ask_consent_agent,
+        ],
+    )
+
+
+_runner: Runner | None = None
+
+
+def get_one_runner() -> Runner:
+    """Process-wide Runner for One (in-memory sessions; voice sessions are
+    ephemeral and the durable record lives in the app's own stores)."""
+    global _runner
+    if _runner is None:
+        _runner = Runner(
+            app_name=ONE_APP_NAME,
+            agent=build_one_root_agent(),
+            session_service=InMemorySessionService(),
+            auto_create_session=True,
+        )
+    return _runner
