@@ -230,3 +230,27 @@ async def test_large_export_omits_inline_blob_and_directs_to_download(monkeypatc
     assert payload["wrapped_key_bundle"] == {"wrapped_export_key": "wrapped"}
     # The tool result must be dramatically smaller than the blob itself.
     assert len(result[0].text) < len(big_blob)
+    # Sandboxed connectors get an explicit escape hatch pointer.
+    assert "delivery='inline'" in payload["delivery_note"]
+    assert "if_unreachable" in payload["download"]
+
+
+@pytest.mark.asyncio
+async def test_forced_inline_delivery_returns_large_blob(monkeypatch):
+    """delivery='inline' is the escape hatch for sandboxes that cannot reach
+    the download endpoint (egress allowlists, localhost-only backends)."""
+    big_blob = "A" * (data_tools.INLINE_EXPORT_MAX_BASE64_CHARS + 1)
+    _wire_success(monkeypatch, encrypted_data=big_blob)
+
+    result = await data_tools.handle_get_encrypted_scoped_export(
+        {
+            "user_id": "user@example.com",
+            "consent_token": "token_123",
+            "delivery": "inline",
+        }
+    )
+
+    payload = json.loads(result[0].text)
+    assert payload["delivery"] == "inline"
+    assert payload["encrypted_data"] == big_blob
+    assert "one step" in payload["delivery_note"].lower()

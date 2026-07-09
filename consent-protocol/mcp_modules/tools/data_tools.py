@@ -57,6 +57,12 @@ def _download_instructions(*, user_id: str, consent_token: str) -> dict:
             "ciphertext into the model context or retype it through text tools; "
             "decrypt export.bin locally with the wrapped key bundle."
         ),
+        "if_unreachable": (
+            "If your script environment cannot reach this URL (sandboxed "
+            "runtimes, egress allowlists, localhost servers), call "
+            "get_encrypted_scoped_export again with delivery='inline' to "
+            "receive the full base64 ciphertext in the tool result instead."
+        ),
     }
 
 
@@ -210,7 +216,10 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(export_payload))]
 
     encrypted_data = str(export_payload.get("encrypted_data") or "")
-    inline_ok = len(encrypted_data) <= INLINE_EXPORT_MAX_BASE64_CHARS
+    # Connectors whose script sandbox cannot reach the download endpoint
+    # (egress allowlists, localhost-only servers) can force the inline lane.
+    forced_inline = str(args.get("delivery") or "").strip().lower() == "inline"
+    inline_ok = forced_inline or len(encrypted_data) <= INLINE_EXPORT_MAX_BASE64_CHARS
     delivery: dict = {
         "delivery": "inline" if inline_ok else "download",
         "encrypted_data": encrypted_data if inline_ok else None,
@@ -220,7 +229,14 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
         delivery["delivery_note"] = (
             f"Ciphertext is {len(encrypted_data)} base64 chars, above the "
             f"{INLINE_EXPORT_MAX_BASE64_CHARS}-char inline limit. Fetch it with the "
-            "download instructions; do not attempt to reconstruct it from context."
+            "download instructions; do not attempt to reconstruct it from context. "
+            "If your environment cannot reach the download URL, retry this tool "
+            "with delivery='inline'."
+        )
+    elif forced_inline and len(encrypted_data) > INLINE_EXPORT_MAX_BASE64_CHARS:
+        delivery["delivery_note"] = (
+            "Inline delivery was forced for a large export. Write encrypted_data "
+            "to a file in ONE step (do not retype it); then decrypt locally."
         )
 
     return [

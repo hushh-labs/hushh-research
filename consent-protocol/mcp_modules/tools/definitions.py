@@ -288,7 +288,8 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "Small exports include the base64 ciphertext inline (encrypted_data). Larger exports set "
                 "delivery=download: fetch the raw bytes with the returned download instructions (an authenticated "
                 "POST your script runs directly). Never retype or reconstruct ciphertext through the model context; "
-                "always download and decrypt in your script."
+                "always download and decrypt in your script. If your script environment cannot reach the download "
+                "URL (sandboxes, egress allowlists, localhost servers), retry with delivery='inline'."
             ),
             inputSchema={
                 "type": "object",
@@ -321,6 +322,16 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                             "Optional safety check. Pass the original discovered/requested scope here. "
                             "If the token came from a reused broader grant, the server returns the canonical broader encrypted export "
                             "and echoes expected_scope so the connector can narrow after decrypting."
+                        ),
+                    },
+                    "delivery": {
+                        "type": "string",
+                        "enum": ["auto", "inline"],
+                        "description": (
+                            "auto (default): small exports inline, large exports via the download endpoint. "
+                            "inline: force the full base64 ciphertext into the tool result - use ONLY when "
+                            "your script environment cannot reach the download URL, and write it to a file "
+                            "in one step without retyping it."
                         ),
                     },
                 },
