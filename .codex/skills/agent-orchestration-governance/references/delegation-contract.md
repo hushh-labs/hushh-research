@@ -4,6 +4,8 @@ Use this reference when changing repo-scoped custom agents or the orchestration 
 
 The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
 
+Product-agent delegation (One delegating to Kai/Nav/KYC/email/location specialists at runtime) is governed by the Project-Wide Agent Architecture Doctrine in `AGENTS.md`: dumb agents by default (context flows in through consented state), delegation as a non-breaking wrapped function of the existing dispatch contract with per-hop scoped encrypted exports, ADK Task API as the substrate once a hop crosses process or network boundaries, Postgres-backed shared state with a documented Redis upgrade seam, and exactly one routing authority per surface. This file governs the ENGINEERING delegation lanes (Codex subagents); do not conflate the two, but keep both aligned with that doctrine.
+
 ## Baseline policy
 
 1. Skills remain the primary knowledge and process system.
