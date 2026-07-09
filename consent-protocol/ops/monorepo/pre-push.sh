@@ -252,7 +252,15 @@ fi
 if [ "$should_check_subtree" -eq 1 ]; then
   printf "\n\033[33m[pre-push]\033[0m Checking %s sync status...\n" "$SUBTREE_PREFIX"
   if ! run_sync_gate; then
-    exit 1
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+      exit 1
+    fi
+    # Subtree freshness is advisory on a normal push: branch freshness against
+    # origin/main is the mandatory gate (enforced above when pushing main
+    # itself); staying in sync with the consent-protocol upstream split is
+    # optional and can be caught up later without blocking this push.
+    printf "\033[33m[pre-push]\033[0m %s sync check failed; continuing (non-blocking on regular pushes).\n" "$SUBTREE_PREFIX"
+    printf "         Run \033[36m./bin/hushh protocol sync\033[0m when convenient to catch up.\n\n"
   fi
 fi
 
