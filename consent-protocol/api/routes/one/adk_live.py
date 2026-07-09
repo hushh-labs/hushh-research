@@ -367,3 +367,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             await websocket.close()
         except Exception:  # noqa: BLE001 - already closed
             pass
+        # Ephemeral session cleanup: without this, InMemorySessionService
+        # accumulates one session per voice connection until process restart.
+        try:
+            await runner.session_service.delete_session(
+                app_name=ONE_APP_NAME, user_id=session_user, session_id=session_id
+            )
+        except Exception:  # noqa: BLE001 - cleanup is best-effort
+            logger.debug("one_adk_live_session_cleanup_skipped session_id=%s", session_id)
