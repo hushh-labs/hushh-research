@@ -38,6 +38,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "agent_connected_systems",
         "agent_connections",
         "agent_email",
+        "agent_gmail",
         "agent_location",
         "agent_personal_information",
     }:

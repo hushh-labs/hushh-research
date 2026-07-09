@@ -105,9 +105,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "gmail",
-    // No dedicated agent lane yet: receipt sync runs as a service pipeline,
-    // not a roster agent. Revisit when a gmail specialist lands.
-    agentId: null,
+    agentId: "agent_gmail",
     title: "Gmail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
@@ -153,8 +151,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "consent",
-    // Access surface (approve/revoke), not an agent workspace.
-    agentId: null,
+    // Nav owns the consent center: approvals, revocations, and the
+    // Relationships tab (trusted connections are Nav's domain too).
+    agentId: "agent_nav",
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),

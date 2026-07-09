@@ -17,6 +17,7 @@ SPECIALIST_A2A_SCOPE_MAP: dict[str, ConsentScope] = {
     "agent_location": ConsentScope.AGENT_ONE_ORCHESTRATE,
     "agent_personal_information": ConsentScope.AGENT_ONE_ORCHESTRATE,
     "agent_email": ConsentScope.AGENT_ONE_ORCHESTRATE,
+    "agent_gmail": ConsentScope.AGENT_ONE_ORCHESTRATE,
 }
 
 

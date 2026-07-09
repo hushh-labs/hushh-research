@@ -12,6 +12,7 @@ export type VoiceActionManifestDelegateAgentId =
   | "agent_connected_systems"
   | "agent_connections"
   | "agent_email"
+  | "agent_gmail"
   | "agent_location"
   | "agent_personal_information";
 export type VoiceActionManifestExecutionHint =
@@ -87,6 +88,7 @@ function validateDelegateAgentId(value: unknown): VoiceActionManifestDelegateAge
     value === "agent_connected_systems" ||
     value === "agent_connections" ||
     value === "agent_email" ||
+    value === "agent_gmail" ||
     value === "agent_location" ||
     value === "agent_personal_information"
   ) {

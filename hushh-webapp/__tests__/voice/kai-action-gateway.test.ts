@@ -69,6 +69,7 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
+  "agent_gmail",
   "agent_location",
   "agent_personal_information",
 ];

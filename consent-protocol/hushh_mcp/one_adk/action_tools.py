@@ -44,6 +44,7 @@ _STATE_SCREEN = "hussh:screen"
 # specialist) fall through to normal policy handling.
 _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
+    "agent_gmail": "ask_gmail_agent",
     "agent_location": "ask_location_agent",
     "agent_connections": "ask_connections_agent",
     "agent_personal_information": "ask_marketplace_agent",

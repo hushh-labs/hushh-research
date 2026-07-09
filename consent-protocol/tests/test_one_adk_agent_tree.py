@@ -52,9 +52,17 @@ class TestAgentTreeShape:
         assert "run_app_action" in tool_names
         assert "list_app_actions" in tool_names
         assert "finance" in tool_names
-        assert "ria" in tool_names
+        # RIA and Investor are Finance subagents, not One-level siblings.
+        assert "ria" not in tool_names
+        finance_tool = next(t for t in agent.tools if getattr(t, "name", "") == "finance")
+        finance_sub_names = {
+            getattr(t, "name", getattr(t, "__name__", type(t).__name__))
+            for t in finance_tool.agent.tools
+        }
+        assert {"ria", "investor"} <= finance_sub_names
         assert {
             "ask_email_agent",
+            "ask_gmail_agent",
             "ask_location_agent",
             "ask_connections_agent",
             "ask_marketplace_agent",
