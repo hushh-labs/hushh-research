@@ -771,6 +771,20 @@ export type HushhLocationPermissionState = {
   locationServicesEnabled?: boolean | null;
 };
 
+export type BackgroundShareGrant = {
+  grantId: string;
+  recipientKeyId: string;
+  recipientPublicKeyJwk: JsonWebKey;
+};
+
+export type BackgroundShareSession = {
+  vaultOwnerToken: string;
+  backendBaseUrl: string;
+  grants: BackgroundShareGrant[];
+  minMoveMeters: number;
+  minIntervalMs: number;
+};
+
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
@@ -816,6 +830,17 @@ export interface HushhLocationPlugin {
   ): Promise<string>;
   /** Stop a `watchPosition` subscription started with the returned id. */
   clearWatch(options: { id: string }): Promise<void>;
+  /**
+   * Start native background publishing for the given share session. iOS only:
+   * requires Always authorization. Returns { started:false, reason } when
+   * unavailable (web, missing permission). Foreground JS keeps publishing too;
+   * native takes over while the app is backgrounded.
+   */
+  startBackgroundShare(
+    session: BackgroundShareSession,
+  ): Promise<{ started: boolean; reason?: string }>;
+  /** Stop native background publishing. Safe to call when not started. */
+  stopBackgroundShare(): Promise<void>;
 }
 
 
