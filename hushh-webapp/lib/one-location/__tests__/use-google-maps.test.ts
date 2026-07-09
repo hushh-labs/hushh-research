@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
 const importLibrary = vi.fn().mockResolvedValue({});
 vi.mock("@googlemaps/js-api-loader", () => ({
@@ -33,5 +33,16 @@ describe("useGoogleMaps", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(importLibrary).toHaveBeenCalledWith("maps");
     expect(importLibrary).toHaveBeenCalledWith("marker");
+  });
+
+  it("reports error when Google reports an auth failure after load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY", "browser-key");
+    const { result } = renderHook(() => useGoogleMaps());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    // Google invokes this global on key rejection (e.g. RefererNotAllowedMapError).
+    act(() => {
+      window.gm_authFailure?.();
+    });
+    await waitFor(() => expect(result.current.status).toBe("error"));
   });
 });
