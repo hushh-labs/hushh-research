@@ -28,9 +28,11 @@ const authListeners = new Set<() => void>();
 
 function installAuthFailureHandler(): void {
   if (typeof window === "undefined") return;
+  const previous = window.gm_authFailure;
   window.gm_authFailure = () => {
     authFailed = true;
     authListeners.forEach((listener) => listener());
+    previous?.();
   };
 }
 

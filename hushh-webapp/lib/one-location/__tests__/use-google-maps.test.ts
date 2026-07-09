@@ -41,8 +41,24 @@ describe("useGoogleMaps", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     // Google invokes this global on key rejection (e.g. RefererNotAllowedMapError).
     act(() => {
-      window.gm_authFailure?.();
+      expect(window.gm_authFailure).toBeDefined();
+      window.gm_authFailure!();
     });
     await waitFor(() => expect(result.current.status).toBe("error"));
+  });
+
+  it("starts in error when a prior auth failure already occurred", async () => {
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY", "browser-key");
+    // First mount loads the API and installs window.gm_authFailure.
+    const first = renderHook(() => useGoogleMaps());
+    await waitFor(() => expect(first.result.current.status).toBe("ready"));
+    act(() => {
+      expect(window.gm_authFailure).toBeDefined();
+      window.gm_authFailure!();
+    });
+    await waitFor(() => expect(first.result.current.status).toBe("error"));
+    // A hook mounting afterwards must immediately reflect the failed state.
+    const second = renderHook(() => useGoogleMaps());
+    await waitFor(() => expect(second.result.current.status).toBe("error"));
   });
 });
