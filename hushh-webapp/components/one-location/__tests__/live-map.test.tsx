@@ -132,8 +132,10 @@ describe("LiveMap", () => {
       // Clear call history from the initial A→A glide; markerInternalPos stays = A.
       markerSetPositionSpy.mockClear();
       mapPanToSpy.mockClear();
+      rafStub.mockClear();
 
       rerender(<LiveMap point={pointB} />);
+      expect(rafStub).toHaveBeenCalled();
 
       // lerpLatLng(A, B, easeInOutQuad(1)) = lerpLatLng(A, B, 1) = B.
       const calls = markerSetPositionSpy.mock.calls;
