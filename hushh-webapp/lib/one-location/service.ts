@@ -118,6 +118,16 @@ export class OneLocationService {
     return HushhLocation.clearWatch({ id });
   }
 
+  static async startBackgroundShare(
+    session: import("@/lib/capacitor").BackgroundShareSession,
+  ) {
+    return HushhLocation.startBackgroundShare(session);
+  }
+
+  static async stopBackgroundShare(): Promise<void> {
+    return HushhLocation.stopBackgroundShare();
+  }
+
 
   static async registerRecipientKey(params: {
     vaultOwnerToken: string;

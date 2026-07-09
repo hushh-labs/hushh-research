@@ -188,6 +188,9 @@ import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
+import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
+import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
+import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const DURATION_OPTIONS = [
@@ -1709,6 +1712,8 @@ function OneLocationAgentPageContent() {
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  // Opt-in: keep publishing location while the app is backgrounded (native only).
+  const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
@@ -3528,6 +3533,24 @@ function OneLocationAgentPageContent() {
     );
     return () => window.clearInterval(interval);
   }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
+
+  // Keep native background publishing in sync with the opt-in toggle + grants.
+  // Web returns { started:false } and this is a no-op there.
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    const session = buildBackgroundShareSession({
+      activeGrants: activeOwnerGrants,
+      recipients,
+      vaultOwnerToken,
+      backendBaseUrl: getApiBaseUrl(),
+      minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
+      minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+    });
+    void syncBackgroundShare({ enabled: backgroundShareEnabled, session });
+    return () => {
+      void OneLocationService.stopBackgroundShare();
+    };
+  }, [backgroundShareEnabled, activeOwnerGrants, recipients, vaultOwnerToken]);
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
