@@ -45,6 +45,14 @@ export function LiveMap({ point, className }: LiveMapProps) {
     mapRef.current = map;
     markerRef.current = new google.maps.Marker({ map, position: target });
     // Created once; subsequent movement handled by the glide effect below.
+    return () => {
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      mapRef.current = null;
+      markerRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -72,6 +80,8 @@ export function LiveMap({ point, className }: LiveMapProps) {
       marker.setPosition(lerpLatLng(from, target, easeInOutQuad(t)));
       if (t < 1) {
         frameRef.current = requestAnimationFrame(step);
+      } else {
+        map.panTo(target);
       }
     };
     frameRef.current = requestAnimationFrame(step);
