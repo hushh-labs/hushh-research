@@ -112,6 +112,15 @@ export interface RealtimeVoiceTransport {
    * navigation. Returns false when no live session can accept the update.
    */
   updateContext?(context: OneVoiceContextSnapshot): boolean;
+  /**
+   * Refresh the vault owner consent token inside an already-open session
+   * (e.g. the user signs in or unlocks the vault mid-call). Without this,
+   * a session started signed-out/locked stays permanently unable to reach
+   * governed specialist tools even after the user authenticates, because
+   * the token is otherwise only captured once at start(). Returns false
+   * when no live session can accept the update.
+   */
+  updateConsentToken?(consentToken: string | null): boolean;
   interrupt?(): void;
   stop(): void;
 }

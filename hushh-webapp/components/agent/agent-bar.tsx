@@ -221,41 +221,76 @@ export function AgentBar() {
           typeof event.directive.payload?.actionId === "string"
             ? event.directive.payload.actionId
             : null;
-        if (!actionId) return;
-        const slots =
-          event.directive.payload?.slots &&
-          typeof event.directive.payload.slots === "object"
-            ? (event.directive.payload.slots as Record<string, unknown>)
-            : undefined;
-        if (event.directive.payload?.needsConfirmation === true) {
-          // Sensitive actions confirm in the audited chat surface, never
-          // silently from voice.
-          const handoff = createHandoff({
-            reason: "action_requires_chat",
-            transcript: null,
-            assistantText: `Confirm before running: ${actionId}`,
+        if (actionId) {
+          const slots =
+            event.directive.payload?.slots &&
+            typeof event.directive.payload.slots === "object"
+              ? (event.directive.payload.slots as Record<string, unknown>)
+              : undefined;
+          if (event.directive.payload?.needsConfirmation === true) {
+            // Sensitive actions confirm in the audited chat surface, never
+            // silently from voice.
+            const handoff = createHandoff({
+              reason: "action_requires_chat",
+              transcript: null,
+              assistantText: `Confirm before running: ${actionId}`,
+              actionId,
+            });
+            liveClientRef.current?.interrupt?.();
+            agentPopover?.openAgent({ handoff });
+            return;
+          }
+          const runtimeState = runtime?.appRuntimeState;
+          if (!runtimeState) return;
+          void executeAgentGatewayAction({
             actionId,
+            slots,
+            userId: user?.uid ?? "",
+            router,
+            appRuntimeState: runtimeState,
+            surfaceMetadata: getVoiceSurfaceMetadata(),
+            hasPortfolioData:
+              runtimeState.portfolio.has_portfolio_data ||
+              runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+            busyOperations,
+            setAnalysisParams,
+            switchPersona,
           });
-          liveClientRef.current?.interrupt?.();
-          agentPopover?.openAgent({ handoff });
           return;
         }
-        const runtimeState = runtime?.appRuntimeState;
-        if (!runtimeState) return;
-        void executeAgentGatewayAction({
-          actionId,
-          slots,
-          userId: user?.uid ?? "",
-          router,
-          appRuntimeState: runtimeState,
-          surfaceMetadata: getVoiceSurfaceMetadata(),
-          hasPortfolioData:
-            runtimeState.portfolio.has_portfolio_data ||
-            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-          busyOperations,
-          setAnalysisParams,
-          switchPersona,
+        // Specialist directive (location share/check-in/SOS, device
+        // permission re-ask, connected-systems update, etc.) rather than a
+        // run_app_action directive: these need vault-owner crypto/native
+        // calls that only exist in the chat surface's directive runtime.
+        // Without this branch the directive silently dropped (no actionId),
+        // which is why asking One over voice to re-ask location permission
+        // did nothing even though the specialist correctly proposed it.
+        const delegateAgentId =
+          typeof event.directive.payload?.delegateAgentId === "string"
+            ? event.directive.payload.delegateAgentId
+            : null;
+        const directiveType =
+          typeof event.directive.payload?.type === "string"
+            ? event.directive.payload.type
+            : "this";
+        const handoff = createHandoff({
+          reason: "action_requires_chat",
+          transcript: null,
+          assistantText: `One line this up for you: ${directiveType}. Confirm here to continue.`,
+          specialistDirective: delegateAgentId
+            ? {
+                delegateAgentId,
+                directive: {
+                  kind: "action",
+                  payload: event.directive.payload ?? {},
+                },
+                message: "",
+                stateChanged: false,
+              }
+            : null,
         });
+        liveClientRef.current?.interrupt?.();
+        agentPopover?.openAgent({ handoff });
         return;
       }
       return;
@@ -373,6 +408,24 @@ export function AgentBar() {
       lastPushedScreenRef.current = context.route.screen;
     }
   }, [conversationActive, runtime?.oneVoiceContextSnapshot]);
+
+  // Sign-in / vault unlock while a voice session is already open: without
+  // this, a call started signed-out or locked never learns the token exists
+  // and specialist tools (location, gmail, etc.) fail closed for the rest of
+  // the call even after the user authenticates in the same session.
+  const pushedConsentTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversationActive) {
+      pushedConsentTokenRef.current = null;
+      return;
+    }
+    const client = liveClientRef.current;
+    if (!client?.updateConsentToken) return;
+    if (pushedConsentTokenRef.current === (vaultOwnerToken ?? null)) return;
+    if (client.updateConsentToken(vaultOwnerToken ?? null)) {
+      pushedConsentTokenRef.current = vaultOwnerToken ?? null;
+    }
+  }, [conversationActive, vaultOwnerToken]);
 
   const handleVoiceStartClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {

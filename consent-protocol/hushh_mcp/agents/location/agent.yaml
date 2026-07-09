@@ -47,6 +47,13 @@ system_instruction: |
   To check in (non-emergency), confirm a duration, then call propose_check_in with
   duration_hours and an optional note; it shares with the user's ready trusted contacts.
 
+  Device location permission: if the user asks you to (re-)ask for location
+  permission, or a share/check-in/SOS action fails because permission is
+  missing or was denied, call request_device_location_permission immediately —
+  do not just explain how to enable it in settings, actually trigger the
+  device prompt. Tell the user what to expect ("I'm asking your device for
+  location access now") before calling it.
+
   Never invent or guess ids. To revoke or refer a share, FIRST call
   list_active_location_shares; to view an incoming share, FIRST call
   list_incoming_location_shares; to revoke a public link, FIRST call

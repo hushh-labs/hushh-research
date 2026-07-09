@@ -101,6 +101,14 @@ _ACTION_RESULT_TEMPLATES = {
     ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
     ("check_in", "completed"): "Done — your trusted contacts can see your check-in. ✓",
     ("check_in", "cancelled"): "Okay — I didn't check you in.",
+    (
+        "request_device_location_permission",
+        "completed",
+    ): "Location access is on now — try that again.",
+    (
+        "request_device_location_permission",
+        "cancelled",
+    ): "Location access is still off. You can turn it on anytime in your device settings.",
 }
 
 _UNAVAILABLE_MESSAGE = (
@@ -282,6 +290,17 @@ def _function_declarations_v2(types: Any) -> list:
                     properties={"grant_id": schema(type=kind.STRING)},
                     required=["grant_id"],
                 ),
+            ),
+            types.FunctionDeclaration(
+                name="request_device_location_permission",
+                description=(
+                    "Ask the device to (re-)prompt the OS location permission dialog. "
+                    "Call this whenever the user asks you to (re-)ask for location "
+                    "permission, or an action needing the device's location (share, "
+                    "check-in, SOS) failed because permission is missing or was "
+                    "previously denied. Coordinate-free; the prompt happens on-device."
+                ),
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
             ),
             types.FunctionDeclaration(
                 name="revoke_public_link",
@@ -695,6 +714,11 @@ class LocationChatService:
                 "durationHours": result.get("durationHours"),
                 "note": result.get("note"),
             }
+        if (
+            name == "request_device_location_permission"
+            and result.get("proposed") == "request_device_location_permission"
+        ):
+            return {"type": "request_device_location_permission"}
         return None
 
     @staticmethod
@@ -766,6 +790,16 @@ class LocationChatService:
                 "summary": f"Check in with your trusted contacts for {hours}h"
                 if hours is not None
                 else "Check in with your trusted contacts",
+            }
+        permission = next(
+            (d for d in directives if d.get("type") == "request_device_location_permission"),
+            None,
+        )
+        if permission:
+            return {
+                "id": action_id,
+                "type": "request_device_location_permission",
+                "summary": "Allow this device to share your location",
             }
         return None
 

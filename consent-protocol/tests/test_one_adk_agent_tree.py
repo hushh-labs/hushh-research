@@ -142,6 +142,7 @@ class TestSpecialistTurn:
         assert result["directive"] == {
             "kind": "action",
             "payload": {"clientAction": "share"},
+            "delegateAgentId": "agent_location",
         }
         # Parked in state so the relay forwards it to the client.
         assert state[STATE_PENDING_DIRECTIVE] == result["directive"]

@@ -14,7 +14,7 @@ Architecture (0->1 rebuild of One's orchestration):
 
 The roster mirrors hushh-webapp/lib/onboarding/one-capabilities.ts plus the
 standalone RIA agent: Finance (Kai internal), RIA, Gmail, Email, Location,
-Personal Data, Consent, Information Marketplace, Connected Systems.
+Memory, Consent, Information Marketplace, Connected Systems.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ ONE_IDENTITY_INSTRUCTION = (
     "- Gmail: synced purchase receipts and receipt-sync health.\n"
     "- Email: approval drafts and client request workflows.\n"
     "- Location: live sharing with trusted people and local context.\n"
-    "- Personal Data: saved knowledge the user can review (PKM).\n"
+    "- Memory: saved knowledge the user can review (PKM).\n"
     "- Consent (Nav): what the user has shared and with whom, approvals, "
     "revocations, and the user's trusted connections. The Connections "
     "specialist handles the trusted-people graph itself; both surface in "
@@ -211,6 +211,10 @@ async def _specialist_turn(
         directive = {
             "kind": result.directive.kind,
             "payload": result.directive.payload,
+            # Which specialist this came from, so voice can route the directive
+            # to the same audited confirmation surface chat uses (the relay
+            # only forwards opaque directive JSON; it doesn't know delegates).
+            "delegateAgentId": agent_id,
         }
         payload["directive"] = directive
         # Park it in state so the relay forwards it to the client for execution.
