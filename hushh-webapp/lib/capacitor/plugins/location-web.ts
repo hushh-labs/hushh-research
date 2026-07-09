@@ -54,6 +54,11 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     return this.getPermissionState();
   }
 
+  async requestAlwaysAuthorization(): Promise<HushhLocationPermissionState> {
+    // Browsers have no "always" location tier.
+    return this.getPermissionState();
+  }
+
   async openAppSettings(): Promise<{
     opened: boolean;
     sourcePlatform: "web";

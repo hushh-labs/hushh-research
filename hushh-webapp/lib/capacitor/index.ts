@@ -788,6 +788,8 @@ export type BackgroundShareSession = {
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
+  /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */
+  requestAlwaysAuthorization(): Promise<HushhLocationPermissionState>;
   openAppSettings(): Promise<{
     opened: boolean;
     sourcePlatform: "web" | "ios" | "android" | "native";

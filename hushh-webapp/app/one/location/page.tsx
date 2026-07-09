@@ -190,6 +190,7 @@ import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
+import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
@@ -5533,6 +5534,17 @@ function OneLocationAgentPageContent() {
                   className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("people"))}
                 >
                   {sectionLabel("People who can see me")}
+                  {activeOwnerGrants.length > 0 ? (
+                    <div className="px-1 pb-1">
+                      <BackgroundShareToggle
+                        enabled={backgroundShareEnabled}
+                        onEnabledChange={setBackgroundShareEnabled}
+                        requestAlwaysAuthorization={
+                          OneLocationService.requestAlwaysAuthorization
+                        }
+                      />
+                    </div>
+                  ) : null}
                   <div className={oneScrollablePanelClassName}>
                     {(state?.ownerGrants ?? []).length ? (
                       state?.ownerGrants.map((grant, index) => (
