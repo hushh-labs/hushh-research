@@ -187,6 +187,7 @@ import { LocationChatPanel } from "@/components/one-location/redesign/location-c
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
+import { LiveMap } from "@/components/one-location/live-map";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const DURATION_OPTIONS = [
@@ -198,6 +199,9 @@ const DURATION_OPTIONS = [
 ];
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+// Recipients poll faster than the owner's publish heartbeat so the shared dot
+// stays fresh; the LiveMap marker interpolates between these reads.
+const LIVE_VIEW_REFRESH_INTERVAL_MS = 5_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // True live tracking: while a share is active and the app is foregrounded, the
@@ -779,11 +783,6 @@ function locationCoordinateQuery(point: PlainLocationPoint): string {
   ].join(",");
 }
 
-function googleMapsLocationEmbedUrl(point: PlainLocationPoint): string {
-  const query = encodeURIComponent(locationCoordinateQuery(point));
-  return `https://www.google.com/maps?q=${query}&z=16&output=embed`;
-}
-
 function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
   const destination = encodeURIComponent(locationCoordinateQuery(point));
   return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
@@ -828,7 +827,6 @@ function LocalMapPreview({
   const captured = formatDateTime(point.capturedAt);
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
-  const embedUrl = googleMapsLocationEmbedUrl(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
   const statusLabel = isStale ? "Last known location" : "Live location";
 
@@ -836,14 +834,7 @@ function LocalMapPreview({
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <iframe
-          title="Live location map preview"
-          src={embedUrl}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          allowFullScreen
-          className="h-full w-full border-0"
-        />
+        <LiveMap point={point} />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
@@ -3533,7 +3524,7 @@ function OneLocationAgentPageContent() {
     void refreshVisibleGrants();
     const interval = window.setInterval(
       () => void refreshVisibleGrants(),
-      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+      LIVE_VIEW_REFRESH_INTERVAL_MS,
     );
     return () => window.clearInterval(interval);
   }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
