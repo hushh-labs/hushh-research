@@ -5,7 +5,7 @@ from python_a2a.models.content import ErrorContent, TextContent
 from python_a2a.models.message import Message, MessageRole
 from python_a2a.server.a2a_server import A2AServer
 
-from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token
+from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token_with_db
 from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent
@@ -55,7 +55,10 @@ class KaiA2AServer(A2AServer):
 
             # 2. VALIDATION
             # Validate token using the least-privilege Kai A2A specialist scope.
-            validation = validate_a2a_consent_token("agent_kai", consent_token)
+            # DB-backed so revocations from other instances are honored.
+            validation = self._run_async(
+                validate_a2a_consent_token_with_db("agent_kai", consent_token)
+            )
 
             if not validation.ok or not validation.user_id:
                 logger.warning("a2a.request_rejected_invalid_token")

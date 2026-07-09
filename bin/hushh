@@ -114,6 +114,7 @@ Usage:
   ./bin/hushh codex onboard [--json|--text]
   ./bin/hushh codex scan summary [--json|--text]
   ./bin/hushh codex scan section <docs|frontend|backend|skills|commands> [--json|--text] [--verbose]
+  ./bin/hushh codex scan validate [--json|--text]
   ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
   ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]

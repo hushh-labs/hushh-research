@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 
 SPECIALIST_A2A_SCOPE_MAP: dict[str, ConsentScope] = {
@@ -37,9 +37,34 @@ def get_a2a_required_scope(agent_id: str) -> ConsentScope:
 
 
 def validate_a2a_consent_token(agent_id: str, consent_token: str) -> A2AConsentValidation:
-    """Validate an A2A consent token against the specialist-specific scope."""
+    """Validate an A2A consent token against the specialist-specific scope.
+
+    In-memory validation only (signature, expiry, scope, local revocation
+    cache). Prefer ``validate_a2a_consent_token_with_db`` at specialist entry
+    boundaries so revocations issued on other instances are honored.
+    """
     required_scope = get_a2a_required_scope(agent_id)
     valid, reason, payload = validate_token(consent_token, required_scope)
+    return A2AConsentValidation(
+        ok=bool(valid and payload),
+        reason=reason,
+        user_id=payload.user_id if payload else None,
+        required_scope=required_scope,
+    )
+
+
+async def validate_a2a_consent_token_with_db(
+    agent_id: str, consent_token: str
+) -> A2AConsentValidation:
+    """Validate an A2A consent token with a DB-backed revocation check.
+
+    Catches tokens revoked on other Cloud Run instances (the in-memory
+    revocation cache is per-process). Fail policy follows
+    ``validate_token_with_db``: scoped tokens fail closed when revocation
+    status cannot be confirmed.
+    """
+    required_scope = get_a2a_required_scope(agent_id)
+    valid, reason, payload = await validate_token_with_db(consent_token, required_scope)
     return A2AConsentValidation(
         ok=bool(valid and payload),
         reason=reason,

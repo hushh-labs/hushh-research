@@ -14,7 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
-from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token
+from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token_with_db
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.services.consent_center_service import ConsentCenterService
@@ -32,7 +32,7 @@ class NavAgent:
         self._manifest = ManifestLoader.load(str(self._manifest_path))
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
-        validation = validate_a2a_consent_token(self.agent_id, task.consent_token)
+        validation = await validate_a2a_consent_token_with_db(self.agent_id, task.consent_token)
         if not validation.ok:
             return SpecialistTurnResult(
                 conversation_id=task.conversation_id or "",
