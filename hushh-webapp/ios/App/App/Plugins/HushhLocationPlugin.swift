@@ -21,7 +21,10 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         CAPPluginMethod(name: "openLocationSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getCurrentPosition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "watchPosition", returnType: CAPPluginReturnCallback),
-        CAPPluginMethod(name: "clearWatch", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clearWatch", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestAlwaysAuthorization", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startBackgroundShare", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopBackgroundShare", returnType: CAPPluginReturnPromise)
     ]
 
     private let manager = CLLocationManager()
@@ -32,10 +35,13 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     // fans out to every saved callback call below. Foreground-only.
     private var watchCalls: [String: CAPPluginCall] = [:]
     private var pendingWatchStartCall: CAPPluginCall?
+    private let backgroundPublisher = BackgroundLocationPublisher()
 
     public override func load() {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
     }
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
@@ -51,6 +57,21 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             DispatchQueue.main.async {
                 self.manager.requestWhenInUseAuthorization()
             }
+        @unknown default:
+            call.resolve(permissionPayload())
+        }
+    }
+
+    @objc func requestAlwaysAuthorization(_ call: CAPPluginCall) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .denied, .restricted:
+            call.resolve(permissionPayload())
+        case .authorizedWhenInUse, .notDetermined:
+            // iOS shows the "Always Allow" upgrade prompt only from a
+            // WhenInUse-or-notDetermined state. Resolve with the current payload
+            // once auth settles; JS re-reads state via getPermissionState.
+            pendingPermissionCall = call
+            DispatchQueue.main.async { self.manager.requestAlwaysAuthorization() }
         @unknown default:
             call.resolve(permissionPayload())
         }
@@ -145,6 +166,51 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         call.resolve()
     }
 
+    @objc func startBackgroundShare(_ call: CAPPluginCall) {
+        guard manager.authorizationStatus == .authorizedAlways else {
+            call.resolve(["started": false, "reason": "always-permission-required"])
+            return
+        }
+        guard
+            let token = call.getString("vaultOwnerToken"),
+            let base = call.getString("backendBaseUrl"),
+            let rawGrants = call.getArray("grants") as? [[String: Any]]
+        else {
+            call.resolve(["started": false, "reason": "invalid-session"])
+            return
+        }
+        let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
+            guard
+                let grantId = g["grantId"] as? String,
+                let keyId = g["recipientKeyId"] as? String,
+                let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
+            else { return nil }
+            return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk)
+        }
+        guard !grants.isEmpty else {
+            call.resolve(["started": false, "reason": "no-grants"])
+            return
+        }
+        let session = BackgroundShareSessionNative(
+            vaultOwnerToken: token,
+            backendBaseUrl: base,
+            grants: grants,
+            minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
+            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
+        )
+        backgroundPublisher.start(session: session)
+        DispatchQueue.main.async { self.manager.startUpdatingLocation() }
+        call.resolve(["started": true])
+    }
+
+    @objc func stopBackgroundShare(_ call: CAPPluginCall) {
+        backgroundPublisher.stop()
+        if watchCalls.isEmpty {
+            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        }
+        call.resolve()
+    }
+
     private func startWatch(_ call: CAPPluginCall) {
         // Keep the call alive so the callback channel can fire on every fix. The
         // resolved point becomes the JS callback's first arg; a reject becomes
@@ -199,9 +265,22 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         return [
             "state": state,
             "precise": precise as Any,
-            "background": "foreground-only",
+            "background": backgroundStatus(),
             "locationServicesEnabled": locationServicesEnabled
         ]
+    }
+
+    private func backgroundStatus() -> String {
+        switch manager.authorizationStatus {
+        case .authorizedAlways:
+            return "available"
+        case .authorizedWhenInUse:
+            return "foreground-only"
+        case .restricted:
+            return "restricted"
+        default:
+            return "unavailable"
+        }
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -271,6 +350,11 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
         // Continuous watches keep firing on every subsequent fix.
         notifyWatchesSuccess(payload)
+
+        // Background publisher (if active) encrypts + POSTs each fix natively.
+        if backgroundPublisher.isActive {
+            backgroundPublisher.handle(location: location)
+        }
     }
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

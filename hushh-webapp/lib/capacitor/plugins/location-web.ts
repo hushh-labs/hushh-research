@@ -1,4 +1,5 @@
 import type {
+  BackgroundShareSession,
   HushhLocationPermissionState,
   HushhLocationPlugin,
 } from "@/lib/capacitor";
@@ -50,6 +51,11 @@ export class HushhLocationWeb implements HushhLocationPlugin {
       enableHighAccuracy: true,
       timeoutMs: 15_000,
     });
+    return this.getPermissionState();
+  }
+
+  async requestAlwaysAuthorization(): Promise<HushhLocationPermissionState> {
+    // Browsers have no "always" location tier.
     return this.getPermissionState();
   }
 
@@ -245,6 +251,18 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     if (Number.isFinite(watchId)) {
       navigator.geolocation.clearWatch(watchId);
     }
+  }
+
+  async startBackgroundShare(
+    _session: BackgroundShareSession,
+  ): Promise<{ started: boolean; reason?: string }> {
+    // Web tabs cannot run location updates in the background (timers freeze when
+    // hidden; no GPS in service workers). Always report unsupported.
+    return { started: false, reason: "unsupported-on-web" };
+  }
+
+  async stopBackgroundShare(): Promise<void> {
+    // No-op on web; nothing was started.
   }
 }
 

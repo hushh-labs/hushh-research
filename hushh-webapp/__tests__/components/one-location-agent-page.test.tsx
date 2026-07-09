@@ -123,6 +123,12 @@ vi.mock("@/lib/one-location/service", () => ({
     captureCurrentPosition: mockCaptureCurrentPosition,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
+    clearLocationWatch: vi.fn(),
+    startBackgroundShare: vi.fn().mockResolvedValue({ started: false }),
+    stopBackgroundShare: vi.fn().mockResolvedValue(undefined),
+    requestAlwaysAuthorization: vi
+      .fn()
+      .mockResolvedValue({ background: "unavailable" }),
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
     requestAccess: mockRequestAccess,
@@ -912,7 +918,7 @@ describe("OneLocationAgentPage", () => {
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
-    expect(screen.queryAllByText("Last known location").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/Paused · last seen/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Accuracy \+\/- 18 m/)).toBeTruthy();
     expect(screen.queryByText("Lat")).toBeNull();
     expect(screen.queryByText("Lng")).toBeNull();
