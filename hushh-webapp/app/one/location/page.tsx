@@ -192,6 +192,7 @@ import { buildBackgroundShareSession } from "@/lib/one-location/background-share
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { liveFreshness } from "@/lib/one-location/freshness";
+import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
@@ -1790,6 +1791,9 @@ function OneLocationAgentPageContent() {
   const [myLocationPoint, setMyLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
+  // True once the owner taps "Show my location" — keeps their own preview
+  // streaming live (foreground) even before any share exists.
+  const [selfPreviewStreaming, setSelfPreviewStreaming] = useState(false);
   const [decryptedPoints, setDecryptedPoints] = useState<
     Record<string, PlainLocationPoint>
   >({});
@@ -1827,6 +1831,7 @@ function OneLocationAgentPageContent() {
   // geolocation watch id, the last point we actually published (to measure
   // movement), and the timestamp of that publish (to throttle bursts).
   const liveWatchIdRef = useRef<string | null>(null);
+  const selfWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
   const driveSessionRef = useRef<{
@@ -3509,6 +3514,67 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
+  // Live self-preview (Device readiness): once the owner taps "Show my location"
+  // we stream their own position continuously so the preview moves in real time,
+  // even before any share exists. Foreground-only (visibility-guarded). When a
+  // share IS active the publish watch above already keeps myLocationPoint fresh,
+  // so this standalone watch stands down to avoid a duplicate GPS stream.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (
+      !shouldStreamSelfPreview({
+        streaming: selfPreviewStreaming,
+        activeGrantCount: activeOwnerGrants.length,
+        permissionState: permission?.state,
+      })
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const watchId = await OneLocationService.watchCurrentPosition(
+          (point) => {
+            if (cancelled) return;
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "hidden"
+            ) {
+              return;
+            }
+            setMyLocationPoint(point);
+          },
+          (error) => {
+            console.warn(
+              "[OneLocationAgent] Self-preview watch error:",
+              error.message,
+            );
+          },
+        );
+        if (cancelled) {
+          void OneLocationService.clearLocationWatch(watchId).catch(() => null);
+          return;
+        }
+        selfWatchIdRef.current = watchId;
+      } catch (error) {
+        console.warn(
+          "[OneLocationAgent] Could not start self-preview watch:",
+          error,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      const watchId = selfWatchIdRef.current;
+      selfWatchIdRef.current = null;
+      if (watchId) {
+        void OneLocationService.clearLocationWatch(watchId).catch(() => null);
+      }
+    };
+  }, [selfPreviewStreaming, activeOwnerGrants.length, permission?.state]);
+
   useEffect(() => {
     if (!activeVisibleReceivedGrants.length) return;
     if (busy && busy !== "load") return;
@@ -4540,6 +4606,8 @@ function OneLocationAgentPageContent() {
         return;
       }
       setMyLocationPoint(result.point);
+      // Keep the preview live from here on (foreground streaming watch below).
+      setSelfPreviewStreaming(true);
       toast.success("Your live location preview is ready.");
     } catch (error) {
       const message = locationServicesErrorMessage(error);
