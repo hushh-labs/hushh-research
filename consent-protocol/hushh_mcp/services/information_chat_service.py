@@ -16,7 +16,6 @@ active HushhContext, which this service opens around the loop.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import Any, Awaitable, Callable
@@ -235,13 +234,10 @@ class InformationChatService:
             self._ready = ready or _llm._require_gemini_ready
 
             async def _default_call(contents: Any, config: Any) -> Any:
-                return await asyncio.wait_for(
-                    _llm._gemini_client.aio.models.generate_content(
-                        model=_llm._gemini_model_name,
-                        contents=contents,
-                        config=config,
-                    ),
-                    timeout=_LLM_TIMEOUT_S,
+                # Shared hedged call: short per-attempt deadline + retry inside
+                # the total budget collapses rare stalls (tail-at-scale).
+                return await _llm.agent_chat_model_call(
+                    contents, config, total_timeout_s=_LLM_TIMEOUT_S
                 )
 
             self._model_call = _default_call
