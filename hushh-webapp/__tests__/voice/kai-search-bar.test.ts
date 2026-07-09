@@ -51,45 +51,6 @@ vi.mock("@/components/kai/kai-command-palette", () => ({
       : null,
 }));
 
-vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
-  VoiceAmbientSearchSurface: ({
-    mode,
-    transcriptPreview,
-    stageText,
-    onMicToggle,
-    onEnd,
-  }: {
-    mode: string;
-    transcriptPreview?: string | null;
-    stageText?: string | null;
-    onMicToggle: (event: unknown) => void;
-    onEnd: () => void;
-  }) =>
-    createElement(
-      "div",
-      { "data-testid": "voice-ambient-search-surface", "data-mode": mode },
-      createElement(
-        "div",
-        { "data-testid": "voice-ambient-preview" },
-        transcriptPreview || stageText || "",
-      ),
-      createElement(
-        "button",
-        {
-          type: "button",
-          "aria-label": "Toggle voice microphone",
-          onClick: onMicToggle,
-        },
-        "mic",
-      ),
-      createElement(
-        "button",
-        { type: "button", onClick: onEnd },
-        "cancel voice",
-      ),
-    ),
-}));
-
 vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
   VoiceDebugDrawer: () => null,
 }));

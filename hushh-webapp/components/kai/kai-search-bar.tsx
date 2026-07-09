@@ -15,9 +15,6 @@ import {
   KaiCommandPalette,
   type KaiCommandPaletteSelection,
 } from "@/components/kai/kai-command-palette";
-import {
-  type VoiceAmbientMode,
-} from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import {
@@ -1616,7 +1613,16 @@ export function KaiSearchBar({
 
   const realtimeConnecting =
     sessionStateText === "connecting" && !realtimeSessionReady;
-  const ambientMode = useMemo<VoiceAmbientMode>(() => {
+  const ambientMode = useMemo<
+    | "idle"
+    | "connecting"
+    | "listening"
+    | "muted"
+    | "processing"
+    | "speaking"
+    | "retry_ready"
+    | "error"
+  >(() => {
     if (showVoiceSheet) {
       if (!realtimeSessionReady || realtimeConnecting) return "connecting";
       return sessionMuted && realtimeSessionReady ? "muted" : "listening";

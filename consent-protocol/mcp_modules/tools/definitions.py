@@ -337,11 +337,12 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     },
                     "to_agent": {
                         "type": "string",
-                        "description": "Target agent ID",
+                        "description": "Target agent ID (current ontology specialists)",
                         "enum": [
-                            "agent_food_dining",
-                            "agent_professional_profile",
-                            "agent_identity",
+                            "agent_kai",
+                            "agent_nav",
+                            "agent_kyc",
+                            "agent_personal_information",
                         ],
                     },
                     "scope": {"type": "string", "description": "Scope being delegated"},
