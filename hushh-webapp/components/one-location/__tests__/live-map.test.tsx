@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
@@ -51,5 +51,149 @@ describe("LiveMap", () => {
     expect(Map).toHaveBeenCalledTimes(1);
     expect(Marker).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
+  });
+
+  describe("marker animation", () => {
+    // Shared mutable state for the stateful Marker mock.
+    let markerInternalPos: { lat: number; lng: number } | null;
+    let markerSetPositionSpy: ReturnType<typeof vi.fn>;
+    let mapPanToSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      markerInternalPos = null;
+      mapPanToSpy = vi.fn();
+      markerSetPositionSpy = vi.fn(
+        (pos: { lat: number; lng: number }) => {
+          markerInternalPos = pos;
+        },
+      );
+
+      // Stateful Marker: stores position from constructor opts and from setPosition().
+      // vitest 4.x requires non-arrow function expressions for mocks called with `new`.
+      const Marker = vi.fn(function (opts: {
+        map: unknown;
+        position: { lat: number; lng: number };
+      }) {
+        markerInternalPos = opts.position ?? null;
+        return {
+          getPosition: () =>
+            markerInternalPos !== null
+              ? {
+                  lat: () => markerInternalPos!.lat,
+                  lng: () => markerInternalPos!.lng,
+                }
+              : null,
+          setPosition: markerSetPositionSpy,
+        };
+      });
+
+      const Map = vi.fn(function () {
+        return { panTo: mapPanToSpy };
+      });
+
+      // @ts-expect-error test global
+      globalThis.google = { maps: { Map, Marker } };
+      mockStatus.current = "ready";
+
+      // Fix performance.now() so `start` is always 0 for deterministic t calculation.
+      vi.stubGlobal("performance", { now: () => 0 });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("glides the marker to a nearby point (small movement < 2 km)", () => {
+      // Drive the animation synchronously: rAF immediately fires the callback at
+      // time=1200ms so that t = (1200 - 0) / 1200 = 1 and the animation completes
+      // in one step.
+      const rafStub = vi.fn((cb: (time: number) => void) => {
+        cb(1200);
+        return 1;
+      });
+      vi.stubGlobal("requestAnimationFrame", rafStub);
+
+      const pointA: PlainLocationPoint = {
+        latitude: 12.9716,
+        longitude: 77.5946,
+        capturedAt: "2026-07-08T00:00:00.000Z",
+        sourcePlatform: "web",
+      };
+      // ~15 m from A — well below the 2 km snap threshold.
+      const pointB: PlainLocationPoint = {
+        latitude: 12.9717,
+        longitude: 77.5947,
+        capturedAt: "2026-07-08T00:01:00.000Z",
+        sourcePlatform: "web",
+      };
+
+      const { rerender } = render(<LiveMap point={pointA} />);
+
+      // Clear call history from the initial A→A glide; markerInternalPos stays = A.
+      markerSetPositionSpy.mockClear();
+      mapPanToSpy.mockClear();
+
+      rerender(<LiveMap point={pointB} />);
+
+      // lerpLatLng(A, B, easeInOutQuad(1)) = lerpLatLng(A, B, 1) = B.
+      const calls = markerSetPositionSpy.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const lastSetPos = calls.at(-1)![0] as { lat: number; lng: number };
+      expect(lastSetPos.lat).toBeCloseTo(pointB.latitude, 5);
+      expect(lastSetPos.lng).toBeCloseTo(pointB.longitude, 5);
+
+      // panTo(target) is called when the animation step reaches t = 1.
+      expect(mapPanToSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ lat: pointB.latitude, lng: pointB.longitude }),
+      );
+    });
+
+    it("snaps the marker immediately on a large jump (> 2 km), no rAF", () => {
+      const rafStub = vi.fn((cb: (time: number) => void) => {
+        cb(1200);
+        return 1;
+      });
+      vi.stubGlobal("requestAnimationFrame", rafStub);
+
+      const pointA: PlainLocationPoint = {
+        latitude: 12.9716,
+        longitude: 77.5946,
+        capturedAt: "2026-07-08T00:00:00.000Z",
+        sourcePlatform: "web",
+      };
+      // Tokyo — ~6 500 km from Bangalore, far beyond the 2 km snap threshold.
+      const pointFar: PlainLocationPoint = {
+        latitude: 35.6762,
+        longitude: 139.6503,
+        capturedAt: "2026-07-08T00:01:00.000Z",
+        sourcePlatform: "web",
+      };
+
+      const { rerender } = render(<LiveMap point={pointA} />);
+
+      // Reset call history; markerInternalPos stays = A so the snap distance is real.
+      markerSetPositionSpy.mockClear();
+      mapPanToSpy.mockClear();
+      rafStub.mockClear();
+
+      rerender(<LiveMap point={pointFar} />);
+
+      // Snap path: setPosition called immediately with the far point.
+      expect(markerSetPositionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lat: pointFar.latitude,
+          lng: pointFar.longitude,
+        }),
+      );
+      // panTo called immediately with the far point.
+      expect(mapPanToSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lat: pointFar.latitude,
+          lng: pointFar.longitude,
+        }),
+      );
+      // No animation frame scheduled — the snap path returns early.
+      expect(rafStub).not.toHaveBeenCalled();
+    });
   });
 });
