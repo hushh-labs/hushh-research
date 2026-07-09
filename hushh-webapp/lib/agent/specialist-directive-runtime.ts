@@ -191,6 +191,22 @@ export async function runLocationDirective(
       };
     }
 
+    if (type === "request_device_location_permission") {
+      // Actually trigger the OS/browser permission prompt (native plugins call
+      // requestWhenInUseAuthorization / ACCESS_FINE_LOCATION; the web fallback
+      // calls getCurrentPosition, which is what surfaces the browser's own
+      // permission dialog). No coordinates cross this boundary.
+      const state = await OneLocationService.requestLocationPermission();
+      return {
+        delegate_agent_id: "agent_location",
+        kind: "action",
+        id,
+        type,
+        status: state.state === "granted" ? "completed" : "cancelled",
+        detail: state.state,
+      };
+    }
+
     if (type === "check_in") {
       const state = await OneLocationService.getState(vaultOwnerToken);
       const connected = selectSosConnectedRecipients(

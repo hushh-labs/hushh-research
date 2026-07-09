@@ -1081,13 +1081,13 @@ export default function PkmAgentLabPageClient() {
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as typeof activeTab)}
             options={[
-              { value: "overview", label: "Data overview" },
+              { value: "overview", label: "Memory overview" },
               { value: "permissions", label: "Permissions" },
               { value: "advanced", label: "Advanced" },
             ]}
           />
 
-          {/* ── Data Overview tab ── */}
+          {/* ── Memory Overview tab ── */}
           {activeTab === "overview" ? (
             <div className="space-y-4">
               <SettingsGroup embedded>

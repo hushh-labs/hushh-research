@@ -123,7 +123,7 @@
           ]
         },
         "speaker_persona": "kyc",
-        "delegate_agent_id": "kyc"
+        "delegate_agent_id": "agent_kyc"
       }
     },
     {
@@ -2725,7 +2725,7 @@
       ],
       "meaning": "Navigates to One email request review.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -2833,7 +2833,7 @@
       ],
       "meaning": "Opens the verified email address panel used to match email requests.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -2939,7 +2939,7 @@
       ],
       "meaning": "Refreshes the selected email request status after consent approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3044,7 +3044,7 @@
       ],
       "meaning": "Reads or focuses the current approval-gated email draft.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3149,7 +3149,7 @@
       ],
       "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3255,7 +3255,7 @@
       ],
       "meaning": "Sends the email draft only after explicit user approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3362,7 +3362,7 @@
       ],
       "meaning": "Rejects the current email draft and blocks the workflow.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3770,7 +3770,7 @@
     {
       "action_id": "route.one_pkm",
       "surface_id": "one_agents",
-      "label": "Open Personal Data",
+      "label": "Open Memory",
       "aliases": [
         "open personal data",
         "open my personal data",
@@ -3783,7 +3783,7 @@
         "saved knowledge",
         "memory"
       ],
-      "meaning": "Navigates to the One Personal Data route.",
+      "meaning": "Navigates to the One Memory route.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -3842,7 +3842,7 @@
           {
             "type": "action",
             "action_id": "route.one_pkm",
-            "label": "Open Personal Data",
+            "label": "Open Memory",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/pkm",
@@ -8189,10 +8189,12 @@
       "reachability": {
         "routes": [
           "/marketplace/connections",
+          "/consents",
           "/one"
         ],
         "screens": [
           "marketplace_connections",
+          "consents",
           "one_agents"
         ],
         "hidden_navigable": true,
@@ -8276,8 +8278,425 @@
             "failure_behavior": "stop",
             "service": "specialist_chat.turn",
             "settlement_target": {
-              "route": "/marketplace/connections",
-              "screen": "marketplace_connections"
+              "route": "/consents?tab=connections",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "confirmation_needed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "chat_handoff"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "gmail.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Gmail",
+      "aliases": [
+        "what did i buy this month",
+        "show my receipts",
+        "how much did i spend at",
+        "show my purchases",
+        "is my receipt sync working",
+        "are my receipts up to date"
+      ],
+      "search_keywords": [
+        "receipts",
+        "purchases",
+        "purchase memory",
+        "spending",
+        "merchant",
+        "receipt sync"
+      ],
+      "meaning": "Delegates read-only purchase-receipt and receipt-sync questions to the Gmail specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_gmail",
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one"
+        ],
+        "screens": [
+          "gmail",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "gmail connection required for synced receipt content"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_gmail"
+        }
+      },
+      "control_ids": [
+        "agent_chat_gmail_turn"
+      ],
+      "state_exposure": [
+        "gmail_connection_status",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.gmail.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Gmail?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "gmail_connection_status"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Gmail specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Consent (Nav)",
+      "aliases": [
+        "what have i shared",
+        "who has access to my data",
+        "what am i sharing right now",
+        "how do i revoke access",
+        "review my consents",
+        "who can see my information"
+      ],
+      "search_keywords": [
+        "consent",
+        "shared",
+        "access",
+        "revoke",
+        "privacy",
+        "permissions"
+      ],
+      "meaning": "Delegates consent questions - what the user has shared, with whom, and how to revoke it - to the Nav specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_nav",
+      "reachability": {
+        "routes": [
+          "/consents",
+          "/one"
+        ],
+        "screens": [
+          "consents",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "consent reviews require the signed-in owner"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_nav"
+        }
+      },
+      "control_ids": [
+        "agent_chat_consent_turn"
+      ],
+      "state_exposure": [
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /consents"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Nav about your consents?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Nav consent specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/consents",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connected_systems.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Connected Systems",
+      "aliases": [
+        "check my crm",
+        "show my connected systems",
+        "what systems are connected",
+        "look up a crm record",
+        "update my crm"
+      ],
+      "search_keywords": [
+        "crm",
+        "connected systems",
+        "external system",
+        "records",
+        "integration"
+      ],
+      "meaning": "Delegates CRM and connected-system workflow questions to the Connected Systems specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_connected_systems",
+      "reachability": {
+        "routes": [
+          "/connected-systems",
+          "/one"
+        ],
+        "screens": [
+          "connected_systems",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "connected-system writes require governed confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_connected_systems"
+        }
+      },
+      "control_ids": [
+        "agent_chat_connected_systems_turn"
+      ],
+      "state_exposure": [
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /connected-systems"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connected_systems.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Connected Systems?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Connected Systems specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/connected-systems",
+              "screen": "connected_systems"
             }
           }
         ],

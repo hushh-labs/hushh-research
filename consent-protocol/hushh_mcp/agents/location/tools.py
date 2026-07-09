@@ -259,6 +259,18 @@ async def propose_location_view(grant_id: str) -> dict[str, Any]:
     return {"proposed": "view_envelope", "grantId": grant_id}
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_device_location_permission")
+async def request_device_location_permission() -> dict[str, Any]:
+    """Ask the device to (re-)prompt the OS location permission dialog. Use this
+    whenever an action needs the device's location and it is not currently
+    available or was previously denied - e.g. the user asks to share, check in,
+    or send SOS and a prior attempt failed because permission was never granted
+    or was denied. The server never receives a coordinate here; the OS prompt
+    and outcome happen entirely client-side."""
+    _ctx()
+    return {"proposed": "request_device_location_permission"}
+
+
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="revoke_public_link")
 async def revoke_public_link(invite_id: str) -> dict[str, Any]:
     """Revoke an active public location link owned by the current user. invite_id
@@ -537,6 +549,7 @@ V2_LOCATION_TOOLS = [
     propose_public_link,
     propose_location_view,
     revoke_public_link,
+    request_device_location_permission,
     request_recipient_choice,
     request_active_share_choice,
     request_duration_choice,

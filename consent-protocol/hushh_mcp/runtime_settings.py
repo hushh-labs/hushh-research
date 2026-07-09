@@ -193,10 +193,36 @@ def get_connector_secrets_key() -> str:
     """Password for connector-credential PBKDF2-AES256-CBC encryption.
 
     Separate trust domain from user-data encryption. Falls back to
-    VAULT_DATA_KEY during transition so existing deployments keep working;
+    VAULT_DATA_KEY during transition so existing deployments keep working
+    (rows encrypted under the fallback key must remain decryptable);
     provision a dedicated CONNECTOR_SECRETS_KEY before production self-serve.
+    The fallback is logged once per process so operators can see the merged
+    trust domain and schedule the key split + re-encryption.
     """
-    return _clean_env(CONNECTOR_SECRETS_KEY_ENV) or _clean_env(VAULT_DATA_KEY_ENV)
+    dedicated = _clean_env(CONNECTOR_SECRETS_KEY_ENV)
+    if dedicated:
+        return dedicated
+    _warn_key_fallback_once(
+        "connector_secrets_key",
+        "CONNECTOR_SECRETS_KEY not set; falling back to VAULT_DATA_KEY. "
+        "Connector credentials and user-data encryption currently share one "
+        "key domain. Provision CONNECTOR_SECRETS_KEY and re-encrypt registry "
+        "rows to separate the trust domains.",
+    )
+    return _clean_env(VAULT_DATA_KEY_ENV)
+
+
+_KEY_FALLBACK_WARNED: set[str] = set()
+
+
+def _warn_key_fallback_once(key: str, message: str) -> None:
+    """Log a key-domain fallback warning once per process per key."""
+    if key in _KEY_FALLBACK_WARNED:
+        return
+    _KEY_FALLBACK_WARNED.add(key)
+    import logging
+
+    logging.getLogger(__name__).warning(message)
 
 
 def get_connector_kdf_salt() -> str:

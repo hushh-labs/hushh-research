@@ -5,12 +5,7 @@ MCP tool definitions and handlers.
 
 from .campaign_context_tools import handle_prepare_campaign_context
 from .consent_tools import handle_check_consent_status, handle_request_consent
-from .data_tools import (
-    handle_get_encrypted_scoped_export,
-    handle_get_financial,
-    handle_get_food,
-    handle_get_professional,
-)
+from .data_tools import handle_get_encrypted_scoped_export
 from .definitions import get_tool_definitions
 from .kai_tools import (
     handle_kai_analyze_stock,
@@ -47,9 +42,6 @@ __all__ = [
     "handle_check_consent_status",
     # Data
     "handle_get_encrypted_scoped_export",
-    "handle_get_financial",
-    "handle_get_food",
-    "handle_get_professional",
     # Utility
     "handle_validate_token",
     "handle_delegate",

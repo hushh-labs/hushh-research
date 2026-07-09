@@ -148,7 +148,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   pkm: {
     value: "pkm",
-    label: "Data",
+    label: "Memory",
     icon: FolderSearch,
     dataTourId: "nav-one-pkm",
   },

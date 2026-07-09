@@ -191,7 +191,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "Profile", href: "/profile" },
-        { label: "My Data", href: undefined },
+        { label: "Memory", href: undefined },
       ],
     });
 

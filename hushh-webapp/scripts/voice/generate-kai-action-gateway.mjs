@@ -25,10 +25,12 @@ const AGENT_PERSONAS = new Set([
   "one",
   "kai",
   "nav",
-  "kyc",
+  "agent_kyc",
+  "agent_nav",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
+  "agent_gmail",
   "agent_location",
   "agent_personal_information",
 ]);

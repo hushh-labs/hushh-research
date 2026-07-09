@@ -662,6 +662,20 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   /**
+   * Refresh the consent token mid-call (sign-in / vault unlock while a voice
+   * session is already open). Stored locally so it also rides on the next
+   * screen-change app_context frame, then pushed immediately so specialist
+   * tools stop failing closed without the user having to restart the call.
+   */
+  updateConsentToken(consentToken: string | null): boolean {
+    const trimmed = consentToken?.trim() || null;
+    if (trimmed === this.consentToken) return false;
+    this.consentToken = trimmed;
+    if (!trimmed) return false;
+    return this.sendAppContext({});
+  }
+
+  /**
    * Send an app_context frame. The governed consent token and timezone ride
    * here (post-connect, never in the URL) so One's specialist tools can act;
    * the relay stores them in session state and they never reach the model.

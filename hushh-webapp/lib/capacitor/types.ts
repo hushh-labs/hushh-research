@@ -59,6 +59,8 @@ export interface TrustLink {
   expiresAt: number;
   signedByUser: string;
   signature: string;
+  /** Optional session binding for replay protection (mirrors link.py). */
+  sessionId?: string;
 }
 
 // ==================== Vault Types ====================
@@ -121,11 +123,17 @@ export interface CreateTrustLinkOptions {
   scope: ConsentScope | string;
   signedByUser: string;
   expiresInMs?: number;
+  /** Optional session binding for replay protection. */
+  sessionId?: string;
+  /** VAULT_OWNER token; the backend signs only for the authenticated user. */
+  vaultOwnerToken?: string;
 }
 
 export interface VerifyTrustLinkOptions {
   link: TrustLink;
   requiredScope?: ConsentScope | string;
+  /** When provided, verification also rejects cross-session replay. */
+  expectedSessionId?: string;
 }
 
 export interface VerifyTrustLinkResult {

@@ -1353,9 +1353,9 @@ function OneKycWorkspace() {
         updateWorkflow(selectedWorkflow);
         const refreshed = await refreshWorkflowState(selectedWorkflow);
         if (refreshed.status === "waiting_on_user") {
-          toast.success("Data updated. Preparing draft.");
+          toast.success("Information updated. Preparing draft.");
         } else if (refreshed.status === "needs_scope") {
-          toast.info("Data updated. Approve access to prepare the draft.");
+          toast.info("Information updated. Approve access to prepare the draft.");
         }
       } catch (err) {
         setError(oneKycErrorMessage(err, "Unable to update selected data."));
@@ -1607,7 +1607,7 @@ function OneKycWorkspace() {
                       workflow.counterparty_label ||
                         workflow.sender_email ||
                         "Counterparty",
-                      selectedScopeLabels(workflow).join(", ") || "Data pending",
+                      selectedScopeLabels(workflow).join(", ") || "Information pending",
                     ].join(" / ")}
                     trailing={
                       <div className="flex items-center gap-2">
@@ -1706,9 +1706,9 @@ function OneKycWorkspace() {
                 />
                 <SettingsRow
                   icon={ShieldCheck}
-                  title="Data"
+                  title="Information"
                   description={
-                    selectedScopeLabels(selected).join(", ") || "Data pending"
+                    selectedScopeLabels(selected).join(", ") || "Information pending"
                   }
                 />
                 <SettingsRow
@@ -1726,7 +1726,7 @@ function OneKycWorkspace() {
                 <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                   {(selectedEffectiveRequiredFields.length
                     ? selectedEffectiveRequiredFields
-                    : ["selected data"]
+                    : ["selected information"]
                   ).map((field) => (
                     <Badge key={field} variant="outline">
                       {field.replaceAll("_", " ")}
@@ -1748,10 +1748,10 @@ function OneKycWorkspace() {
               {shouldShowDataSelection(selected) ? (
                 <SettingsGroup
                   embedded
-                  title="Data One can use"
+                  title="Information One can use"
                   description={
                     selectedAccessApproved
-                      ? "Review the data for this reply. Change it if One picked the wrong section."
+                      ? "Review the information for this reply. Change it if One picked the wrong section."
                       : "One picked this from the email. Change it if the match looks wrong."
                   }
                 >

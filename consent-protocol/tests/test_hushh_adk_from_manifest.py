@@ -49,10 +49,10 @@ _MANIFEST_WITH_TOOL: dict = {
     "name": "Test Agent With Tool",
     "tools": [
         {
-            "name": "delegate_to_food_agent",
+            "name": "delegate_to_kai_agent",
             "description": "Orchestrator delegation tool used in canonical path tests.",
-            "py_func": "hushh_mcp.agents.orchestrator.tools.delegate_to_food_agent",
-            "required_scope": "agent.one.orchestrate",
+            "py_func": "hushh_mcp.agents.orchestrator.tools.delegate_to_kai_agent",
+            "required_scope": "agent.kai.analyze",
         }
     ],
 }

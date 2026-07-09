@@ -104,8 +104,8 @@
     },
     {
       "action_id": "route.one_pkm",
-      "label": "Open Personal Data",
-      "meaning": "Navigates to the One Personal Data route.",
+      "label": "Open Memory",
+      "meaning": "Navigates to the One Memory route.",
       "aliases": [
         "open personal data",
         "open my personal data",

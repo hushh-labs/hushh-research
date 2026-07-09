@@ -14,7 +14,7 @@ Architecture (0->1 rebuild of One's orchestration):
 
 The roster mirrors hushh-webapp/lib/onboarding/one-capabilities.ts plus the
 standalone RIA agent: Finance (Kai internal), RIA, Gmail, Email, Location,
-Personal Data, Consent, Information Marketplace, Connected Systems.
+Memory, Consent, Information Marketplace, Connected Systems.
 """
 
 from __future__ import annotations
@@ -104,14 +104,19 @@ ONE_IDENTITY_INSTRUCTION = (
     "You hold the relationship layer: speak warmly, concisely, and in plain "
     "English.\n\n"
     "Your specialist agents (your arms) and what they own:\n"
-    "- Finance: markets, portfolio, stock analysis and debates, RIA handoff "
-    "(internally the Kai runtime).\n"
-    "- RIA: the advisor workspace with clients, picks, and requests.\n"
-    "- Gmail: receipt sync and purchase-memory review.\n"
+    "- Finance: markets, portfolio, stock analysis and debates (internally "
+    "the Kai runtime). Its subagents: RIA (the advisor workspace with "
+    "clients, picks, and requests) and Investor (personal portfolio "
+    "review). Route ALL finance, advisor, and investing requests through "
+    "Finance.\n"
+    "- Gmail: synced purchase receipts and receipt-sync health.\n"
     "- Email: approval drafts and client request workflows.\n"
     "- Location: live sharing with trusted people and local context.\n"
-    "- Personal Data: saved knowledge the user can review (PKM).\n"
-    "- Consent: what the user has shared and with whom.\n"
+    "- Memory: saved knowledge the user can review (PKM).\n"
+    "- Consent (Nav): what the user has shared and with whom, approvals, "
+    "revocations, and the user's trusted connections. The Connections "
+    "specialist handles the trusted-people graph itself; both surface in "
+    "the consent center (Connections tab).\n"
     "- Information Marketplace: governed data-slice requests and delivery.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
     "Delegate naturally: when a request belongs to a specialist's domain, call "
@@ -206,6 +211,10 @@ async def _specialist_turn(
         directive = {
             "kind": result.directive.kind,
             "payload": result.directive.payload,
+            # Which specialist this came from, so voice can route the directive
+            # to the same audited confirmation surface chat uses (the relay
+            # only forwards opaque directive JSON; it doesn't know delegates).
+            "delegateAgentId": agent_id,
         }
         payload["directive"] = directive
         # Park it in state so the relay forwards it to the client for execution.
@@ -241,6 +250,11 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
     return await _specialist_turn("agent_email", request, tool_context)
 
 
+async def ask_gmail_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Gmail specialist about synced purchase receipts, spending at merchants, or receipt sync status."""
+    return await _specialist_turn("agent_gmail", request, tool_context)
+
+
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Location specialist about live location sharing with trusted people, check-ins, or SOS."""
     return await _specialist_turn("agent_location", request, tool_context)
@@ -266,47 +280,79 @@ async def ask_consent_agent(request: str, tool_context: ToolContext) -> dict[str
     return await _specialist_turn("agent_nav", request, tool_context)
 
 
-def _build_finance_agent() -> LlmAgent:
-    """Finance subagent: the public face of the internal Kai runtime.
-
-    Finance turns run through the Kai chat/analysis services; the debate
-    engine itself stays a governed app goal (the app confirms and renders
-    runs), so this agent answers market/portfolio questions and frames the
-    governed next step rather than claiming execution.
-    """
-    return LlmAgent(
-        name="finance",
-        model=_SPECIALIST_MODEL,
-        description=(
-            "Finance specialist: markets, portfolio context, stock analysis "
-            "framing, and RIA handoff. Internally the Kai runtime."
-        ),
-        instruction=(
-            "You are Finance, One's markets and portfolio specialist (the Kai "
-            "runtime internally). Answer market and portfolio questions from "
-            "provided context. Analysis runs and trades are governed app "
-            "actions confirmed by the app; explain what the user can start, "
-            "never claim you executed anything."
-        ),
-    )
-
-
 def _build_ria_agent() -> LlmAgent:
-    """RIA subagent: advisor workspace persona."""
+    """RIA subagent of Finance: advisor workspace persona."""
     return LlmAgent(
         name="ria",
         model=_SPECIALIST_MODEL,
-        description="RIA specialist: the advisor workspace with clients, picks, and requests.",
+        description="RIA subagent: the advisor workspace with clients, picks, and requests.",
         instruction=(
-            "You are RIA, One's advisor-workspace specialist. Help with "
-            "advisor workflows: clients, picks, and requests. Workspace "
+            "You are RIA, the advisor-workspace subagent of Finance. Help "
+            "with advisor workflows: clients, picks, and requests. Workspace "
             "mutations are governed app actions confirmed by the app."
         ),
     )
 
 
-def build_one_root_agent() -> LlmAgent:
-    """Build the One head agent with the full /one roster as tools.
+def _build_investor_agent() -> LlmAgent:
+    """Investor subagent of Finance: personal investing analysis persona."""
+    return LlmAgent(
+        name="investor",
+        model=_SPECIALIST_MODEL,
+        description=(
+            "Investor subagent: personal portfolio review and stock-analysis "
+            "framing for the account holder."
+        ),
+        instruction=(
+            "You are Investor, the personal-investing subagent of Finance. "
+            "Answer portfolio and stock questions from provided context. "
+            "Analysis runs and trades are governed app actions confirmed by "
+            "the app; explain what the user can start, never claim you "
+            "executed anything."
+        ),
+    )
+
+
+def _build_finance_agent() -> LlmAgent:
+    """Finance head (the internal Kai runtime) with RIA + Investor subagents.
+
+    Kai is the ONE finance decision-maker under One. RIA (advisor workspace)
+    and Investor (personal investing) are its subagents, reached through
+    Finance rather than as One-level siblings. Finance turns run through the
+    Kai chat/analysis services; the debate engine itself stays a governed app
+    goal (the app confirms and renders runs), so this agent answers
+    market/portfolio questions and frames the governed next step rather than
+    claiming execution.
+    """
+    from google.adk.tools.agent_tool import AgentTool
+
+    return LlmAgent(
+        name="finance",
+        model=_SPECIALIST_MODEL,
+        description=(
+            "Finance specialist: markets, portfolio context, stock analysis "
+            "framing, advisor (RIA) and personal-investing (Investor) "
+            "subagents. Internally the Kai runtime."
+        ),
+        instruction=(
+            "You are Finance, One's markets and portfolio specialist (the Kai "
+            "runtime internally). Answer market and portfolio questions from "
+            "provided context. Consult your subagents when the request is "
+            "clearly theirs: 'ria' for advisor workspace matters (clients, "
+            "picks, requests) and 'investor' for the user's personal "
+            "portfolio review. Analysis runs and trades are governed app "
+            "actions confirmed by the app; explain what the user can start, "
+            "never claim you executed anything."
+        ),
+        tools=[
+            AgentTool(agent=_build_ria_agent()),
+            AgentTool(agent=_build_investor_agent()),
+        ],
+    )
+
+
+def _one_roster_tools() -> list:
+    """The full /one specialist roster, shared by every One head.
 
     AgentTool wraps the LLM-backed specialists (Finance, RIA) so One can
     consult them as tools; the dispatch-backed specialists (email, location,
@@ -315,25 +361,47 @@ def build_one_root_agent() -> LlmAgent:
     """
     from google.adk.tools.agent_tool import AgentTool
 
+    return [
+        google_search,
+        open_screen,
+        run_app_action,
+        list_app_actions,
+        AgentTool(agent=_build_finance_agent()),
+        ask_email_agent,
+        ask_gmail_agent,
+        ask_location_agent,
+        ask_connections_agent,
+        ask_marketplace_agent,
+        ask_connected_systems_agent,
+        ask_consent_agent,
+    ]
+
+
+def build_one_root_agent() -> LlmAgent:
+    """Build the One VOICE head (native-audio Live model) with the full roster."""
     return LlmAgent(
         name="one",
         model=_build_one_live_model(),
         description="One, the Hussh head personal agent and orchestrator.",
         instruction=ONE_IDENTITY_INSTRUCTION,
-        tools=[
-            google_search,
-            open_screen,
-            run_app_action,
-            list_app_actions,
-            AgentTool(agent=_build_finance_agent()),
-            AgentTool(agent=_build_ria_agent()),
-            ask_email_agent,
-            ask_location_agent,
-            ask_connections_agent,
-            ask_marketplace_agent,
-            ask_connected_systems_agent,
-            ask_consent_agent,
-        ],
+        tools=_one_roster_tools(),
+    )
+
+
+def build_one_text_agent() -> LlmAgent:
+    """Build the One TEXT head: same brain, same tools, text model.
+
+    Used by non-audio entries (external A2A today; chat when it migrates).
+    The Live native-audio model rejects text-only run_async turns, so text
+    surfaces run the specialist-generation model with the identical
+    instruction and roster - ONE decision-maker, two transport heads.
+    """
+    return LlmAgent(
+        name="one",
+        model=_SPECIALIST_MODEL,
+        description="One, the Hussh head personal agent and orchestrator.",
+        instruction=ONE_IDENTITY_INSTRUCTION,
+        tools=_one_roster_tools(),
     )
 
 
@@ -342,7 +410,16 @@ _runner: Runner | None = None
 
 def get_one_runner() -> Runner:
     """Process-wide Runner for One (in-memory sessions; voice sessions are
-    ephemeral and the durable record lives in the app's own stores)."""
+    ephemeral and the durable record lives in the app's own stores).
+
+    SCALE SEAM (Agent Architecture Doctrine, AGENTS.md): InMemorySessionService
+    means a mid-conversation reconnect that lands on another worker/instance
+    starts with zero context, and session count is bounded by one process's
+    memory. The documented upgrade is ADK's DatabaseSessionService on the
+    existing Postgres (asyncpg driver, SELECT FOR UPDATE row locking) for
+    resumable voice sessions; swap here, contract unchanged. Gate that swap on
+    a voice-session write-load measurement against the DB pool budget.
+    """
     global _runner
     if _runner is None:
         _runner = Runner(
@@ -352,3 +429,24 @@ def get_one_runner() -> Runner:
             auto_create_session=True,
         )
     return _runner
+
+
+_text_runner: Runner | None = None
+
+
+def get_one_text_runner() -> Runner:
+    """Process-wide Runner for One's text head (external A2A, future chat).
+
+    Sessions are per-request ephemeral today; the same DatabaseSessionService
+    scale seam documented on get_one_runner applies here when multi-turn
+    external conversations need durability.
+    """
+    global _text_runner
+    if _text_runner is None:
+        _text_runner = Runner(
+            app_name=ONE_APP_NAME,
+            agent=build_one_text_agent(),
+            session_service=InMemorySessionService(),
+            auto_create_session=True,
+        )
+    return _text_runner
