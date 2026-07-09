@@ -59,6 +59,10 @@ const allowedBrandPatterns = [
   /\bHushhMCP\b/,
   /\bX-Hushh-[A-Za-z-]+\b/,
   /\bcom\.hushh\./,
+  // GitHub Projects board Sector option values (external state; the scripts
+  // must emit the exact strings configured on the board).
+  /\bHushh (?:Research|AI)\b/,
+  /\bHushhTech\b/,
 ];
 
 function normalize(p) {

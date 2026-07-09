@@ -130,7 +130,6 @@ export function EditHoldingModal({
   onSave,
 }: EditHoldingModalProps) {
   const maxAcquisitionDate = getLocalDateIso();
-  const acquisitionDateInputRef = useRef<HTMLInputElement | null>(null);
   const symbolInputWrapRef = useRef<HTMLDivElement | null>(null);
   const nameInputWrapRef = useRef<HTMLDivElement | null>(null);
   const [formData, setFormData] = useState<Holding>({
@@ -372,21 +371,6 @@ export function EditHoldingModal({
       symbol: formData.symbol.toUpperCase(),
     });
   }, [formData, validate, onSave]);
-
-  const handleOpenDatePicker = useCallback(() => {
-    const input = acquisitionDateInputRef.current;
-    if (!input) return;
-
-    // showPicker is supported in modern Chromium; click/focus fallback keeps Safari/iOS usable.
-    try {
-      (input as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
-      return;
-    } catch {
-      // no-op: fallback below
-    }
-    input.focus({ preventScroll: true });
-    input.click();
-  }, []);
 
   const formatAcquisitionDate = useCallback((value?: string) => {
     if (!value) return "";
@@ -634,38 +618,37 @@ export function EditHoldingModal({
               Acquisition Date
             </label>
             <div className="relative">
-              <input
-                id="holding-acquisition-date"
-                type="text"
-                value={formatAcquisitionDate(formData.acquisition_date)}
-                placeholder="MM/DD/YYYY"
-                readOnly
-                onClick={handleOpenDatePicker}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleOpenDatePicker();
-                  }
-                }}
-                className="w-full px-4 py-3 pr-12 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors cursor-pointer"
-              />
-              <button
-                type="button"
-                onClick={handleOpenDatePicker}
-                aria-label="Open acquisition date picker"
-                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              {/*
+                Decorative display layer. The REAL date input is the invisible
+                full-size overlay below: iOS WKWebView only opens the native
+                date wheel from a direct user tap ON the date input itself -
+                programmatic click()/focus()/showPicker() on a hidden 1px input
+                are ignored there, which is why this field previously could not
+                be filled on iOS. pointer-events-none keeps every tap landing
+                on the overlay input.
+              */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none flex h-12 w-full items-center rounded-xl border border-border bg-background px-4 pr-12 transition-colors"
+              >
+                <span className={formData.acquisition_date ? "" : "text-muted-foreground"}>
+                  {formatAcquisitionDate(formData.acquisition_date) || "MM/DD/YYYY"}
+                </span>
+              </div>
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground"
               >
                 <Calendar className="h-4 w-4" />
-              </button>
+              </span>
               <input
-                ref={acquisitionDateInputRef}
+                id="holding-acquisition-date"
                 type="date"
                 value={formData.acquisition_date || ""}
                 onChange={(e) => handleChange("acquisition_date", e.target.value)}
                 max={maxAcquisitionDate}
-                tabIndex={-1}
-                aria-hidden="true"
-                className="absolute h-px w-px opacity-0 pointer-events-none"
+                aria-label="Acquisition date"
+                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
               />
             </div>
             {errors.acquisition_date && (

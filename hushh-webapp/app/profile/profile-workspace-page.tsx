@@ -2055,7 +2055,7 @@ function ProfilePageContent() {
     const profileHomeControls = [
       {
         id: "profile_my_data",
-        label: "Personal Data",
+        label: "Memory",
         purpose: "opens your saved details and sharing controls.",
         role: "card",
         voiceAliases: ["personal knowledge model", "my data", "pkm"],
@@ -2194,7 +2194,7 @@ function ProfilePageContent() {
           activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Data"
+              ? "Memory"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "connected-systems"
@@ -2265,7 +2265,7 @@ function ProfilePageContent() {
           ? activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Data"
+              ? "Memory"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "connected-systems"
@@ -2920,10 +2920,10 @@ function ProfilePageContent() {
             },
             summary: {
               readable_summary:
-                "Your financial profile includes saved context from My Data.",
+                "Your financial profile includes saved context from Memory.",
               readable_highlights: [],
               readable_updated_at: updatedAt,
-              readable_source_label: "My Data",
+              readable_source_label: "Memory",
               consumer_item_count: nextEntries.length,
               context_entry_count: nextEntries.length,
               last_updated: updatedAt,
@@ -3021,11 +3021,11 @@ function ProfilePageContent() {
             summary: {
               readable_summary:
                 nextEntries.length > 0
-                  ? "Your financial profile includes saved context from My Data."
+                  ? "Your financial profile includes saved context from Memory."
                   : "Your financial profile is ready for saved context.",
               readable_highlights: [],
               readable_updated_at: updatedAt,
-              readable_source_label: "My Data",
+              readable_source_label: "Memory",
               consumer_item_count: nextEntries.length,
               context_entry_count: nextEntries.length,
               last_updated: updatedAt,
@@ -3926,7 +3926,7 @@ function ProfilePageContent() {
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
-      title: "Personal Data",
+      title: "Memory",
       description: "Browse saved details and sharing controls.",
       content: myDataContent,
     });

@@ -331,15 +331,22 @@ export class HushhConsentWeb extends WebPlugin {
   }
 
   async createTrustLink(options: CreateTrustLinkOptions): Promise<TrustLink> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (options.vaultOwnerToken) {
+      headers["Authorization"] = `Bearer ${options.vaultOwnerToken}`;
+    }
     const response = await fetch(`${BACKEND_URL}/api/trust/create-link`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         from_agent: options.fromAgent,
         to_agent: options.toAgent,
         scope: options.scope,
         signed_by_user: options.signedByUser,
         expires_in_ms: options.expiresInMs,
+        session_id: options.sessionId ?? "",
       }),
     });
 
@@ -356,6 +363,7 @@ export class HushhConsentWeb extends WebPlugin {
       expiresAt: data.expires_at,
       signedByUser: data.signed_by_user,
       signature: data.signature,
+      sessionId: data.session_id ?? "",
     };
   }
 
@@ -374,8 +382,10 @@ export class HushhConsentWeb extends WebPlugin {
           expires_at: options.link.expiresAt,
           signed_by_user: options.link.signedByUser,
           signature: options.link.signature,
+          session_id: options.link.sessionId ?? "",
         },
         required_scope: options.requiredScope,
+        expected_session_id: options.expectedSessionId,
       }),
     });
 

@@ -4,11 +4,34 @@
 
 Canonical visual owner: [IAM Reference](README.md). This page defines how delegated agents receive authority under that IAM model.
 
+```mermaid
+flowchart TB
+  user["User (BYOK unlock)"]
+  vo["VAULT_OWNER token<br/>24h, master scope"]
+  scoped["Scoped consent token<br/>attr.* / agent.* / cap.*"]
+  export["Encrypted scoped export<br/>ciphertext + wrapped key"]
+  tl["TrustLink<br/>signed delegation proof<br/>/api/trust/* (backend signs)"]
+  one["One (root agent)"]
+  spec["Specialists<br/>Kai / Nav / KYC / email / location"]
+  ext["External agents<br/>MCP + /one A2A"]
+
+  user --> vo
+  vo -->|"issue via consent flow"| scoped
+  vo -->|"sign for self only"| tl
+  one -->|"A2ATask + consent token<br/>DB-backed revocation gate"| spec
+  scoped --> spec
+  scoped -->|"approval flow"| export
+  export --> ext
+  tl -.->|"provenance proof, paired with<br/>scoped authority, never a replacement"| spec
+```
+
 ## Purpose
 
 Define the current boundary between consent tokens, encrypted scoped exports, TrustLinks, and A2A specialist delegation.
 
 This is an implementation contract, not a roadmap. It exists because Hussh has more than one delegated-agent path and those paths must not be treated as interchangeable.
+
+Durable principles behind this contract live in the Project-Wide Agent Architecture Doctrine in `AGENTS.md` (dumb agents by default, delegation as a wrapped function of current behavior, per-hop scoped encrypted exports, one routing authority per surface).
 
 ## Runtime Authority Types
 
@@ -30,8 +53,11 @@ Current implementation:
 2. `verify_trust_link` verifies expiry and HMAC integrity.
 3. When `expected_session_id` is provided, verification also rejects cross-session replay.
 4. `is_trusted_for_scope` verifies both the requested scope and the TrustLink proof.
+5. The backend is the single signing authority: `POST /api/trust/create-link` (requires `VAULT_OWNER`; users sign only for themselves) and `POST /api/trust/verify-link` (pure verification). The Capacitor consent plugin delegates both operations to these routes on every platform; devices never sign locally because they never hold the signing key.
 
 A TrustLink is not a vault key, not a consent token, and not an encrypted export. It should be paired with the relevant scoped consent or export boundary before any private data leaves the current trust boundary.
+
+Evolution note: TrustLinks are the reserved delegation-provenance primitive. When specialist dispatch crosses a process or network boundary, per-hop delegation rides ADK's Task API with TrustLink-shaped provenance attached (see the Agent Architecture Doctrine); until then in-process dispatch relies on scoped consent tokens with DB-backed revocation at the specialist gates.
 
 ## External MCP Agent Boundary
 
@@ -65,7 +91,7 @@ The target rule is stricter: before a specialist crosses an external, vendor, pr
 Use these checks when this boundary changes:
 
 ```bash
-cd consent-protocol && python3 -m pytest tests/test_trust.py tests/test_trust_link_session_binding.py tests/test_a2a_delegation_scopes.py -q
+cd consent-protocol && python3 -m pytest tests/test_trust.py tests/test_trust_link_session_binding.py tests/test_trust_routes.py tests/test_a2a_delegation_scopes.py -q
 cd consent-protocol && python3 scripts/verify_adk_a2a_compliance.py
 cd consent-protocol && python3 -m pytest tests/test_developer_response_bounds_cwe400.py tests/test_consent_exports_ttl_eviction.py tests/test_pkm_preview_cache_lru_privacy.py -q
 ```

@@ -6,9 +6,19 @@ Implements safe rate limits for the 2-step consent flow:
 1. Step 1 (consent_request): 10/min per user
 2. Step 2 (consent_action): 20/min per user
 3. Token validation: 60/min (higher for polling scenarios)
+
+SCALE SEAM (Agent Architecture Doctrine, AGENTS.md): with no
+RATE_LIMIT_STORAGE_URI configured, slowapi uses in-memory storage, so the
+effective limit multiplies by gunicorn workers x Cloud Run instances
+(2 workers x N instances today). The documented upgrade path is a shared
+backend via RATE_LIMIT_STORAGE_URI (e.g. redis://... on Memorystore); the
+limits library consumes that URI directly, so the swap is config-only.
+Postgres is NOT a supported limits backend, which is why this seam jumps
+straight to Redis when cross-instance precision becomes a requirement.
 """
 
 import logging
+import os
 
 from fastapi import Request
 from slowapi import Limiter
@@ -45,8 +55,14 @@ def get_rate_limit_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-# Initialize limiter with custom key function
-limiter = Limiter(key_func=get_rate_limit_key)
+# Initialize limiter with custom key function. Storage is per-process memory
+# unless RATE_LIMIT_STORAGE_URI points at a shared backend (see module note).
+_storage_uri = os.getenv("RATE_LIMIT_STORAGE_URI", "").strip()
+if _storage_uri:
+    limiter = Limiter(key_func=get_rate_limit_key, storage_uri=_storage_uri)
+    logger.info("rate_limit.shared_storage_enabled")
+else:
+    limiter = Limiter(key_func=get_rate_limit_key)
 
 
 # Rate limit constants (per minute)

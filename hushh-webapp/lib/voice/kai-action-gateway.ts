@@ -12,10 +12,12 @@ export type KaiActionDelegateAgentId =
   | "one"
   | "kai"
   | "nav"
-  | "kyc"
+  | "agent_kyc"
+  | "agent_nav"
   | "agent_connected_systems"
   | "agent_connections"
   | "agent_email"
+  | "agent_gmail"
   | "agent_location"
   | "agent_personal_information";
 export type KaiActionExecutionTarget =
@@ -248,10 +250,12 @@ function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | nul
     normalized === "one" ||
     normalized === "kai" ||
     normalized === "nav" ||
-    normalized === "kyc" ||
+    normalized === "agent_kyc" ||
+    normalized === "agent_nav" ||
     normalized === "agent_connected_systems" ||
     normalized === "agent_connections" ||
     normalized === "agent_email" ||
+    normalized === "agent_gmail" ||
     normalized === "agent_location" ||
     normalized === "agent_personal_information"
   ) {

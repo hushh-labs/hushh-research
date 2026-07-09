@@ -65,10 +65,12 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
   "one",
   "kai",
   "nav",
-  "kyc",
+  "agent_kyc",
+  "agent_nav",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
+  "agent_gmail",
   "agent_location",
   "agent_personal_information",
 ];
@@ -406,7 +408,7 @@ describe("kai-action-gateway", () => {
     ]);
     expect(
       kycActions.every(
-        (action) => action.speaker_persona === "kyc" && action.delegate_agent_id === "kyc"
+        (action) => action.speaker_persona === "kyc" && action.delegate_agent_id === "agent_kyc"
       )
     ).toBe(true);
 

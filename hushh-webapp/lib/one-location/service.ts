@@ -389,7 +389,25 @@ export class OneLocationService {
     );
   }
 
+  /**
+   * Human-readable reason a Places search / ETA lookup failed. Distinguishes the
+   * common local-dev case — the backend has no `GOOGLE_MAPS_API_KEY`, so the
+   * proxy returns 503 "Maps is not configured on this backend." — from a genuine
+   * network failure, so the UI doesn't mislead the user into "check your
+   * connection" when the real fix is a server-side key.
+   */
+  static placesSearchErrorMessage(error: unknown): string {
+    if (error instanceof ApiError) {
+      const message = String(error.message || "").toLowerCase();
+      if (error.status === 503 || message.includes("not configured")) {
+        return "Place search isn't set up on this server yet (missing Maps key).";
+      }
+    }
+    return "Couldn't search places. Check your connection.";
+  }
+
   static async placesAutocomplete(params: {
+
     vaultOwnerToken: string;
     input: string;
     sessionToken?: string;

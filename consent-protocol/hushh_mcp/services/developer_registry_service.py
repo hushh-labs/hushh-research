@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -12,6 +13,20 @@ from typing import Any
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+
+logger = logging.getLogger(__name__)
+
+_pepper_fallback_warned = False
+
+
+def _warn_pepper_fallback_once(message: str) -> None:
+    """Log the developer-token pepper fallback once per process."""
+    global _pepper_fallback_warned
+    if _pepper_fallback_warned:
+        return
+    _pepper_fallback_warned = True
+    logger.warning(message)
+
 
 TOOL_GROUP_CORE_CONSENT = "core_consent"
 TOOL_GROUP_RIA_READ = "ria_read"
@@ -288,9 +303,24 @@ class DeveloperRegistryService:
         configured_pepper = str(os.getenv("DEVELOPER_TOKEN_PEPPER", "")).strip()
         if configured_pepper:
             return configured_pepper
+        # Transition fallbacks, logged for operator visibility. Provision
+        # DEVELOPER_TOKEN_PEPPER in Secret Manager to separate trust domains;
+        # the hardcoded literal is retained only until that rollout completes
+        # (existing token hashes were computed under the active fallback).
         try:
-            return get_core_security_settings().app_signing_key
+            pepper = get_core_security_settings().app_signing_key
+            _warn_pepper_fallback_once(
+                "DEVELOPER_TOKEN_PEPPER not set; using APP_SIGNING_KEY as "
+                "developer-token pepper. Provision a dedicated pepper to "
+                "separate the trust domains."
+            )
+            return pepper
         except ValueError:
+            _warn_pepper_fallback_once(
+                "DEVELOPER_TOKEN_PEPPER and APP_SIGNING_KEY both unavailable; "
+                "using the legacy hardcoded pepper. This is NOT safe for "
+                "production - provision DEVELOPER_TOKEN_PEPPER."
+            )
             return "hushh-developer-token-pepper"
 
     @classmethod

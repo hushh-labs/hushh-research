@@ -119,6 +119,13 @@ steps:
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
 
+        # Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are
+        # long-lived HTTP requests on Cloud Run; the previous 300s hard-killed
+        # any voice conversation at 5 minutes. Session affinity is best-effort
+        # per Google's WebSocket guidance; reconnects still re-mint a relay
+        # ticket, and cross-instance nonce single-use is Postgres-backed
+        # (migration 084). Billing note: instances with open WebSockets stay
+        # active for the connection's lifetime.
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
           "--image=gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -128,7 +135,8 @@ steps:
           "--port=8080"
           "--memory=1Gi"
           "--cpu=1"
-          "--timeout=300"
+          "--timeout=3600"
+          "--session-affinity"
           "--max-instances=10"
           "--min-instances=1"
           "--labels=${deploy_labels}"
@@ -176,7 +184,7 @@ substitutions:
   _GMAIL_OAUTH_REDIRECT_URI_SECRET: ""
   _GMAIL_OAUTH_TOKEN_KEY_SECRET: ""
   _OPENAI_API_KEY_SECRET: ""
-  _GOOGLE_MAPS_API_KEY_SECRET: ""
+  _GOOGLE_MAPS_API_KEY_SECRET: GOOGLE_MAPS_API_KEY
   _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
   _OMNIGATEWAY_CLIENT_ID_SECRET: OMNIGATEWAY_CLIENT_ID
   _OMNIGATEWAY_CLIENT_SECRET_SECRET: OMNIGATEWAY_CLIENT_SECRET

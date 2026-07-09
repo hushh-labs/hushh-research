@@ -38,7 +38,7 @@ export function AppSidebar() {
           <span className="text-2xl">🤫</span>
           <div>
             <h2 className="font-semibold">Hussh PDA</h2>
-            <p className="text-xs text-muted-foreground">Personal Data Agent</p>
+            <p className="text-xs text-muted-foreground">Memory Agent</p>
           </div>
         </div>
       </SidebarHeader>

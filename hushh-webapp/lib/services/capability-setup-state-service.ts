@@ -70,7 +70,7 @@ export interface CapabilityStatus {
   /**
    * Whether resolving the *real* state of this capability requires the vault to
    * be unlocked. The flow uses this to defer enrichment until after unlock and
-   * to render an honest "Unlock to see" affordance instead of a fabricated
+   * to render an honest "Unlock to view" affordance instead of a fabricated
    * status.
    */
   requiresUnlock: boolean;
@@ -290,7 +290,7 @@ export function isCapabilitySetupActionable(status: CapabilityStatus): boolean {
  * can be non-actionable yet still un-ready (`blocked` needs an OAuth connection,
  * `unknown` needs an unlock to even resolve). Those must read as "left to set
  * up", never as "ready", or the headline count contradicts the per-tile badge
- * ("Connect to set up" / "Unlock to see").
+ * ("Connect to set up" / "Unlock to view").
  */
 export function isCapabilitySetupComplete(status: CapabilityStatus): boolean {
   return status.state === "completed" || status.state === "skipped";

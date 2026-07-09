@@ -68,6 +68,13 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
       "w-[5.75rem]",
     );
+    // Each tile's icon chip carries its own brand tone (bug fix: the icon
+    // component previously ignored the tone prop entirely and rendered every
+    // tile with the same neutral chip).
+    const financeIcon = financeLink.querySelector("span[aria-hidden]");
+    expect(financeIcon?.className).toContain("bg-[#5B7FDE]");
+    expect(financeIcon?.className).toContain("text-white");
+    expect(financeIcon?.className).toContain("dark:text-[#1d1d1f]");
     // The /one grid mirrors the top-bar agent switcher roster: RIA sits
     // directly after Finance as a standalone top-level agent.
     const riaLink = screen.getByRole("link", { name: "Open RIA" });
@@ -87,7 +94,7 @@ describe("OneDashboardPage", () => {
     ).toBe(`${ROUTES.ONE_LOCATION}?${fromOne}`);
     expect(
       screen
-        .getByRole("link", { name: "Open Personal Data" })
+        .getByRole("link", { name: "Open Memory" })
         .getAttribute("href"),
     ).toBe(`${ROUTES.PKM}?${fromOne}`);
     expect(
@@ -107,7 +114,7 @@ describe("OneDashboardPage", () => {
     // email + location are real vault-gated workflows (not explore-only), so a
     // completed status reads "Ready", not "Explored".
     expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed
-    expect(screen.getByText("Unlock to see")).toBeTruthy(); // pkm vault-gated
+    expect(screen.getByText("Unlock to view")).toBeTruthy(); // pkm vault-gated
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
     expect(screen.getByText("2 consents pending")).toBeTruthy(); // header badge
     expect(

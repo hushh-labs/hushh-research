@@ -262,7 +262,9 @@ type BusyState =
   | "locationSettings"
   | "selfLocation"
   | "driveTo"
+  | "safeArrival"
   | "contactSync"
+
   | "contactInvite"
   | "publicInvite"
   | "publicRevoke"
@@ -4516,7 +4518,220 @@ function OneLocationAgentPageContent() {
     ],
   );
 
+  // Pick Me Up quick action (INBOUND help): share your LIVE location + a pickup
+  // message so a trusted person can drive straight to you and watch you until
+  // they arrive. Reuses the exact encrypted share pipeline (createGrant +
+  // publish) as Check-In — no new crypto, no new consent surface. The live
+  // foreground watch keeps the recipient's map moving as you (or they) move, and
+  // sharing auto-expires when the timer ends. The pickup message rides along as
+  // the grant reason so it surfaces in the recipient's notification
+  // ("<You>: I need a ride now — please pick me up ASAP.").
+  const handlePickMeUp = useCallback(
+    async (
+      recipientIds: string[],
+      durationHoursValue: string,
+      messageValue?: string,
+    ) => {
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+        toast.error("Location permission is required to request a pickup.");
+        return;
+      }
+      const selected = sosActionRecipients
+        .filter((recipient) => recipientIds.includes(recipient.userId))
+        .filter(isShareReadyRecipient);
+      if (!selected.length) {
+        toast.error(
+          "Select at least one trusted contact who is ready to receive your location.",
+        );
+        return;
+      }
+      const pickupMessage = (messageValue || "").trim().slice(0, 160) || undefined;
+      setBusy("share");
+      let successCount = 0;
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) {
+          toast.error("Couldn't get your location — pickup request not sent.");
+          return;
+        }
+        const point = readiness.point;
+        const durationHoursNum = Number(durationHoursValue) || 1;
+        for (const recipient of selected) {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: durationHoursNum,
+            reason: pickupMessage,
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+          successCount += 1;
+        }
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, 0),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: 0,
+          duration_bucket: oneLocationDurationBucket(durationHoursValue),
+          review_required: false,
+        });
+        toast.success(
+          `Pickup requested from ${peopleCountLabel(selected.length)}. They can see you live.`,
+        );
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        const failureCount = selected.length - successCount || 1;
+        trackEvent("one_location_share_confirmed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          duration_bucket: oneLocationDurationBucket(durationHoursValue),
+          review_required: false,
+        });
+        toast.error(
+          error instanceof Error ? error.message : "Could not request a pickup.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      vaultOwnerToken,
+      permission,
+      sosActionRecipients,
+      ensureForegroundLocationReady,
+      publishEnvelopeWithRetry,
+      refresh,
+    ],
+  );
+
+  // Safe Arrival quick action (OUTBOUND peace-of-mind): share your live journey
+  // + live ETA to a destination until you arrive, so trusted people can watch
+  // you get there safely. Mirrors handleDriveTo exactly (destination + ETA ride
+  // INSIDE the encrypted envelope, and the drive session drives live ETA
+  // recomputation via the foreground watch) — it is the same proven live-share
+  // pipeline with an arrival-focused framing and its own busy key + note.
+  const handleSafeArrival = useCallback(
+    async (
+      destination: DriveDestination,
+      recipientIds: string[],
+      durationHoursValue: string,
+      messageValue?: string,
+    ) => {
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+        toast.error("Location permission is required to share your arrival.");
+        return;
+      }
+      const selected = sosActionRecipients
+        .filter((recipient) => recipientIds.includes(recipient.userId))
+        .filter(isShareReadyRecipient);
+      if (!selected.length) {
+        toast.error(
+          "Select at least one trusted contact who is ready to receive your location.",
+        );
+        return;
+      }
+      const arrivalMessage = (messageValue || "").trim().slice(0, 160) || undefined;
+      setBusy("safeArrival");
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) {
+          toast.error("Couldn't get your location — arrival watch not started.");
+          return;
+        }
+        const point = readiness.point;
+        const durationHoursNum = Number(durationHoursValue) || 1;
+
+        // Initial ETA (best-effort; the share still works without it).
+        let etaSeconds: number | null = null;
+        let distanceMeters: number | null = null;
+        try {
+          const eta = await OneLocationService.routeEta({
+            vaultOwnerToken,
+            originLat: point.latitude,
+            originLng: point.longitude,
+            destLat: destination.latitude,
+            destLng: destination.longitude,
+          });
+          etaSeconds = eta.etaSeconds;
+          distanceMeters = eta.distanceMeters;
+        } catch {
+          // ETA unavailable — proceed with destination only.
+        }
+
+        const etaComputedAt = new Date().toISOString();
+        const drive: DriveSharePayload = {
+          destination,
+          etaSeconds,
+          distanceMeters,
+          etaComputedAt,
+        };
+        const drivePoint: PlainLocationPoint = { ...point, drive };
+        const grantIds = new Set<string>();
+
+        for (const recipient of selected) {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: durationHoursNum,
+            reason: arrivalMessage ?? "safe_arrival",
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", drivePoint);
+          grantIds.add(grant.id);
+        }
+
+        driveSessionRef.current = {
+          grantIds,
+          destination,
+          etaSeconds,
+          distanceMeters,
+          etaComputedAt,
+          lastEtaPoint: point,
+          lastEtaAt: Date.now(),
+        };
+
+        if (auth.userId) {
+          await addRecentDestination(auth.userId, destination);
+          setRecentDestinations(await loadRecentDestinations(auth.userId));
+        }
+
+        toast.success(
+          `Safe Arrival started. ${peopleCountLabel(selected.length)} can watch you reach ${destination.label}.`,
+        );
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not start Safe Arrival.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      vaultOwnerToken,
+      permission,
+      sosActionRecipients,
+      ensureForegroundLocationReady,
+      publishEnvelopeWithRetry,
+      refresh,
+      auth.userId,
+    ],
+  );
+
   const canShare = Boolean(
+
     vaultOwnerToken &&
     selectedShareRecipients.length &&
     shareReadySelectedRecipients.length &&
@@ -4915,7 +5130,18 @@ function OneLocationAgentPageContent() {
     recentDestinations,
     onDriveTo: (destination, recipientIds, durationHoursValue) =>
       void handleDriveTo(destination, recipientIds, durationHoursValue),
+    onPickMeUp: (recipientIds, durationHoursValue, messageValue) =>
+      void handlePickMeUp(recipientIds, durationHoursValue, messageValue),
+    safeArrivalBusy: busy === "safeArrival",
+    onSafeArrival: (destination, recipientIds, durationHoursValue, messageValue) =>
+      void handleSafeArrival(
+        destination,
+        recipientIds,
+        durationHoursValue,
+        messageValue,
+      ),
   };
+
 
   if (USE_LOCATION_REDESIGN && !loadError) {
     return (

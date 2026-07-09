@@ -4778,7 +4778,10 @@ export function AgentChatWorkspace({
                       (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
                         .type === "sos_panic"
                         ? "Send SOS"
-                        : "Share"
+                        : (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                              .type === "request_device_location_permission"
+                          ? "Allow location"
+                          : "Share"
                     }
                     busy={specialistBusy}
                     onConfirm={async () => {
@@ -4788,7 +4791,11 @@ export function AgentChatWorkspace({
                         (directive.directive.payload as Record<string, unknown>).type ?? "",
                       );
                       const confirmText =
-                        directivePayloadType === "sos_panic" ? "Send SOS" : "Share";
+                        directivePayloadType === "sos_panic"
+                          ? "Send SOS"
+                          : directivePayloadType === "request_device_location_permission"
+                            ? "Allow location"
+                            : "Share";
                       try {
                         // Source the vault owner token from the same place every
                         // other authed call uses (never hardcoded/invented).

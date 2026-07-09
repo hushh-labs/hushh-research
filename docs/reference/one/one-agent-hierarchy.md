@@ -10,7 +10,7 @@ flowchart TD
   one["One root LlmAgent<br/>agent_one"]
   search["google_search"]
   nav_tool["open_screen<br/>governed navigation"]
-  agenttools["AgentTool specialists<br/>Finance (Kai runtime), RIA"]
+  agenttools["AgentTool specialist<br/>Finance (Kai runtime)<br/>subagents: RIA, Investor"]
   a2a["A2A dispatch + specialist scope map"]
   kai["Kai<br/>agent_kai"]
   nav["Nav<br/>agent_nav"]
@@ -58,13 +58,14 @@ This page is current-state implementation truth. It does not rename runtime iden
 | --- | --- | --- | --- |
 | Head agent | `agent_one` | Relationship layer, intent framing, specialist routing | `agent.one.orchestrate` |
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
-| Finance specialist | `agent_kai` | Finance, portfolio, markets, RIA/investor analysis | `agent.kai.analyze` plus finance PKM gates |
+| Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
 | Privacy specialist | `agent_nav` | Consent, scope review, vault friction, deletion, revocation | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people live location workflow | `agent.one.orchestrate` today, device capability tokens per flow |
 | Connections specialist | `agent_connections` | Trusted-connection graph questions and relationship write proposals | `agent.one.orchestrate` today |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | `agent.one.orchestrate` today |
 | Email specialist | `agent_email` | Inbox and Gmail task planning behind One | `agent.one.orchestrate` today |
+| Gmail specialist | `agent_gmail` | Synced purchase receipts and receipt-sync health (read-only) | `agent.one.orchestrate` today |
 | Personal information | `agent_personal_information` | Information marketplace and data-slice workflows | `agent.one.orchestrate` today |
 | World Model agents | `memory_intent`, `memory_segmentation`, `memory_merge`, `pkm_structure`, `summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
 
@@ -89,10 +90,11 @@ The hierarchy has three current wiring modes. Do not collapse them into one clai
 | `agent_location` | `agent.one.orchestrate` |
 | `agent_personal_information` | `agent.one.orchestrate` |
 | `agent_email` | `agent.one.orchestrate` |
+| `agent_gmail` | `agent.one.orchestrate` |
 
 ### In-process dispatch registry
 
-The in-process `dispatch` table currently registers `agent_connected_systems`, `agent_connections`, `agent_email`, `agent_location`, `agent_nav`, and `agent_personal_information`.
+The in-process `dispatch` table currently registers `agent_connected_systems`, `agent_connections`, `agent_email`, `agent_gmail`, `agent_location`, `agent_nav`, and `agent_personal_information`.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
@@ -101,7 +103,7 @@ Therefore, not every scope-gated specialist is registered in the in-process disp
 ## Execution Stack
 
 1. One Voice (ADK `run_live` through `/api/one/adk/live`) or typed Agent Chat captures intent and active app state.
-2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, `AgentTool` specialists (Finance, RIA), and dispatch-backed specialist turn functions. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
+2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
 3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.

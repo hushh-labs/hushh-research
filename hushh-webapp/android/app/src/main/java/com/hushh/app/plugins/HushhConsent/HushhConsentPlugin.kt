@@ -234,6 +234,12 @@ class HushhConsentPlugin : Plugin() {
     }
 
     // ==================== Create Trust Link ====================
+    //
+    // TrustLinks are signed ONLY by the backend (single signing authority).
+    // Local signing was removed: the device never holds APP_SIGNING_KEY, so
+    // locally signed links could never cross-verify with the backend, and the
+    // old 6-field raw format diverged from the backend's 7-field format
+    // (session binding). This now delegates to POST /api/trust/create-link.
 
     @PluginMethod
     fun createTrustLink(call: PluginCall) {
@@ -247,31 +253,63 @@ class HushhConsentPlugin : Plugin() {
             return
         }
 
-        val expiresInMs = call.getInt("expiresInMs")?.toLong() ?: DEFAULT_TRUST_LINK_EXPIRY_MS
+        val backendUrl = getBackendUrl(call)
+        val url = "$backendUrl/api/trust/create-link"
+        val authToken = call.getString("vaultOwnerToken")
 
-        val createdAt = System.currentTimeMillis()
-        val expiresAt = createdAt + expiresInMs
+        Thread {
+            try {
+                val jsonBody = JSONObject().apply {
+                    put("from_agent", fromAgent)
+                    put("to_agent", toAgent)
+                    put("scope", scope)
+                    put("signed_by_user", signedByUser)
+                    put("session_id", call.getString("sessionId") ?: "")
+                    call.getInt("expiresInMs")?.let { put("expires_in_ms", it) }
+                }
+                val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
+                val requestBuilder = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .addHeader("Content-Type", "application/json")
+                if (authToken != null) {
+                    requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                }
 
-        // Build raw payload
-        val raw = "$fromAgent|$toAgent|$scope|$createdAt|$expiresAt|$signedByUser"
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val body = response.body?.string() ?: "{}"
+                if (!response.isSuccessful) {
+                    activity.runOnUiThread {
+                        call.reject("Failed to create trust link: HTTP ${response.code}")
+                    }
+                    return@Thread
+                }
 
-        // Sign with HMAC-SHA256
-        val signature = sign(raw)
-
-        Log.d(TAG, "✅ [HushhConsent] TrustLink created from $fromAgent to $toAgent")
-
-        call.resolve(JSObject().apply {
-            put("fromAgent", fromAgent)
-            put("toAgent", toAgent)
-            put("scope", scope)
-            put("createdAt", createdAt)
-            put("expiresAt", expiresAt)
-            put("signedByUser", signedByUser)
-            put("signature", signature)
-        })
+                val json = JSONObject(body)
+                activity.runOnUiThread {
+                    call.resolve(JSObject().apply {
+                        put("fromAgent", json.optString("from_agent", fromAgent))
+                        put("toAgent", json.optString("to_agent", toAgent))
+                        put("scope", json.optString("scope", scope))
+                        put("createdAt", json.optLong("created_at"))
+                        put("expiresAt", json.optLong("expires_at"))
+                        put("signedByUser", json.optString("signed_by_user", signedByUser))
+                        put("signature", json.optString("signature"))
+                        put("sessionId", json.optString("session_id", ""))
+                    })
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.reject("Failed to create trust link: ${e.message}")
+                }
+            }
+        }.start()
     }
 
     // ==================== Verify Trust Link ====================
+    //
+    // Delegates to POST /api/trust/verify-link so verification uses the same
+    // signing authority that created the link.
 
     @PluginMethod
     fun verifyTrustLink(call: PluginCall) {
@@ -295,40 +333,62 @@ class HushhConsentPlugin : Plugin() {
             return
         }
 
-        val requiredScope = call.getString("requiredScope")
+        val backendUrl = getBackendUrl(call)
+        val url = "$backendUrl/api/trust/verify-link"
 
-        // Check expiry
-        val now = System.currentTimeMillis()
-        if (now > expiresAt) {
-            call.resolve(JSObject().apply {
-                put("valid", false)
-                put("reason", "Trust link expired")
-            })
-            return
-        }
+        Thread {
+            try {
+                val jsonBody = JSONObject().apply {
+                    put("link", JSONObject().apply {
+                        put("from_agent", fromAgent)
+                        put("to_agent", toAgent)
+                        put("scope", scope)
+                        put("created_at", createdAt)
+                        put("expires_at", expiresAt)
+                        put("signed_by_user", signedByUser)
+                        put("signature", signature)
+                        put("session_id", link.getString("sessionId") ?: "")
+                    })
+                    call.getString("requiredScope")?.let { put("required_scope", it) }
+                    call.getString("expectedSessionId")?.let { put("expected_session_id", it) }
+                }
+                val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .addHeader("Content-Type", "application/json")
+                    .build()
 
-        // Check scope if required
-        if (requiredScope != null && scope != requiredScope) {
-            call.resolve(JSObject().apply {
-                put("valid", false)
-                put("reason", "Scope mismatch")
-            })
-            return
-        }
+                val response = httpClient.newCall(request).execute()
+                val body = response.body?.string() ?: "{}"
+                if (!response.isSuccessful) {
+                    activity.runOnUiThread {
+                        call.resolve(JSObject().apply {
+                            put("valid", false)
+                            put("reason", "Verification failed: HTTP ${response.code}")
+                        })
+                    }
+                    return@Thread
+                }
 
-        // Verify signature
-        val raw = "$fromAgent|$toAgent|$scope|$createdAt|$expiresAt|$signedByUser"
-        val expectedSig = sign(raw)
-
-        if (signature != expectedSig) {
-            call.resolve(JSObject().apply {
-                put("valid", false)
-                put("reason", "Invalid signature")
-            })
-            return
-        }
-
-        call.resolve(JSObject().put("valid", true))
+                val json = JSONObject(body)
+                activity.runOnUiThread {
+                    call.resolve(JSObject().apply {
+                        put("valid", json.optBoolean("valid", false))
+                        if (!json.isNull("reason")) {
+                            put("reason", json.optString("reason"))
+                        }
+                    })
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.resolve(JSObject().apply {
+                        put("valid", false)
+                        put("reason", "Verification failed: ${e.message}")
+                    })
+                }
+            }
+        }.start()
     }
 
     // ====================Backend API Methods ====================
