@@ -449,13 +449,14 @@ def _kyc_consent_bundle_id(workflow_id: str) -> str:
 def _kyc_consent_request_url(consent_request_id: str | None) -> str | None:
     if not consent_request_id:
         return None
-    return build_consent_request_url(request_id=consent_request_id, view="incoming")
+    # "pending" is the consent center's tab vocabulary for incoming requests.
+    return build_consent_request_url(request_id=consent_request_id, view="pending")
 
 
 def _kyc_consent_bundle_url(bundle_id: str | None) -> str | None:
     if not bundle_id:
         return None
-    return build_consent_request_url(bundle_id=bundle_id, view="incoming")
+    return build_consent_request_url(bundle_id=bundle_id, view="pending")
 
 
 def _public_key_fingerprint(public_key: str) -> str:

@@ -741,7 +741,7 @@ async def test_duplicate_message_repairs_legacy_consent_url():
     result = await service.process_message_id("gmail_msg_1", history_id="101")
 
     assert result["reason"] == "consent_request_repaired"
-    assert "/consents?tab=incoming" in result["workflow"]["consent_request_url"]
+    assert "/consents?tab=pending" in result["workflow"]["consent_request_url"]
     assert "/profile?" not in result["workflow"]["consent_request_url"]
     assert consent_db.events[0]["action"] == "REQUESTED"
     assert consent_db.events[0]["request_id"] == request_id
@@ -1415,7 +1415,7 @@ async def test_select_scopes_creates_bundled_multi_scope_consent_requests():
     assert selected["requested_scopes"] == ["attr.identity.*", "attr.financial.*"]
     assert selected["metadata"]["scope_selection_required"] is False
     assert selected["consent_bundle_id"].startswith("okycb_")
-    assert "/consents?tab=incoming" in selected["consent_request_url"]
+    assert "/consents?tab=pending" in selected["consent_request_url"]
     assert "bundleId=" in selected["consent_request_url"]
     assert len(consent_db.events) == 2
     bundle_ids = {event["metadata"]["bundle_id"] for event in consent_db.events}

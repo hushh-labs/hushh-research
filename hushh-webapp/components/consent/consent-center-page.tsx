@@ -344,6 +344,14 @@ function consentEntryMatchesSelectedId(
   );
 }
 
+function consentEntryMatchesBundleId(
+  entry: ConsentCenterEntry,
+  bundleId: string,
+) {
+  const metadata = entry.metadata as Record<string, unknown> | undefined;
+  return Boolean(metadata && metadata.bundle_id === bundleId);
+}
+
 function consentEntryMatchesScope(entry: ConsentCenterEntry, scope: string) {
   if (entry.scope === scope) return true;
   return Boolean(
@@ -1211,6 +1219,9 @@ export function ConsentCenterPage() {
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const selectedId =
     searchParams.get("requestId") || searchParams.get("selected");
+  // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
+  // without a requestId). Used as a selection fallback below.
+  const selectedBundleId = searchParams.get("bundleId");
   const notificationAction = normalizeNotificationAction(
     searchParams.get("notificationAction"),
   );
@@ -1221,7 +1232,8 @@ export function ConsentCenterPage() {
   // transition so the navigation never blocks the close animation.
   const [panelCloseRequested, setPanelCloseRequested] = useState(false);
   const [, startPanelUrlSync] = useTransition();
-  const isPanelOpen = Boolean(selectedId) && !panelCloseRequested;
+  const isPanelOpen =
+    Boolean(selectedId || selectedBundleId) && !panelCloseRequested;
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
@@ -1687,8 +1699,17 @@ export function ConsentCenterPage() {
         null
       );
     }
+    // Bundle deep links carry bundleId without a requestId: select the
+    // matching bundle entry so backend-generated bundle URLs land somewhere.
+    if (selectedBundleId) {
+      return (
+        items.find((item) =>
+          consentEntryMatchesBundleId(item, selectedBundleId),
+        ) ?? null
+      );
+    }
     return items[0] ?? null;
-  }, [items, selectedId]);
+  }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
     user?.uid &&
       selectedId &&
@@ -2035,6 +2056,7 @@ export function ConsentCenterPage() {
       setParam({
         requestId: null,
         selected: null,
+        bundleId: null,
         notificationAction: null,
       });
     });
@@ -2048,7 +2070,7 @@ export function ConsentCenterPage() {
   // again and stays in sync with the URL.
   useEffect(() => {
     setPanelCloseRequested(false);
-  }, [selectedId]);
+  }, [selectedId, selectedBundleId]);
 
   const pageEyebrow = "Access / Consent";
   const pageTitle = "Access manager";
@@ -2083,7 +2105,7 @@ export function ConsentCenterPage() {
             <SettingsSegmentedTabs
               value={tab}
               onValueChange={(value) =>
-                setParam({ tab: value, page: "1", requestId: null })
+                setParam({ tab: value, page: "1", requestId: null, bundleId: null })
               }
               options={[
                 {

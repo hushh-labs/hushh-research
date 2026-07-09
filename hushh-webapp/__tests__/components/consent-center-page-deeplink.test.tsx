@@ -82,6 +82,16 @@ vi.mock("@/lib/consent", () => ({
     isRequestBusy: () => false,
     isScopeBusy: () => false,
   }),
+  // Marketplace rows also route through a dedicated hook; no-op for these tests.
+  useMarketplaceConsentActions: () => ({
+    handleApprove: vi.fn(),
+    handleDeny: vi.fn(),
+    handleRevoke: vi.fn(),
+    activeAction: null,
+    activeActions: [],
+    isRequestBusy: () => false,
+    isScopeBusy: () => false,
+  }),
 }));
 
 
@@ -110,6 +120,9 @@ vi.mock("@/lib/services/cache-service", () => ({
       `summary:${parts.join(":")}`,
     CONSENT_CENTER: (...parts: unknown[]) => `center:${parts.join(":")}`,
   },
+  // Imported transitively (personal-knowledge-model-service reads CACHE_TTL at
+  // module init); the mock must export it or the whole import graph fails.
+  CACHE_TTL: { SHORT: 30_000, MEDIUM: 300_000, LONG: 3_600_000 },
 }));
 
 vi.mock("@/lib/services/consent-center-service", () => ({
