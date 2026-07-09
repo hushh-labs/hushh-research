@@ -53,7 +53,7 @@ from pydantic import BaseModel, Field
 
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.relay_auth import (
-    consume_relay_ticket,
+    consume_relay_ticket_shared,
     issue_relay_ticket,
     one_voice_enabled,
     resolve_optional_uid,
@@ -144,7 +144,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         return
 
     relay_ticket = websocket.query_params.get("relay_ticket")
-    accepted, uid, _persona_tier = consume_relay_ticket(relay_ticket)
+    # Shared consumer: nonce single-use holds across workers and instances
+    # (Postgres registry, migration 084; Redis swap seam documented there).
+    accepted, uid, _persona_tier = await consume_relay_ticket_shared(relay_ticket)
     if not accepted:
         await websocket.close(code=1008, reason="Voice relay ticket is expired.")
         return

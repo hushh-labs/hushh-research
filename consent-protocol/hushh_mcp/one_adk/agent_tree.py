@@ -342,7 +342,16 @@ _runner: Runner | None = None
 
 def get_one_runner() -> Runner:
     """Process-wide Runner for One (in-memory sessions; voice sessions are
-    ephemeral and the durable record lives in the app's own stores)."""
+    ephemeral and the durable record lives in the app's own stores).
+
+    SCALE SEAM (Agent Architecture Doctrine, AGENTS.md): InMemorySessionService
+    means a mid-conversation reconnect that lands on another worker/instance
+    starts with zero context, and session count is bounded by one process's
+    memory. The documented upgrade is ADK's DatabaseSessionService on the
+    existing Postgres (asyncpg driver, SELECT FOR UPDATE row locking) for
+    resumable voice sessions; swap here, contract unchanged. Gate that swap on
+    a voice-session write-load measurement against the DB pool budget.
+    """
     global _runner
     if _runner is None:
         _runner = Runner(
