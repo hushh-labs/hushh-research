@@ -305,8 +305,8 @@ def _build_ria_agent() -> LlmAgent:
     )
 
 
-def build_one_root_agent() -> LlmAgent:
-    """Build the One head agent with the full /one roster as tools.
+def _one_roster_tools() -> list:
+    """The full /one specialist roster, shared by every One head.
 
     AgentTool wraps the LLM-backed specialists (Finance, RIA) so One can
     consult them as tools; the dispatch-backed specialists (email, location,
@@ -315,25 +315,47 @@ def build_one_root_agent() -> LlmAgent:
     """
     from google.adk.tools.agent_tool import AgentTool
 
+    return [
+        google_search,
+        open_screen,
+        run_app_action,
+        list_app_actions,
+        AgentTool(agent=_build_finance_agent()),
+        AgentTool(agent=_build_ria_agent()),
+        ask_email_agent,
+        ask_location_agent,
+        ask_connections_agent,
+        ask_marketplace_agent,
+        ask_connected_systems_agent,
+        ask_consent_agent,
+    ]
+
+
+def build_one_root_agent() -> LlmAgent:
+    """Build the One VOICE head (native-audio Live model) with the full roster."""
     return LlmAgent(
         name="one",
         model=_build_one_live_model(),
         description="One, the Hussh head personal agent and orchestrator.",
         instruction=ONE_IDENTITY_INSTRUCTION,
-        tools=[
-            google_search,
-            open_screen,
-            run_app_action,
-            list_app_actions,
-            AgentTool(agent=_build_finance_agent()),
-            AgentTool(agent=_build_ria_agent()),
-            ask_email_agent,
-            ask_location_agent,
-            ask_connections_agent,
-            ask_marketplace_agent,
-            ask_connected_systems_agent,
-            ask_consent_agent,
-        ],
+        tools=_one_roster_tools(),
+    )
+
+
+def build_one_text_agent() -> LlmAgent:
+    """Build the One TEXT head: same brain, same tools, text model.
+
+    Used by non-audio entries (external A2A today; chat when it migrates).
+    The Live native-audio model rejects text-only run_async turns, so text
+    surfaces run the specialist-generation model with the identical
+    instruction and roster - ONE decision-maker, two transport heads.
+    """
+    return LlmAgent(
+        name="one",
+        model=_SPECIALIST_MODEL,
+        description="One, the Hussh head personal agent and orchestrator.",
+        instruction=ONE_IDENTITY_INSTRUCTION,
+        tools=_one_roster_tools(),
     )
 
 
@@ -361,3 +383,24 @@ def get_one_runner() -> Runner:
             auto_create_session=True,
         )
     return _runner
+
+
+_text_runner: Runner | None = None
+
+
+def get_one_text_runner() -> Runner:
+    """Process-wide Runner for One's text head (external A2A, future chat).
+
+    Sessions are per-request ephemeral today; the same DatabaseSessionService
+    scale seam documented on get_one_runner applies here when multi-turn
+    external conversations need durability.
+    """
+    global _text_runner
+    if _text_runner is None:
+        _text_runner = Runner(
+            app_name=ONE_APP_NAME,
+            agent=build_one_text_agent(),
+            session_service=InMemorySessionService(),
+            auto_create_session=True,
+        )
+    return _text_runner

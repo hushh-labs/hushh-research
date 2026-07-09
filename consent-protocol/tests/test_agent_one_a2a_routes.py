@@ -358,6 +358,7 @@ def test_message_rejects_email_target_mismatch(monkeypatch):
 def test_message_routes_general_turn_to_one(monkeypatch):
     _patch_developer_auth(monkeypatch)
     _patch_db_token_validation(monkeypatch)
+    monkeypatch.setenv("AGENT_ONE_A2A_RUNTIME", "legacy")
 
     response = _client().post(
         "/api/one/a2a/message",
@@ -380,6 +381,7 @@ def test_message_routes_general_turn_to_one(monkeypatch):
 def test_message_masks_internal_delegation(monkeypatch):
     _patch_developer_auth(monkeypatch)
     _patch_db_token_validation(monkeypatch)
+    monkeypatch.setenv("AGENT_ONE_A2A_RUNTIME", "legacy")
 
     response = _client().post(
         "/api/one/a2a/message",

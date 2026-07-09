@@ -8,6 +8,7 @@ caller must present a consent token scoped to ``agent.one.orchestrate``.
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -545,6 +546,27 @@ async def agent_one_a2a_message(
             logger.warning("agent_one_a2a.request_rejected_user_mismatch")
             raise HTTPException(status_code=403, detail="Token user does not match request user")
 
+    if _adk_runtime_enabled():
+        try:
+            response_text = await _run_adk_turn(
+                user_id=user_id,
+                consent_token=consent_token,
+                message=body.message,
+                timezone=None,
+            )
+        except Exception:
+            logger.exception("agent_one_a2a.adk_runtime_failed")
+            raise HTTPException(status_code=500, detail="Agent One could not process the request")
+        return AgentOneA2AMessageResponse(
+            agentId="agent_one",
+            conversationId=body.conversation_id,
+            userId=user_id,
+            response=response_text,
+            delegation=None,
+            consent=None,
+            isComplete=True,
+        )
+
     try:
         result = get_orchestrator().handle_message(
             message=body.message,
@@ -565,3 +587,67 @@ async def agent_one_a2a_message(
         consent=None,
         isComplete=True,
     )
+
+
+def _adk_runtime_enabled() -> bool:
+    """Route external A2A turns through the ADK One head (default ON).
+
+    Set AGENT_ONE_A2A_RUNTIME=legacy to fall back to the keyword-classifier
+    orchestrator. The ADK path uses the SAME agent tree as voice (text head),
+    honoring the no-second-decision-maker doctrine at the external boundary.
+    """
+    return (os.getenv("AGENT_ONE_A2A_RUNTIME") or "adk").strip().lower() != "legacy"
+
+
+async def _run_adk_turn(
+    *,
+    user_id: str,
+    consent_token: str,
+    message: str,
+    timezone: str | None,
+) -> str:
+    """Run one text turn on One's ADK head with consent in session state.
+
+    The consent token rides ONLY in session state (STATE_CONSENT_TOKEN), the
+    same channel the voice relay uses; specialist tools read it and fail
+    closed without it. It never enters the model prompt.
+    """
+    from google.genai import types as genai_types
+
+    from hushh_mcp.one_adk.agent_tree import (
+        ONE_APP_NAME,
+        STATE_CONSENT_TOKEN,
+        STATE_TIMEZONE,
+        STATE_USER_ID,
+        get_one_text_runner,
+    )
+
+    runner = get_one_text_runner()
+    session_id = f"a2a_{uuid.uuid4().hex}"
+    await runner.session_service.create_session(
+        app_name=ONE_APP_NAME,
+        user_id=user_id,
+        session_id=session_id,
+        state={
+            STATE_USER_ID: user_id,
+            STATE_CONSENT_TOKEN: consent_token,
+            STATE_TIMEZONE: timezone or "",
+        },
+    )
+
+    content = genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=message)])
+    final_text = ""
+    async for event in runner.run_async(
+        user_id=user_id, session_id=session_id, new_message=content
+    ):
+        if event.content and event.content.parts:
+            texts = [part.text for part in event.content.parts if isinstance(part.text, str)]
+            if texts and event.is_final_response():
+                final_text = "".join(texts)
+    try:
+        await runner.session_service.delete_session(
+            app_name=ONE_APP_NAME, user_id=user_id, session_id=session_id
+        )
+    except Exception:  # noqa: BLE001 - ephemeral cleanup best-effort
+        logger.debug("agent_one_a2a.session_cleanup_skipped")
+    return final_text or "One could not produce a response for this request."
