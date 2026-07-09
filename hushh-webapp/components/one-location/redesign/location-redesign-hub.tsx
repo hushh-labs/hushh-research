@@ -89,6 +89,9 @@ import {
 } from "@/components/one-location/redesign/quick-actions";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { DriveToFlow } from "./drive-to-flow";
+import { PickMeUpFlow } from "./pick-me-up-flow";
+import { SafeArrivalFlow } from "./safe-arrival-flow";
+
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -196,6 +199,28 @@ export type LocationHubViewModel = {
     durationHours: string,
   ) => void;
 
+  /* Pick Me Up (quick action) — inbound: share your LIVE location + a pickup
+     message so a trusted person can drive straight to you and watch you until
+     they arrive. Reuses the same encrypted share pipeline as Check-In. */
+  onPickMeUp: (
+    recipientIds: string[],
+    durationHours: string,
+    message?: string,
+  ) => void;
+
+  /* Safe Arrival (quick action) — outbound: share your live journey + ETA to a
+     destination until you arrive, framed for peace-of-mind. Reuses the same
+     encrypted drive pipeline as Drive To (destination + ETA ride inside the
+     envelope). `safeArrivalBusy` drives the flow's loading state. */
+  safeArrivalBusy: boolean;
+  onSafeArrival: (
+    destination: DriveDestination,
+    recipientIds: string[],
+    durationHours: string,
+    message?: string,
+  ) => void;
+
+
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
   recipientSubtitle: (r: OneLocationRecipient) => string;
@@ -224,7 +249,10 @@ type FlowKind =
   | "temp-link"
   | "check-in"
   | "drive-to"
+  | "pick-me-up"
+  | "safe-arrival"
   | "sos";
+
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
@@ -363,7 +391,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <CheckInFlow vm={vm} onClose={closeFlow} />
         ) : flow === "drive-to" ? (
           <DriveToFlow vm={vm} onClose={closeFlow} />
+        ) : flow === "pick-me-up" ? (
+          <PickMeUpFlow vm={vm} onClose={closeFlow} />
+        ) : flow === "safe-arrival" ? (
+          <SafeArrivalFlow vm={vm} onClose={closeFlow} />
         ) : flow === "sos" ? (
+
           <SosFlow vm={vm} onClose={closeFlow} />
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
@@ -427,9 +460,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           onAsk={() => setFlow("ask")}
           onCheckIn={() => setFlow("check-in")}
           onDriveTo={() => setFlow("drive-to")}
+          onPickMeUp={() => setFlow("pick-me-up")}
+          onSafeArrival={() => setFlow("safe-arrival")}
           onSos={() => setFlow("sos")}
           onGoTab={setTab}
         />
+
       ) : tab === "people" ? (
         <PeopleHub
           vm={vm}
@@ -460,6 +496,8 @@ function NowHub({
   onAsk,
   onCheckIn,
   onDriveTo,
+  onPickMeUp,
+  onSafeArrival,
   onSos,
   onGoTab,
 }: {
@@ -470,9 +508,12 @@ function NowHub({
   onAsk: () => void;
   onCheckIn: () => void;
   onDriveTo: () => void;
+  onPickMeUp: () => void;
+  onSafeArrival: () => void;
   onSos: () => void;
   onGoTab: (tab: LocationHubTab) => void;
 }) {
+
   // When location permission is blocked (denied / restricted / services off),
   // surface the Device readiness card at the very TOP so the user immediately
   // sees how to fix it, instead of it sitting in the middle of the page.
@@ -540,11 +581,12 @@ function NowHub({
         </Button>
       </div>
 
-      {/* Quick actions — six reusable location shortcuts. Two are live
-          (Check-In + SOS); the rest surface as "Coming soon". When SOS is
-          already active, its card reflects the live state and reopens the
-          panel to stop sharing. */}
+      {/* Quick actions — six reusable location shortcuts. Five are live
+          (Check-In, SOS, Drive To, Pick Me Up, Safe Arrival); only "Meeting"
+          remains "Coming soon". When SOS is already active, its card reflects
+          the live state and reopens the panel to stop sharing. */}
       <QuickActionsSection title="Quick actions">
+
         <QuickActionCard
           tone="green"
           icon={<CheckCircle2 className="h-6 w-6" />}
@@ -581,8 +623,15 @@ function NowHub({
           tone="amber"
           icon={<Hand className="h-6 w-6" />}
           title="Pick Me Up"
-          subtitle="Request"
-          comingSoon
+          subtitle="Come get me"
+          onClick={onPickMeUp}
+        />
+        <QuickActionCard
+          tone="green"
+          icon={<Home className="h-6 w-6" />}
+          title="Safe Arrival"
+          subtitle="Watch me home"
+          onClick={onSafeArrival}
         />
         <QuickActionCard
           tone="violet"
@@ -591,13 +640,7 @@ function NowHub({
           subtitle="Venue"
           comingSoon
         />
-        <QuickActionCard
-          tone="slate"
-          icon={<Home className="h-6 w-6" />}
-          title="Safe Arrival"
-          subtitle="Notify"
-          comingSoon
-        />
+
       </QuickActionsSection>
 
       {/* Active SOS banner (only while an incident is live) — quick stop

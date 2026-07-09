@@ -34,6 +34,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes | Canonical Firebase Admin credential for server operations, Workspace-delegated Gmail send, and future One mailbox tasks. The approved Workspace DWD client is `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`. Prefer the canonical name for new config. |
 | `GOOGLE_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/agent_chat_service.py`, services | Yes | Gemini / Vertex AI API key. Required for Agent text chat. |
+| `GOOGLE_MAPS_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/google_maps_service.py` | Yes | Server-side Google Maps Platform key for One Location Places New + Routes. Never expose as `NEXT_PUBLIC_*`. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
 | `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Dedicated service account JSON for One mailbox intake. Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON` unless an explicit exception is approved. |
 | `ONE_EMAIL_DELEGATED_USER` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Workspace mailbox to impersonate for One intake. Default: `ONE_EMAIL_ADDRESS`. Must be a real user mailbox. |
@@ -286,6 +287,7 @@ Local runtime bootstrap:
 | `DB_PASSWORD` | Yes | GCP Secret Manager |
 | `APP_FRONTEND_ORIGIN` | Yes | GCP Secret Manager |
 | `GOOGLE_API_KEY` | Yes | GCP Secret Manager |
+| `GOOGLE_MAPS_API_KEY` | Yes | GCP Secret Manager |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes | GCP Secret Manager |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Alias only | GCP Secret Manager, if legacy runtime still mounts it |
 | `ONE_EMAIL_ADDRESS` | No | Cloud Run env var or default |
