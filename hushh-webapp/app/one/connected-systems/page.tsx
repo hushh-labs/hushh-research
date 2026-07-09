@@ -42,7 +42,6 @@ export default function ConnectedSystemsPage() {
         <PageHeader
           eyebrow="One / Connected Systems"
           title="CRM systems"
-          description="Browse connected customer systems, inspect their status, and open a CRM workspace when a record needs review."
           icon={Building2}
           accent="neutral"
         />
