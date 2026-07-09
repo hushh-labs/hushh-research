@@ -191,6 +191,7 @@ import { LiveMap } from "@/components/one-location/live-map";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
+import { liveFreshness } from "@/lib/one-location/freshness";
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
@@ -832,7 +833,15 @@ function LocalMapPreview({
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
-  const statusLabel = isStale ? "Last known location" : "Live location";
+  const freshness = liveFreshness(
+    point.capturedAt,
+    Date.now(),
+    LIVE_LOCATION_STALE_THRESHOLD_MS,
+  );
+  const statusLabel =
+    freshness.state === "live"
+      ? `Live · ${freshness.agoLabel}`
+      : `Paused · last seen ${freshness.agoLabel}`;
 
 
   return (
