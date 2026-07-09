@@ -56,11 +56,14 @@
 	<string>Hussh One uses the microphone only when you start a voice command.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Hussh One uses foreground location only when you choose to share an encrypted live-location update.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Hussh One keeps sharing your live location with people you choose even when the app is in the background, until you stop sharing.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Hussh One uses contacts only when you choose to find people already on Hussh.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>location</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
