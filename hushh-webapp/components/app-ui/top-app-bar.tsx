@@ -279,7 +279,7 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.PKM) {
     return {
-      label: "Personal Data",
+      label: "Memory",
       icon: FolderSearch,
       interactive: false as const,
     };

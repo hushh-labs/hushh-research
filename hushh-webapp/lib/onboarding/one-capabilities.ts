@@ -141,8 +141,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "pkm",
     agentId: "agent_personal_information",
-    title: "Personal Data",
-    description: "Saved knowledge and information you can review.",
+    title: "Memory",
+    description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
     icon: FolderSearch,
     tone: "pkm",
@@ -195,20 +195,35 @@ export function getOneCapability(id: string): OneCapability | undefined {
 
 /**
  * Tailwind classes for a capability's icon chip, keyed by tone.
- * Calm, on-palette (ink + neutral) chips — no off-palette hues — so the grouped
- * list reads like a native iOS Settings surface instead of a colorful dashboard.
- * Uniform across tones; the row label carries per-item meaning.
- * Shared so the dashboard tile and the onboarding preview render identically.
+ *
+ * Each tone gets its own fixed, mid-lightness brand color — the same hex in
+ * both themes, so the tile stays recognizable at a glance regardless of
+ * appearance mode. Only the glyph color flips for contrast: white in light
+ * mode (the tile reads as a solid color chip against the light page), ink
+ * (near-black) in dark mode (the same chip now reads as a lighter accent
+ * against the dark page, so a dark glyph is what stays legible).
+ * Shared so the dashboard tile, the topbar/menu chip, and the onboarding
+ * preview render identically.
  */
 const CAPABILITY_ICON_CHIP_NEUTRAL =
   "bg-foreground/[0.06] text-foreground/70 dark:bg-foreground/[0.10] dark:text-foreground/80";
 
+// Class strings are written out in full (not built from a hex variable) so
+// Tailwind's static content scanner can find and generate each utility.
 export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<OneCapabilityTone, string> = {
-  finance: CAPABILITY_ICON_CHIP_NEUTRAL,
+  // Finance: trust blue.
+  finance: "bg-[#5B7FDE] text-white dark:text-[#1d1d1f]",
+  // Gmail renders its own full-color brand mark (see GmailBrandIcon), so the
+  // chip stays a quiet neutral rather than fighting the logo's own colors.
   gmail: CAPABILITY_ICON_CHIP_NEUTRAL,
-  email: CAPABILITY_ICON_CHIP_NEUTRAL,
-  location: CAPABILITY_ICON_CHIP_NEUTRAL,
-  pkm: CAPABILITY_ICON_CHIP_NEUTRAL,
-  consent: CAPABILITY_ICON_CHIP_NEUTRAL,
-  connected: CAPABILITY_ICON_CHIP_NEUTRAL,
+  // Email: teal.
+  email: "bg-[#4FB0AC] text-white dark:text-[#1d1d1f]",
+  // Location: green.
+  location: "bg-[#4CAF7D] text-white dark:text-[#1d1d1f]",
+  // Memory (saved knowledge) + Information Marketplace preview: violet.
+  pkm: "bg-[#9B87F5] text-white dark:text-[#1d1d1f]",
+  // Consent: gold/amber (matches the shield motif).
+  consent: "bg-[#E0A548] text-white dark:text-[#1d1d1f]",
+  // Connected Systems: slate blue-gray.
+  connected: "bg-[#7C93A8] text-white dark:text-[#1d1d1f]",
 };

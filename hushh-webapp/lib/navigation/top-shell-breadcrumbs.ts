@@ -35,7 +35,7 @@ function titleizeSegment(segment: string): string {
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "account") return "Account";
-  if (panel === "my-data") return "My Data";
+  if (panel === "my-data") return "Memory";
   if (panel === "access") return "Access & sharing";
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "preferences") return "Preferences";

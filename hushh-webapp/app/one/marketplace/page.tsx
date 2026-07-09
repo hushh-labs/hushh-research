@@ -170,7 +170,7 @@ function buildDeliveryPresentation(
   const value = extractDeliveredValue(decrypted, domain);
   return buildPkmSectionPreviewPresentation({
     domain: domain || request.domain || "",
-    domainTitle: request.domain || domain || "Data",
+    domainTitle: request.domain || domain || "Information",
     permissionLabel: request.sliceName || "Delivered slice",
     permissionDescription: null,
     topLevelScopePath,
@@ -1002,7 +1002,7 @@ export default function OneMarketplacePage() {
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  No shareable sections yet. Add some Personal Data (e.g. via onboarding or the PKM
+                  No shareable sections yet. Add some Memory (e.g. via onboarding or the PKM
                   workspace), then each section will appear here to price and publish.
                 </div>
               ) : (

@@ -2331,8 +2331,8 @@
     },
     {
       "id": "route.one_pkm",
-      "label": "Open Personal Data",
-      "meaning": "Navigates to the One Personal Data route.",
+      "label": "Open Memory",
+      "meaning": "Navigates to the One Memory route.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
@@ -2369,7 +2369,7 @@
           {
             "type": "action",
             "action_id": "route.one_pkm",
-            "label": "Open Personal Data",
+            "label": "Open Memory",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/pkm",
