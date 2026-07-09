@@ -46,11 +46,12 @@ export function LiveMap({ point, className }: LiveMapProps) {
   const [iframePoint, setIframePoint] = useState(point);
   useEffect(() => {
     setIframePoint((current) =>
-      haversineMeters(locationLatLng(current), target) >= IFRAME_RECENTER_METERS
+      haversineMeters(locationLatLng(current), locationLatLng(point)) >=
+      IFRAME_RECENTER_METERS
         ? point
         : current,
     );
-  }, [target.lat, target.lng, point]);
+  }, [point]);
 
   // Create the map + marker once the API is ready and the container exists.
   useEffect(() => {
