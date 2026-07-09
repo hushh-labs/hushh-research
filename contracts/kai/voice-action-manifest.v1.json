@@ -1599,7 +1599,7 @@
       "label": "Open Email",
       "meaning": "Navigates to One email request review.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "open email",
         "open email helper",
@@ -1675,7 +1675,7 @@
       "label": "Manage Verified Emails",
       "meaning": "Opens the verified email address panel used to match email requests.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "manage verified emails",
         "add email address",
@@ -1749,7 +1749,7 @@
       "label": "Sync Email Status",
       "meaning": "Refreshes the selected email request status after consent approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "sync email",
         "refresh request status"
@@ -1822,7 +1822,7 @@
       "label": "Review Email Draft",
       "meaning": "Reads or focuses the current approval-gated email draft.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "review email draft",
         "show email draft"
@@ -1895,7 +1895,7 @@
       "label": "Request Email Redraft",
       "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "redraft email",
         "revise email draft"
@@ -1968,7 +1968,7 @@
       "label": "Approve Email Send",
       "meaning": "Sends the email draft only after explicit user approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "approve email send",
         "send email reply"
@@ -2042,7 +2042,7 @@
       "label": "Reject Email Draft",
       "meaning": "Rejects the current email draft and blocks the workflow.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "aliases": [
         "reject email draft",
         "block email request"

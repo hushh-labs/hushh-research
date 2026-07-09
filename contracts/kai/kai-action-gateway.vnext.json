@@ -123,7 +123,7 @@
           ]
         },
         "speaker_persona": "kyc",
-        "delegate_agent_id": "kyc"
+        "delegate_agent_id": "agent_kyc"
       }
     },
     {
@@ -2725,7 +2725,7 @@
       ],
       "meaning": "Navigates to One email request review.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -2833,7 +2833,7 @@
       ],
       "meaning": "Opens the verified email address panel used to match email requests.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -2939,7 +2939,7 @@
       ],
       "meaning": "Refreshes the selected email request status after consent approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3044,7 +3044,7 @@
       ],
       "meaning": "Reads or focuses the current approval-gated email draft.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3149,7 +3149,7 @@
       ],
       "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3255,7 +3255,7 @@
       ],
       "meaning": "Sends the email draft only after explicit user approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -3362,7 +3362,7 @@
       ],
       "meaning": "Rejects the current email draft and blocks the workflow.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"

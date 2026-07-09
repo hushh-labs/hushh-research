@@ -40,8 +40,8 @@ _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_SCREEN = "hussh:screen"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
-# other delegate markers (e.g. "kyc", which has no conversational specialist)
-# fall through to normal policy handling.
+# other delegate markers (e.g. "agent_kyc", which has no conversational
+# specialist) fall through to normal policy handling.
 _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
     "agent_location": "ask_location_agent",

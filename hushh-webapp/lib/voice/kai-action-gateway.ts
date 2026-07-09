@@ -12,7 +12,7 @@ export type KaiActionDelegateAgentId =
   | "one"
   | "kai"
   | "nav"
-  | "kyc"
+  | "agent_kyc"
   | "agent_connected_systems"
   | "agent_connections"
   | "agent_email"
@@ -248,7 +248,7 @@ function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | nul
     normalized === "one" ||
     normalized === "kai" ||
     normalized === "nav" ||
-    normalized === "kyc" ||
+    normalized === "agent_kyc" ||
     normalized === "agent_connected_systems" ||
     normalized === "agent_connections" ||
     normalized === "agent_email" ||

@@ -15,7 +15,7 @@
       "navigation_prerequisites": ["user must be signed in"]
     },
     "speaker_persona": "kyc",
-    "delegate_agent_id": "kyc"
+    "delegate_agent_id": "agent_kyc"
   },
   "actions": [
     {
