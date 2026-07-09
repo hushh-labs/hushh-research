@@ -350,6 +350,21 @@
       "expected_row_growth": "medium_per_user_connection"
     },
     {
+      "id": "relay_ticket_replay_guard",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "relay_ticket_nonces"
+      ],
+      "primary_access_path": "Cross-instance one-time nonce registry for signed One voice relay tickets (migration 084). consume_relay_ticket_shared() in api/routes/one/relay_auth.py enforces single use globally via INSERT .. ON CONFLICT DO NOTHING; a conflicting insert means replay. Expired rows are pruned opportunistically by expiry scan. Scale-plane doctrine: Postgres now, Redis SETNX-with-TTL later behind the same seam.",
+      "retention_policy": "Rows live only for the ticket validity window (about 60 seconds); expired nonces are pruned opportunistically on subsequent consumption calls.",
+      "deletion_behavior": "No per-account rows exist; nothing to delete on account deletion. Rows self-expire and are pruned by expiry.",
+      "trust_boundary": "Backend stores only an opaque random nonce and its expiry timestamp. No user identifiers, personal information, tokens, or coordinates are stored; a row grants no access and only prevents ticket replay.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
+    },
+    {
       "id": "information_marketplace_opportunity_signals",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
