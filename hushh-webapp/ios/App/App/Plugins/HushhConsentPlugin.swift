@@ -178,6 +178,12 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     // MARK: - Create Trust Link
+    //
+    // TrustLinks are signed ONLY by the backend (single signing authority).
+    // Local signing was removed: the device never holds APP_SIGNING_KEY, so
+    // locally signed links could never cross-verify with the backend, and the
+    // old 6-field raw format diverged from the backend's 7-field format
+    // (session binding). This now delegates to POST /api/trust/create-link.
     @objc func createTrustLink(_ call: CAPPluginCall) {
         guard let fromAgent = call.getString("fromAgent"),
               let toAgent = call.getString("toAgent"),
@@ -186,28 +192,46 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Missing required parameters")
             return
         }
-        
-        let expiresInMs = Int64(call.getInt("expiresInMs") ?? Int(DEFAULT_TRUST_LINK_EXPIRY_MS))
-        let createdAt = Int64(Date().timeIntervalSince1970 * 1000)
-        let expiresAt = createdAt + expiresInMs
-        
-        let raw = "\(fromAgent)|\(toAgent)|\(scope)|\(createdAt)|\(expiresAt)|\(signedByUser)"
-        let signature = sign(raw)
-        
-        print("✅ [\(TAG)] TrustLink created from \(fromAgent) to \(toAgent)")
-        
-        call.resolve([
-            "fromAgent": fromAgent,
-            "toAgent": toAgent,
+
+        let backendUrl = resolvedBackendUrl(call)
+        var body: [String: Any] = [
+            "from_agent": fromAgent,
+            "to_agent": toAgent,
             "scope": scope,
-            "createdAt": createdAt,
-            "expiresAt": expiresAt,
-            "signedByUser": signedByUser,
-            "signature": signature
-        ])
+            "signed_by_user": signedByUser,
+            "session_id": call.getString("sessionId") ?? ""
+        ]
+        if let expiresInMs = call.getInt("expiresInMs") {
+            body["expires_in_ms"] = expiresInMs
+        }
+        let authToken = call.getString("vaultOwnerToken")
+
+        performRequest(url: "\(backendUrl)/api/trust/create-link", body: body, authToken: authToken) { result, error in
+            if let error = error {
+                call.reject("Failed to create trust link: \(error)")
+                return
+            }
+            guard let data = result as? [String: Any] else {
+                call.reject("Failed to create trust link: invalid response")
+                return
+            }
+            call.resolve([
+                "fromAgent": data["from_agent"] ?? fromAgent,
+                "toAgent": data["to_agent"] ?? toAgent,
+                "scope": data["scope"] ?? scope,
+                "createdAt": data["created_at"] ?? 0,
+                "expiresAt": data["expires_at"] ?? 0,
+                "signedByUser": data["signed_by_user"] ?? signedByUser,
+                "signature": data["signature"] ?? "",
+                "sessionId": data["session_id"] ?? ""
+            ])
+        }
     }
     
     // MARK: - Verify Trust Link
+    //
+    // Delegates to POST /api/trust/verify-link so verification uses the same
+    // signing authority that created the link.
     @objc func verifyTrustLink(_ call: CAPPluginCall) {
         guard let link = call.getObject("link"),
               let fromAgent = link["fromAgent"] as? String,
@@ -220,32 +244,42 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Invalid link object")
             return
         }
-        
-        let createdAtVal = createdAt.int64Value
-        let expiresAtVal = expiresAt.int64Value
-        
-        let requiredScope = call.getString("requiredScope")
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        
-        if now > expiresAtVal {
-            call.resolve(["valid": false, "reason": "Trust link expired"])
-            return
+
+        let backendUrl = resolvedBackendUrl(call)
+        var body: [String: Any] = [
+            "link": [
+                "from_agent": fromAgent,
+                "to_agent": toAgent,
+                "scope": scope,
+                "created_at": createdAt.int64Value,
+                "expires_at": expiresAt.int64Value,
+                "signed_by_user": signedByUser,
+                "signature": signature,
+                "session_id": (link["sessionId"] as? String) ?? ""
+            ]
+        ]
+        if let requiredScope = call.getString("requiredScope") {
+            body["required_scope"] = requiredScope
         }
-        
-        if let req = requiredScope, scope != req {
-            call.resolve(["valid": false, "reason": "Scope mismatch"])
-            return
+        if let expectedSessionId = call.getString("expectedSessionId") {
+            body["expected_session_id"] = expectedSessionId
         }
-        
-        let raw = "\(fromAgent)|\(toAgent)|\(scope)|\(createdAtVal)|\(expiresAtVal)|\(signedByUser)"
-        let expectedSig = sign(raw)
-        
-        if signature != expectedSig {
-            call.resolve(["valid": false, "reason": "Invalid signature"])
-            return
+
+        performRequest(url: "\(backendUrl)/api/trust/verify-link", body: body, authToken: nil) { result, error in
+            if let error = error {
+                call.resolve(["valid": false, "reason": "Verification failed: \(error)"])
+                return
+            }
+            guard let data = result as? [String: Any] else {
+                call.resolve(["valid": false, "reason": "Verification failed: invalid response"])
+                return
+            }
+            var payload: [String: Any] = ["valid": data["valid"] as? Bool ?? false]
+            if let reason = data["reason"] as? String {
+                payload["reason"] = reason
+            }
+            call.resolve(payload)
         }
-        
-        call.resolve(["valid": true])
     }
     
     // MARK: - Backend API Methods
