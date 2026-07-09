@@ -14,7 +14,7 @@ import type {
 export type CapabilityStatusTone = "ready" | "action" | "attention" | "muted";
 
 export interface CapabilityStatusDisplay {
-  /** Short badge label, e.g. "Ready", "Set up", "2 to review", "Unlock to see". */
+  /** Short badge label, e.g. "Ready", "Set up", "2 to review", "Unlock to view". */
   label: string;
   tone: CapabilityStatusTone;
   /** Whether tapping the tile should route into a setup action vs just open it. */
@@ -79,7 +79,7 @@ export function getCapabilityStatusDisplay(
     case "unknown":
     default:
       return {
-        label: status.requiresUnlock ? "Unlock to see" : "Checking…",
+        label: status.requiresUnlock ? "Unlock to view" : "Checking…",
         tone,
         isActionable: false,
       };

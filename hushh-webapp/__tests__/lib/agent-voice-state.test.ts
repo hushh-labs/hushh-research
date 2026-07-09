@@ -10,7 +10,7 @@ describe("agent voice state", () => {
     useAgentVoiceState.getState().reset();
   });
 
-  it("tracks active voice status for the floating indicator", () => {
+  it("tracks active voice status for the Agent Bar", () => {
     useAgentVoiceState.getState().setActive(true);
     expect(useAgentVoiceState.getState().active).toBe(true);
     expect(useAgentVoiceState.getState().status).toBe("listening");

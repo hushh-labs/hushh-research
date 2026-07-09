@@ -212,6 +212,26 @@ describe("buildStructuredScreenContext", () => {
     );
   });
 
+  it("always includes global navigation contracts regardless of screen", () => {
+    // Regression: "go to profile" from the Connect tab failed because
+    // route.profile was screen-filtered out of available_action_ids, so the
+    // model was never told the contract existed.
+    window.history.pushState({}, "", "/marketplace");
+    document.body.innerHTML = "<h1>Connect</h1>";
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/marketplace", "marketplace"),
+      voiceContext: {},
+    });
+
+    const availableIds = (
+      context.screen_metadata as { available_action_ids: string[] }
+    ).available_action_ids;
+    expect(availableIds).toEqual(
+      expect.arrayContaining(["route.profile", "route.kai_home", "route.ria_home"])
+    );
+  });
+
   it("caps multi-source context arrays before they enter the voice planner payload", () => {
     const oversizedActions = Array.from({ length: 12 }, (_, index) => ({
       id: `action_${index}`,
@@ -348,6 +368,84 @@ describe("buildStructuredScreenContext", () => {
       connector_state: "connected",
       receipt_count: 12,
     });
+  });
+
+  it("keeps local-only preference controls visible but not executable", () => {
+    window.history.pushState({}, "", "/profile/preferences");
+    publishVoiceSurfaceMetadata("test_surface", {
+      surfaceDefinition: {
+        screenId: "profile_preferences",
+        title: "Preferences",
+        purpose: "Manage local appearance and device voice settings.",
+        sections: [
+          {
+            id: "preferences",
+            title: "Preferences",
+            purpose: "Shell, theme, and device preferences.",
+          },
+        ],
+        actions: [],
+        controls: [
+          {
+            id: "profile_theme",
+            label: "Appearance",
+            type: "segmented_control",
+            purpose: "Local theme selector.",
+          },
+          {
+            id: "profile_agent_voice",
+            label: "Agent voice",
+            type: "select",
+            state: "Sulafat",
+            purpose: "Gemini-compatible local voice selector.",
+          },
+          {
+            id: "profile_vault",
+            label: "Vault",
+            actionId: "route.profile_security_panel",
+            purpose: "Generated route action for vault security.",
+          },
+        ],
+        concepts: [],
+      },
+      activeSection: "preferences",
+      availableActions: [],
+      screenMetadata: {
+        profile_panel: "preferences",
+        preference_voice_actions_available: false,
+      },
+    });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/profile/preferences", "profile_preferences"),
+      voiceContext: {},
+    });
+
+    expect(context.surface.controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "profile_theme",
+          action_id: null,
+        }),
+        expect.objectContaining({
+          id: "profile_agent_voice",
+          action_id: null,
+          state: "Sulafat",
+        }),
+        expect.objectContaining({
+          id: "profile_vault",
+          action_id: "route.profile_security_panel",
+        }),
+      ]),
+    );
+    expect(context.screen_metadata.available_action_ids).toEqual(
+      expect.arrayContaining(["route.profile_security_panel"]),
+    );
+    expect(context.screen_metadata.available_action_ids).not.toContain("profile_theme");
+    expect(context.screen_metadata.available_action_ids).not.toContain(
+      "profile_agent_voice",
+    );
+    expect(context.screen_metadata.preference_voice_actions_available).toBe(false);
   });
 
   it("merges the reusable top-level surface contract into structured context", () => {
@@ -824,11 +922,11 @@ describe("buildStructuredScreenContext", () => {
 
   it("keeps structured context shape while attaching One Voice metadata", () => {
     const context = buildOneVoiceStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/one", "one_home"),
+      appRuntimeState: makeRuntimeState("/one", "one_agents"),
       state: "listening",
     });
 
-    expect(context.route.screen).toBe("one_home");
+    expect(context.route.screen).toBe("one_agents");
     expect(context.one_voice_context).toMatchObject({
       schema_version: "one_voice_context.v1",
       voice: {

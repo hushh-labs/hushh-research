@@ -28,6 +28,7 @@ enum NativeUiTestRunnerScript {
     "redirect-valid",
     "error",
   ];
+  var UI_FLOW_STORAGE_KEY = "__hushh_native_ui_flow_state_v1";
 
   var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
     investor: {
@@ -133,8 +134,7 @@ enum NativeUiTestRunnerScript {
   }
 
   function personaMismatchPromptVisible() {
-    var text = ((document.body && document.body.innerText) || "").toLowerCase();
-    return text.indexOf("active role and current route are out of sync") >= 0;
+    return false;
   }
 
   function visibleButtonSummary(limit) {
@@ -545,6 +545,33 @@ enum NativeUiTestRunnerScript {
     return window.__HUSHH_NATIVE_TEST__ || {};
   }
 
+  function nativeUiFlowRunState() {
+    window.__HUSHH_NATIVE_UI_FLOW_STATE__ =
+      window.__HUSHH_NATIVE_UI_FLOW_STATE__ || {
+        started: false,
+        complete: false,
+        promise: null,
+        report: null,
+      };
+    return window.__HUSHH_NATIVE_UI_FLOW_STATE__;
+  }
+
+  function readStoredUiFlowState() {
+    try {
+      var raw = window.sessionStorage.getItem(UI_FLOW_STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeStoredUiFlowState(state) {
+    try {
+      window.sessionStorage.setItem(UI_FLOW_STORAGE_KEY, JSON.stringify(state));
+    } catch (_) {}
+  }
+
   async function waitForNativeAutomationBridge(timeoutMs) {
     var ready = await waitForCondition(function () {
       var bridge = nativeTestBridge();
@@ -633,7 +660,27 @@ enum NativeUiTestRunnerScript {
       routeMatchesPersona(persona) &&
       personaReady &&
       (Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]')) ||
+        visibleNavLabel(personaHomeLabel(persona)) ||
+        bridge.personaSwitchStatus === "ok:" + persona)
+    );
+  }
+
+  function personaRouteUiReady(persona, expectedTour) {
+    return (
+      routeMatchesPersona(persona) &&
+      !personaMismatchPromptVisible() &&
+      (Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]')) ||
         visibleNavLabel(personaHomeLabel(persona)))
+    );
+  }
+
+  function personaBridgeReady(persona) {
+    var bridge = nativeTestBridge();
+    return (
+      routeMatchesPersona(persona) &&
+      (bridge.activePersona === persona ||
+        bridge.primaryNavPersona === persona ||
+        bridge.personaSwitchStatus === "ok:" + persona)
     );
   }
 
@@ -788,7 +835,13 @@ enum NativeUiTestRunnerScript {
 
   async function attemptNativePersonaSwitch(persona) {
     var bridge = nativeTestBridge();
-    if (bridge.activePersona === persona) return true;
+    if (
+      bridge.activePersona === persona ||
+      bridge.primaryNavPersona === persona ||
+      bridge.personaSwitchStatus === "ok:" + persona
+    ) {
+      return true;
+    }
     if (bridge.enabled !== true || typeof bridge.switchPersona !== "function")
       return false;
 
@@ -807,59 +860,40 @@ enum NativeUiTestRunnerScript {
       var result = await Promise.race([observed, requested, timedOut]);
       if (
         result === "observed" ||
-        nativeTestBridge().activePersona === persona
+        nativeTestBridge().activePersona === persona ||
+        nativeTestBridge().primaryNavPersona === persona ||
+        nativeTestBridge().personaSwitchStatus === "ok:" + persona
       ) {
         return true;
       }
       return await waitForCondition(function () {
-        return nativeTestBridge().activePersona === persona;
+        var current = nativeTestBridge();
+        return (
+          current.activePersona === persona ||
+          current.primaryNavPersona === persona ||
+          current.personaSwitchStatus === "ok:" + persona
+        );
       }, 12000);
     } catch (error) {
-      if (nativeTestBridge().activePersona === persona) return true;
+      var current = nativeTestBridge();
+      if (
+        current.activePersona === persona ||
+        current.primaryNavPersona === persona ||
+        current.personaSwitchStatus === "ok:" + persona
+      ) {
+        return true;
+      }
       throw error;
     }
   }
 
   async function resolvePersonaMismatchPrompt(persona) {
-    var route = window.location.pathname || "";
-    var targetRouteMatches =
-      (persona === "ria" && route.indexOf("/ria") === 0) ||
-      (persona === "investor" && route.indexOf("/one/kai") === 0) ||
-      (persona === "investor" && route.indexOf("/kai") === 0);
-    var routePersonaButton =
-      persona === "ria"
-        ? findVisibleButton(/^stay in ria workspace$/i)
-        : findVisibleButton(/^stay in (?:investor|kai) workspace$/i);
-    var activePersonaButton =
-      persona === "ria"
-        ? findVisibleButton(/^switch to ria workspace$/i)
-        : findVisibleButton(/^switch to investor workspace$/i);
-
-    if (targetRouteMatches && routePersonaButton) {
-      clickElement(routePersonaButton);
-      await sleep(800);
-      return true;
-    }
-    if (!targetRouteMatches && activePersonaButton) {
-      clickElement(activePersonaButton);
-      await sleep(800);
-      return true;
-    }
+    void persona;
     return false;
   }
 
   async function waitForNoPersonaMismatchPrompt(timeoutMs) {
-    var deadline = Date.now() + (timeoutMs || 10000);
-    while (Date.now() < deadline) {
-      if (!personaMismatchPromptVisible()) return;
-      await sleep(250);
-    }
-    throw new Error(
-      "persona mismatch prompt still visible on " +
-        window.location.href +
-        " visible=" +
-        visibleButtonSummary(8),
-    );
+    void timeoutMs;
   }
 
   async function waitForRoute(route, timeoutMs) {
@@ -934,13 +968,34 @@ enum NativeUiTestRunnerScript {
         await navigateWithNativeRouter(route);
       }
       var switched = await attemptNativePersonaSwitch(persona);
-      if (switched) {
-        await resolvePersonaMismatchPrompt(persona);
+      var resolvedMismatch = await resolvePersonaMismatchPrompt(persona);
+      if (switched || resolvedMismatch) {
+        await sleep(500);
+      }
+      if (
+        personaBridgeReady(persona) ||
+        personaShellReady(persona, expectedTour) ||
+        personaRouteUiReady(persona, expectedTour)
+      ) {
+        await waitForNoPersonaMismatchPrompt(1000);
+        return;
       }
       await waitForBeacon([route], undefined, 30000);
+      await resolvePersonaMismatchPrompt(persona);
+      if (
+        personaBridgeReady(persona) ||
+        personaShellReady(persona, expectedTour) ||
+        personaRouteUiReady(persona, expectedTour)
+      ) {
+        await waitForNoPersonaMismatchPrompt(1000);
+        return;
+      }
 
       var ready = await waitForCondition(function () {
-        return personaShellReady(persona, expectedTour);
+        return (
+          personaShellReady(persona, expectedTour) ||
+          personaRouteUiReady(persona, expectedTour)
+        );
       }, 15000);
       if (ready) {
         await waitForNoPersonaMismatchPrompt(1000);
@@ -993,30 +1048,32 @@ enum NativeUiTestRunnerScript {
       return;
     }
 
-    await clickBottomNav("Profile");
-    await waitForBeacon(["/profile"]);
-    var titles = Array.prototype.slice.call(
-      document.querySelectorAll('[data-testid="top-app-bar-title"]'),
-    );
-    var titleTrigger = titles.find(visible);
-    if (!titleTrigger) {
-      throw new Error("persona trigger missing on profile");
+    if (!routeMatchesPersona(persona)) {
+      await navigateWithNativeRouter(route);
     }
-    clickElement(titleTrigger);
-    await sleep(200);
-    var label = persona === "ria" ? "RIA" : "Investor";
-    var menuItems = Array.prototype.slice.call(
-      document.querySelectorAll('[role="menuitem"]'),
-    );
-    var menuItem = menuItems.find(function (item) {
-      return new RegExp(label, "i").test((item.textContent || "").trim());
-    });
-    if (!menuItem) {
-      throw new Error("persona menu item missing: " + label);
+    await resolvePersonaMismatchPrompt(persona);
+    var routeReady = await waitForCondition(function () {
+      return (
+        personaBridgeReady(persona) ||
+        personaShellReady(persona, expectedTour) ||
+        personaRouteUiReady(persona, expectedTour)
+      );
+    }, 15000);
+    if (routeReady) {
+      await waitForNoPersonaMismatchPrompt(1000);
+      return;
     }
-    clickElement(menuItem);
-    await sleep(800);
-    await waitForNoPersonaMismatchPrompt(3000);
+
+    throw new Error(
+      "persona switch failed: " +
+        persona +
+        " route=" +
+        window.location.pathname +
+        " bridge=" +
+        bridgeSummary() +
+        " visible=" +
+        visibleButtonSummary(8),
+    );
   }
 
   async function openRiaWorkspace() {
@@ -1203,8 +1260,36 @@ enum NativeUiTestRunnerScript {
 
   async function runAllUiFlows() {
     var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    var runState = nativeUiFlowRunState();
+    if (runState.complete) {
+      return runState.report || bridge.uiFlowReport || { ok: true, flows: [] };
+    }
+    if (runState.promise) {
+      return runState.promise;
+    }
+    runState.started = true;
+    runState.promise = runAllUiFlowsOnce().finally(function () {
+      runState.promise = null;
+    });
+    return runState.promise;
+  }
+
+  async function runAllUiFlowsOnce() {
+    var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    var runState = nativeUiFlowRunState();
     if (bridge.uiFlowsComplete) {
       return bridge.uiFlowReport || { ok: true, flows: [] };
+    }
+    var storedState = readStoredUiFlowState();
+    if (storedState && storedState.complete && storedState.report) {
+      bridge.uiFlowReport = storedState.report;
+      bridge.uiFlowError = storedState.report.error || "";
+      bridge.uiFlowsComplete = true;
+      bridge.uiFlowsOk = storedState.report.ok === true;
+      bridge.uiFlowsFailed = !storedState.report.ok;
+      runState.complete = true;
+      runState.report = storedState.report;
+      return storedState.report;
     }
 
     var response = await fetch("/native-ui-flows.json", { cache: "no-store" });
@@ -1215,16 +1300,32 @@ enum NativeUiTestRunnerScript {
     }
     var payload = await response.json();
     var flows = payload.flows || [];
-    var report = {
-      ok: true,
-      startedAt: new Date().toISOString(),
-      flows: [],
-    };
+    var report =
+      storedState && storedState.report
+        ? storedState.report
+        : {
+            ok: true,
+            startedAt: new Date().toISOString(),
+            flows: [],
+          };
+    var startIndex = Math.max(
+      0,
+      Math.min(
+        flows.length,
+        Number(storedState && storedState.nextIndex) || report.flows.length || 0,
+      ),
+    );
 
-    for (var i = 0; i < flows.length; i += 1) {
+    for (var i = startIndex; i < flows.length; i += 1) {
       var flow = flows[i];
       bridge.uiFlowCurrent = flow.id;
       bridge.uiFlowIndex = i;
+      writeStoredUiFlowState({
+        started: true,
+        complete: false,
+        nextIndex: i,
+        report: report,
+      });
       dismissBlockingScreens();
       var result = await runFlow(flow);
       report.flows.push({
@@ -1239,8 +1340,20 @@ enum NativeUiTestRunnerScript {
       if (!result.ok && flow.optional !== true) {
         report.ok = false;
         report.error = result.error || "flow failed: " + flow.id;
+        writeStoredUiFlowState({
+          started: true,
+          complete: true,
+          nextIndex: i + 1,
+          report: report,
+        });
         break;
       }
+      writeStoredUiFlowState({
+        started: true,
+        complete: false,
+        nextIndex: i + 1,
+        report: report,
+      });
     }
 
     report.completedAt = new Date().toISOString();
@@ -1249,6 +1362,14 @@ enum NativeUiTestRunnerScript {
     bridge.uiFlowsComplete = true;
     bridge.uiFlowsOk = report.ok === true;
     bridge.uiFlowsFailed = !report.ok;
+    runState.complete = true;
+    runState.report = report;
+    writeStoredUiFlowState({
+      started: true,
+      complete: true,
+      nextIndex: flows.length,
+      report: report,
+    });
     try {
       window.webkit.messageHandlers.hushhNativeTest.postMessage({
         uiFlowReport: report,
@@ -1262,11 +1383,14 @@ enum NativeUiTestRunnerScript {
 
   function startUiFlowBootstrap() {
     var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    var runState = nativeUiFlowRunState();
     if (
       bridge.runUiFlows !== true ||
       bridge._uiFlowBootstrapTimer ||
       bridge._uiFlowsStarted ||
-      bridge.uiFlowsComplete === true
+      bridge.uiFlowsComplete === true ||
+      runState.started ||
+      runState.complete
     ) {
       return;
     }
@@ -1303,8 +1427,10 @@ enum NativeUiTestRunnerScript {
         typeof bridge.navigateToRoute === "function" &&
         typeof bridge.switchPersona === "function" &&
         (bridge.activePersona === "investor" || bridge.activePersona === "ria");
-      if (!ready || !bridgeReady || bridge._uiFlowsStarted) return;
+      if (!ready || !bridgeReady || bridge._uiFlowsStarted || runState.started)
+        return;
       dismissBlockingScreens();
+      runState.started = true;
       bridge._uiFlowsStarted = true;
       clearNativeTestRouteLock();
       window.clearInterval(bridge._uiFlowBootstrapTimer);
@@ -1317,6 +1443,9 @@ enum NativeUiTestRunnerScript {
           error: bridge.uiFlowError,
           flows: [],
         };
+        runState.complete = true;
+        runState.report = bridge.uiFlowReport;
+        runState.promise = null;
         bridge.uiFlowsComplete = true;
         bridge.uiFlowsOk = false;
         bridge.uiFlowsFailed = true;

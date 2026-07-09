@@ -48,6 +48,9 @@ describe("OneDashboardPage", () => {
 
     expect(screen.getByTestId("page-header")).toBeTruthy();
     expect(screen.getByText("Good to see you, Kushal.")).toBeTruthy();
+    // 2a redesign groups capabilities into Workflows / Memory / Access sections
+    // (the RIA standalone agent tile mirrors the top-bar switcher roster and
+    // sits in the Workflows group next to Finance).
     expect(screen.getByTestId("one-workflows-section")).toBeTruthy();
     expect(screen.getByTestId("one-memory-section")).toBeTruthy();
     expect(screen.getByTestId("one-access-section")).toBeTruthy();
@@ -56,6 +59,7 @@ describe("OneDashboardPage", () => {
     // when the href already has a query) so the surface's top-bar back button
     // returns to the dashboard, not Profile. See resolveTopShellBreadcrumb.
     const fromOne = `from=${ROUTES.ONE_HOME}`;
+    // The finance tile is publicly named "Finance"; Kai stays internal.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
@@ -64,6 +68,12 @@ describe("OneDashboardPage", () => {
     // colored border.
     expect(financeLink.className).not.toContain("border-emerald-500");
     expect(financeLink.getAttribute("style") ?? "").toContain("background");
+    // The /one grid mirrors the top-bar agent switcher roster: RIA sits
+    // directly after Finance as a standalone top-level agent (also a pastel
+    // workflow card).
+    const riaLink = screen.getByRole("link", { name: "Open RIA" });
+    expect(riaLink.getAttribute("href")).toBe(`${ROUTES.RIA_HOME}?${fromOne}`);
+    expect(riaLink.getAttribute("style") ?? "").toContain("background");
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
     ).toBe(`${ROUTES.GMAIL}?${fromOne}`);
@@ -75,12 +85,12 @@ describe("OneDashboardPage", () => {
     ).toBe(`${ROUTES.ONE_LOCATION}?${fromOne}`);
     expect(
       screen
-        .getByRole("link", { name: "Open Personal Data" })
+        .getByRole("link", { name: "Open Memory" })
         .getAttribute("href"),
     ).toBe(`${ROUTES.PKM}?${fromOne}`);
     expect(
       screen
-        .getByRole("link", { name: "Open Consent Guardian" })
+        .getByRole("link", { name: "Open Consent" })
         .getAttribute("href"),
     ).toBe(`/consents?tab=pending&${fromOne}`);
     expect(
@@ -95,17 +105,20 @@ describe("OneDashboardPage", () => {
     // email + location are real vault-gated workflows (not explore-only), so a
     // completed status reads "Ready", not "Explored".
     expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed
-    expect(screen.getByText("Unlock to see")).toBeTruthy(); // pkm vault-gated
+    expect(screen.getByText("Unlock to view")).toBeTruthy(); // pkm vault-gated
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
     expect(screen.getByText("2 consents pending")).toBeTruthy(); // header badge
+    // Gmail is a Memory list row whose description renders inline (no `title`
+    // attribute in the 2a card/row markup).
     expect(
       screen.getByText("Receipt sync and purchase-memory review."),
     ).toBeTruthy();
-    // All 8 capabilities render as tappable links (2a redesign uses plain
-    // links, not morphy ripple hosts).
+    // All 8 catalog capabilities plus the standalone RIA agent tile render as
+    // tappable links (2a redesign uses plain links, not morphy ripple hosts;
+    // the grid mirrors the top-bar switcher roster).
     expect(
       container.querySelectorAll('a[aria-label^="Open "]').length,
-    ).toBe(8);
+    ).toBe(9);
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 

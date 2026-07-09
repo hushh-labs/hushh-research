@@ -48,7 +48,9 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -98,10 +100,13 @@ function BodyPortal({ children }: { children: ReactNode }) {
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 
 import {
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
   decryptLocationEnvelope,
   encryptLocationForRecipient,
   ensureLocationRecipientKey,
+  ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
@@ -127,6 +132,8 @@ import {
   type OneLocationNotificationSection,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
+import { driveEtaText } from "@/app/one/location/drive-eta";
+import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   syncOneLocationContactSignals,
@@ -137,8 +144,8 @@ import {
   LocationRedesignHub,
   type LocationHubViewModel,
 } from "@/components/one-location/redesign/location-redesign-hub";
-import { LocationRedesignSkeleton } from "@/components/one-location/redesign/location-redesign-skeleton";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
+
 import {
   clearSosIncident,
   loadSosIncident,
@@ -153,6 +160,8 @@ import {
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 import type {
+  DriveDestination,
+  DriveSharePayload,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -165,6 +174,10 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import {
+  addRecentDestination,
+  loadRecentDestinations,
+} from "@/lib/one-location/drive-recents";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   CONSENT_STATE_CHANGED_EVENT,
@@ -195,6 +208,8 @@ const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // user's point never goes stale.
 const LIVE_LOCATION_MIN_MOVE_METERS = 25;
 const LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS = 8_000;
+const DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS = 60_000;
+const DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS = 250;
 
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const REQUEST_MESSAGE_MAX_LENGTH = 80;
@@ -236,6 +251,7 @@ type BusyState =
   | "sos"
   | "locationSettings"
   | "selfLocation"
+  | "driveTo"
   | "contactSync"
   | "contactInvite"
   | "publicInvite"
@@ -615,21 +631,6 @@ function publicSubmissionLabel(
   return safePersonLabel(submission.visitorDisplayName, "Public request");
 }
 
-function publicInviteUrlLabel(value: string): string {
-  if (!value) return "";
-  const configuredOrigin = String(process.env.NEXT_PUBLIC_APP_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (/^https?:\/\//i.test(value)) return value;
-  const origin =
-    /^https?:\/\//i.test(configuredOrigin) ||
-    typeof window === "undefined"
-      ? configuredOrigin
-      : String(window.location.origin || "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(origin)) return value;
-  return new URL(value, origin).toString();
-}
-
 function publicInviteUrlPreview(value: string): string {
   const url = value.trim();
   if (!url) return "";
@@ -875,6 +876,18 @@ function LocalMapPreview({
             {locationSourceLabel(point.sourcePlatform)}
           </p>
         </div>
+
+        {point.drive ? (
+          <div className="rounded-[12px] border border-sky-500/30 bg-sky-500/[0.08] p-3">
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-sky-700 dark:text-sky-300">
+              <Route className="h-3.5 w-3.5" aria-hidden="true" />
+              Driving to {point.drive.destination.label}
+            </p>
+            <p className="mt-0.5 text-[13px] font-semibold text-foreground">
+              {driveEtaText(point.drive.etaSeconds)}
+            </p>
+          </div>
+        ) : null}
 
         {showNavigation ? (
           <div className="grid gap-2">
@@ -1623,7 +1636,7 @@ function OneLocationOnboardingFlow({
         <section className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-[clamp(24px,7vw,34px)] py-3 [-webkit-overflow-scrolling:touch]">
           <div
             key={step}
-            className="flex w-full flex-col items-center text-center animate-in fade-in slide-in-from-right-4 duration-300 motion-reduce:animate-none"
+            className="motion-step-enter flex w-full flex-col items-center text-center"
           >
             {isPermissionStep ? <OneLocationPermissionGlyph /> : <OneLocationIntroMapIllustration />}
 
@@ -1693,7 +1706,7 @@ function OneLocationAgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
-  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
     [searchParams],
@@ -1774,6 +1787,14 @@ function OneLocationAgentPageContent() {
   const [decryptedPoints, setDecryptedPoints] = useState<
     Record<string, PlainLocationPoint>
   >({});
+  // Per-grant, recipient-facing message shown when a received share can't be
+  // decrypted because the on-device key no longer matches (e.g. the key rotated
+  // after WKWebView storage loss). Drives the inline "ask them to share again"
+  // recovery state instead of a raw crypto error. Keyed by grant id, mirrors
+  // `decryptedPoints`.
+  const [grantViewErrors, setGrantViewErrors] = useState<
+    Record<string, string>
+  >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
   // Bumped whenever the recipient unwatches a share, so the memoized
   // "Shared with me" list recomputes immediately.
@@ -1802,6 +1823,16 @@ function OneLocationAgentPageContent() {
   const liveWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
+  const driveSessionRef = useRef<{
+    grantIds: Set<string>;
+    destination: DriveDestination;
+    etaSeconds: number | null;
+    distanceMeters: number | null;
+    etaComputedAt: string;
+    lastEtaPoint: PlainLocationPoint | null;
+    lastEtaAt: number;
+  } | null>(null);
+  const [recentDestinations, setRecentDestinations] = useState<DriveDestination[]>([]);
 
 
   const recipients = useMemo(
@@ -2558,6 +2589,11 @@ function OneLocationAgentPageContent() {
   }, []);
 
   useEffect(() => {
+    if (!auth.userId) return;
+    void loadRecentDestinations(auth.userId).then(setRecentDestinations);
+  }, [auth.userId]);
+
+  useEffect(() => {
     if (!auth.userId || typeof window === "undefined") return;
     const handleLocationNotification = (event: Event) => {
       const detail =
@@ -2868,6 +2904,56 @@ function OneLocationAgentPageContent() {
     [publishEnvelope],
   );
 
+  const drivePointForGrant = useCallback(
+    async (
+      grant: OneLocationGrant,
+      point: PlainLocationPoint,
+    ): Promise<PlainLocationPoint> => {
+      const session = driveSessionRef.current;
+      if (!session || !session.grantIds.has(grant.id)) return point;
+
+      const now = Date.now();
+      const movedMeters = session.lastEtaPoint
+        ? locationDistanceMeters(session.lastEtaPoint, point)
+        : Number.POSITIVE_INFINITY;
+      const sinceMs = now - session.lastEtaAt;
+      const shouldRecompute =
+        !session.lastEtaPoint ||
+        movedMeters >= DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS ||
+        sinceMs >= DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS;
+
+      if (shouldRecompute && vaultOwnerToken) {
+        try {
+          const eta = await OneLocationService.routeEta({
+            vaultOwnerToken,
+            originLat: point.latitude,
+            originLng: point.longitude,
+            destLat: session.destination.latitude,
+            destLng: session.destination.longitude,
+          });
+          session.etaSeconds = eta.etaSeconds;
+          session.distanceMeters = eta.distanceMeters;
+          session.etaComputedAt = new Date().toISOString();
+          session.lastEtaPoint = point;
+          session.lastEtaAt = now;
+        } catch {
+          // Keep the last known ETA; the share still carries the moving point.
+          session.lastEtaPoint = point;
+          session.lastEtaAt = now;
+        }
+      }
+
+      const drive: DriveSharePayload = {
+        destination: session.destination,
+        etaSeconds: session.etaSeconds,
+        distanceMeters: session.distanceMeters,
+        etaComputedAt: session.etaComputedAt,
+      };
+      return { ...point, drive };
+    },
+    [vaultOwnerToken],
+  );
+
   const resetShareComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRecipientId("");
@@ -3067,15 +3153,69 @@ function OneLocationAgentPageContent() {
               vaultOwnerToken,
               grantId: grant.id,
             });
-            return decryptLocationEnvelope({
-              userId: activeUserId,
-              envelope: response.envelope,
-            });
+            try {
+              return await decryptLocationEnvelope({
+                userId: activeUserId,
+                envelope: response.envelope,
+              });
+            } catch (decryptError) {
+              // Brand-new device (or not-yet-synced): pull the vault-synced key
+              // shared across the user's devices and retry once before giving up.
+              if (
+                decryptError instanceof Error &&
+                decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE &&
+                vaultKey &&
+                state?.myRecipientKey?.encryptedPrivateKeyJwk
+              ) {
+                await ensureVaultSyncedRecipientKey({
+                  userId: activeUserId,
+                  vaultKey,
+                  remoteBackup: state.myRecipientKey,
+                }).catch(() => {});
+                return await decryptLocationEnvelope({
+                  userId: activeUserId,
+                  envelope: response.envelope,
+                });
+              }
+              throw decryptError;
+            }
           },
         });
         setDecryptedPoints((current) => ({ ...current, [grant.id]: point }));
+        // Recovered — clear any prior "ask them to share again" state.
+        setGrantViewErrors((current) => {
+          if (!(grant.id in current)) return current;
+          const next = { ...current };
+          delete next[grant.id];
+          return next;
+        });
       } catch (error) {
-        if (!silent) {
+        const keyUnavailable =
+          error instanceof Error &&
+          error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
+        if (keyUnavailable) {
+          // The recipient's device key rotated / was lost, so this envelope was
+          // encrypted for a key we no longer hold. Self-heal: re-register our
+          // current (now durable) key so future shares work, and surface an
+          // actionable inline state prompting the owner to share again — instead
+          // of a raw crypto error toast (manual) or a silent console.warn.
+          void bootstrapCurrentUserLocationRecipientKey({
+            userId: activeUserId,
+            vaultOwnerToken,
+            vaultKey: vaultKey ?? undefined,
+          }).catch((bootstrapError) => {
+            console.warn(
+              "[OneLocationAgent] Recipient key re-registration failed:",
+              bootstrapError,
+            );
+          });
+          setGrantViewErrors((current) => ({
+            ...current,
+            [grant.id]: `Couldn't open ${receivedGrantOwnerLabel(
+              grant,
+            )}'s live location — the secure key changed. Ask them to share again.`,
+          }));
+        } else if (!silent) {
           toast.error(
             error instanceof Error
               ? error.message
@@ -3089,6 +3229,35 @@ function OneLocationAgentPageContent() {
         }
       } finally {
         if (!silent) setBusy(null);
+      }
+    },
+    [auth.userId, vaultOwnerToken, vaultKey, state?.myRecipientKey],
+  );
+
+  // Recipient-side "ask them to share again": re-request access from the owner
+  // of a share we can no longer decrypt. Reuses the standard request flow so the
+  // owner gets a location_access_request notification; when they re-share, the
+  // fresh grant snapshots our current key and live updates resume.
+  const handleAskReshare = useCallback(
+    async (grant: OneLocationGrant) => {
+      if (!vaultOwnerToken || !auth.userId) return;
+      const ownerUserId = String(grant.ownerUserId || "").trim();
+      if (!ownerUserId) return;
+      setBusy("request");
+      try {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId,
+          message: `Please share your live location again — my secure key was refreshed.`,
+        });
+        playOneLocationNotificationSound();
+        toast.success(
+          `Asked ${receivedGrantOwnerLabel(grant)} to share their location again.`,
+        );
+      } catch (error) {
+        toast.error(oneLocationErrorMessage(error, "Could not send request."));
+      } finally {
+        setBusy(null);
       }
     },
     [auth.userId, vaultOwnerToken],
@@ -3117,6 +3286,12 @@ function OneLocationAgentPageContent() {
         delete next[grant.id];
         return next;
       });
+      setGrantViewErrors((current) => {
+        if (!(grant.id in current)) return current;
+        const next = { ...current };
+        delete next[grant.id];
+        return next;
+      });
       toast.success(
         `Stopped watching ${receivedGrantOwnerLabel(grant)}'s location.`,
       );
@@ -3138,6 +3313,18 @@ function OneLocationAgentPageContent() {
       for (const [grantId, point] of Object.entries(current)) {
         if (activeGrantIds.has(grantId)) {
           next[grantId] = point;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+    setGrantViewErrors((current) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+      for (const [grantId, message] of Object.entries(current)) {
+        if (activeGrantIds.has(grantId)) {
+          next[grantId] = message;
         } else {
           changed = true;
         }
@@ -3261,11 +3448,12 @@ function OneLocationAgentPageContent() {
         for (const grant of activeOwnerGrants) {
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
+          const pointForGrant = await drivePointForGrant(grant, point);
           await publishEnvelopeWithRetry(
             grant,
             recipient,
             "foreground_interval",
-            point,
+            pointForGrant,
           );
         }
         lastPublishedPointRef.current = point;
@@ -3311,6 +3499,7 @@ function OneLocationAgentPageContent() {
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
+    drivePointForGrant,
     vaultOwnerToken,
   ]);
 
@@ -4133,6 +4322,110 @@ function OneLocationAgentPageContent() {
     ],
   );
 
+  const handleDriveTo = useCallback(
+    async (
+      destination: DriveDestination,
+      recipientIds: string[],
+      durationHoursValue: string,
+    ) => {
+      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+        toast.error("Location permission is required to share your drive.");
+        return;
+      }
+      const selected = sosActionRecipients
+        .filter((recipient) => recipientIds.includes(recipient.userId))
+        .filter(isShareReadyRecipient);
+      if (!selected.length) {
+        toast.error("Select at least one trusted contact who is ready to receive your location.");
+        return;
+      }
+      setBusy("driveTo");
+      try {
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) {
+          toast.error("Couldn't get your location — drive not shared.");
+          return;
+        }
+        const point = readiness.point;
+        const durationHoursNum = Number(durationHoursValue) || 1;
+
+        // Initial ETA (best-effort; the share still works without it).
+        let etaSeconds: number | null = null;
+        let distanceMeters: number | null = null;
+        try {
+          const eta = await OneLocationService.routeEta({
+            vaultOwnerToken,
+            originLat: point.latitude,
+            originLng: point.longitude,
+            destLat: destination.latitude,
+            destLng: destination.longitude,
+          });
+          etaSeconds = eta.etaSeconds;
+          distanceMeters = eta.distanceMeters;
+        } catch {
+          // ETA unavailable — proceed with destination only.
+        }
+
+        const etaComputedAt = new Date().toISOString();
+        const drive: DriveSharePayload = {
+          destination,
+          etaSeconds,
+          distanceMeters,
+          etaComputedAt,
+        };
+        const drivePoint: PlainLocationPoint = { ...point, drive };
+        const grantIds = new Set<string>();
+
+        for (const recipient of selected) {
+          const grant = await OneLocationService.createGrant({
+            vaultOwnerToken,
+            recipientUserId: recipient.userId,
+            recipientKeyId: recipient.keyId,
+            durationHours: durationHoursNum,
+            reason: "drive_to",
+          });
+          await publishEnvelopeWithRetry(grant, recipient, "manual", drivePoint);
+          grantIds.add(grant.id);
+        }
+
+        driveSessionRef.current = {
+          grantIds,
+          destination,
+          etaSeconds,
+          distanceMeters,
+          etaComputedAt,
+          lastEtaPoint: point,
+          lastEtaAt: Date.now(),
+        };
+
+        if (auth.userId) {
+          await addRecentDestination(auth.userId, destination);
+          setRecentDestinations(await loadRecentDestinations(auth.userId));
+        }
+
+        toast.success(`Sharing your drive with ${peopleCountLabel(selected.length)}.`);
+        setShareCompletedTick((value) => value + 1);
+        await refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not share your drive.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      vaultOwnerToken,
+      permission,
+      sosActionRecipients,
+      ensureForegroundLocationReady,
+      publishEnvelopeWithRetry,
+      refresh,
+      auth.userId,
+    ],
+  );
+
   const canShare = Boolean(
     vaultOwnerToken &&
     selectedShareRecipients.length &&
@@ -4525,6 +4818,11 @@ function OneLocationAgentPageContent() {
     onStopSos: handleStopSos,
     onCheckIn: (recipientIds, durationHoursValue, messageValue) =>
       void handleCheckIn(recipientIds, durationHoursValue, messageValue),
+    vaultOwnerToken: vaultOwnerToken ?? null,
+    driveBusy: busy === "driveTo",
+    recentDestinations,
+    onDriveTo: (destination, recipientIds, durationHoursValue) =>
+      void handleDriveTo(destination, recipientIds, durationHoursValue),
   };
 
   if (USE_LOCATION_REDESIGN && !loadError) {
@@ -4532,10 +4830,11 @@ function OneLocationAgentPageContent() {
       <AppPageShell width="standard" nativeTest={nativeTestConfig}>
         <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
           {showInitialSkeleton ? (
-            <LocationRedesignSkeleton />
+            <HushhLoader variant="page" label="Loading location..." />
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
+
           <LocationChatPanel
             vaultOwnerToken={vaultOwnerToken ?? null}
             userId={auth.userId ?? undefined}
@@ -5540,6 +5839,7 @@ function OneLocationAgentPageContent() {
                   {visibleReceivedGrants.length ? (
                     visibleReceivedGrants.map((grant, index) => {
                       const point = decryptedPoints[grant.id];
+                      const viewError = grantViewErrors[grant.id];
                       return (
                         <div
                           key={grant.id}
@@ -5606,6 +5906,34 @@ function OneLocationAgentPageContent() {
                           {point ? (
                             <div className="px-3.5 pb-3.5">
                               <LocalMapPreview point={point} />
+                            </div>
+                          ) : viewError && grant.status === "active" ? (
+                            <div className="px-3.5 pb-3.5">
+                              <div className="flex flex-col gap-2.5 rounded-2xl border border-[#ff9f0a]/25 bg-[#ff9f0a]/[0.08] p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle
+                                    className="mt-0.5 h-4 w-4 shrink-0 text-[#c77700] dark:text-[#ffb340]"
+                                    aria-hidden="true"
+                                  />
+                                  <p className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-[#8a5a00] [overflow-wrap:anywhere] dark:text-[#ffcf8a]">
+                                    {viewError}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleAskReshare(grant)}
+                                  disabled={busy === "request"}
+                                  className="w-full shrink-0 rounded-full border-[#ff9f0a]/30 bg-white/70 text-[#8a5a00] hover:bg-white sm:w-auto dark:border-[#ffb340]/25 dark:bg-white/10 dark:text-[#ffcf8a] dark:hover:bg-white/15"
+                                >
+                                  {busy === "request" ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                                  )}
+                                  Ask to share again
+                                </Button>
+                              </div>
                             </div>
                           ) : null}
                         </div>

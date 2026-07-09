@@ -18,6 +18,16 @@ DEFAULT_REPO = "hushh-labs/hushh-research"
 DEFAULT_STATUS = "In progress"
 ASSIGNEE_HIERARCHY_DEFAULTS = {
     "kushaltrivedi5": "Kushal",
+    "RGlodAkshat": "Akshat",
+    "DamriaNeelesh": "Neelesh",
+    "ankitkumarsingh1702": "Ankit",
+    "Jhumma-hushh": "Jhumma",
+    "Akash-292": "Akash",
+    "Mrnaveen00": "Naveen",
+    "azfx": "Abdul",
+    "Han9128": "Hannan",
+    "rajayushkgp": "Ayush",
+    "ankitmitra101": "Ankit Mitra",
 }
 
 
@@ -26,20 +36,39 @@ class BoardOpsError(RuntimeError):
 
 
 def run_gh(args: list[str], *, input_text: str | None = None) -> str:
-    try:
-        proc = subprocess.run(
-            ["gh", *args],
-            input=input_text,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=15,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise BoardOpsError("gh command timed out after 15 seconds") from exc
-    if proc.returncode != 0:
-        raise BoardOpsError(proc.stderr.strip() or proc.stdout.strip() or "gh command failed")
-    return proc.stdout
+    import time
+    retries = 3
+    delay = 1
+    for attempt in range(retries):
+        try:
+            proc = subprocess.run(
+                ["gh", *args],
+                input=input_text,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=25,
+            )
+            if proc.returncode == 0:
+                return proc.stdout
+            err_msg = proc.stderr.strip() or proc.stdout.strip() or "gh command failed"
+            if attempt < retries - 1 and any(k in err_msg.lower() for k in ["connection reset", "timeout", "peer", "reset by peer", "failed to connect", "api.github.com"]):
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise BoardOpsError(err_msg)
+        except subprocess.TimeoutExpired as exc:
+            if attempt < retries - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise BoardOpsError("gh command timed out after 25 seconds") from exc
+        except Exception as exc:
+            if attempt < retries - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise exc
 
 
 def run_gh_json(args: list[str], *, input_text: str | None = None) -> Any:
@@ -77,24 +106,38 @@ def next_day_iso() -> str:
     return (dt.date.today() + dt.timedelta(days=1)).isoformat()
 
 
+_project_id_cache = None
 def get_project_id() -> str:
+    global _project_id_cache
+    if _project_id_cache is not None:
+        return _project_id_cache
     data = graphql(
         f'query {{ organization(login:"{OWNER}") {{ projectV2(number:{PROJECT_NUMBER}) {{ id title }} }} }}'
     )
     project = data["data"]["organization"]["projectV2"]
     if not project or project["title"] != PROJECT_TITLE:
         raise BoardOpsError("failed to resolve Engineering Core project")
-    return project["id"]
+    _project_id_cache = project["id"]
+    return _project_id_cache
 
 
+_field_catalog_cache = None
 def get_field_catalog() -> dict[str, Any]:
+    global _field_catalog_cache
+    if _field_catalog_cache is not None:
+        return _field_catalog_cache
     data = run_gh_json(
         ["project", "field-list", str(PROJECT_NUMBER), "--owner", OWNER, "--format", "json"]
     )
-    return {field["name"]: field for field in data["fields"]}
+    _field_catalog_cache = {field["name"]: field for field in data["fields"]}
+    return _field_catalog_cache
 
 
+_current_sprint_cache = None
 def get_current_sprint_iteration_id() -> tuple[str, str]:
+    global _current_sprint_cache
+    if _current_sprint_cache is not None:
+        return _current_sprint_cache
     data = graphql(
         f'''
         query {{
@@ -122,7 +165,8 @@ def get_current_sprint_iteration_id() -> tuple[str, str]:
             if not iterations:
                 raise BoardOpsError("no open sprint iteration found")
             current = iterations[0]
-            return current["id"], current["title"]
+            _current_sprint_cache = (current["id"], current["title"])
+            return _current_sprint_cache
     raise BoardOpsError("Sprint field not found")
 
 
@@ -399,13 +443,19 @@ def update_task(
             date=target_date,
         )
     if sync_current_sprint:
-        sprint_id, _sprint_title = get_current_sprint_iteration_id()
-        set_project_field(
-            item_id=item_id,
-            project_id=project_id,
-            field_id=fields["Sprint"]["id"],
-            iteration_id=sprint_id,
-        )
+        try:
+            sprint_id, _sprint_title = get_current_sprint_iteration_id()
+            set_project_field(
+                item_id=item_id,
+                project_id=project_id,
+                field_id=fields["Sprint"]["id"],
+                iteration_id=sprint_id,
+            )
+        except BoardOpsError as exc:
+            if "no open sprint iteration found" in str(exc) or "Sprint field not found" in str(exc):
+                print(f"Warning: could not sync Sprint for issue #{issue_number}: {exc}", file=sys.stderr)
+            else:
+                raise
     if hierarchy is not None:
         set_single_select_by_name(
             fields=fields,
@@ -450,6 +500,126 @@ def cmd_remove_task(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def fetch_items_graphql() -> list[dict[str, Any]]:
+    page_size = 100
+    cursor = None
+    all_items = []
+    
+    while True:
+        after = f', after:"{cursor}"' if cursor else ""
+        query = f'''
+        query {{
+          organization(login:"{OWNER}") {{
+            projectV2(number:{PROJECT_NUMBER}) {{
+              items(first:{page_size}{after}) {{
+                pageInfo {{ hasNextPage endCursor }}
+                nodes {{
+                  id
+                  content {{
+                    __typename
+                    ... on Issue {{
+                      number
+                      title
+                      url
+                      repository {{ nameWithOwner }}
+                      assignees(first: 10) {{ nodes {{ login }} }}
+                    }}
+                    ... on PullRequest {{
+                      number
+                      title
+                      url
+                      repository {{ nameWithOwner }}
+                      assignees(first: 10) {{ nodes {{ login }} }}
+                    }}
+                  }}
+                  fieldValues(first:20) {{
+                    nodes {{
+                      ... on ProjectV2ItemFieldSingleSelectValue {{
+                        name
+                        field {{ ... on ProjectV2FieldCommon {{ name }} }}
+                      }}
+                      ... on ProjectV2ItemFieldIterationValue {{
+                        title
+                        field {{ ... on ProjectV2FieldCommon {{ name }} }}
+                      }}
+                      ... on ProjectV2ItemFieldDateValue {{
+                        date
+                        field {{ ... on ProjectV2FieldCommon {{ name }} }}
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
+        '''
+        data = graphql(query)
+        project_v2 = data.get("data", {}).get("organization", {}).get("projectV2") or {}
+        items_data = project_v2.get("items") or {}
+        nodes = items_data.get("nodes") or []
+        
+        for node in nodes:
+            item_id = node.get("id")
+            content = node.get("content") or {}
+            typename = content.get("__typename")
+            
+            # Map assignees
+            assignee_nodes = content.get("assignees", {}).get("nodes") or []
+            assignees = [a.get("login") for a in assignee_nodes if a.get("login")]
+            
+            # Repository
+            repo_name = content.get("repository", {}).get("nameWithOwner")
+            
+            # Normalize content
+            normalized_content = {
+                "number": content.get("number"),
+                "title": content.get("title"),
+                "url": content.get("url"),
+                "type": typename,
+                "repository": repo_name,
+            }
+            
+            item = {
+                "id": item_id,
+                "assignees": assignees,
+                "content": normalized_content,
+                "repository": repo_name,
+            }
+            
+            # Process fieldValues
+            for val in node.get("fieldValues", {}).get("nodes", []) or []:
+                field = val.get("field") or {}
+                field_name = field.get("name")
+                if not field_name:
+                    continue
+                
+                if field_name == "Hierarchy":
+                    item["hierarchy"] = val.get("name")
+                elif field_name == "Sector":
+                    item["sector"] = val.get("name")
+                elif field_name == "Workstream":
+                    item["workstream"] = val.get("name")
+                elif field_name == "Status":
+                    item["status"] = val.get("name")
+                elif field_name == "Start date":
+                    item["start date"] = val.get("date")
+                elif field_name == "Target date":
+                    item["target date"] = val.get("date")
+                elif field_name == "Sprint":
+                    item["sprint"] = {
+                        "title": val.get("title")
+                    }
+            
+            all_items.append(item)
+            
+        if not items_data.get("pageInfo", {}).get("hasNextPage"):
+            break
+        cursor = items_data.get("pageInfo", {}).get("endCursor")
+        
+    return all_items
 
 
 def fetch_project_items() -> list[dict[str, Any]]:
@@ -527,6 +697,7 @@ def normalize_items(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not content:
             continue
         entry: dict[str, Any] = {
+            "itemId": node.get("id"),
             "number": content.get("number"),
             "title": content.get("title"),
             "displayTitle": (

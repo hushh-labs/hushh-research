@@ -20,6 +20,7 @@ import {
   MapPin,
   Search as SearchIcon,
   ShieldCheck,
+  Store,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -35,7 +36,10 @@ import {
   SegmentedPill,
   type SegmentedPillOption,
 } from "@/lib/morphy-ux/ui";
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  snapKaiBottomChromeVisible,
+  useKaiBottomChromeVisibility,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -50,6 +54,7 @@ import {
   type AppBottomNavScope,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
+import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import {
   openKaiCommandBar,
   toggleKaiCommandBar,
@@ -143,9 +148,15 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   pkm: {
     value: "pkm",
-    label: "PKM",
+    label: "Memory",
     icon: FolderSearch,
     dataTourId: "nav-one-pkm",
+  },
+  marketplace: {
+    value: "marketplace",
+    label: "Market",
+    icon: Store,
+    dataTourId: "nav-one-marketplace",
   },
   connected: {
     value: "connected",
@@ -173,7 +184,7 @@ function navOptionForKey(
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
   // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
-  // now lives as a subroute of the One dashboard.
+  // now lives as a subroute of the One Agents dashboard.
   return {
     ...option,
     badge:
@@ -208,13 +219,25 @@ export const Navbar = () => {
     useKaiBottomChromeVisibility(allowScrollHide);
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
+  const lastAgentNavScope = useKaiSession((s) => s.lastAgentNavScope);
+  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
+  const setAgentNavigationContext = useKaiSession(
+    (s) => s.setAgentNavigationContext,
+  );
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const navigationScope = useMemo<AppBottomNavScope>(() => {
-    return resolveBottomNavigationScope(normalizedPathname, activePersona);
-  }, [activePersona, normalizedPathname]);
+    return resolveBottomNavigationScope(normalizedPathname, activePersona, {
+      lastAgentNavScope,
+      lastAgentSectionId,
+    });
+  }, [activePersona, lastAgentNavScope, lastAgentSectionId, normalizedPathname]);
 
   useEffect(() => {
     if (!pathname) return;
+    const agentContext = resolveAgentNavigationContextForPath(pathname);
+    if (agentContext) {
+      setAgentNavigationContext(agentContext);
+    }
     if (
       pathname.startsWith(ROUTES.KAI_HOME) ||
       pathname.startsWith(ROUTES.LEGACY_KAI_HOME)
@@ -225,7 +248,7 @@ export const Navbar = () => {
     if (pathname.startsWith("/ria")) {
       useKaiSession.getState().setLastRiaPath(pathname);
     }
-  }, [pathname]);
+  }, [pathname, setAgentNavigationContext]);
   const agentWindowOpen =
     agentPopover?.expanded || agentPopover?.motionState === "opening";
   const portfolioImportSurfaceActive = Boolean(
@@ -242,9 +265,10 @@ export const Navbar = () => {
     const keys = resolveBottomNavOptionKeys(
       normalizedPathname,
       navigationScope,
+      { lastAgentSectionId },
     );
     return keys.map((key) => navOptionForKey(key, pendingConsents));
-  }, [navigationScope, normalizedPathname, pendingConsents]);
+  }, [lastAgentSectionId, navigationScope, normalizedPathname, pendingConsents]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -377,7 +401,13 @@ export const Navbar = () => {
       openKaiCommandBar();
       return;
     }
-    if (action.type === "route") router.push(action.href);
+    if (action.type === "route") {
+      const nextAgentContext = resolveAgentNavigationContextForPath(action.href);
+      if (nextAgentContext) {
+        setAgentNavigationContext(nextAgentContext);
+      }
+      router.push(action.href);
+    }
   };
 
   return (
@@ -405,6 +435,13 @@ export const Navbar = () => {
         )}
         style={{ width: bottomNavGroupWidth }}
         ref={pillRef}
+        // iOS first-tap fix: if the hide/reveal animation is mid-flight when
+        // a finger lands, the buttons translate away before pointerup and the
+        // tap is lost (felt as "need to tap twice"). Snapping the chrome to
+        // its resting position on pointerdown keeps the tap target still.
+        onPointerDownCapture={() => {
+          if (hideBottomChromeProgress > 0) snapKaiBottomChromeVisible();
+        }}
       >
         <div
           className="min-w-0 pointer-events-auto"
@@ -420,14 +457,12 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              // Liquid-glass footer material (2c cinematic): translucent frosted
-              // surface + saturation boost + specular inset rim + hairline,
-              // mirroring the vault sheet glass. Symmetric in light + dark.
-              "bg-white/55 backdrop-blur-[18px] backdrop-saturate-[1.9] [-webkit-backdrop-filter:blur(18px)_saturate(1.9)] dark:bg-white/[0.06]",
-              "ring-1 ring-black/5 shadow-[inset_1.5px_1.5px_1px_rgba(255,255,255,0.8),inset_-1px_-1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.10)] dark:ring-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_8px_24px_rgba(0,0,0,0.5)]",
-              // Active segment: solid ink "#111" pill with white icon + label.
-              "[&_[aria-checked=true]]:text-white [&_[aria-checked=true]]:font-semibold",
-              "[&_[data-segment-indicator]]:bg-[#111] [&_[data-segment-indicator]]:shadow-[0_4px_12px_rgba(0,0,0,0.22)] [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-[#111]",
+              // Shared bottom chrome surface: flat translucent track, no
+              // route-local glass or ink override. Active state is Foundation
+              // accent foreground so the nav matches the rest of the app
+              // identity without turning the background yellow.
+              "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
+              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
         </div>
@@ -437,14 +472,17 @@ export const Navbar = () => {
           data-native-voice-control-id="one_voice_open_command_search"
           data-testid="one-voice-open-command-search"
           className={cn(
-            // Stretch to the pill height and stay a perfect circle so the search
-            // bubble and the bottom-nav pill read as one symmetric row.
-            "pointer-events-auto relative z-20 inline-flex aspect-square h-auto w-auto self-stretch shrink-0 items-center justify-center overflow-hidden rounded-full",
-            // Liquid-glass circle matching the footer pill (2c cinematic).
-            "bg-white/55 text-[#1d1d1f] backdrop-blur-[18px] backdrop-saturate-[1.9] [-webkit-backdrop-filter:blur(18px)_saturate(1.9)] dark:bg-white/[0.06] dark:text-[#f5f5f7]",
-            "ring-1 ring-black/5 shadow-[inset_1.5px_1.5px_1px_rgba(255,255,255,0.8),inset_-1px_-1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.10)] dark:ring-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_8px_24px_rgba(0,0,0,0.5)]",
+            // A perfect circle matching the stacked pill's 52px min-height.
+            // Explicit equal h/w instead of aspect-square + self-stretch:
+            // WKWebView resolves aspect-ratio against a stretch-derived flex
+            // cross size as indefinite, which rendered this button as an oval
+            // on iOS while web looked fine.
+            "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
+            "kai-bottom-search-action",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            "hover:bg-white/70 hover:text-primary dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            // Hover styles behind (hover:hover) so iOS taps never latch a
+            // sticky hover background on the first touch.
+            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {

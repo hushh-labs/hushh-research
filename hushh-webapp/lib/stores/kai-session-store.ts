@@ -15,6 +15,7 @@
 import { create } from "zustand";
 import type { PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import { ROUTES } from "@/lib/navigation/routes";
+import type { AppBottomNavScope } from "@/lib/navigation/app-bottom-nav";
 
 interface AnalysisParams {
   ticker: string;
@@ -52,6 +53,10 @@ interface KaiSessionState {
   lastKaiPath: string;
   /** Last visited RIA sub-path for shell navigation */
   lastRiaPath: string;
+  /** Last active app-family scope for common routes such as Connect and Profile. */
+  lastAgentNavScope: AppBottomNavScope | null;
+  /** Last selected One capability section for shared shell affordances. */
+  lastAgentSectionId: string | null;
   /** Active long-running Kai operations keyed by operation id */
   busyOperations: Record<string, boolean>;
   /** Derived flag for disabling global analyze search UI */
@@ -65,6 +70,11 @@ interface KaiSessionState {
   setLastKaiPath: (path: string) => void;
   /** Update last visited RIA path */
   setLastRiaPath: (path: string) => void;
+  /** Update shared agent-section navigation context. */
+  setAgentNavigationContext: (context: {
+    scope: AppBottomNavScope;
+    sectionId?: string | null;
+  }) => void;
   /** Mark/unmark a named long-running operation */
   setBusyOperation: (operation: string, busy: boolean) => void;
   /** Clear all session state */
@@ -77,6 +87,8 @@ export const useKaiSession = create<KaiSessionState>((set) => ({
   losersInput: null,
   lastKaiPath: ROUTES.KAI_HOME,
   lastRiaPath: "/ria",
+  lastAgentNavScope: "one",
+  lastAgentSectionId: null,
   busyOperations: {},
   isSearchDisabled: false,
 
@@ -88,6 +100,11 @@ export const useKaiSession = create<KaiSessionState>((set) => ({
   setLosersInput: (input) => set({ losersInput: input }),
   setLastKaiPath: (path) => set({ lastKaiPath: path }),
   setLastRiaPath: (path) => set({ lastRiaPath: path }),
+  setAgentNavigationContext: (context) =>
+    set({
+      lastAgentNavScope: context.scope,
+      lastAgentSectionId: context.sectionId ?? null,
+    }),
   setBusyOperation: (operation, busy) =>
     set((state) => {
       const nextBusyOperations = { ...state.busyOperations };
@@ -108,6 +125,8 @@ export const useKaiSession = create<KaiSessionState>((set) => ({
       losersInput: null,
       lastKaiPath: ROUTES.KAI_HOME,
       lastRiaPath: "/ria",
+      lastAgentNavScope: "one",
+      lastAgentSectionId: null,
       busyOperations: {},
       isSearchDisabled: false,
     }),

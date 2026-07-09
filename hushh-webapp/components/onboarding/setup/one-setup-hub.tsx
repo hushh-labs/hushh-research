@@ -17,9 +17,7 @@ import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES } from "@/lib/navigation/routes";
-import { KaiProfileService } from "@/lib/services/kai-profile-service";
-import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
-import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
   CAPABILITY_SETUP_COPY,
   type CapabilitySetupCopy,
@@ -109,25 +107,13 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      await PreVaultUserStateService.syncKaiSetupState({
+      await acknowledgeOneSetupExit({
         userId: user.uid,
-        completed: true,
         skipped: masterSkipped,
+        isVaultUnlocked,
+        vaultKey,
+        vaultOwnerToken,
       });
-      if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
-        await KaiProfileService.setOnboardingCompleted({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-          skippedPreferences: masterSkipped,
-        }).catch((error) => {
-          console.warn(
-            "[OneSetupHub] Failed to mark vault profile setup completed:",
-            error,
-          );
-        });
-      }
-      OneSetupGateService.markSeen(user.uid);
     } catch (error) {
       console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
     } finally {

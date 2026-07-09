@@ -79,4 +79,44 @@ describe("executeAgentGatewayAction", () => {
       resultSummary: "Opened the NVDA comparison preview before starting the debate.",
     });
   });
+
+  it("syncs to the investor workspace before running direct finance actions from RIA", async () => {
+    const router = {
+      push: vi.fn(),
+    };
+    const setAnalysisParams = vi.fn();
+    const switchPersona = vi.fn(async () => null);
+
+    const result = await executeAgentGatewayAction({
+      actionId: "analysis.start",
+      slots: {
+        symbol: "tsla",
+      },
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState({
+        persona: {
+          active: "ria",
+          primary_nav: "ria",
+          available: ["ria", "investor"],
+          transition_target: null,
+          ria_switch_available: true,
+          ria_setup_available: false,
+        },
+      }),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams,
+      switchPersona,
+    });
+
+    expect(switchPersona).toHaveBeenCalledWith("investor");
+    expect(router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=TSLA`);
+    expect(result).toMatchObject({
+      status: "started",
+      actionId: "analysis.start",
+      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
+      screenAfter: "kai_analysis",
+    });
+  });
 });

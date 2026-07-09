@@ -401,9 +401,11 @@ Return as JSON with structure:
                 max_output_tokens=8192,
             )
 
-            # Create content with image
+            # Create content with image. from_text is keyword-only in
+            # google-genai (the old positional call raised TypeError at
+            # runtime, a latent bug present since genai 0.7).
             contents = [
-                types.Part.from_text(prompt),
+                types.Part.from_text(text=prompt),
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             ]
 

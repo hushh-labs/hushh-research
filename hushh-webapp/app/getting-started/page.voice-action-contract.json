@@ -1,0 +1,193 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "onboarding",
+  "surface_title": "Onboarding",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/reference/one/one-voice-runtime-architecture.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    },
+    "speaker_persona": "one"
+  },
+  "actions": [
+    {
+      "action_id": "route.getting_started",
+      "label": "Open Welcome",
+      "meaning": "Navigates to the Hussh welcome carousel for new visitors.",
+      "aliases": [
+        "open welcome",
+        "show the welcome screen",
+        "go to getting started",
+        "start over",
+        "show me what one can do"
+      ],
+      "search_keywords": [
+        "welcome",
+        "getting started",
+        "onboarding",
+        "intro"
+      ],
+      "reachability": {
+        "routes": [
+          "/getting-started"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_setup"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "None; the welcome carousel is public."
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/getting-started"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "onboarding.continue",
+      "label": "Continue",
+      "meaning": "Moves from the welcome carousel to sign in and account setup.",
+      "aliases": [
+        "continue",
+        "let's go",
+        "get started",
+        "next step",
+        "move on"
+      ],
+      "search_keywords": [
+        "continue",
+        "next",
+        "get started"
+      ],
+      "reachability": {
+        "routes": [
+          "/getting-started"
+        ],
+        "screens": [
+          "getting_started"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/login"
+      },
+      "control_ids": [
+        "onboarding_continue"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_open",
+      "label": "Open Sign In",
+      "meaning": "Navigates to the Hussh sign-in screen so the person can authenticate.",
+      "aliases": [
+        "sign in",
+        "log in",
+        "open sign in",
+        "go to login",
+        "sign me in"
+      ],
+      "search_keywords": [
+        "sign in",
+        "login",
+        "authenticate",
+        "account"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "None; sign-in is reachable from any anonymous screen."
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/login"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "vault.setup_open",
+      "label": "Open Vault Setup",
+      "meaning": "Navigates to One setup so a signed-in person can create or unlock their private vault.",
+      "aliases": [
+        "set up my vault",
+        "unlock my vault",
+        "open vault setup",
+        "finish setting up",
+        "open one setup"
+      ],
+      "search_keywords": [
+        "vault",
+        "setup",
+        "unlock",
+        "capabilities"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_setup",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Requires a signed-in session before vault setup can begin."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [],
+      "speaker_persona": "nav"
+    }
+  ]
+}

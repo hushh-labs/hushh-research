@@ -319,6 +319,22 @@
       "expected_row_growth": "medium_per_user_request"
     },
     {
+      "id": "information_marketplace_delivery",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "marketplace_recipient_keys",
+        "marketplace_delivery_envelopes"
+      ],
+      "primary_access_path": "One Information Marketplace end-to-end slice delivery: a buyer publishes an ECDH recipient public key (private half stays on the buyer device); on owner approval the seller device seals the requested safe-summary slice against that key and posts a ciphertext envelope, which the buyer fetches and decrypts locally from the Received-data surface.",
+      "retention_policy": "Recipient public keys persist per buyer while active; delivery envelopes are retained for the scoped access duration and are best-effort deleted on revoke, with terminal rows retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is the key owner (buyer) or the envelope owner/recipient; delete delivered ciphertext on revoke where possible.",
+      "trust_boundary": "Backend stores only recipient public keys, sealed ciphertext envelopes, and delivery metadata. It holds no private keys and never stores raw PKM values or plaintext slices; only the safe-summary projection is ever sealed, and the server acts as a blind relay that cannot decrypt.",
+      "plaintext_posture": "ciphertext_and_metadata_only",
+      "expected_row_growth": "medium_per_user_request"
+    },
+    {
       "id": "trusted_connections_graph",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -326,12 +342,27 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService. People are resolved read-only through the One Location verified-recipient directory; the SOS one_location_network_connections graph is separate and untouched.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table (dropped in migration 080).",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_connection"
+    },
+    {
+      "id": "relay_ticket_replay_guard",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "relay_ticket_nonces"
+      ],
+      "primary_access_path": "Cross-instance one-time nonce registry for signed One voice relay tickets (migration 084). consume_relay_ticket_shared() in api/routes/one/relay_auth.py enforces single use globally via INSERT .. ON CONFLICT DO NOTHING; a conflicting insert means replay. Expired rows are pruned opportunistically by expiry scan. Scale-plane doctrine: Postgres now, Redis SETNX-with-TTL later behind the same seam.",
+      "retention_policy": "Rows live only for the ticket validity window (about 60 seconds); expired nonces are pruned opportunistically on subsequent consumption calls.",
+      "deletion_behavior": "No per-account rows exist; nothing to delete on account deletion. Rows self-expire and are pruned by expiry.",
+      "trust_boundary": "Backend stores only an opaque random nonce and its expiry timestamp. No user identifiers, personal information, tokens, or coordinates are stored; a row grants no access and only prevents ticket replay.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
     },
     {
       "id": "information_marketplace_opportunity_signals",

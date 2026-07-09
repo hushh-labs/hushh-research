@@ -4,7 +4,18 @@ export type VoiceActionManifestRiskLevel = "low" | "medium" | "high";
 export type VoiceActionManifestExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
 export type VoiceActionManifestExecutionPath = "kai_command" | "voice_tool" | "route";
 export type VoiceActionManifestSpeakerPersona = "one" | "kai" | "nav" | "kyc";
-export type VoiceActionManifestDelegateAgentId = "one" | "kai" | "nav" | "kyc";
+export type VoiceActionManifestDelegateAgentId =
+  | "one"
+  | "kai"
+  | "nav"
+  | "agent_kyc"
+  | "agent_nav"
+  | "agent_connected_systems"
+  | "agent_connections"
+  | "agent_email"
+  | "agent_gmail"
+  | "agent_location"
+  | "agent_personal_information";
 export type VoiceActionManifestExecutionHint =
   | {
       status: "wired";
@@ -70,7 +81,21 @@ function validateSpeakerPersona(value: unknown): VoiceActionManifestSpeakerPerso
 }
 
 function validateDelegateAgentId(value: unknown): VoiceActionManifestDelegateAgentId | null {
-  if (value === "one" || value === "kai" || value === "nav" || value === "kyc") return value;
+  if (
+    value === "one" ||
+    value === "kai" ||
+    value === "nav" ||
+    value === "agent_kyc" ||
+    value === "agent_nav" ||
+    value === "agent_connected_systems" ||
+    value === "agent_connections" ||
+    value === "agent_email" ||
+    value === "agent_gmail" ||
+    value === "agent_location" ||
+    value === "agent_personal_information"
+  ) {
+    return value;
+  }
   return null;
 }
 

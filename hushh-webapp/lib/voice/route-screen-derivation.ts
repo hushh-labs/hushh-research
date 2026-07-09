@@ -26,6 +26,28 @@ export function deriveVoiceRouteScreen(
   if (!normalizedPath) {
     return { screen: "unknown", subview: null };
   }
+  if (normalizedPath === ROUTES.HOME || normalizedPath === ROUTES.ONE_HOME) {
+    return { screen: "one_agents", subview: null };
+  }
+  if (normalizedPath === ROUTES.GETTING_STARTED) {
+    return { screen: "getting_started", subview: null };
+  }
+  if (normalizedPath === ROUTES.LOGIN) {
+    return { screen: "login", subview: null };
+  }
+  if (normalizedPath === ROUTES.LOGOUT) {
+    return { screen: "logout", subview: null };
+  }
+  if (normalizedPath === "/register-phone") {
+    return { screen: "register_phone", subview: null };
+  }
+  if (
+    normalizedPath === ROUTES.ONE_SETUP ||
+    normalizedPath.startsWith(`${ROUTES.ONE_SETUP}/`)
+  ) {
+    const rest = normalizedPath.slice(ROUTES.ONE_SETUP.length).split("/").filter(Boolean)[0];
+    return { screen: "one_setup", subview: rest || null };
+  }
   if (
     normalizedPath === ROUTES.KAI_HOME ||
     normalizedPath === ROUTES.LEGACY_KAI_HOME ||
@@ -113,6 +135,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_KYC) {
     return { screen: "one_kyc", subview: query.get("panel") || null };
   }
+  if (normalizedPath === ROUTES.ONE_LOCATION) {
+    return { screen: "one_location", subview: query.get("tab") || null };
+  }
   if (normalizedPath === ROUTES.GMAIL || normalizedPath === ROUTES.LEGACY_GMAIL) {
     return { screen: "gmail", subview: null };
   }
@@ -130,6 +155,9 @@ export function deriveVoiceRouteScreen(
       screen: "marketplace_ria_profile",
       subview: query.get("riaId") ? "profile" : null,
     };
+  }
+  if (normalizedPath.startsWith(ROUTES.ONE_MARKETPLACE)) {
+    return { screen: "one_marketplace", subview: query.get("tab") || null };
   }
   if (normalizedPath.startsWith(ROUTES.MARKETPLACE)) {
     return { screen: "marketplace", subview: query.get("tab") || null };

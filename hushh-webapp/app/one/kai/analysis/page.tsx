@@ -1039,7 +1039,11 @@ function KaiAnalysisPageContent() {
   return (
     <>
       {showWorkspace ? (
-        <AppPageShell as="div" width="expanded" data-testid="kai-analysis-primary">
+        <AppPageShell
+          as="div"
+          width="expanded"
+          data-testid={liveIntentReady ? "kai-analysis-active-run" : "kai-analysis-primary"}
+        >
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"

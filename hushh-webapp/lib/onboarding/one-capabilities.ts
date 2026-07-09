@@ -41,6 +41,16 @@ export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export interface OneCapability {
   id: string;
+  /**
+   * Backend agent lane this tile is bound to, or null when the tile is a
+   * pure access/preview surface with no agent behind it (consent center,
+   * marketplace preview) or the lane does not exist yet (gmail).
+   *
+   * This is a CONTRACT, not a comment: ids must exist in the backend
+   * SPECIALIST_A2A_SCOPE_MAP and are enforced by
+   * consent-protocol/scripts/verify_agent_hierarchy_contract.py.
+   */
+  agentId: string | null;
   title: string;
   /** Plain-language, rookie-safe description of what this capability does. */
   description: string;
@@ -68,7 +78,7 @@ export interface OneCapability {
    * personal data and therefore needs an UNLOCKED vault to be usable. The setup
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
    * step set honest "you'll unlock your vault next" expectations and lets the
-   * destination's own guard own the actual unlock prompt. Consent Guardian is
+   * destination's own guard own the actual unlock prompt. Consent is
    * the only capability that does not read vault-backed data here.
    */
   requiresVault?: boolean;
@@ -80,8 +90,12 @@ export interface OneCapability {
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "finance",
+    agentId: "agent_kai",
+    // Public agent name is "Finance" (renamed back from a brief "Investor"
+    // pass). Kai remains the internal finance runtime naming: id, routes,
+    // contracts, and code identifiers unchanged.
     title: "Finance",
-    description: "Kai market, portfolio, analysis, and RIA handoff.",
+    description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
     icon: ChartNoAxesCombined,
@@ -91,6 +105,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "gmail",
+    agentId: "agent_gmail",
     title: "Gmail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
@@ -102,6 +117,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "email",
+    agentId: "agent_email",
     title: "Email",
     description: "Approval drafts and client request workflows.",
     href: ROUTES.ONE_KYC,
@@ -112,6 +128,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "location",
+    agentId: "agent_location",
     title: "Location",
     description: "Live sharing, referrals, and local context.",
     previewLabel: "Live sharing & local context",
@@ -123,8 +140,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "pkm",
-    title: "Personal Data",
-    description: "Saved knowledge and information you can review.",
+    agentId: "agent_personal_information",
+    title: "Memory",
+    description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
     icon: FolderSearch,
     tone: "pkm",
@@ -133,7 +151,10 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "consent",
-    title: "Consent Guardian",
+    // Nav owns the consent center: approvals, revocations, and the
+    // Connections tab (trusted connections are Nav's domain too).
+    agentId: "agent_nav",
+    title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
     icon: ShieldCheck,
@@ -143,6 +164,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "marketplace",
+    // Preview surface only today; no roster agent behind it.
+    agentId: null,
     title: "Information Marketplace",
     description: "Preview priced slices of your data you could publish.",
     previewLabel: "Priced data slices",
@@ -154,6 +177,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "connected-systems",
+    agentId: "agent_connected_systems",
     title: "Connected Systems",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
@@ -171,10 +195,12 @@ export function getOneCapability(id: string): OneCapability | undefined {
 
 /**
  * Tailwind classes for a capability's icon chip, keyed by tone.
+ *
  * Calm, on-palette (ink + neutral) chips — no off-palette hues — so the grouped
  * list reads like a native iOS Settings surface instead of a colorful dashboard.
  * Uniform across tones; the row label carries per-item meaning.
- * Shared so the dashboard tile and the onboarding preview render identically.
+ * Shared so the dashboard tile, the topbar/menu chip, and the onboarding
+ * preview render identically.
  */
 const CAPABILITY_ICON_CHIP_NEUTRAL =
   "bg-foreground/[0.06] text-foreground/70 dark:bg-foreground/[0.10] dark:text-foreground/80";

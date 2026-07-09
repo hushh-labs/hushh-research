@@ -31,7 +31,7 @@ import type {
   VoiceResponse,
 } from "@/lib/voice/voice-types";
 
-export type VoiceOrchestratorSource = "microphone" | "example_chip" | "replay";
+export type VoiceOrchestratorSource = "microphone" | "example_chip" | "replay" | "gemini_live";
 
 export type VoiceSpeakSegmentType = "ack" | "final";
 
@@ -45,6 +45,9 @@ export type VoiceTurnOrchestratorSpeakInput = {
 export type VoiceTurnOrchestratorInput = {
   transcript: string;
   source: VoiceOrchestratorSource;
+  candidateActionId?: string | null;
+  candidateSlots?: Record<string, unknown> | null;
+  candidateReason?: string | null;
 };
 
 type VoicePlannerV2Envelope = {
@@ -331,6 +334,15 @@ export class VoiceTurnOrchestrator {
           ...(voiceContext || {}),
           planner_v2_enabled: true,
           planner_turn_id: turnId,
+          candidate_action:
+            input.candidateActionId || input.candidateSlots || input.candidateReason
+              ? {
+                  action_id: input.candidateActionId || null,
+                  slots: input.candidateSlots || {},
+                  reason: input.candidateReason || null,
+                  source: input.source,
+                }
+              : undefined,
         },
         appState: appRuntimeState,
         voiceTurnId: turnId,

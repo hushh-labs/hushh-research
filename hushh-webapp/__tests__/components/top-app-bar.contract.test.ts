@@ -57,6 +57,26 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("router.back();");
   });
 
+  it("centers the plain Agents dropdown while preserving the reserved back slot", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const dropdown = read("components/app-ui/agent-section-dropdown.tsx");
+
+    expect(source).toContain("AgentSectionDropdown");
+    expect(source.indexOf('data-testid="top-app-bar-nav-slot"')).toBeLessThan(
+      source.indexOf("<AgentSectionDropdown"),
+    );
+    expect(source).toContain("resolveCommonRouteBreadcrumb");
+    expect(source).toContain("const showAgentSectionDropdown");
+    // The switcher renders on /one too (roster parity with the dashboard
+    // grid + agent search available on the launcher screen); only the
+    // marketing HOME route stays excluded.
+    expect(source).toContain("normalizedPathname !== ROUTES.HOME");
+    expect(source).not.toContain("normalizedPathname !== ROUTES.ONE_HOME");
+    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(dropdown).toContain("<button");
+    expect(dropdown).not.toContain("ShellActionSurface");
+  });
+
   it("uses primary header visibility for top-bar title handoff", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
@@ -69,7 +89,7 @@ describe("Top app bar responsive contract", () => {
       "header.getBoundingClientRect().bottom <= readTopShellReservedHeight()",
     );
     expect(source).toContain("getScrolledRouteTitle(pathname)");
-    expect(source).toContain('label: "One dashboard"');
+    expect(source).toContain('label: "Agents"');
   });
 
   it("keeps background activity visible and adds locked-vault unlock action", () => {

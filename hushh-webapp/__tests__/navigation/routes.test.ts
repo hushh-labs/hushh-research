@@ -21,6 +21,7 @@ import {
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
+import { getRouteScope, routePersonaForScope } from "@/lib/navigation/route-scope";
 
 
 
@@ -116,6 +117,15 @@ describe("navigation routes", () => {
     expect(isRiaRoute("/ria/clients/client-123")).toBe(true);
 
     expect(isRiaRoute("/one/kai")).toBe(false);
+  });
+
+  it("keeps canonical One finance routes shared while legacy Kai routes stay investor-scoped", () => {
+    expect(getRouteScope("/one/kai")).toBe("shared");
+    expect(getRouteScope("/one/kai/analysis")).toBe("shared");
+    expect(routePersonaForScope(getRouteScope("/one/kai/analysis"))).toBeNull();
+
+    expect(getRouteScope("/kai")).toBe("investor");
+    expect(routePersonaForScope(getRouteScope("/kai"))).toBe("investor");
   });
 
   it("builds the kai setup wizard route with query parameters", () => {

@@ -4,8 +4,9 @@ Directional edges (owner_user_id -> trusted_user_id). Written ONLY through the
 Hushh One agent path; read in-process by any agent. Identity is resolved through
 the SAME platform directory Location shows (list_verified_recipients), read-only.
 
-Deliberately separate from one_location_network_connections (SOS) — that graph
-and its code are untouched.
+This is now the single source of truth for the One Location trust graph: the
+legacy one_location_network_connections (SOS) table was migrated in (079) and
+dropped in (080).
 """
 
 from __future__ import annotations
@@ -212,54 +213,3 @@ class TrustedConnectionsService:
             },
         )
         return bool(row)
-
-    # ---- Seed (mirror of SOS topology; SOS code untouched) ----
-    def seed_new_user(self, owner_user_id: str, seed_user_ids: list[str]) -> dict[str, Any]:
-        owner_user_id = (owner_user_id or "").strip()
-        if not owner_user_id:
-            raise TrustedConnectionsError(
-                "TRUSTED_OWNER_MISSING", "Missing owner user id.", status_code=422
-            )
-
-        existing = self._execute_one(
-            """
-            SELECT COUNT(*) AS n
-            FROM trusted_connections
-            WHERE owner_user_id = :owner_user_id AND status = 'active'
-            """,
-            {"owner_user_id": owner_user_id},
-        )
-        existing_count = int((existing or {}).get("n") or 0)
-        if existing_count > 0:
-            return {"seeded": 0, "existingCount": existing_count, "skippedSelf": 0}
-
-        seeded = 0
-        skipped_self = 0
-        for raw in seed_user_ids:
-            dev_id = (raw or "").strip()
-            if not dev_id or dev_id == owner_user_id:
-                skipped_self += 1
-                continue
-            self._execute_one(
-                """
-                INSERT INTO trusted_connections (
-                  owner_user_id, trusted_user_id, status, source, resolved_via,
-                  created_at, updated_at, metadata
-                )
-                VALUES (
-                  :owner_user_id, :trusted_user_id, 'active', 'seed', 'user_id',
-                  NOW(), NOW(), CAST(:metadata AS JSONB)
-                )
-                ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
-                  status = 'active', updated_at = NOW(), revoked_at = NULL
-                RETURNING id
-                """,
-                {
-                    "owner_user_id": owner_user_id,
-                    "trusted_user_id": dev_id,
-                    "metadata": json.dumps({"source": "trusted_seed"}),
-                },
-            )
-            seeded += 1
-
-        return {"seeded": seeded, "existingCount": existing_count, "skippedSelf": skipped_self}

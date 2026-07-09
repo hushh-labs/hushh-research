@@ -29,7 +29,6 @@ v2 additions:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
@@ -70,6 +69,7 @@ _QUERY_TOOL_NAMES = {
     "propose_public_link",
     "propose_location_view",
     "propose_sos_panic",
+    "propose_check_in",
     "request_recipient_choice",
     "request_active_share_choice",
     "request_duration_choice",
@@ -99,6 +99,16 @@ _ACTION_RESULT_TEMPLATES = {
     ("create_public_link", "cancelled"): "Okay — I didn't create a public link.",
     ("sos_panic", "completed"): "SOS sent — your emergency contacts are being notified.",
     ("sos_panic", "cancelled"): "Okay — I didn't send an SOS.",
+    ("check_in", "completed"): "Done — your trusted contacts can see your check-in. ✓",
+    ("check_in", "cancelled"): "Okay — I didn't check you in.",
+    (
+        "request_device_location_permission",
+        "completed",
+    ): "Location access is on now — try that again.",
+    (
+        "request_device_location_permission",
+        "cancelled",
+    ): "Location access is still off. You can turn it on anytime in your device settings.",
 }
 
 _UNAVAILABLE_MESSAGE = (
@@ -282,6 +292,17 @@ def _function_declarations_v2(types: Any) -> list:
                 ),
             ),
             types.FunctionDeclaration(
+                name="request_device_location_permission",
+                description=(
+                    "Ask the device to (re-)prompt the OS location permission dialog. "
+                    "Call this whenever the user asks you to (re-)ask for location "
+                    "permission, or an action needing the device's location (share, "
+                    "check-in, SOS) failed because permission is missing or was "
+                    "previously denied. Coordinate-free; the prompt happens on-device."
+                ),
+                parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
                 name="revoke_public_link",
                 description=(
                     "Revoke an active public location link. invite_id MUST come from "
@@ -357,6 +378,23 @@ def _function_declarations_v2(types: Any) -> list:
                     "request_confirmation first before proposing this."
                 ),
                 parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            ),
+            types.FunctionDeclaration(
+                name="propose_check_in",
+                description=(
+                    "Propose a check-in: share live location with the user's ready "
+                    "trusted contacts for duration_hours (0<h<=24) with an optional note. "
+                    "The browser creates grants per recipient, encrypts, and publishes. "
+                    "Coordinate-free. Ask for the duration first (request_duration_choice)."
+                ),
+                parameters=schema(
+                    type=kind.OBJECT,
+                    properties={
+                        "duration_hours": schema(type=kind.NUMBER, description="0 < hours <= 24"),
+                        "note": schema(type=kind.STRING, description="Optional short note"),
+                    },
+                    required=["duration_hours"],
+                ),
             ),
         ]
     )
@@ -450,13 +488,10 @@ class LocationChatService:
             self._ready = ready or _llm._require_gemini_ready
 
             async def _default_call(contents: Any, config: Any) -> Any:
-                return await asyncio.wait_for(
-                    _llm._gemini_client.aio.models.generate_content(
-                        model=_llm._gemini_model_name,
-                        contents=contents,
-                        config=config,
-                    ),
-                    timeout=_LLM_TIMEOUT_S,
+                # Shared hedged call: short per-attempt deadline + retry inside
+                # the total budget collapses rare stalls (tail-at-scale).
+                return await _llm.agent_chat_model_call(
+                    contents, config, total_timeout_s=_LLM_TIMEOUT_S
                 )
 
             self._model_call = _default_call
@@ -673,6 +708,17 @@ class LocationChatService:
             return {"type": "view_envelope", "grantId": result.get("grantId")}
         if name == "propose_sos_panic" and result.get("proposed") == "sos_panic":
             return {"type": "sos_panic"}
+        if name == "propose_check_in" and result.get("proposed") == "check_in":
+            return {
+                "type": "check_in",
+                "durationHours": result.get("durationHours"),
+                "note": result.get("note"),
+            }
+        if (
+            name == "request_device_location_permission"
+            and result.get("proposed") == "request_device_location_permission"
+        ):
+            return {"type": "request_device_location_permission"}
         return None
 
     @staticmethod
@@ -733,6 +779,28 @@ class LocationChatService:
                 "type": "sos_panic",
                 "summary": "Send an emergency SOS to all your trusted contacts",
             }
+        check_in = next((d for d in directives if d.get("type") == "check_in"), None)
+        if check_in:
+            hours = check_in.get("durationHours")
+            return {
+                "id": action_id,
+                "type": "check_in",
+                "durationHours": hours,
+                "note": check_in.get("note"),
+                "summary": f"Check in with your trusted contacts for {hours}h"
+                if hours is not None
+                else "Check in with your trusted contacts",
+            }
+        permission = next(
+            (d for d in directives if d.get("type") == "request_device_location_permission"),
+            None,
+        )
+        if permission:
+            return {
+                "id": action_id,
+                "type": "request_device_location_permission",
+                "summary": "Allow this device to share your location",
+            }
         return None
 
     async def _handle_action_result(
@@ -767,6 +835,7 @@ class LocationChatService:
             "publish_share",
             "create_public_link",
             "sos_panic",
+            "check_in",
         )
         conv_id = conversation_id or ""
         if conv_id:

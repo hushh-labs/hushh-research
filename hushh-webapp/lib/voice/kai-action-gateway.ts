@@ -8,7 +8,18 @@ import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
-export type KaiActionDelegateAgentId = "one" | "kai" | "nav" | "kyc";
+export type KaiActionDelegateAgentId =
+  | "one"
+  | "kai"
+  | "nav"
+  | "agent_kyc"
+  | "agent_nav"
+  | "agent_connected_systems"
+  | "agent_connections"
+  | "agent_email"
+  | "agent_gmail"
+  | "agent_location"
+  | "agent_personal_information";
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
@@ -89,6 +100,49 @@ export type KaiActionWorkflow = {
   steps: KaiActionWorkflowStep[];
 } | null;
 
+export type KaiGoalRequiredInput = {
+  name: string;
+  prompt: string;
+  required: boolean;
+  slot?: string;
+  resolver?: string;
+  default_value?: string;
+  options?: string[];
+};
+
+export type KaiGoalWorkflowStep = {
+  type: string;
+  label: string;
+  failure_behavior: "stop" | "continue";
+  action_id?: string;
+  service?: string;
+  slots?: Record<string, unknown>;
+  settlement_target?: {
+    route?: string;
+    screen?: string;
+    persona?: string;
+  } | null;
+};
+
+export type KaiActionGoal = {
+  goal_id: string;
+  required_inputs: KaiGoalRequiredInput[];
+  input_resolvers: string[];
+  slot_schema: Record<string, unknown>;
+  workflow_steps: KaiGoalWorkflowStep[];
+  progress_contract: Record<string, unknown>;
+  cancellation_contract: {
+    cancellable?: boolean;
+    cancel_action_id?: string | null;
+    [key: string]: unknown;
+  };
+  result_contract: {
+    summary_mode?: string;
+    [key: string]: unknown;
+  };
+  entrypoint_support: string[];
+};
+
 export type KaiActionDefinition = {
   action_id: string;
   surface_id: string;
@@ -114,6 +168,7 @@ export type KaiActionDefinition = {
   state_exposure: string[];
   docs_references: string[];
   workflow: KaiActionWorkflow;
+  goal: KaiActionGoal;
   expected_effects: {
     state_changes: string[];
     backend_effects: Array<{
@@ -195,7 +250,14 @@ function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | nul
     normalized === "one" ||
     normalized === "kai" ||
     normalized === "nav" ||
-    normalized === "kyc"
+    normalized === "agent_kyc" ||
+    normalized === "agent_nav" ||
+    normalized === "agent_connected_systems" ||
+    normalized === "agent_connections" ||
+    normalized === "agent_email" ||
+    normalized === "agent_gmail" ||
+    normalized === "agent_location" ||
+    normalized === "agent_personal_information"
   ) {
     return normalized;
   }
@@ -328,6 +390,88 @@ function validateWorkflow(value: unknown): KaiActionWorkflow {
   };
 }
 
+function validateGoalRequiredInput(value: unknown): KaiGoalRequiredInput | null {
+  if (!isPlainObject(value)) return null;
+  const name = cleanString(value.name);
+  const prompt = cleanString(value.prompt);
+  if (!name || !prompt) return null;
+  const input: KaiGoalRequiredInput = {
+    name,
+    prompt,
+    required: value.required !== false,
+    slot: cleanString(value.slot) || undefined,
+    resolver: cleanString(value.resolver) || undefined,
+    default_value: cleanString(value.default_value) || undefined,
+    options: isStringArray(value.options) ? value.options : undefined,
+  };
+  return input;
+}
+
+function validateGoalWorkflowStep(value: unknown): KaiGoalWorkflowStep | null {
+  if (!isPlainObject(value)) return null;
+  const type = cleanString(value.type);
+  const label = cleanString(value.label);
+  if (!type || !label) return null;
+  return {
+    type,
+    label,
+    action_id: cleanString(value.action_id) || undefined,
+    service: cleanString(value.service) || undefined,
+    slots: isPlainObject(value.slots) ? value.slots : undefined,
+    failure_behavior: value.failure_behavior === "continue" ? "continue" : "stop",
+    settlement_target: isPlainObject(value.settlement_target)
+      ? {
+          route: cleanString(value.settlement_target.route) || undefined,
+          screen: cleanString(value.settlement_target.screen) || undefined,
+          persona: cleanString(value.settlement_target.persona) || undefined,
+        }
+      : undefined,
+  };
+}
+
+function validateGoal(value: unknown, actionId: string): KaiActionGoal {
+  const fallback: KaiActionGoal = {
+    goal_id: `goal.${actionId}`,
+    required_inputs: [],
+    input_resolvers: [],
+    slot_schema: {},
+    workflow_steps: [],
+    progress_contract: {},
+    cancellation_contract: { cancellable: false, cancel_action_id: null },
+    result_contract: { summary_mode: "action_receipt" },
+    entrypoint_support: ["voice", "chat", "typed_search", "command_bar", "ui"],
+  };
+  if (!isPlainObject(value)) return fallback;
+  const goalId = cleanString(value.goal_id) || fallback.goal_id;
+  const requiredInputs = Array.isArray(value.required_inputs)
+    ? value.required_inputs
+        .map((entry) => validateGoalRequiredInput(entry))
+        .filter((entry): entry is KaiGoalRequiredInput => Boolean(entry))
+    : [];
+  const workflowSteps = Array.isArray(value.workflow_steps)
+    ? value.workflow_steps
+        .map((entry) => validateGoalWorkflowStep(entry))
+        .filter((entry): entry is KaiGoalWorkflowStep => Boolean(entry))
+    : [];
+  return {
+    goal_id: goalId,
+    required_inputs: requiredInputs,
+    input_resolvers: isStringArray(value.input_resolvers) ? value.input_resolvers : [],
+    slot_schema: isPlainObject(value.slot_schema) ? value.slot_schema : {},
+    workflow_steps: workflowSteps,
+    progress_contract: isPlainObject(value.progress_contract) ? value.progress_contract : {},
+    cancellation_contract: isPlainObject(value.cancellation_contract)
+      ? value.cancellation_contract
+      : fallback.cancellation_contract,
+    result_contract: isPlainObject(value.result_contract)
+      ? value.result_contract
+      : fallback.result_contract,
+    entrypoint_support: isStringArray(value.entrypoint_support)
+      ? value.entrypoint_support
+      : fallback.entrypoint_support,
+  };
+}
+
 function validateAction(value: unknown): KaiActionDefinition | null {
   if (!isPlainObject(value)) return null;
   const actionId = cleanString(value.action_id);
@@ -378,6 +522,7 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     state_exposure: isStringArray(value.state_exposure) ? value.state_exposure : [],
     docs_references: isStringArray(value.docs_references) ? value.docs_references : [],
     workflow: validateWorkflow(value.workflow),
+    goal: validateGoal(value.goal, actionId),
     expected_effects: {
       state_changes:
         isPlainObject(value.expected_effects) && isStringArray(value.expected_effects.state_changes)
@@ -603,6 +748,7 @@ export function evaluateKaiActionAvailability(input: {
   action: KaiActionDefinition;
   appRuntimeState?: AppRuntimeState;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
+  allowPersonaRouteSettlement?: boolean;
 }): KaiActionAvailability {
   const { action, appRuntimeState, surfaceMetadata } = input;
   if (action.execution_target.status === "dead") {
@@ -638,26 +784,39 @@ export function evaluateKaiActionAvailability(input: {
   if (requiredPersonas.length > 0 && !requiredPersonas.includes(activePersona as Persona)) {
     const targetPersona = requiredPersonas.find((persona) => availablePersonas.has(persona));
     if (targetPersona) {
+      const canSettleInactivePersona =
+        Boolean(input.allowPersonaRouteSettlement) &&
+        action.execution_policy === "allow_direct" &&
+        action.execution_target.status === "wired" &&
+        action.reachability.requires_persona_switch_confirmation !== true;
+      if (!canSettleInactivePersona) {
+        return {
+          status: "requires_persona_switch",
+          reason: `Switch to ${targetPersona.toUpperCase()} workspace first.`,
+          target_persona: targetPersona,
+          blocked_guidance: action.workflow?.blocked_guidance || null,
+        };
+      }
+    }
+    if (!targetPersona) {
       return {
-        status: "requires_persona_switch",
-        reason: `Switch to ${targetPersona.toUpperCase()} workspace first.`,
-        target_persona: targetPersona,
-        blocked_guidance: action.workflow?.blocked_guidance || null,
+        status: "blocked",
+        reason:
+          requiredPersonas.includes("ria") && appRuntimeState?.persona?.ria_setup_available
+            ? "RIA actions stay locked until you finish RIA setup."
+            : requiredPersonas.includes("investor")
+              ? "Switch to the Investor workspace before using Kai finance actions."
+              : "This action is not available in the active workspace.",
+        target_persona: requiredPersonas[0] || null,
+        blocked_guidance:
+          action.workflow?.blocked_guidance ||
+          (requiredPersonas.includes("ria") && appRuntimeState?.persona?.ria_setup_available
+            ? "Complete RIA setup to unlock this workspace."
+            : requiredPersonas.includes("investor")
+              ? "Switch to Investor to use this Kai finance action."
+              : null),
       };
     }
-    return {
-      status: "blocked",
-      reason:
-        requiredPersonas.includes("ria") && appRuntimeState?.persona?.ria_setup_available
-          ? "RIA actions stay locked until you finish RIA setup."
-          : "This action is not unlocked in the active Kai workspace.",
-      target_persona: requiredPersonas[0] || null,
-      blocked_guidance:
-        action.workflow?.blocked_guidance ||
-        (requiredPersonas.includes("ria") && appRuntimeState?.persona?.ria_setup_available
-          ? "Complete RIA setup to unlock this workspace."
-          : null),
-    };
   }
 
   for (const guardId of action.guard_ids) {

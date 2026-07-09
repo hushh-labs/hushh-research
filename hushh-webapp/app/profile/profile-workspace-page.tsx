@@ -687,6 +687,13 @@ function ProfilePageContent() {
   );
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
+  const profileNativeRouteId = useMemo(
+    () =>
+      pathname === ROUTES.PROFILE || pathname.startsWith(`${ROUTES.PROFILE}/`)
+        ? pathname
+        : ROUTES.PROFILE,
+    [pathname],
+  );
   const shouldLoadProfileWorkspaceData =
     profileRouteNeedsWorkspaceData(activePanel);
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
@@ -2045,12 +2052,11 @@ function ProfilePageContent() {
     riaOnboardingStatus?.display_name ||
     "Official regulator record";
   const profileVoiceSurfaceMetadata = useMemo(() => {
-    const controls = [
+    const profileHomeControls = [
       {
         id: "profile_my_data",
-        label: "Personal Data",
+        label: "Memory",
         purpose: "opens your saved details and sharing controls.",
-        actionId: "route.profile_my_data",
         role: "card",
         voiceAliases: ["personal knowledge model", "my data", "pkm"],
       },
@@ -2058,7 +2064,6 @@ function ProfilePageContent() {
         id: "profile_access",
         label: "Access & sharing",
         purpose: "opens consent-backed access and sharing controls.",
-        actionId: "route.profile_access",
         role: "card",
         voiceAliases: ["access", "sharing", "consent access"],
       },
@@ -2066,7 +2071,7 @@ function ProfilePageContent() {
         id: "profile_vault",
         label: vaultSettingsRow.title,
         purpose: vaultSettingsRow.voicePurpose,
-        actionId: "route.profile_security",
+        actionId: "route.profile_security_panel",
         role: "card",
         voiceAliases: [
           "vault",
@@ -2098,7 +2103,7 @@ function ProfilePageContent() {
         id: "profile_account",
         label: "Account",
         purpose: "opens account identity, email, and phone management.",
-        actionId: "route.profile_account",
+        actionId: "route.profile",
         role: "card",
         voiceAliases: ["account", "phone number", "identity"],
       },
@@ -2106,7 +2111,7 @@ function ProfilePageContent() {
         id: "profile_gmail",
         label: "Gmail receipts",
         purpose: "opens Gmail receipt sync and receipt-memory management.",
-        actionId: "route.profile_gmail",
+        actionId: "route.profile_gmail_panel",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
       },
@@ -2114,7 +2119,7 @@ function ProfilePageContent() {
         id: "profile_support",
         label: "Support & feedback",
         purpose: "opens support routing and compose flows.",
-        actionId: "route.profile_support",
+        actionId: "route.profile_support_panel",
         role: "card",
         voiceAliases: ["support", "feedback"],
       },
@@ -2147,6 +2152,39 @@ function ProfilePageContent() {
           ]
         : []),
     ];
+    const preferenceControls = [
+      {
+        id: "profile_theme",
+        label: "Appearance",
+        type: "segmented_control",
+        purpose:
+          "shows the local Light, Dark, and System appearance selector for this app.",
+        role: "control",
+        voiceAliases: ["theme", "appearance", "dark mode", "light mode"],
+      },
+      {
+        id: "profile_agent_voice",
+        label: "Agent voice",
+        type: "select",
+        state: agentTtsVoice,
+        purpose:
+          "shows the Gemini-compatible local voice selector used for Agent speech on this device.",
+        role: "control",
+        voiceAliases: ["agent voice", "gemini voice", "tts voice", "voice"],
+      },
+      {
+        id: "profile_device_controls",
+        label: "Device controls",
+        type: "status",
+        state: "coming_soon",
+        purpose:
+          "indicates that device controls are not available yet, so One should not offer them as executable voice actions.",
+        role: "status",
+        voiceAliases: ["device controls", "device preferences"],
+      },
+    ];
+    const controls =
+      activePanel === "preferences" ? preferenceControls : profileHomeControls;
     const activeControl =
       controls.find((control) => control.id === activeVoiceControlId) ||
       controls.find((control) => control.id === lastVoiceControlId) ||
@@ -2156,7 +2194,7 @@ function ProfilePageContent() {
           activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Data"
+              ? "Memory"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "connected-systems"
@@ -2201,22 +2239,24 @@ function ProfilePageContent() {
               ]
             : activePanel === "account"
               ? [phoneNumber ? "Change phone number" : "Add phone number"]
-              : activePanel === "security"
-                ? [
-                    vaultAccess.needsVaultCreation
-                      ? "Create your vault"
-                      : "Unlock vault",
-                    "Change passphrase",
-                    "Delete account",
-                  ]
-                : [
-                    "Open Account",
-                    vaultSettingsRow.title,
-                    ...(shouldShowRiaRegulatoryRow
-                      ? ["Update license data"]
-                      : []),
-                    "Open Support",
-                  ];
+              : activePanel === "preferences"
+                ? []
+                : activePanel === "security"
+                  ? [
+                      vaultAccess.needsVaultCreation
+                        ? "Create your vault"
+                        : "Unlock vault",
+                      "Change passphrase",
+                      "Delete account",
+                    ]
+                  : [
+                      "Open Account",
+                      vaultSettingsRow.title,
+                      ...(shouldShowRiaRegulatoryRow
+                        ? ["Update license data"]
+                        : []),
+                      "Open Support",
+                    ];
 
     return {
       surfaceDefinition: {
@@ -2225,7 +2265,7 @@ function ProfilePageContent() {
           ? activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Data"
+              ? "Memory"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "connected-systems"
@@ -2320,11 +2360,14 @@ function ProfilePageContent() {
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
+        agent_tts_voice: agentTtsVoice,
+        preference_voice_actions_available: activePanel === "preferences" ? false : null,
       },
     };
   }, [
     activeDetail,
     activePanel,
+    agentTtsVoice,
     activeVoiceControlId,
     canShowPkmAgentLab,
     currentRiaLicenseNumber,
@@ -2877,10 +2920,10 @@ function ProfilePageContent() {
             },
             summary: {
               readable_summary:
-                "Your financial profile includes saved context from My Data.",
+                "Your financial profile includes saved context from Memory.",
               readable_highlights: [],
               readable_updated_at: updatedAt,
-              readable_source_label: "My Data",
+              readable_source_label: "Memory",
               consumer_item_count: nextEntries.length,
               context_entry_count: nextEntries.length,
               last_updated: updatedAt,
@@ -2978,11 +3021,11 @@ function ProfilePageContent() {
             summary: {
               readable_summary:
                 nextEntries.length > 0
-                  ? "Your financial profile includes saved context from My Data."
+                  ? "Your financial profile includes saved context from Memory."
                   : "Your financial profile is ready for saved context.",
               readable_highlights: [],
               readable_updated_at: updatedAt,
-              readable_source_label: "My Data",
+              readable_source_label: "Memory",
               consumer_item_count: nextEntries.length,
               context_entry_count: nextEntries.length,
               last_updated: updatedAt,
@@ -3883,7 +3926,7 @@ function ProfilePageContent() {
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
-      title: "Personal Data",
+      title: "Memory",
       description: "Browse saved details and sharing controls.",
       content: myDataContent,
     });
@@ -4255,7 +4298,7 @@ function ProfilePageContent() {
       width="reading"
       className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
-        routeId: "/profile",
+        routeId: profileNativeRouteId,
         marker: "native-route-profile",
         authState: user ? "authenticated" : "pending",
         dataState: authLoading ? "loading" : "loaded",

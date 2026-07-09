@@ -9,6 +9,7 @@ import type {
   OneLocationActivityResponse,
   OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
+  OneLocationEncryptedPrivateKey,
   OneLocationGrant,
   OneLocationNetworkConnection,
   OneLocationPublicInvite,
@@ -17,6 +18,7 @@ import type {
   OneLocationReferral,
   OneLocationState,
   PlainLocationPoint,
+  DriveDestination,
 } from "@/lib/one-location/types";
 
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
@@ -122,6 +124,7 @@ export class OneLocationService {
     keyId: string;
     publicKeyJwk: JsonWebKey;
     algorithm: string;
+    encryptedPrivateKeyJwk?: OneLocationEncryptedPrivateKey | null;
   }): Promise<OneLocationRecipient> {
     const response = await apiJson<{ recipientKey: OneLocationRecipient }>(
       "/api/one/location/recipient-keys",
@@ -132,6 +135,9 @@ export class OneLocationService {
           keyId: params.keyId,
           publicKeyJwk: params.publicKeyJwk,
           algorithm: params.algorithm,
+          ...(params.encryptedPrivateKeyJwk
+            ? { encryptedPrivateKeyJwk: params.encryptedPrivateKeyJwk }
+            : {}),
         }),
       },
     );
@@ -338,18 +344,6 @@ export class OneLocationService {
     return response.grant;
   }
 
-  static async seedTrustedContacts(params: {
-    vaultOwnerToken: string;
-  }): Promise<{ seeded: number; existingCount: number; skippedSelf: number }> {
-    const response = await apiJson<{
-      result: { seeded: number; existingCount: number; skippedSelf: number };
-    }>("/api/one/location/seed-trusted", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-    });
-    return response.result;
-  }
-
   static async storeEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;
@@ -379,6 +373,61 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
     );
+  }
+
+  static async placesAutocomplete(params: {
+    vaultOwnerToken: string;
+    input: string;
+    sessionToken?: string;
+  }): Promise<{ placeId: string; text: string }[]> {
+    const response = await apiJson<{
+      suggestions: { placeId: string; text: string }[];
+    }>("/api/one/location/maps/autocomplete", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        input: params.input,
+        ...(params.sessionToken ? { sessionToken: params.sessionToken } : {}),
+      }),
+    });
+    return response.suggestions ?? [];
+  }
+
+  static async placeDetails(params: {
+    vaultOwnerToken: string;
+    placeId: string;
+  }): Promise<DriveDestination> {
+    const response = await apiJson<{ place: DriveDestination }>(
+      "/api/one/location/maps/place-details",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ placeId: params.placeId }),
+      },
+    );
+    return response.place;
+  }
+
+  static async routeEta(params: {
+    vaultOwnerToken: string;
+    originLat: number;
+    originLng: number;
+    destLat: number;
+    destLng: number;
+  }): Promise<{ etaSeconds: number; distanceMeters: number }> {
+    const response = await apiJson<{
+      eta: { etaSeconds: number; distanceMeters: number };
+    }>("/api/one/location/maps/route-eta", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        originLat: params.originLat,
+        originLng: params.originLng,
+        destLat: params.destLat,
+        destLng: params.destLng,
+      }),
+    });
+    return response.eta;
   }
 
   static async revokeGrant(params: {

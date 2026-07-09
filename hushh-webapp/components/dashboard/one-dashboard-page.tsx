@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, ChevronRight, Lock, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, Briefcase, ChevronRight, Lock, type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -115,6 +115,30 @@ const CARD_COLORS: Record<
   },
 };
 
+/**
+ * RIA is a standalone top-level agent (workspace persona) rather than a setup
+ * capability, so it has no CapabilityStatus. It sits directly after Finance,
+ * mirroring the top-bar agent switcher roster exactly: the /one grid and the
+ * dropdown must always present the same agents. /ria self-guards (non-RIA
+ * users are redirected to RIA onboarding), so exposing the tile is safe.
+ *
+ * It renders as a workflow-group card (finance tone) alongside Finance so it
+ * carries the 2a pastel treatment like every other actionable capability.
+ */
+const RIA_AGENT_MODE: OneDashboardMode = {
+  id: "ria",
+  title: "RIA",
+  description: "Advisor workspace: clients, picks, and requests.",
+  href: `${ROUTES.RIA_HOME}?from=${ROUTES.ONE_HOME}`,
+  icon: Briefcase,
+  status: "Explore",
+  statusTone: "muted",
+  tone: "finance",
+  group: "workflow",
+  locked: false,
+  isExploreOnly: true,
+};
+
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneDashboardMode[] {
@@ -122,7 +146,7 @@ function buildModes(
   // ONE_CAPABILITIES catalog; live per-tile status comes from the capability
   // setup-state resolver via `statusById` so the dashboard never fabricates
   // status. Missing entries render an honest "Checking…" muted state.
-  return ONE_CAPABILITIES.map((cap) => {
+  const modes = ONE_CAPABILITIES.map((cap) => {
     const status = statusById[cap.id];
     const display = status
       ? getCapabilityStatusDisplay(status, { isExploreOnly: cap.isExploreOnly })
@@ -156,6 +180,9 @@ function buildModes(
       isExploreOnly: cap.isExploreOnly === true,
     };
   });
+  const financeIndex = modes.findIndex((mode) => mode.id === "finance");
+  modes.splice(financeIndex >= 0 ? financeIndex + 1 : modes.length, 0, RIA_AGENT_MODE);
+  return modes;
 }
 
 /** Right-aligned action word color for the Memory/Access list rows. */
@@ -335,7 +362,6 @@ export function OneDashboardPage({
   capabilityStatusById = {},
 }: {
   displayName?: string | null;
-  /** Live per-capability setup status from `useCapabilitySetupStates`. */
   capabilityStatusById?: Record<string, CapabilityStatus>;
 }) {
   const firstName =
@@ -345,9 +371,6 @@ export function OneDashboardPage({
   const modes = buildModes(capabilityStatusById);
   const consentStatus = capabilityStatusById.consent;
   const pendingConsents = consentStatus?.pendingCount ?? 0;
-  // Only make a positive "no pending consents" claim once consent is actually
-  // resolved (set up). While the state is still unknown/blocked we stay silent
-  // rather than implying an all-clear.
   const consentResolved =
     consentStatus?.state === "completed" ||
     consentStatus?.state === "needs-attention";

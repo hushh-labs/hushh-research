@@ -25,18 +25,38 @@ PR_FETCH_LIMIT = int(os.environ.get("PR_IMPACT_FETCH_LIMIT", "1000"))
 GRAPH_WIDTH = 24
 REPORT_TZ = ZoneInfo("America/Los_Angeles")
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DISCUSSION_FETCH_WORKERS = int(os.environ.get("PR_IMPACT_DISCUSSION_WORKERS", "8"))
+DISCUSSION_FETCH_WORKERS = int(os.environ.get("PR_IMPACT_DISCUSSION_WORKERS", "1"))
 GH_RETRY_ATTEMPTS = int(os.environ.get("PR_IMPACT_GH_RETRY_ATTEMPTS", "3"))
 GH_RETRY_BASE_DELAY_SECONDS = float(os.environ.get("PR_IMPACT_GH_RETRY_BASE_DELAY_SECONDS", "1.25"))
 GH_COMMAND_TIMEOUT_SECONDS = float(os.environ.get("PR_IMPACT_GH_COMMAND_TIMEOUT_SECONDS", "30"))
 FETCH_DISCUSSIONS = os.environ.get("PR_IMPACT_FETCH_DISCUSSIONS", "1") != "0"
-GH_FIELDS = (
+FETCH_FILES = os.environ.get("PR_IMPACT_FETCH_FILES", "0") == "1"
+USE_SEARCH_FETCH = os.environ.get("PR_IMPACT_USE_SEARCH_FETCH", "0") == "1"
+GH_BASE_FIELDS = (
     "number,title,author,mergedAt,closedAt,createdAt,updatedAt,additions,"
     "deletions,changedFiles,labels,url,headRefName,baseRefName,isDraft,"
-    "mergeCommit,mergedBy,reviewDecision,files"
+    "mergeCommit,mergedBy,reviewDecision"
 )
+GH_FIELDS_WITH_FILES = f"{GH_BASE_FIELDS},files"
+GH_SEARCH_FIELDS = "number,title,author,closedAt,createdAt,updatedAt,labels,url,isDraft,state"
 
 DEFAULT_MAINTAINER_USERS = {"kushaltrivedi5"}
+PR_TRAIN_LANE_LABELS = {
+    "integration_pr_train": "Resolved against integration/pr-train",
+    "train_promotion_to_main": "Train promotion PR to main",
+    "maintainer_direct_main": "Governed maintainer direct-to-main",
+    "main_targeted_normal_intake": "Normal PR targeted main",
+    "other_base": "Other base branch",
+    "unknown_base": "Unknown base branch",
+}
+PR_TRAIN_LANE_DESCRIPTIONS = {
+    "integration_pr_train": "Normal contributor/community intake lane.",
+    "train_promotion_to_main": "Promotion from the integration train into the stable main lane.",
+    "maintainer_direct_main": "Allowed only for governed maintainers shipping their own branch from origin/main.",
+    "main_targeted_normal_intake": "Historical or still-unretargeted normal intake; current policy is retarget to integration/pr-train before writes.",
+    "other_base": "Resolved against a branch outside the canonical train/main lanes.",
+    "unknown_base": "GitHub did not return base branch metadata for this record.",
+}
 OPERATOR_EVENT_CAP_PER_PR_ACTOR = 64
 BALANCED_OPERATOR_CAP_MATERIAL = 28
 BALANCED_OPERATOR_CAP_ROUTINE = 14
@@ -537,7 +557,8 @@ def _body(value: dict[str, Any]) -> str:
     return str(body) if body else ""
 
 
-def _query_closed_prs(repo: str, state: str, window: Window | None) -> list[dict[str, Any]]:
+def _query_closed_prs_graphql(repo: str, state: str, window: Window | None) -> list[dict[str, Any]]:
+    fields = GH_FIELDS_WITH_FILES if FETCH_FILES else GH_BASE_FIELDS
     cmd = [
         "pr",
         "list",
@@ -548,22 +569,110 @@ def _query_closed_prs(repo: str, state: str, window: Window | None) -> list[dict
         "--limit",
         str(PR_FETCH_LIMIT),
         "--json",
-        GH_FIELDS,
+        fields,
     ]
     if window:
         key = "merged" if state == "merged" else "closed"
         cmd.extend(
             [
                 "--search",
-                f"{key}:>={window.since.isoformat()} {key}:<={window.until.isoformat()}",
+                f"{key}:>={window.since.isoformat()} {key}:<={_github_until_date(window).isoformat()}",
             ]
         )
     return _run_gh(cmd)
 
 
+def _query_resolved_prs_graphql(
+    repo: str,
+    window: Window,
+    *,
+    include_pt_buffer: bool = True,
+) -> list[dict[str, Any]]:
+    fields = GH_FIELDS_WITH_FILES if FETCH_FILES else GH_BASE_FIELDS
+    closed_before = _github_until_date(window) if include_pt_buffer else window.until + timedelta(days=1)
+    return _run_gh(
+        [
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "all",
+            "--search",
+            f"is:closed closed:>={window.since.isoformat()} closed:<{closed_before.isoformat()}",
+            "--limit",
+            str(PR_FETCH_LIMIT),
+            "--json",
+            fields,
+        ]
+    )
+
+
+def _query_closed_prs(repo: str, state: str, window: Window | None) -> list[dict[str, Any]]:
+    if USE_SEARCH_FETCH:
+        return _query_search_prs(repo, state, window)
+    return _query_closed_prs_graphql(repo, state, window)
+
+
 def _repo_parts(repo: str) -> tuple[str, str]:
     owner, name = repo.split("/", 1)
     return owner, name
+
+
+def _pull_detail(repo: str, number: int) -> dict[str, Any]:
+    owner, name = _repo_parts(repo)
+    return _run_gh(["api", f"/repos/{owner}/{name}/pulls/{number}"])
+
+
+def _normalize_search_pr(repo: str, pr: dict[str, Any]) -> dict[str, Any]:
+    number = int(pr["number"])
+    detail = _pull_detail(repo, number)
+    user = detail.get("user") if isinstance(detail.get("user"), dict) else {}
+    base = detail.get("base") if isinstance(detail.get("base"), dict) else {}
+    head = detail.get("head") if isinstance(detail.get("head"), dict) else {}
+    merged_at = detail.get("merged_at")
+    labels = pr.get("labels") if isinstance(pr.get("labels"), list) else []
+    return {
+        "number": number,
+        "title": detail.get("title") or pr.get("title") or "",
+        "author": {"login": user.get("login") or _actor_login(pr.get("author"))},
+        "url": detail.get("html_url") or pr.get("url") or _pr_url(number),
+        "createdAt": detail.get("created_at") or pr.get("createdAt"),
+        "updatedAt": detail.get("updated_at") or pr.get("updatedAt"),
+        "closedAt": detail.get("closed_at") or pr.get("closedAt"),
+        "mergedAt": merged_at,
+        "mergedBy": detail.get("merged_by"),
+        "additions": int(detail.get("additions") or 0),
+        "deletions": int(detail.get("deletions") or 0),
+        "changedFiles": int(detail.get("changed_files") or 0),
+        "labels": labels,
+        "baseRefName": base.get("ref") or "",
+        "headRefName": head.get("ref") or "",
+        "isDraft": bool(detail.get("draft") or pr.get("isDraft")),
+        "mergeCommit": {"oid": detail.get("merge_commit_sha")} if detail.get("merge_commit_sha") else None,
+        "reviewDecision": "",
+    }
+
+
+def _query_search_prs(repo: str, state: str, window: Window | None) -> list[dict[str, Any]]:
+    if not window:
+        return _query_closed_prs_graphql(repo, state, window)
+    qualifier = "is:merged" if state == "merged" else "is:unmerged"
+    query = f"closed:>={window.since.isoformat()} closed:<{_github_until_date(window).isoformat()} {qualifier}"
+    rows = _run_gh(
+        [
+            "search",
+            "prs",
+            query,
+            "--repo",
+            repo,
+            "--limit",
+            str(PR_FETCH_LIMIT),
+            "--json",
+            GH_SEARCH_FIELDS,
+        ]
+    )
+    return [_normalize_search_pr(repo, pr) for pr in rows]
 
 
 def _discussion_for_pr(repo: str, number: int) -> dict[str, list[dict[str, Any]]]:
@@ -627,19 +736,99 @@ def _enrich_discussions(repo: str, records: list[dict[str, Any]]) -> list[dict[s
     return enriched
 
 
+def _dedupe_prs(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_number: dict[int, dict[str, Any]] = {}
+    for pr in records:
+        number = int(pr["number"])
+        existing = by_number.get(number)
+        if not existing:
+            by_number[number] = pr
+            continue
+        if pr.get("mergedAt") and not existing.get("mergedAt"):
+            by_number[number] = pr
+    return sorted(
+        by_number.values(),
+        key=lambda pr: pr.get("closedAt") or pr.get("mergedAt") or "",
+    )
+
+
 def _records_for_window(repo: str, window: Window | None) -> list[dict[str, Any]]:
+    if window and not USE_SEARCH_FETCH:
+        records = _dedupe_prs(_query_resolved_prs_graphql(repo, window))
+        records = _filter_records_for_window(records, window)
+        return _enrich_discussions(repo, records)
     merged = _query_closed_prs(repo, "merged", window)
     closed = [
         pr
         for pr in _query_closed_prs(repo, "closed", window)
         if not pr.get("mergedAt")
     ]
-    records = sorted([*merged, *closed], key=lambda pr: pr.get("closedAt") or pr.get("mergedAt") or "")
+    records = _dedupe_prs([*merged, *closed])
+    if window:
+        records = _filter_records_for_window(records, window)
     return _enrich_discussions(repo, records)
 
 
 def _records_for_all_time(repo: str) -> list[dict[str, Any]]:
-    return _analysis(_records_for_window(repo, None))
+    records: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        page_records = _query_closed_pull_page(repo, page)
+        if not page_records:
+            break
+        records.extend(page_records)
+        if len(page_records) < 100:
+            break
+        page += 1
+    records = _dedupe_prs(records)
+    if FETCH_DISCUSSIONS:
+        records = _enrich_discussions(repo, records)
+    return _analysis(records)
+
+
+def _query_closed_pull_page(repo: str, page: int) -> list[dict[str, Any]]:
+    owner, name = _repo_parts(repo)
+    rows = _run_gh(
+        [
+            "api",
+            "-H",
+            "Accept: application/vnd.github+json",
+            f"/repos/{owner}/{name}/pulls?state=closed&sort=created&direction=asc&per_page=100&page={page}",
+        ]
+    )
+    if not isinstance(rows, list):
+        return []
+    return [_normalize_rest_pull(pr) for pr in rows if isinstance(pr, dict)]
+
+
+def _normalize_rest_pull(pr: dict[str, Any]) -> dict[str, Any]:
+    user = pr.get("user") if isinstance(pr.get("user"), dict) else {}
+    base = pr.get("base") if isinstance(pr.get("base"), dict) else {}
+    head = pr.get("head") if isinstance(pr.get("head"), dict) else {}
+    merged_by = pr.get("merged_by") if isinstance(pr.get("merged_by"), dict) else None
+    return {
+        "number": int(pr["number"]),
+        "title": pr.get("title") or "",
+        "author": {"login": user.get("login") or ""},
+        "url": pr.get("html_url") or _pr_url(int(pr["number"])),
+        "createdAt": pr.get("created_at"),
+        "updatedAt": pr.get("updated_at"),
+        "closedAt": pr.get("closed_at"),
+        "mergedAt": pr.get("merged_at"),
+        "mergedBy": {"login": merged_by.get("login")} if merged_by else None,
+        "additions": int(pr.get("additions") or 0),
+        "deletions": int(pr.get("deletions") or 0),
+        "changedFiles": int(pr.get("changed_files") or 0),
+        "labels": pr.get("labels") if isinstance(pr.get("labels"), list) else [],
+        "baseRefName": base.get("ref") or "",
+        "headRefName": head.get("ref") or "",
+        "isDraft": bool(pr.get("draft")),
+        "mergeCommit": None,
+        "reviewDecision": "",
+        "comments": [],
+        "reviews": [],
+        "latestReviews": [],
+    }
 
 
 def _parse_date(value: str) -> date:
@@ -669,9 +858,14 @@ def _requested_window(args: argparse.Namespace) -> Window:
     if args.month is not None:
         return _month_window(args.month)
     days = args.days or DEFAULT_PRIMARY_DAYS
-    today = date.today()
-    since = today - timedelta(days=days)
-    return Window(f"last {days} days", since, today)
+    return _rolling_window(f"last {days} days", days)
+
+
+def _rolling_window(label: str, days: int, today_value: date | None = None) -> Window:
+    today_value = today_value or date.today()
+    clamped_days = max(1, days)
+    since = today_value - timedelta(days=clamped_days - 1)
+    return Window(label, since, today_value)
 
 
 def _friendly_date(value: date, *, include_year: bool = True) -> str:
@@ -695,6 +889,14 @@ def _window_display(window: Window) -> str:
     return f"{window.label} ({_friendly_range(window.since, window.until)})"
 
 
+def _github_until_date(window: Window) -> date:
+    # Dashboard windows are reported in PT, while GitHub issue/PR search dates
+    # are UTC date buckets with strict `<YYYY-MM-DD` search bounds. Include the
+    # following UTC date bucket so late-PT activity is not silently dropped from
+    # the current local reporting day.
+    return window.until + timedelta(days=2)
+
+
 def _refreshed_display() -> str:
     now_utc = datetime.now(UTC).replace(microsecond=0)
     now_local = now_utc.astimezone(REPORT_TZ)
@@ -708,6 +910,31 @@ def _refreshed_display() -> str:
 def _author(pr: dict[str, Any]) -> str:
     author = pr.get("author") or {}
     return author.get("login") or "unknown"
+
+
+def _base_ref(pr: dict[str, Any]) -> str:
+    return str(pr.get("baseRefName") or "").strip()
+
+
+def _head_ref(pr: dict[str, Any]) -> str:
+    return str(pr.get("headRefName") or "").strip()
+
+
+def _pr_train_lane(pr: dict[str, Any]) -> str:
+    base = _base_ref(pr)
+    head = _head_ref(pr)
+    author = _author(pr)
+    if base == "integration/pr-train":
+        return "integration_pr_train"
+    if base == "main":
+        if head == "integration/pr-train":
+            return "train_promotion_to_main"
+        if author in _maintainer_users():
+            return "maintainer_direct_main"
+        return "main_targeted_normal_intake"
+    if base:
+        return "other_base"
+    return "unknown_base"
 
 
 def _harvest_credit(pr_number: int) -> dict[str, str | int] | None:
@@ -1132,13 +1359,21 @@ def _analysis(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         balanced_operator_by_actor = _balanced_operator_credit_by_actor(source_score, operator_events)
         balanced_operator_score = sum(balanced_operator_by_actor.values())
         composite_score = source_score + operator_score
+        operating_score = source_score + product_bonus + operator_score
         balanced_score = source_score + product_bonus + balanced_operator_score
+        base_ref = _base_ref(pr)
+        head_ref = _head_ref(pr)
+        train_lane = _pr_train_lane(pr)
         analyzed.append(
             {
                 "number": int(pr["number"]),
                 "title": pr.get("title", ""),
                 "author": str(harvest["author"]) if harvest else _author(pr),
                 "url": pr.get("url", ""),
+                "baseRefName": base_ref,
+                "headRefName": head_ref,
+                "pr_train_lane": train_lane,
+                "pr_train_lane_label": PR_TRAIN_LANE_LABELS.get(train_lane, train_lane),
                 "createdAt": pr.get("createdAt"),
                 "mergedAt": pr.get("mergedAt"),
                 "closedAt": pr.get("closedAt"),
@@ -1151,6 +1386,7 @@ def _analysis(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "balanced_operator_impact_by_actor": balanced_operator_by_actor,
                 "balanced_impact_score": balanced_score,
                 "composite_impact_score": composite_score,
+                "operating_impact_score": operating_score,
                 "operator_events": operator_events,
                 "vectors": vectors,
                 "cluster": _cluster(pr, vectors),
@@ -1179,6 +1415,10 @@ def _leaderboard(records: list[dict[str, Any]], mode: str = "balanced") -> list[
                 "source_product_bonus": 0,
                 "operator_score": 0,
                 "balanced_operator_score": 0,
+                "third_party_operator_score": 0,
+                "self_operator_score": 0,
+                "third_party_balanced_operator_score": 0,
+                "self_balanced_operator_score": 0,
                 "resolved": 0,
                 "merged": 0,
                 "patched": 0,
@@ -1202,8 +1442,8 @@ def _leaderboard(records: list[dict[str, Any]], mode: str = "balanced") -> list[
         source_row["harvested"] += 1 if item["lifecycle"] == "harvested_source" else 0
         source_row["closed"] += 1 if not item["mergedAt"] else 0
         source_row["reverted"] += 1 if item["lifecycle"] in {"revert_correction", "merged_then_reverted"} else 0
-        if mode in {"source", "balanced", "composite"}:
-            top_score = source_score + product_bonus if mode == "balanced" else source_score
+        if mode in {"source", "balanced", "composite", "operating"}:
+            top_score = source_score + product_bonus if mode in {"balanced", "operating"} else source_score
             source_row["top"].append({**item, "score": top_score})
 
         by_actor: dict[str, int] = defaultdict(int)
@@ -1220,16 +1460,26 @@ def _leaderboard(records: list[dict[str, Any]], mode: str = "balanced") -> list[
         }
         for actor, operator_score in by_actor.items():
             operator_row = row_for(actor)
+            balanced_operator_score = balanced_by_actor.get(actor, 0)
             operator_row["operator_score"] += operator_score
-            operator_row["balanced_operator_score"] += balanced_by_actor.get(actor, 0)
-            operator_row["operator_events"] += sum(
+            operator_row["balanced_operator_score"] += balanced_operator_score
+            actor_event_count = sum(
                 1
                 for event in item.get("operator_events") or []
                 if isinstance(event, dict) and event.get("actor") == actor
             )
+            operator_row["operator_events"] += actor_event_count
+            if actor == item["author"]:
+                operator_row["self_operator_score"] += operator_score
+                operator_row["self_balanced_operator_score"] += balanced_operator_score
+            else:
+                operator_row["third_party_operator_score"] += operator_score
+                operator_row["third_party_balanced_operator_score"] += balanced_operator_score
             if mode in {"operator", "composite", "balanced"}:
                 top_score = balanced_by_actor.get(actor, 0) if mode in {"operator", "balanced"} else operator_score
                 operator_row["top"].append({**item, "score": top_score})
+            elif mode == "operating":
+                operator_row["top"].append({**item, "score": operator_score})
 
     rows = []
     for row in authors.values():
@@ -1237,11 +1487,14 @@ def _leaderboard(records: list[dict[str, Any]], mode: str = "balanced") -> list[
             "source": row["source_score"],
             "operator": row["balanced_operator_score"],
             "composite": row["source_score"] + row["operator_score"],
+            "operating": row["source_score"] + row["source_product_bonus"] + row["operator_score"],
             "balanced": row["source_score"] + row["source_product_bonus"] + row["balanced_operator_score"],
         }.get(mode, row["source_score"] + row["source_product_bonus"] + row["balanced_operator_score"])
         if mode == "operator" and row["balanced_operator_score"] <= 0:
             continue
         if mode == "source" and row["source_score"] <= 0:
+            continue
+        if mode == "operating" and row["score"] <= 0:
             continue
         if mode == "balanced" and row["score"] <= 0:
             continue
@@ -1289,25 +1542,19 @@ def _search_count(repo: str, qualifiers: str) -> int:
 
 def _first_pr_summary(repo: str) -> dict[str, Any] | None:
     try:
-        rows = _run_gh(
+        row = _run_gh(
             [
-                "pr",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "all",
-                "--search",
-                "sort:created-asc",
-                "--limit",
-                "1",
-                "--json",
-                "number,title,createdAt,url,state",
+                "api",
+                "-H",
+                "Accept: application/vnd.github+json",
+                f"/search/issues?q={quote(f'repo:{repo} type:pr', safe='')}&sort=created&order=asc&per_page=1",
+                "--jq",
+                ".items[0] | {number,title,createdAt:.created_at,url:.html_url,state}",
             ]
         )
     except RuntimeError:
         return None
-    return rows[0] if rows else None
+    return row if isinstance(row, dict) and row.get("number") else None
 
 
 def _first_resolved_record(records: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1412,6 +1659,7 @@ def _kpis(records: list[dict[str, Any]]) -> dict[str, Any]:
         "impact_score_total": balanced_total,
         "balanced_impact_score_total": balanced_total,
         "composite_impact_score_total": source_total + operator_total,
+        "operating_impact_score_total": source_total + product_bonus_total + operator_total,
         "source_impact_score_total": source_total,
         "source_product_bonus_total": product_bonus_total,
         "operator_impact_score_total": operator_total,
@@ -1493,19 +1741,19 @@ def _topper_lines(
         "source": "Source Impact",
         "operator": "Maintainer Support",
         "composite": "Raw Source + Maintainer",
+        "operating": "Operating Impact",
     }.get(mode, "Impact Score")
     lines = [
         f"- Window: {_window_display(window)}",
         "",
-        f"| Rank | Contributor | {score_label} | Source | Product Bonus | Maintainer Support | Raw Maintainer | Resolved | Merged | Patched | Harvested | Closed | Corrected | Maintainer Events | Top PRs |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        f"| Rank | Contributor | Total PRs | {score_label} | Balanced Impact | Source | Support | Top PRs |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for idx, row in enumerate(rows, start=1):
         lines.append(
-            f"| {idx} | `{_cell(row['author'])}` | {row['score']} | {row['source_score']} | {row['source_product_bonus']} | "
-            f"{row['balanced_operator_score']} | {row['operator_score']} | {row['resolved']} | "
-            f"{row['merged']} | {row['patched']} | {row['harvested']} | {row['closed']} | {row['reverted']} | {row['operator_events']} | "
-            f"{', '.join(_link(item) for item in row['top'])} |"
+            f"| {idx} | `{_cell(row['author'])}` | {row['resolved']} | {row['score']} | "
+            f"{row['source_score'] + row['source_product_bonus'] + row['balanced_operator_score']} | "
+            f"{row['source_score']} | {row['balanced_operator_score']} | {', '.join(_link(item) for item in row['top'])} |"
         )
     return lines
 
@@ -1519,22 +1767,25 @@ def _scoreboard_lines(
     weekly_records: list[dict[str, Any]],
     two_week_window: Window,
     two_week_records: list[dict[str, Any]],
+    monthly_window: Window,
+    monthly_records: list[dict[str, Any]],
     overall_window: Window,
     overall_records: list[dict[str, Any]],
     limit: int = 15,
+    include_overall: bool = True,
 ) -> list[str]:
-    weekly = _leaderboard_index(weekly_records, mode="balanced")
-    two_week = _leaderboard_index(two_week_records, mode="balanced")
-    overall = _leaderboard_index(overall_records, mode="balanced")
-    authors = {
-        row["author"]
-        for rows in (
-            _leaderboard(weekly_records, mode="balanced")[:10],
-            _leaderboard(two_week_records, mode="balanced")[:10],
-            _leaderboard(overall_records, mode="balanced")[:10],
-        )
-        for row in rows
-    }
+    weekly = _leaderboard_index(weekly_records, mode="operating")
+    two_week = _leaderboard_index(two_week_records, mode="operating")
+    monthly = _leaderboard_index(monthly_records, mode="operating")
+    overall = _leaderboard_index(overall_records, mode="operating") if include_overall else {}
+    ranked_sets = [
+        _leaderboard(weekly_records, mode="operating")[:10],
+        _leaderboard(two_week_records, mode="operating")[:10],
+        _leaderboard(monthly_records, mode="operating")[:10],
+    ]
+    if include_overall:
+        ranked_sets.append(_leaderboard(overall_records, mode="operating")[:10])
+    authors = {row["author"] for rows in ranked_sets for row in rows}
 
     def value(source: dict[str, dict[str, Any]], author: str, key: str) -> int:
         return int(source.get(author, {}).get(key, 0))
@@ -1543,6 +1794,7 @@ def _scoreboard_lines(
         authors,
         key=lambda author: (
             value(two_week, author, "score"),
+            value(monthly, author, "score"),
             value(overall, author, "score"),
             value(weekly, author, "score"),
             value(two_week, author, "merged"),
@@ -1553,27 +1805,73 @@ def _scoreboard_lines(
     lines = [
         f"- Weekly: {_window_display(weekly_window)}",
         f"- Two-week: {_window_display(two_week_window)}",
-        f"- Overall: {_window_display(overall_window)}",
-        "",
-        "| Rank | Contributor | Weekly Balanced | Two-Week Balanced | Two-Week Source | Product Bonus | Maintainer Support | Raw Maintainer | Overall Balanced | Two-Week PRs | Two-Week Merged | Two-Week Harvested | Maintainer Events |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"- Monthly: {_window_display(monthly_window)}",
     ]
+    if include_overall:
+        lines.append(f"- Overall: {_window_display(overall_window)}")
+    lines.extend(
+        [
+            "",
+            "| Rank | Contributor | Total PRs | Weekly | Two-Week | Monthly | Source | Support | Top PRs |",
+            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
     for idx, author in enumerate(ranked, start=1):
+        top_prs = ", ".join(_link(item) for item in two_week.get(author, {}).get("top", [])[:3])
         lines.append(
             f"| {idx} | `{_cell(author)}` | "
+            f"{value(two_week, author, 'resolved')} | "
             f"{value(weekly, author, 'score')} | "
             f"{value(two_week, author, 'score')} | "
+            f"{value(monthly, author, 'score')} | "
             f"{value(two_week, author, 'source_score')} | "
-            f"{value(two_week, author, 'source_product_bonus')} | "
             f"{value(two_week, author, 'balanced_operator_score')} | "
-            f"{value(two_week, author, 'operator_score')} | "
-            f"{value(overall, author, 'score')} | "
-            f"{value(two_week, author, 'resolved')} | "
-            f"{value(two_week, author, 'merged')} | "
-            f"{value(two_week, author, 'harvested')} | "
-            f"{value(two_week, author, 'operator_events')} |"
+            f"{top_prs} |"
         )
     return lines
+
+
+def _record_numbers(records: list[dict[str, Any]]) -> set[int]:
+    return {int(item["number"]) for item in records}
+
+
+def _record_date_range(records: list[dict[str, Any]]) -> str:
+    dates = sorted(finished for item in records if (finished := _finished_date(item)))
+    if not dates:
+        return "no resolved PT dates"
+    return _friendly_range(dates[0], dates[-1])
+
+
+def _window_overlap_note(
+    weekly_records: list[dict[str, Any]],
+    two_week_records: list[dict[str, Any]],
+    monthly_records: list[dict[str, Any]],
+) -> list[str]:
+    weekly = _record_numbers(weekly_records)
+    two_week = _record_numbers(two_week_records)
+    monthly = _record_numbers(monthly_records)
+    if weekly and weekly == two_week == monthly:
+        return [
+            (
+                "- Coverage note: weekly, two-week, and month-to-date currently score the same resolved PR set "
+                f"because every included PR resolved within {_record_date_range(two_week_records)} PT."
+            )
+        ]
+    if weekly and weekly == two_week:
+        return [
+            (
+                "- Coverage note: weekly and two-week currently score the same resolved PR set "
+                f"because every included PR resolved within {_record_date_range(two_week_records)} PT."
+            )
+        ]
+    if monthly and monthly == two_week:
+        return [
+            (
+                "- Coverage note: month-to-date and two-week currently score the same resolved PR set "
+                f"because every included PR resolved within {_record_date_range(two_week_records)} PT."
+            )
+        ]
+    return []
 
 
 def _cluster_lines(records: list[dict[str, Any]], limit: int = 8) -> list[str]:
@@ -1612,6 +1910,7 @@ def _cluster_lines(records: list[dict[str, Any]], limit: int = 8) -> list[str]:
 
 def _kpi_lines(kpis: dict[str, Any]) -> list[str]:
     labels = {
+        "operating_impact_score_total": "Operating Impact total",
         "balanced_impact_score_total": "Balanced Impact total",
         "source_impact_score_total": "Source Impact total",
         "source_product_bonus_total": "Product category bonus total",
@@ -1657,6 +1956,7 @@ def _kpi_lines(kpis: dict[str, Any]) -> list[str]:
 
 def _kpi_comparison_lines(primary_kpis: dict[str, Any], overall_kpis: dict[str, Any]) -> list[str]:
     labels = [
+        ("operating_impact_score_total", "Operating Impact total"),
         ("balanced_impact_score_total", "Balanced Impact total"),
         ("source_impact_score_total", "Source Impact total"),
         ("source_product_bonus_total", "Product category bonus total"),
@@ -1687,7 +1987,7 @@ def _kpi_comparison_lines(primary_kpis: dict[str, Any], overall_kpis: dict[str, 
         ("regression_corrections", "Regression corrections"),
     ]
     lines = [
-        "| KPI | Two-Week Window | All-Time Resolved |",
+        "| KPI | Two-Week Window | Overall Resolved |",
         "| --- | ---: | ---: |",
     ]
     for key, label in labels:
@@ -1734,20 +2034,21 @@ def _leaderboard_graph_lines(
     lines = [
         f"### {title}",
         "",
-        "| Rank | Contributor | Score | Source | Product Bonus | Maintainer Support | Raw Maintainer | Graph |",
+        "| Rank | Contributor | Total PRs | Score | Balanced Impact | Source | Support | Graph |",
         "| ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for idx, row in enumerate(rows, start=1):
         lines.append(
-            f"| {idx} | `{_cell(row['author'])}` | {row['score']} | {row['source_score']} | {row['source_product_bonus']} | "
-            f"{row['balanced_operator_score']} | {row['operator_score']} | {_bar(int(row['score']), maximum)} |"
+            f"| {idx} | `{_cell(row['author'])}` | {row['resolved']} | {row['score']} | "
+            f"{row['source_score'] + row['source_product_bonus'] + row['balanced_operator_score']} | "
+            f"{row['source_score']} | {row['balanced_operator_score']} | {_bar(int(row['score']), maximum)} |"
         )
     return lines
 
 
 def _finished_date(item: dict[str, Any]) -> date | None:
     finished = _parse_datetime(item.get("mergedAt") or item.get("closedAt"))
-    return finished.date() if finished else None
+    return finished.astimezone(REPORT_TZ).date() if finished else None
 
 
 def _week_start(value: date) -> date:
@@ -1756,9 +2057,11 @@ def _week_start(value: date) -> date:
 
 def _timeline_graph_lines(records: list[dict[str, Any]], limit: int = 12) -> list[str]:
     by_week: dict[date, list[dict[str, Any]]] = defaultdict(list)
+    finished_dates: list[date] = []
     for item in records:
         finished = _finished_date(item)
         if finished:
+            finished_dates.append(finished)
             by_week[_week_start(finished)].append(item)
     if not by_week:
         return ["### Weekly Resolved PR Trend", "", "- No resolved PRs available for trend analysis."]
@@ -1770,16 +2073,17 @@ def _timeline_graph_lines(records: list[dict[str, Any]], limit: int = 12) -> lis
     lines = [
         "### Weekly Resolved PR Trend",
         "",
-        "| Week | Resolved | Merged | Balanced Impact | Graph |",
+        "| Week | Resolved | Merged | Impact | Graph |",
         "| --- | ---: | ---: | ---: | --- |",
     ]
-    today = date.today()
+    max_finished = max(finished_dates)
     for week in weeks:
         items = by_week[week]
         merged = sum(1 for item in items if item.get("mergedAt"))
         score = sum(int(item.get("balanced_impact_score", item["score"])) for item in items)
+        week_end = min(week + timedelta(days=6), max_finished)
         lines.append(
-            f"| {_friendly_range(week, min(week + timedelta(days=6), today))} | "
+            f"| {_friendly_range(week, week_end)} | "
             f"{len(items)} | {merged} | {score} | {_bar(len(items), maximum)} |"
         )
     return lines
@@ -1788,27 +2092,42 @@ def _timeline_graph_lines(records: list[dict[str, Any]], limit: int = 12) -> lis
 def _impact_area_mix_lines(
     primary_records: list[dict[str, Any]],
     overall_records: list[dict[str, Any]],
+    *,
+    include_overall: bool = True,
 ) -> list[str]:
     primary = Counter(vector for item in primary_records for vector in item["vectors"])
     overall = Counter(vector for item in overall_records for vector in item["vectors"])
+    vector_set = (set(primary) | set(overall)) if include_overall else set(primary)
     vectors = sorted(
-        set(primary) | set(overall),
-        key=lambda vector: (overall[vector], primary[vector], vector),
+        vector_set,
+        key=lambda vector: (overall[vector] if include_overall else primary[vector], primary[vector], vector),
         reverse=True,
     )
     if not vectors:
         return ["### Impact Area Mix", "", "- No impact vectors detected."]
-    maximum = max(overall[vector] for vector in vectors)
-    lines = [
-        "### Impact Area Mix",
-        "",
-        "| Impact Area | Two-Week PRs | All-Time PRs | All-Time Graph |",
-        "| --- | ---: | ---: | --- |",
-    ]
-    for vector in vectors:
-        lines.append(
-            f"| {_cell(_impact_area_label(vector))} | {primary[vector]} | {overall[vector]} | {_bar(overall[vector], maximum)} |"
+    maximum = max((overall[vector] if include_overall else primary[vector]) for vector in vectors)
+    lines = ["### Impact Area Mix", ""]
+    if include_overall:
+        lines.extend(
+            [
+                "| Impact Area | Two-Week PRs | Overall PRs | Overall Graph |",
+                "| --- | ---: | ---: | --- |",
+            ]
         )
+    else:
+        lines.extend(
+            [
+                "| Impact Area | Two-Week PRs | Graph |",
+                "| --- | ---: | --- |",
+            ]
+        )
+    for vector in vectors:
+        if include_overall:
+            lines.append(
+                f"| {_cell(_impact_area_label(vector))} | {primary[vector]} | {overall[vector]} | {_bar(overall[vector], maximum)} |"
+            )
+        else:
+            lines.append(f"| {_cell(_impact_area_label(vector))} | {primary[vector]} | {_bar(primary[vector], maximum)} |")
     return lines
 
 
@@ -1816,11 +2135,30 @@ def _how_accounted_lines() -> list[str]:
     return [
         "- Source Impact credits the PR author or harvested source contributor for the useful idea, code, proof, or product improvement.",
         "- Product category bonus makes strong ideas easier to see when they extend One/Kai/Nav, RIA, onboarding, vault, PKM, portfolio import, runtime quality, or proof surfaces.",
-        "- Maintainer Support credits review, patch, harvest, closure, queue, and merge work, but the default leaderboard uses capped weighted support so routine operator volume cannot dominate.",
-        "- Balanced Impact is the default ranking: Source Impact + product category bonus + capped Maintainer Support.",
-        "- Raw maintainer activity and raw source + maintainer totals remain available for internal diagnosis.",
+        "- Maintainer Support credits review, patch, harvest, closure, queue, and merge work. It is capped and weighted so routine operator volume cannot dominate contributor recognition.",
+        "- Balanced Impact is the source-weighted recognition metric: Source Impact + product category bonus + capped Maintainer Support.",
+        "- Operating Impact is the workload metric: Source Impact + product category bonus + raw maintainer activity.",
+        "- Raw maintainer activity, Balanced Impact, and Operating Impact are intentionally separate so contributor recognition and maintainer load are not collapsed into one misleading rank.",
         "- GitHub Credit is separate and still depends on commit authorship or valid `Co-authored-by` trailers.",
+        "- PR Train Lane Mix separates normal `integration/pr-train` intake, train promotion PRs to `main`, governed maintainer direct-to-main work, and historical or still-unretargeted normal PRs that targeted `main`.",
     ]
+
+
+def _pr_train_lane_mix_lines(records: list[dict[str, Any]]) -> list[str]:
+    rows = _pr_train_lane_breakdown(records)
+    if not rows:
+        return ["- No resolved PRs with train-lane metadata in this window."]
+    total = sum(int(row["prs"]) for row in rows)
+    lines = [
+        "| Lane | PRs | Share | Meaning |",
+        "| --- | ---: | ---: | --- |",
+    ]
+    for row in rows:
+        count = int(row["prs"])
+        lines.append(
+            f"| {_cell(row['label'])} | {count} | {_percent(count, total)} | {_cell(row['description'])} |"
+        )
+    return lines
 
 
 def _product_breakdown(records: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
@@ -1882,22 +2220,57 @@ def _product_breakdown(records: list[dict[str, Any]]) -> dict[str, dict[str, int
     return rows
 
 
+def _pr_train_lane_breakdown(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts = Counter(str(item.get("pr_train_lane") or "unknown_base") for item in records)
+    return [
+        {
+            "lane": lane,
+            "label": PR_TRAIN_LANE_LABELS.get(lane, lane),
+            "description": PR_TRAIN_LANE_DESCRIPTIONS.get(lane, ""),
+            "prs": counts.get(lane, 0),
+        }
+        for lane in (
+            "integration_pr_train",
+            "train_promotion_to_main",
+            "maintainer_direct_main",
+            "main_targeted_normal_intake",
+            "other_base",
+            "unknown_base",
+        )
+        if counts.get(lane, 0)
+    ]
+
+
 def _product_breakdown_lines(
     two_week_records: list[dict[str, Any]],
     overall_records: list[dict[str, Any]],
+    *,
+    include_overall: bool = True,
 ) -> list[str]:
     two_week = _product_breakdown(two_week_records)
     overall = _product_breakdown(overall_records)
-    lines = [
-        "| Product Area | Two-Week PRs | Two-Week Balanced | Two-Week Source | Maintainer Support | Overall PRs | Overall Balanced |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
+    if include_overall:
+        lines = [
+            "| Product Area | Two-Week PRs | Two-Week Impact | Source | Support | Overall PRs | Overall Impact |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    else:
+        lines = [
+            "| Product Area | Total PRs | Impact | Source | Support |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
     for area in two_week:
-        lines.append(
-            f"| {_cell(area)} | {two_week[area]['prs']} | {two_week[area]['balanced']} | "
-            f"{two_week[area]['source']} | {two_week[area]['maintainer']} | "
-            f"{overall[area]['prs']} | {overall[area]['balanced']} |"
-        )
+        if include_overall:
+            lines.append(
+                f"| {_cell(area)} | {two_week[area]['prs']} | {two_week[area]['balanced']} | "
+                f"{two_week[area]['source']} | {two_week[area]['maintainer']} | "
+                f"{overall[area]['prs']} | {overall[area]['balanced']} |"
+            )
+        else:
+            lines.append(
+                f"| {_cell(area)} | {two_week[area]['prs']} | {two_week[area]['balanced']} | "
+                f"{two_week[area]['source']} | {two_week[area]['maintainer']} |"
+            )
     return lines
 
 
@@ -1949,25 +2322,28 @@ def _github_audit_lines(insights: dict[str, Any], overall_window: Window) -> lis
     included = int(insights.get("included_resolved_prs", 0))
     closed = int(insights.get("closed_prs", 0))
     merged = int(insights.get("merged_prs", 0))
+    audit_skipped = bool(insights.get("audit_skipped"))
     status = "Complete against GitHub closed-PR count"
     if insights.get("partial_reason"):
         status = f"Partial: {insights['partial_reason']}"
-    elif insights.get("audit_skipped"):
+    elif audit_skipped:
         status = "Skipped by operator flag"
     elif closed > insights.get("fetch_limit", PR_FETCH_LIMIT):
         status = "Partial: GitHub result count exceeds current fetch limit"
     elif included != closed:
         status = f"Needs review: included {included} of {closed} closed PRs"
+    audit_value = "Skipped" if audit_skipped else None
+    window_label = "Fast refresh scope" if insights.get("partial_reason") else "Overall window"
     lines = [
         "| Audit Check | Value |",
         "| --- | ---: |",
-        f"| GitHub PRs discovered | {insights.get('total_prs', 0)} |",
-        f"| Open PRs not scored yet | {insights.get('open_prs', 0)} |",
-        f"| Closed PRs | {closed} |",
-        f"| Merged PRs | {merged} |",
-        f"| Closed without merge | {insights.get('closed_unmerged_prs', 0)} |",
-        f"| Resolved PRs included in all-time score | {included} |",
-        f"| All-time window | {_window_display(overall_window)} |",
+        f"| GitHub PRs discovered | {audit_value or insights.get('total_prs', 0)} |",
+        f"| Open PRs not scored yet | {audit_value or insights.get('open_prs', 0)} |",
+        f"| Closed PRs | {audit_value or closed} |",
+        f"| Merged PRs | {audit_value or merged} |",
+        f"| Closed without merge | {audit_value or insights.get('closed_unmerged_prs', 0)} |",
+        f"| Resolved PRs included in overall score | {included} |",
+        f"| {window_label} | {_window_display(overall_window)} |",
         f"| First PR GitHub exposes | {_pr_summary(insights.get('first_pr'))} |",
         f"| First resolved PR included | {_pr_summary(insights.get('first_resolved_pr'))} |",
         f"| Coverage status | {_cell(status)} |",
@@ -1975,11 +2351,36 @@ def _github_audit_lines(insights: dict[str, Any], overall_window: Window) -> lis
     return lines
 
 
+def _github_summary_line(insights: dict[str, Any]) -> str:
+    if insights.get("audit_skipped"):
+        return "- GitHub repository-wide PR count audit: skipped for this rate-limit-friendly refresh."
+    return (
+        f"- GitHub currently shows `{insights.get('total_prs', 0)}` PRs: "
+        f"`{insights.get('open_prs', 0)}` open and `{insights.get('closed_prs', 0)}` closed."
+    )
+
+
+def _overall_report_label(github_insights: dict[str, Any]) -> str:
+    if github_insights.get("partial_reason"):
+        return "Recent/Partial"
+    return "Overall"
+
+
+def _partial_report_warning(github_insights: dict[str, Any]) -> list[str]:
+    reason = github_insights.get("partial_reason")
+    if not reason:
+        return []
+    return [
+        f"- Scope: this refresh is recent-window only (`{_cell(reason)}`).",
+        "- Run full mode for an all-time leaderboard; fast mode intentionally omits global top counts.",
+    ]
+
+
 def _most_impactful(records: list[dict[str, Any]], limit: int = 10) -> list[str]:
     lines = []
     for item in sorted(records, key=lambda row: (int(row.get("balanced_impact_score", row["score"])), row["number"]), reverse=True)[:limit]:
         lines.append(
-            f"- {_link(item)} by `{item['author']}` - Balanced Impact `{item.get('balanced_impact_score', item['score'])}`: "
+            f"- {_link(item)} by `{item['author']}` - Impact `{item.get('balanced_impact_score', item['score'])}`: "
             f"{item['reason']}"
         )
     return lines or ["- No resolved PRs in this window."]
@@ -2061,13 +2462,24 @@ def _report_text(
     weekly_records: list[dict[str, Any]],
     two_week_window: Window,
     two_week_records: list[dict[str, Any]],
+    monthly_window: Window,
+    monthly_records: list[dict[str, Any]],
     overall_window: Window,
     overall_records: list[dict[str, Any]],
     github_insights: dict[str, Any],
 ) -> str:
     refreshed = _refreshed_display()
     kpis = _kpis(records)
+    monthly_kpis = _kpis(monthly_records)
     overall_kpis = _kpis(overall_records)
+    overall_label = _overall_report_label(github_insights)
+    include_overall = not bool(github_insights.get("partial_reason"))
+    overall_anchor = "overall-top-10"
+    overall_window_line = (
+        f"Overall window: {_window_display(overall_window)}"
+        if include_overall
+        else "Global leaderboard: omitted from fast refresh"
+    )
     lines = [
         "# Contributor Impact Dashboard",
         "",
@@ -2076,7 +2488,9 @@ def _report_text(
         "- Refresh rule: refresh after merge, close, requested-changes, maintainer patch, harvest, or revert waves.",
         f"Repo: https://github.com/{repo}",
         f"Two-week window: {_window_display(window)}",
-        f"Overall window: {_window_display(overall_window)}",
+        overall_window_line,
+        f"Data mode: fetcher `{'search+rest' if USE_SEARCH_FETCH else 'graphql'}`; per-PR files `{'included' if FETCH_FILES else 'metadata-only'}`; discussion enrichment `{'included' if FETCH_DISCUSSIONS else 'skipped'}`.",
+        *_partial_report_warning(github_insights),
         "",
         "## Index",
         "",
@@ -2087,10 +2501,11 @@ def _report_text(
         "- [Maintainer Support Evidence](#maintainer-support-evidence)",
         "- [KPI Board](#kpi-board)",
         "- [Visual Insights](#visual-insights)",
-        "- [Weekly And Two-Week Scoreboard](#weekly-and-two-week-scoreboard)",
+        "- [Weekly, Two-Week, And Monthly Scoreboard](#weekly-two-week-and-monthly-scoreboard)",
         "- [Weekly Top 10](#weekly-top-10)",
         "- [Two-Week Top 10](#two-week-top-10)",
-        "- [Overall Top 10](#overall-top-10)",
+        "- [Monthly Top 10](#monthly-top-10)",
+        *(["- [Overall Top 10](#overall-top-10)"] if include_overall else []),
         "- [Most Impactful PRs](#most-impactful-prs)",
         "- [Directional Corrections](#directional-corrections)",
         "- [Product Area Impact](#product-area-impact)",
@@ -2099,10 +2514,17 @@ def _report_text(
         "## Executive Summary",
         "",
         f"- Resolved PRs in two-week window: `{len(records)}`.",
-        f"- Two-week Balanced Impact total: `{kpis['balanced_impact_score_total']}` (`{kpis['source_impact_score_total']}` Source Impact + `{kpis['source_product_bonus_total']}` product category bonus + `{kpis['balanced_operator_impact_score_total']}` Maintainer Support).",
-        f"- Raw maintainer activity total: `{kpis['operator_impact_score_total']}`; raw source + maintainer total: `{kpis['composite_impact_score_total']}`.",
-        f"- All-time resolved PRs scored: `{overall_kpis['resolved_prs']}` with Balanced Impact `{overall_kpis['balanced_impact_score_total']}`.",
-        f"- GitHub currently shows `{github_insights.get('total_prs', 0)}` PRs: `{github_insights.get('open_prs', 0)}` open and `{github_insights.get('closed_prs', 0)}` closed.",
+        f"- Two-week Operating Impact total: `{kpis['operating_impact_score_total']}` (`{kpis['source_impact_score_total']}` Source Impact + `{kpis['source_product_bonus_total']}` product category bonus + `{kpis['operator_impact_score_total']}` raw maintainer activity).",
+        f"- Two-week Balanced Impact total: `{kpis['balanced_impact_score_total']}` after capping Maintainer Support at `{kpis['balanced_operator_impact_score_total']}`.",
+        f"- Month-to-date resolved PRs: `{monthly_kpis['resolved_prs']}` with Operating Impact `{monthly_kpis['operating_impact_score_total']}`.",
+        *(
+            [
+                f"- Overall resolved PRs scored: `{overall_kpis['resolved_prs']}` with Operating Impact `{overall_kpis['operating_impact_score_total']}` and Balanced Impact `{overall_kpis['balanced_impact_score_total']}`."
+            ]
+            if include_overall
+            else []
+        ),
+        _github_summary_line(github_insights),
         f"- Merged PRs: `{kpis['merged_prs']}`.",
         f"- Merge rate: `{kpis['merge_rate']}` with median PR resolution time `{kpis['median_resolution_days']}` days.",
         f"- Contributors represented: `{kpis['contributors_represented']}`.",
@@ -2115,6 +2537,10 @@ def _report_text(
         "## How This Is Counted",
         "",
         *_how_accounted_lines(),
+        "",
+        "### PR Train Lane Mix",
+        "",
+        *_pr_train_lane_mix_lines(records),
         "",
         "## GitHub Coverage Audit",
         "",
@@ -2132,11 +2558,19 @@ def _report_text(
         "",
         *_kpi_lines(kpis),
         "",
-        "### Two-Week Vs All-Time",
-        "",
-        *_kpi_comparison_lines(kpis, overall_kpis),
-        "",
+        *(
+            [
+                "### Two-Week Vs Overall",
+                "",
+                *_kpi_comparison_lines(kpis, overall_kpis),
+                "",
+            ]
+            if include_overall
+            else []
+        ),
         "## Visual Insights",
+        "",
+        *_leaderboard_graph_lines(records, "Operating Impact Leaders", mode="operating"),
         "",
         *_leaderboard_graph_lines(records, "Balanced Impact Leaders", mode="balanced"),
         "",
@@ -2144,30 +2578,48 @@ def _report_text(
         "",
         *_leaderboard_graph_lines(records, "Maintainer Support Leaders", mode="operator"),
         "",
-        *_leaderboard_graph_lines(overall_records, "All-Time Balanced Impact Leaders", mode="balanced"),
-        "",
+        *(
+            [
+                *_leaderboard_graph_lines(overall_records, "Overall Operating Impact Leaders", mode="operating"),
+                "",
+            ]
+            if include_overall
+            else []
+        ),
         *_timeline_graph_lines(overall_records),
         "",
-        *_impact_area_mix_lines(records, overall_records),
+        *_impact_area_mix_lines(records, overall_records, include_overall=include_overall),
         "",
         *_lifecycle_mix_lines(overall_records),
         "",
-        "## Weekly And Two-Week Scoreboard",
+        "## Weekly, Two-Week, And Monthly Scoreboard",
         "",
-        *_scoreboard_lines(weekly_window, weekly_records, window, records, overall_window, overall_records),
+        *_window_overlap_note(weekly_records, records, monthly_records),
+        "",
+        *_scoreboard_lines(weekly_window, weekly_records, window, records, monthly_window, monthly_records, overall_window, overall_records, include_overall=include_overall),
         "",
         "## Weekly Top 10",
         "",
-        *_topper_lines(weekly_records, weekly_window, mode="balanced"),
+        *_topper_lines(weekly_records, weekly_window, mode="operating"),
         "",
         "## Two-Week Top 10",
         "",
-        *_topper_lines(records, window, mode="balanced"),
+        *_topper_lines(records, window, mode="operating"),
         "",
-        "## Overall Top 10",
+        "## Monthly Top 10",
         "",
-        *_topper_lines(overall_records, overall_window, mode="balanced"),
+        *_topper_lines(monthly_records, monthly_window, mode="operating"),
         "",
+        *(
+            [
+                "## Overall Top 10",
+                "",
+                *_topper_lines(overall_records, overall_window, mode="operating"),
+                "",
+            ]
+            if include_overall
+            else []
+        ),
         "## Most Impactful PRs",
         "",
         *_most_impactful(records),
@@ -2178,7 +2630,7 @@ def _report_text(
         "",
         "## Product Area Impact",
         "",
-        *_product_breakdown_lines(records, overall_records),
+        *_product_breakdown_lines(records, overall_records, include_overall=include_overall),
         "",
         "## Contract Clusters",
         "",
@@ -2196,10 +2648,13 @@ def _json_payload(
     weekly_records: list[dict[str, Any]],
     two_week_window: Window,
     two_week_records: list[dict[str, Any]],
+    monthly_window: Window,
+    monthly_records: list[dict[str, Any]],
     overall_window: Window,
     overall_records: list[dict[str, Any]],
     github_insights: dict[str, Any],
 ) -> dict[str, Any]:
+    include_overall = not bool(github_insights.get("partial_reason"))
     return {
         "repo": repo,
         "window": {
@@ -2214,11 +2669,31 @@ def _json_payload(
             "until": overall_window.until.isoformat(),
             "display": _window_display(overall_window),
         },
+        "monthly_window": {
+            "label": monthly_window.label,
+            "since": monthly_window.since.isoformat(),
+            "until": monthly_window.until.isoformat(),
+            "display": _window_display(monthly_window),
+        },
         "github_insights": github_insights,
+        "data_mode": {
+            "fetcher": "search+rest" if USE_SEARCH_FETCH else "graphql",
+            "per_pr_files": "included" if FETCH_FILES else "metadata-only",
+            "discussion_enrichment": "included" if FETCH_DISCUSSIONS else "skipped",
+        },
+        "report_scope": {
+            "label": _overall_report_label(github_insights),
+            "is_partial": bool(github_insights.get("partial_reason")),
+            "partial_reason": github_insights.get("partial_reason"),
+        },
         "kpis": _kpis(records),
+        "monthly_kpis": _kpis(monthly_records),
         "overall_kpis": _kpis(overall_records),
         "harvest_credits": HARVEST_CREDITS,
-        "leaderboard": _leaderboard(records, mode="balanced"),
+        "pr_train_lane_mix": _pr_train_lane_breakdown(records),
+        "overall_pr_train_lane_mix": _pr_train_lane_breakdown(overall_records),
+        "leaderboard": _leaderboard(records, mode="operating"),
+        "operating_leaderboard": _leaderboard(records, mode="operating"),
         "balanced_leaderboard": _leaderboard(records, mode="balanced"),
         "composite_leaderboard": _leaderboard(records, mode="composite"),
         "source_leaderboard": _leaderboard(records, mode="source"),
@@ -2230,11 +2705,12 @@ def _json_payload(
                 "until": weekly_window.until.isoformat(),
                 "display": _window_display(weekly_window),
             },
-            "contributors": _leaderboard(weekly_records, mode="balanced")[:10],
+            "contributors": _leaderboard(weekly_records, mode="operating")[:10],
         },
         "weekly_two_week_scoreboard": {
             "weekly_window": _window_display(weekly_window),
             "two_week_window": _window_display(window),
+            "monthly_window": _window_display(monthly_window),
             "overall_window": _window_display(overall_window),
         },
         "two_week_top_10": {
@@ -2244,21 +2720,32 @@ def _json_payload(
                 "until": two_week_window.until.isoformat(),
                 "display": _window_display(two_week_window),
             },
-            "contributors": _leaderboard(two_week_records, mode="balanced")[:10],
+            "contributors": _leaderboard(two_week_records, mode="operating")[:10],
         },
         "overall_top_10": {
+            "omitted": not include_overall,
             "window": {
                 "label": overall_window.label,
                 "since": overall_window.since.isoformat(),
                 "until": overall_window.until.isoformat(),
                 "display": _window_display(overall_window),
             },
-            "contributors": _leaderboard(overall_records, mode="balanced")[:10],
+            "contributors": _leaderboard(overall_records, mode="operating")[:10] if include_overall else [],
+        },
+        "monthly_top_10": {
+            "window": {
+                "label": monthly_window.label,
+                "since": monthly_window.since.isoformat(),
+                "until": monthly_window.until.isoformat(),
+                "display": _window_display(monthly_window),
+            },
+            "contributors": _leaderboard(monthly_records, mode="operating")[:10],
         },
         "product_area_impact": _product_breakdown(records),
         "product_impact_breakdown": _product_breakdown(records),
         "records": records,
-        "overall_records": overall_records,
+        "monthly_records": monthly_records,
+        "overall_records": overall_records if include_overall else [],
     }
 
 
@@ -2271,8 +2758,26 @@ def _cached_records(repo: str, windows: list[Window]) -> dict[tuple[date, date],
     return cache
 
 
+def _window_contains(container: Window, inner: Window) -> bool:
+    return container.since <= inner.since and inner.until <= container.until
+
+
+def _records_in_window(records: list[dict[str, Any]], window: Window) -> list[dict[str, Any]]:
+    filtered = []
+    for item in records:
+        finished = _finished_date(item)
+        if finished and window.since <= finished <= window.until:
+            filtered.append(item)
+    return filtered
+
+
+def _filter_records_for_window(records: list[dict[str, Any]], window: Window) -> list[dict[str, Any]]:
+    return _records_in_window(records, window)
+
+
 def main() -> int:
-    global DISCUSSION_FETCH_WORKERS, FETCH_DISCUSSIONS, PR_FETCH_LIMIT
+    global DISCUSSION_FETCH_WORKERS, FETCH_DISCUSSIONS, FETCH_FILES, GH_COMMAND_TIMEOUT_SECONDS
+    global GH_RETRY_ATTEMPTS, PR_FETCH_LIMIT, USE_SEARCH_FETCH
 
     parser = argparse.ArgumentParser(description="Build the Hussh contributor impact dashboard.")
     parser.add_argument("--repo", default=DEFAULT_REPO)
@@ -2282,16 +2787,36 @@ def main() -> int:
     parser.add_argument("--until", help="Explicit two-week/dashboard window end date, YYYY-MM-DD. Defaults to today when --since is used.")
     parser.add_argument("--fetch-limit", type=int, default=PR_FETCH_LIMIT, help="Maximum PRs to fetch per merged/closed query.")
     parser.add_argument("--discussion-workers", type=int, default=DISCUSSION_FETCH_WORKERS, help="Concurrent REST workers for review/comment enrichment.")
+    parser.add_argument("--include-files", action="store_true", help="Fetch per-PR file lists for higher-fidelity product-area scoring. More expensive GraphQL query.")
+    parser.add_argument("--fast", action="store_true", help="Rate-limit-friendly recent dashboard: skip all-time, repo-wide audit, discussion fan-out, and bulk file lists.")
     parser.add_argument("--skip-discussions", action="store_true", help="Skip REST comment/review enrichment for fast dashboard refreshes.")
     parser.add_argument("--skip-all-time", action="store_true", help="Skip expensive all-time PR history and use the two-week window for overall sections.")
     parser.add_argument("--skip-github-audit", action="store_true", help="Skip GitHub repository-wide search/audit counts.")
+    parser.add_argument("--include-all-time-discussions", action="store_true", help="Also fetch comments/reviews for all-time history. Expensive; keep off for normal dashboard refreshes.")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     parser.add_argument("--text", action="store_true", help="Output markdown text. Default unless --json is set.")
+    parser.add_argument("--text-output", help="Write markdown text to this path while reusing the same fetched data.")
+    parser.add_argument("--json-output", help="Write machine-readable JSON to this path while reusing the same fetched data.")
     args = parser.parse_args()
+
+    if args.fast and args.include_files:
+        parser.error("--include-files requires the GraphQL/full path; use without --fast")
+
+    if args.fast:
+        args.skip_all_time = True
+        args.skip_github_audit = True
+        args.skip_discussions = True
+        args.fetch_limit = min(int(args.fetch_limit), 25)
+        GH_COMMAND_TIMEOUT_SECONDS = min(GH_COMMAND_TIMEOUT_SECONDS, 10)
+        GH_RETRY_ATTEMPTS = min(GH_RETRY_ATTEMPTS, 2)
+        USE_SEARCH_FETCH = True
+    else:
+        GH_COMMAND_TIMEOUT_SECONDS = max(GH_COMMAND_TIMEOUT_SECONDS, 120)
 
     PR_FETCH_LIMIT = max(1, int(args.fetch_limit))
     DISCUSSION_FETCH_WORKERS = max(1, int(args.discussion_workers))
     FETCH_DISCUSSIONS = not args.skip_discussions
+    FETCH_FILES = args.include_files or FETCH_FILES
 
     if sum(bool(value) for value in (args.days, args.month is not None, args.since)) > 1:
         parser.error("use only one of --days, --month, or --since/--until")
@@ -2300,19 +2825,37 @@ def main() -> int:
 
     primary = _requested_window(args)
     today = date.today()
-    weekly = Window("last 7 days", today - timedelta(days=7), today)
-    two_week = Window("last 14 days", today - timedelta(days=14), today)
-    cache = _cached_records(args.repo, [primary, weekly, two_week])
-    records = cache[(primary.since, primary.until)]
-    weekly_records = cache[(weekly.since, weekly.until)]
-    two_week_records = cache[(two_week.since, two_week.until)]
+    weekly = _rolling_window("last 7 days", 7, today)
+    two_week = _rolling_window("last 14 days", 14, today)
+    monthly = _month_window("current")
+    if args.fast and _window_contains(two_week, weekly):
+        two_week_records = _analysis(_records_for_window(args.repo, two_week))
+        weekly_records = _records_in_window(two_week_records, weekly)
+        monthly_records = (
+            _records_in_window(two_week_records, monthly)
+            if _window_contains(two_week, monthly)
+            else _analysis(_records_for_window(args.repo, monthly))
+        )
+        records = _records_in_window(two_week_records, primary) if _window_contains(two_week, primary) else _analysis(_records_for_window(args.repo, primary))
+    else:
+        cache = _cached_records(args.repo, [primary, weekly, two_week, monthly])
+        records = cache[(primary.since, primary.until)]
+        weekly_records = cache[(weekly.since, weekly.until)]
+        two_week_records = cache[(two_week.since, two_week.until)]
+        monthly_records = cache[(monthly.since, monthly.until)]
     partial_reason = None
     if args.skip_all_time:
         overall_records = two_week_records
-        overall = Window("last 14 days (all-time fetch skipped)", two_week.since, two_week.until)
-        partial_reason = "all-time history fetch skipped"
+        overall = Window("fast refresh scope", two_week.since, two_week.until)
+        partial_reason = "fast mode excludes all-time history"
     else:
-        overall_records = _records_for_all_time(args.repo)
+        previous_fetch_discussions = FETCH_DISCUSSIONS
+        if not args.include_all_time_discussions:
+            FETCH_DISCUSSIONS = False
+        try:
+            overall_records = _records_for_all_time(args.repo)
+        finally:
+            FETCH_DISCUSSIONS = previous_fetch_discussions
         overall = _all_time_window(overall_records)
     github_insights = _github_insights(
         args.repo,
@@ -2321,10 +2864,51 @@ def main() -> int:
         partial_reason=partial_reason,
     )
 
+    text_output = _report_text(
+        args.repo,
+        primary,
+        records,
+        weekly,
+        weekly_records,
+        two_week,
+        two_week_records,
+        monthly,
+        monthly_records,
+        overall,
+        overall_records,
+        github_insights,
+    )
+    json_output = json.dumps(
+        _json_payload(
+            args.repo,
+            primary,
+            records,
+            weekly,
+            weekly_records,
+                two_week,
+                two_week_records,
+                monthly,
+                monthly_records,
+                overall,
+                overall_records,
+                github_insights,
+        ),
+        indent=2,
+    )
+    if args.text_output:
+        output_path = Path(args.text_output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(f"{text_output}\n")
+    if args.json_output:
+        output_path = Path(args.json_output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(f"{json_output}\n")
+
+    wrote_files = bool(args.text_output or args.json_output)
     if args.json:
-        print(json.dumps(_json_payload(args.repo, primary, records, weekly, weekly_records, two_week, two_week_records, overall, overall_records, github_insights), indent=2))
-    else:
-        print(_report_text(args.repo, primary, records, weekly, weekly_records, two_week, two_week_records, overall, overall_records, github_insights))
+        print(json_output)
+    elif args.text or not wrote_files:
+        print(text_output)
     return 0
 
 

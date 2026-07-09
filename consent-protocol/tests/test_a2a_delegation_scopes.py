@@ -20,6 +20,7 @@ def test_specialist_a2a_scope_map_uses_least_privilege_scopes() -> None:
         "agent_kai": ConsentScope.AGENT_KAI_ANALYZE,
         "agent_nav": ConsentScope.AGENT_NAV_REVIEW,
         "agent_kyc": ConsentScope.AGENT_KYC_PROCESS,
+        "agent_connections": ConsentScope.AGENT_ONE_ORCHESTRATE,
         "agent_location": ConsentScope.AGENT_ONE_ORCHESTRATE,
         "agent_personal_information": ConsentScope.AGENT_ONE_ORCHESTRATE,
         "agent_email": ConsentScope.AGENT_ONE_ORCHESTRATE,
@@ -62,3 +63,7 @@ def test_validate_a2a_consent_token_rejects_wrong_specialist_scope() -> None:
 
 def test_agent_email_scope_is_orchestrate() -> None:
     assert get_a2a_required_scope("agent_email") == ConsentScope.AGENT_ONE_ORCHESTRATE
+
+
+def test_agent_connections_scope_is_orchestrate() -> None:
+    assert get_a2a_required_scope("agent_connections") == ConsentScope.AGENT_ONE_ORCHESTRATE

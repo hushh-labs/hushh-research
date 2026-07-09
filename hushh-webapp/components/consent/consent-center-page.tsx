@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
@@ -60,6 +61,7 @@ import {
 import {
   useConsentActions,
   useOneLocationConsentActions,
+  useMarketplaceConsentActions,
   type ConsentActionState,
   type ConsentMutationDetail,
   type PendingConsent,
@@ -81,6 +83,7 @@ import {
   locationConsentSummary,
   locationConsentWorkflowHref,
 } from "@/lib/consent/location-consent";
+import { isMarketplaceConsent } from "@/lib/consent/marketplace-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 
 import {
@@ -104,7 +107,7 @@ import {
   useVoiceSurfaceControlTracking,
 } from "@/lib/voice/voice-surface-metadata";
 
-type ConsentTab = "requests" | "active" | "history" | "relationships";
+type ConsentTab = "requests" | "active" | "history" | "connections";
 type ConsentManagerMode = ConsentCenterMode;
 type PendingNotificationAction = "review" | "approve" | "deny" | null;
 type ConsentTrail = NonNullable<ConsentCenterEntry["consent_trails"]>[number];
@@ -120,7 +123,8 @@ const DURATION_OPTIONS = [
 function normalizeTab(value: string | null): ConsentTab {
   if (value === "active") return "active";
   if (value === "history" || value === "previous") return "history";
-  if (value === "relationships") return "relationships";
+  // "relationships" is the legacy name for the Connections tab.
+  if (value === "connections" || value === "relationships") return "connections";
   return "requests";
 }
 
@@ -147,6 +151,7 @@ function resolveConsentTab(
     viewParam === "active" ||
     viewParam === "previous" ||
     viewParam === "history" ||
+    viewParam === "connections" ||
     viewParam === "relationships"
   ) {
     return normalizeTab(viewParam);
@@ -428,7 +433,7 @@ function relationshipPriority(entry: ConsentCenterEntry) {
   return 0;
 }
 
-function buildRelationshipEntries(
+function buildConnectionEntries(
   center: ConsentCenterResponse | null,
 ): ConsentCenterEntry[] {
   if (!center) return [];
@@ -468,10 +473,10 @@ function buildRelationshipEntries(
     );
     resolved.push({
       ...primary,
-      id: `relationship:${key}`,
+      id: `connection:${key}`,
       additional_access_summary:
         scopeLabels.length > 0
-          ? `${scopeLabels.length} scope${scopeLabels.length === 1 ? "" : "s"} shared in this relationship`
+          ? `${scopeLabels.length} scope${scopeLabels.length === 1 ? "" : "s"} shared in this connection`
           : primary.additional_access_summary,
     });
   }
@@ -481,7 +486,7 @@ function buildRelationshipEntries(
   );
 }
 
-function filterRelationshipEntries(
+function filterConnectionEntries(
   entries: ConsentCenterEntry[],
   query: string,
 ): ConsentCenterEntry[] {
@@ -1184,7 +1189,7 @@ export function ConsentCenterPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
-  const { getVaultOwnerToken, isVaultUnlocked } = useVault();
+  const { getVaultOwnerToken, isVaultUnlocked, vaultKey } = useVault();
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1290,6 +1295,40 @@ export function ConsentCenterPage() {
     searchParams,
   ]);
 
+  // Fulfil agent-driven marketplace approvals. Agent One (A2A) and the
+  // marketplace chat agent can only flip a request to `approved` server-side —
+  // they have no browser/vault key to seal the encrypted slice, so the seller's
+  // device must complete delivery. The unlock-warm sweep runs at most once per
+  // session and usually fires before the agent approval exists, leaving slices
+  // approved-but-undelivered. Opening the Consent Guardian is exactly when the
+  // seller is present with an unlocked vault, so we sweep again here (guard-free
+  // relative to unlock-warm, once per mount) to seal + deliver those requests.
+  const marketplaceSweptRef = useRef(false);
+  useEffect(() => {
+    if (marketplaceSweptRef.current) return;
+    if (!isVaultUnlocked || !user?.uid || !vaultKey) return;
+    const vaultOwnerToken = getVaultOwnerToken();
+    if (!vaultOwnerToken) return;
+    marketplaceSweptRef.current = true;
+    void runMarketplaceDeliverySweep({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .then((result) => {
+        // Refresh the lists so freshly delivered grants reflect their new state.
+        if (result.delivered > 0) {
+          setMutationTick((value) => value + 1);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          "[ConsentCenter] marketplace delivery sweep failed:",
+          error,
+        );
+      });
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
+
   const {
     handleApprove,
     handleDeny,
@@ -1317,16 +1356,37 @@ export function ConsentCenterPage() {
     userId: user?.uid,
   });
 
-  const activeAction = genericActiveAction ?? locationActiveAction;
+  // Information Marketplace rows are end-to-end encrypted slice deliveries and
+  // must go through the dedicated marketplace approve endpoint + envelope publish
+  // (build safe-summary export -> seal to the buyer's recipient key -> post
+  // ciphertext only), NOT the generic developer-consent flow. See
+  // lib/consent/use-marketplace-consent-actions.ts.
+  const {
+    handleApprove: handleMarketplaceApprove,
+    handleDeny: handleMarketplaceDeny,
+    handleRevoke: handleMarketplaceRevoke,
+    activeAction: marketplaceActiveAction,
+    isRequestBusy: isMarketplaceRequestBusy,
+    isScopeBusy: isMarketplaceScopeBusy,
+  } = useMarketplaceConsentActions({
+    userId: user?.uid,
+  });
+
+  const activeAction =
+    genericActiveAction ?? locationActiveAction ?? marketplaceActiveAction;
   const isRequestBusy = useCallback(
     (requestId?: string | null) =>
-      isGenericRequestBusy(requestId) || isLocationRequestBusy(requestId),
-    [isGenericRequestBusy, isLocationRequestBusy],
+      isGenericRequestBusy(requestId) ||
+      isLocationRequestBusy(requestId) ||
+      isMarketplaceRequestBusy(requestId),
+    [isGenericRequestBusy, isLocationRequestBusy, isMarketplaceRequestBusy],
   );
   const isScopeBusy = useCallback(
     (scope?: string | null) =>
-      isGenericScopeBusy(scope) || isLocationScopeBusy(scope),
-    [isGenericScopeBusy, isLocationScopeBusy],
+      isGenericScopeBusy(scope) ||
+      isLocationScopeBusy(scope) ||
+      isMarketplaceScopeBusy(scope),
+    [isGenericScopeBusy, isLocationScopeBusy, isMarketplaceScopeBusy],
   );
 
   // Route a consent entry to the correct backend pipeline. Location rows
@@ -1337,15 +1397,30 @@ export function ConsentCenterPage() {
       isLocationConsent(entry.metadata, entry.scope),
     [],
   );
+  const isMarketplaceEntry = useCallback(
+    (entry: ConsentCenterEntry) =>
+      isMarketplaceConsent(entry.metadata, entry.scope),
+    [],
+  );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
       if (isLocationEntry(entry)) {
         void handleLocationApprove(entry, durationHours);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceApprove(entry);
+        return;
+      }
       void handleApprove(toPendingConsent(entry, durationHours));
     },
-    [handleApprove, handleLocationApprove, isLocationEntry],
+    [
+      handleApprove,
+      handleLocationApprove,
+      handleMarketplaceApprove,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
@@ -1353,9 +1428,19 @@ export function ConsentCenterPage() {
         void handleLocationDeny(entry);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceDeny(entry);
+        return;
+      }
       void handleDeny(entry.request_id || entry.id);
     },
-    [handleDeny, handleLocationDeny, isLocationEntry],
+    [
+      handleDeny,
+      handleLocationDeny,
+      handleMarketplaceDeny,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
@@ -1363,10 +1448,20 @@ export function ConsentCenterPage() {
         void handleLocationRevoke(entry);
         return;
       }
+      if (isMarketplaceEntry(entry)) {
+        void handleMarketplaceRevoke(entry);
+        return;
+      }
       if (!entry.scope) return;
       void handleRevoke(entry.scope);
     },
-    [handleLocationRevoke, handleRevoke, isLocationEntry],
+    [
+      handleLocationRevoke,
+      handleMarketplaceRevoke,
+      handleRevoke,
+      isLocationEntry,
+      isMarketplaceEntry,
+    ],
   );
 
   const idTokenLoader = async () => user?.getIdToken();
@@ -1396,7 +1491,7 @@ export function ConsentCenterPage() {
       ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}`)
       : "consent_center_guest",
     refreshKey: `${actor}:${managerView}`,
-    enabled: Boolean(user?.uid && tab === "relationships"),
+    enabled: Boolean(user?.uid && tab === "connections"),
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1415,7 +1510,7 @@ export function ConsentCenterPage() {
   const listResource = useStaleResource({
     cacheKey: listCacheKey,
     refreshKey: `${consentScopeKey}:${mode}:${listSurface}:${deferredQuery}:${page}`,
-    enabled: Boolean(user?.uid && tab !== "relationships"),
+    enabled: Boolean(user?.uid && tab !== "connections"),
     load: async (options) => {
       const idToken = await idTokenLoader();
       if (!user?.uid || !idToken) {
@@ -1442,7 +1537,7 @@ export function ConsentCenterPage() {
     forcedMutationRefreshRef.current = mutationTick;
 
     void summaryResource.refresh({ force: true });
-    if (tab === "relationships") {
+    if (tab === "connections") {
       void centerResource.refresh({ force: true });
     } else {
       void listResource.refresh({ force: true });
@@ -1542,10 +1637,10 @@ export function ConsentCenterPage() {
     };
   }, [applyConfirmedConsentMutation]);
 
-  const relationshipItems = useMemo(
+  const connectionItems = useMemo(
     () =>
-      filterRelationshipEntries(
-        buildRelationshipEntries(centerResource.data || null),
+      filterConnectionEntries(
+        buildConnectionEntries(centerResource.data || null),
         deferredQuery,
       ),
     [centerResource.data, deferredQuery],
@@ -1553,7 +1648,7 @@ export function ConsentCenterPage() {
   const items = useMemo(
     () => {
       const source =
-        tab === "relationships" ? relationshipItems : listData?.items || [];
+        tab === "connections" ? connectionItems : listData?.items || [];
       return source.filter((entry) => {
         if (
           listSurface === "pending" &&
@@ -1580,7 +1675,7 @@ export function ConsentCenterPage() {
       locallyHandledRequestIds,
       locallyRevokedScopes,
       listSurface,
-      relationshipItems,
+      connectionItems,
       tab,
     ],
   );
@@ -1626,18 +1721,18 @@ export function ConsentCenterPage() {
     return pendingLookupItemToConsentEntry(item);
   }, [locallyHandledRequestIds, selectedPendingLookupResource.data]);
   const activeListError =
-    tab === "relationships" ? centerResource.error : listResource.error;
+    tab === "connections" ? centerResource.error : listResource.error;
   const activeListLoading =
-    tab === "relationships" ? centerResource.loading : listResource.loading;
+    tab === "connections" ? centerResource.loading : listResource.loading;
   const activeListRefreshing =
-    tab === "relationships"
+    tab === "connections"
       ? centerResource.refreshing
       : listResource.refreshing;
   const consentLoadError = activeListError || summaryResource.error;
   const isAuthLoadError = isAuthConsentLoadError(consentLoadError);
   const hasVisibleConsentListData =
     items.length > 0 ||
-    (tab === "relationships"
+    (tab === "connections"
       ? Boolean(centerResource.data)
       : Boolean(listData));
   const showCompactRetryState = Boolean(
@@ -1650,7 +1745,7 @@ export function ConsentCenterPage() {
     (!authLoading && !user) || (isAuthLoadError && !hasVisibleConsentListData),
   );
   const visibleSnapshot =
-    tab === "relationships" ? centerResource.snapshot : listResource.snapshot;
+    tab === "connections" ? centerResource.snapshot : listResource.snapshot;
   const isConsentActionRefreshing =
     summaryResource.refreshing ||
     listResource.refreshing ||
@@ -1695,7 +1790,7 @@ export function ConsentCenterPage() {
   const listMismatchRetryRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (tab === "relationships") return;
+    if (tab === "connections") return;
     if (deferredQuery) return;
     if (listResource.loading || listResource.refreshing) return;
     if (!summaryData || !listData) return;
@@ -1957,16 +2052,16 @@ export function ConsentCenterPage() {
 
   const pageEyebrow = "Access / Consent";
   const pageTitle = "Access manager";
-  const relationshipCount = relationshipItems.length;
+  const connectionCount = connectionItems.length;
   const pageDescription =
     actor === "ria"
-      ? "Requests, active access, history, and relationship state live in one canonical advisor access manager."
+      ? "Requests, active access, history, and connections live in one canonical advisor access manager."
       : managerView === "outgoing"
-        ? "Outgoing access requests, active access, history, and relationship state stay grouped in one canonical access workspace."
-        : "Incoming access requests, active access, history, and relationship state stay grouped in one canonical access workspace.";
+        ? "Outgoing access requests, active access, history, and connections stay grouped in one canonical access workspace."
+        : "Incoming access requests, active access, history, and connections stay grouped in one canonical access workspace.";
   const searchPlaceholder =
-    tab === "relationships"
-      ? "Search relationships by name, email, scope, or status"
+    tab === "connections"
+      ? "Search connections by name, email, scope, or status"
       : `Search ${tab} by name, email, scope, or reason`;
 
   return (
@@ -2004,8 +2099,8 @@ export function ConsentCenterPage() {
                   label: `History (${summaryData?.counts.previous ?? 0})`,
                 },
                 {
-                  value: "relationships",
-                  label: `Relationships (${relationshipCount})`,
+                  value: "connections",
+                  label: `Connections (${connectionCount})`,
                 },
               ]}
             />
@@ -2054,7 +2149,7 @@ export function ConsentCenterPage() {
                     data-voice-control-id="consent_search"
                   />
                 </div>
-                {(tab === "relationships"
+                {(tab === "connections"
                   ? centerResource.loading || centerResource.refreshing
                   : listResource.loading || listResource.refreshing) &&
                 items.length > 0 ? (
@@ -2114,7 +2209,7 @@ export function ConsentCenterPage() {
                   ) : null}
                   {!listResource.loading &&
                   !showFullRetryState &&
-                  tab !== "relationships" &&
+                  tab !== "connections" &&
                   items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No {tab} entries match this view right now.
@@ -2122,10 +2217,10 @@ export function ConsentCenterPage() {
                   ) : null}
                   {!centerResource.loading &&
                   !showFullRetryState &&
-                  tab === "relationships" &&
+                  tab === "connections" &&
                   items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
-                      No relationship entries match this view right now.
+                      No connections match this view right now.
                     </div>
                   ) : null}
                   {items.map((entry, index) => (
@@ -2149,7 +2244,7 @@ export function ConsentCenterPage() {
                   ))}
                 </div>
 
-                {tab !== "relationships" && listData ? (
+                {tab !== "connections" && listData ? (
                   <PaginatedListFooter
                     page={listData.page}
                     limit={listData.limit}

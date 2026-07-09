@@ -19,7 +19,6 @@ import { usePathname } from "next/navigation";
 import { Grip, Maximize2, Minimize2, Minus, X } from "lucide-react";
 
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
-import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
 import {
   AGENT_POPOVER_DEFAULT_SIZE_MODE,
@@ -31,6 +30,10 @@ import {
   type AgentPopoverSize,
   type AgentPopoverSizeMode,
 } from "@/lib/agent/agent-popover-layout";
+import {
+  useOneConversationSession,
+  type AgentChatHandoff,
+} from "@/lib/agent/one-conversation-session";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +42,7 @@ type AgentPopoverContextValue = {
   hasOpened: boolean;
   motionState: AgentPopoverMotionState;
   sizeMode: AgentPopoverSizeMode;
-  openAgent: () => void;
+  openAgent: (options?: { handoff?: AgentChatHandoff | null }) => void;
   minimizeAgent: () => void;
   setSizeMode: (mode: AgentPopoverSizeMode) => void;
 };
@@ -115,6 +118,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   );
   const [customSize, setCustomSize] =
     useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
+  const createHandoff = useOneConversationSession((state) => state.createHandoff);
 
   useEffect(() => {
     setSizeModeState(readStoredSizeMode());
@@ -141,7 +145,10 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => clearMotionHandles, [clearMotionHandles]);
 
-  const openAgent = useCallback(() => {
+  const openAgent = useCallback((options?: { handoff?: AgentChatHandoff | null }) => {
+    if (options?.handoff) {
+      createHandoff(options.handoff);
+    }
     if (expanded && motionState !== "closing") return;
 
     clearMotionHandles();
@@ -156,7 +163,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
         setMotionState("idle");
       }, AGENT_POPOVER_TRANSITION_MS);
     });
-  }, [clearMotionHandles, expanded, motionState]);
+  }, [clearMotionHandles, createHandoff, expanded, motionState]);
 
   const minimizeAgent = useCallback(() => {
     if (!expanded && motionState !== "opening") return;
@@ -240,9 +247,9 @@ function AgentPopoverSurface({
     motionState,
     sizeMode,
     setSizeMode,
-    openAgent,
     minimizeAgent,
   } = useAgentPopover();
+  const pendingHandoff = useOneConversationSession((state) => state.pendingHandoff);
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
   // The agent is a SINGLE surface present everywhere, including onboarding and
@@ -421,6 +428,7 @@ function AgentPopoverSurface({
             <Suspense fallback={null}>
               <AgentChatWorkspace
                 variant="popover"
+                handoff={pendingHandoff}
                 windowControls={
                   <AgentPopoverWindowControls
                     sizeMode={sizeMode}
@@ -437,7 +445,6 @@ function AgentPopoverSurface({
         </div>
       ) : null}
 
-      <AgentVoiceFloatingIndicator onClick={openAgent} />
     </>
   );
 }

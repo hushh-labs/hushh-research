@@ -48,6 +48,61 @@ describe("One Voice realtime transports", () => {
     );
   });
 
+  it("normalizes ADK relay transcripts and client directives", async () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveTransport({ onEvent });
+    const testTransport = transport as unknown as {
+      sessionId: string | null;
+      handleSocketMessage: (data: string) => Promise<void>;
+    };
+
+    testTransport.sessionId = "gemini_session_1";
+    await testTransport.handleSocketMessage(
+      JSON.stringify({
+        inputTranscription: {
+          text: "show my portfolio",
+          confidence: 0.9,
+        },
+        outputTranscription: {
+          text: "I can help with that.",
+        },
+      })
+    );
+    await testTransport.handleSocketMessage(
+      JSON.stringify({
+        clientDirective: {
+          kind: "navigate",
+          payload: { route: "/one/kai", screen: "finance" },
+        },
+      })
+    );
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "transcript_final",
+        text: "show my portfolio",
+        provider: "gemini_live",
+      })
+    );
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "assistant_text",
+        text: "I can help with that.",
+        provider: "gemini_live",
+      })
+    );
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "client_directive",
+        provider: "gemini_live",
+        directive: {
+          kind: "navigate",
+          payload: { route: "/one/kai", screen: "finance" },
+        },
+      })
+    );
+  });
+
   it("keeps OpenAI Realtime behind the same interface until enabled", async () => {
     const onEvent = vi.fn();
     const transport = new OpenAIRealtimeTransport({ onEvent });

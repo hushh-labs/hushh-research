@@ -57,8 +57,8 @@ _MODELS: tuple[ModelEntry, ...] = (
         aliases=("gemini-default", "default"),
     ),
     ModelEntry(provider="gemini", model="gemini-3.5-flash", supports_native_realtime=True),
-    ModelEntry(provider="gemini", model="gemini-2.5-pro", supports_native_realtime=True),
-    ModelEntry(provider="gemini", model="gemini-2.5-flash", supports_native_realtime=True),
+    ModelEntry(provider="gemini", model="gemini-3.1-pro-preview", supports_native_realtime=True),
+    ModelEntry(provider="gemini", model="gemini-3.1-flash-lite", supports_native_realtime=True),
     # Anthropic -- native SDK adapter; chained-only voice (no native realtime API).
     ModelEntry(
         provider="anthropic",

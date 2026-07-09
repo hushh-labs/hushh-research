@@ -26,18 +26,25 @@ import { formatCents } from "@/lib/services/slice-pricing-service";
  */
 export function MarketplaceChatPanel(props: {
   vaultOwnerToken: string | null;
+  /** Seller identity + vault key — used to seal & deliver a slice on-device right
+   *  after the agent approves a request (agent approvals can't seal server-side). */
+  userId?: string | null;
+  vaultKey?: string | null;
   onStateChanged?: () => void;
   onPublishSlice?: (slice: PublishableSlice) => void;
   /** Identity keys ("h:<scopeHandle>", "l:<domain>:<label>") of already-published
    *  slices, so a just-published slice drops off the publish card. */
   publishedSliceKeys?: Set<string>;
 }) {
-  const { vaultOwnerToken, onStateChanged, onPublishSlice, publishedSliceKeys } = props;
+  const { vaultOwnerToken, userId, vaultKey, onStateChanged, onPublishSlice, publishedSliceKeys } =
+    props;
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const chat = useMarketplaceChat({
     vaultOwnerToken: vaultOwnerToken ?? "",
+    userId,
+    vaultKey,
     onStateChanged,
   });
 

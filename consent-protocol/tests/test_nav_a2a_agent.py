@@ -6,6 +6,22 @@ from hushh_mcp.adk_bridge.nav_agent import NavAgent
 from hushh_mcp.consent.token import issue_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.consent_db import ConsentDBService
+
+
+@pytest.fixture(autouse=True)
+def _db_token_active(monkeypatch):
+    """Nav's A2A gate is DB-backed (cross-instance revocation).
+
+    These unit tests issue ad-hoc in-memory tokens with no consent_audit
+    grant rows, so stub the DB activity lookup to report the token active.
+    Revocation-path behavior is covered by the token-validation suites.
+    """
+
+    async def _active(self, user_id, scope, agent_id=None):  # noqa: ANN001
+        return True
+
+    monkeypatch.setattr(ConsentDBService, "is_token_active", _active)
 
 
 @pytest.mark.asyncio

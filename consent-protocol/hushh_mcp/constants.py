@@ -281,14 +281,17 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 
 # ==================== Gemini Model Configuration ====================
 
-# Standard model for general LLM operations across the codebase.
-GEMINI_MODEL = "gemini-3.1-pro-preview"
+# Standard model for agent work across the codebase (One specialists, Kai
+# debate agents, HushhAgent manifest default, portfolio import). Keep every
+# agent lane on the same generation; the voice head uses the dedicated Live
+# model via AGENT_ONE_ADK_MODEL instead.
+GEMINI_MODEL = "gemini-3.5-flash"
 
 # Full path format (for ADK and direct API calls)
-GEMINI_MODEL_FULL = "models/gemini-3.1-pro-preview"
+GEMINI_MODEL_FULL = "models/gemini-3.5-flash"
 
 # Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = "gemini-3.1-pro-preview"
+GEMINI_MODEL_VERTEX = "gemini-3.5-flash"
 
 # ==================== Kai Portfolio Import Defaults ====================
 

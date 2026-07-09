@@ -127,7 +127,7 @@ export function OnboardingCapabilityStep({
       width="content"
       className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:px-6"
       nativeTest={{
-        routeId: `/one/setup/${capabilityId}`,
+        routeId: "/one/setup/[capability]",
         marker: "native-route-one-setup-capability",
         authState: "authenticated",
         dataState: "loaded",

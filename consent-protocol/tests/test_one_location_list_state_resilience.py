@@ -89,3 +89,36 @@ def test_list_state_raises_nothing_for_clean_empty_user():
     assert state["ownerGrants"] == []
     assert state["receivedGrants"] == []
     assert state["requests"] == []
+
+
+def test_list_state_network_connections_sourced_from_trusted():
+    """networkConnections must be sourced from trusted_connections, not the legacy table."""
+
+    class _TrustedConnectionsService(OneLocationAgentService):
+        def _expire_stale_grants(self, user_id: str) -> None:  # noqa: ARG002
+            return None
+
+        def list_verified_recipients(self, *, owner_user_id: str, limit: int = 50):  # noqa: ARG002
+            return []
+
+        def _execute_many(self, sql: str, params=None):  # noqa: ARG002
+            if "trusted_connections" in sql:
+                return [
+                    {
+                        "id": "e1",
+                        "owner_user_id": "owner",
+                        "trusted_user_id": "friend",
+                        "status": "active",
+                        "created_at": None,
+                        "updated_at": None,
+                        "revoked_at": None,
+                    }
+                ]
+            return []
+
+    state = _TrustedConnectionsService().list_state(user_id="owner")
+    conns = state["networkConnections"]
+    assert conns, "networkConnections must be non-empty when trusted_connections returns a row"
+    assert conns[0]["userAId"] == "owner"
+    assert conns[0]["userBId"] == "friend"
+    assert conns[0]["status"] == "active"

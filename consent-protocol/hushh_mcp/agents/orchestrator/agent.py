@@ -44,19 +44,26 @@ class OrchestratorAgent(HushhAgent):
     Compatibility wrapper for Agent One.
     """
 
+    # Pydantic field (ADK 2.x LlmAgent is a pydantic model with extra="forbid");
+    # plain attribute assignment before super().__init__ raises there.
+    manifest: Any = None
+
     def __init__(self):
         # Load manifest
         manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
-        self.manifest = ManifestLoader.load(manifest_path)
+        manifest = ManifestLoader.load(manifest_path)
 
-        # Initialize ADK Agent with tools
+        # Initialize ADK Agent with tools. ADK 2.x requires `name` to be a
+        # valid Python identifier; the manifest id ("agent_one") qualifies,
+        # while the display name ("Agent One") does not.
         super().__init__(
-            name=self.manifest.name,
-            model=self.manifest.model,
-            system_prompt=self.manifest.system_instruction,
+            name=manifest.name if manifest.name.isidentifier() else "agent_one",
+            model=manifest.model,
+            system_prompt=manifest.system_instruction,
             tools=[delegate_to_kai_agent, delegate_to_nav_agent, delegate_to_kyc_agent],
-            required_scopes=self.manifest.required_scopes,
+            required_scopes=manifest.required_scopes,
         )
+        self.manifest = manifest
 
     def handle_message(
         self,

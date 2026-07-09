@@ -1,5 +1,6 @@
 import { apiJson } from "@/lib/services/api-client";
 import { type PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
+import { type MarketplaceEncryptedEnvelope } from "@/lib/one-marketplace/encryption";
 
 /** A durable Information Marketplace access request (migration 075). */
 export interface MarketplaceRequest {
@@ -17,6 +18,21 @@ export interface MarketplaceRequest {
   status: "pending" | "approved" | "denied" | "expired";
   createdAt?: string;
   resolvedAt?: string | null;
+  /** Set once a sealed slice envelope has been delivered (migration 079). */
+  latestEnvelopeId?: string | null;
+}
+
+/**
+ * A buyer's published recipient "lock" (ECDH P-256 public key). The private half
+ * never leaves the buyer's device; the seller fetches this at approve time to
+ * seal a slice envelope for the buyer.
+ */
+export interface MarketplaceRecipient {
+  userId: string;
+  keyId: string;
+  publicKeyJwk: JsonWebKey;
+  algorithm: string;
+  createdAt?: string | null;
 }
 
 /** One publishable slice suggested in a publish card. */
@@ -30,13 +46,16 @@ export interface PublishableSlice {
 }
 
 /**
- * One anonymized listing in the cross-user Buyer directory. The owner's identity
- * is never sent — only a stable opaque `ownerRef` and an opaque `listingId` the
- * server maps back to the real owner when a request is filed.
+ * One listing in the cross-user Buyer directory. The owner's raw user id is never
+ * sent — only a stable opaque `ownerRef`, the owner's public display name
+ * (`ownerName`, so a buyer sees who published the slice), and an opaque
+ * `listingId` the server maps back to the real owner when a request is filed.
  */
 export interface AvailableListing {
   listingId: string;
   ownerRef: string;
+  /** Public display name of the seller (falls back to `ownerRef` if unavailable). */
+  ownerName?: string;
   domain: string;
   domainTitle: string;
   label: string;
@@ -79,6 +98,32 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
  * `stateChanged` tells the page to refetch the inbox.
  */
 export class OneMarketplaceService {
+  /**
+   * Publish this device's marketplace recipient public key so sellers can seal
+   * delivered slices for this buyer. Idempotent: the server upserts on
+   * (user_id, key_id). Only the public JWK is ever sent.
+   */
+  static async registerRecipientKey(params: {
+    vaultOwnerToken: string;
+    keyId: string;
+    publicKeyJwk: JsonWebKey;
+    algorithm: string;
+  }): Promise<MarketplaceRecipient> {
+    const res = await apiJson<{ recipientKey: MarketplaceRecipient }>(
+      "/api/one/marketplace/recipient-keys",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          keyId: params.keyId,
+          publicKeyJwk: params.publicKeyJwk,
+          algorithm: params.algorithm,
+        }),
+      },
+    );
+    return res.recipientKey;
+  }
+
   static async chat(params: {
     vaultOwnerToken: string;
     message: string;
@@ -97,13 +142,48 @@ export class OneMarketplaceService {
   static async listRequests(params: {
     vaultOwnerToken: string;
     status?: string;
+    /** `owner` (default) is the seller's inbox; `buyer` is the caller's own requests. */
+    role?: "owner" | "buyer";
   }): Promise<MarketplaceRequest[]> {
-    const qs = params.status ? `?status=${encodeURIComponent(params.status)}` : "";
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.role) query.set("role", params.role);
+    const qs = query.toString() ? `?${query.toString()}` : "";
     const res = await apiJson<{ requests: MarketplaceRequest[] }>(
       `/api/one/marketplace/requests${qs}`,
       { headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
     return res.requests ?? [];
+  }
+
+  /**
+   * Owner-scoped: fetch the buyer's active recipient "lock" for one of the
+   * owner's pending requests, so the seller can seal a slice envelope for them
+   * at approve time. `recipientKey` is null when the buyer has not published one.
+   */
+  static async getRequestRecipientKey(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<{ request: MarketplaceRequest; recipientKey: MarketplaceRecipient | null }> {
+    return apiJson<{ request: MarketplaceRequest; recipientKey: MarketplaceRecipient | null }>(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/recipient-key`,
+      { headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
+  }
+
+  /**
+   * Buyer-scoped: fetch the latest sealed envelope delivered for one of the
+   * caller's own requests. Ciphertext only — decrypt on-device with the
+   * IndexedDB private key. `envelope` is null when nothing has been delivered.
+   */
+  static async getDelivery(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }> {
+    return apiJson<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }>(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/delivery`,
+      { headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
   }
 
   /** Anonymized directory of other users' published slices (Buyer tab). */
@@ -160,13 +240,44 @@ export class OneMarketplaceService {
     return res.request;
   }
 
+  /**
+   * Approve a request. When `envelope` is supplied the seller has already sealed
+   * the slice against the buyer's recipient key on-device, so only ciphertext is
+   * posted (blind relay) and the server stores it for buyer pickup.
+   */
   static async approveRequest(params: {
     vaultOwnerToken: string;
     requestId: string;
+    envelope?: MarketplaceEncryptedEnvelope | null;
   }): Promise<void> {
     await apiJson(
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/approve`,
-      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ envelope: params.envelope ?? null }),
+      },
+    );
+  }
+
+  /**
+   * Deliver a sealed slice for an ALREADY-approved request (agent-approval
+   * fulfilment). The seller's device seals on-device, then posts ciphertext here;
+   * the server attaches it without changing status. Used by the delivery sweep to
+   * complete approvals an agent (A2A / chat) made with no browser to seal.
+   */
+  static async deliverRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+    envelope: MarketplaceEncryptedEnvelope;
+  }): Promise<void> {
+    await apiJson(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/deliver`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ envelope: params.envelope }),
+      },
     );
   }
 
@@ -176,6 +287,20 @@ export class OneMarketplaceService {
   }): Promise<void> {
     await apiJson(
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/deny`,
+      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+    );
+  }
+
+  /**
+   * Revoke a previously approved request (owner-scoped): withdraws the buyer's
+   * access and deletes any delivered ciphertext server-side.
+   */
+  static async revokeRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<void> {
+    await apiJson(
+      `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/revoke`,
       { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
   }

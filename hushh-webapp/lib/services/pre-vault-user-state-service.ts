@@ -227,4 +227,31 @@ export class PreVaultUserStateService {
         params.completed && Number.isFinite(completedAtMs) ? completedAtMs : Date.now(),
     });
   }
+
+  static primeSetupResolved(params: {
+    userId: string;
+    skipped: boolean;
+    completedAt?: number | null;
+  }): PreVaultUserState {
+    const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(params.userId);
+    const existing = CacheService.getInstance().get<PreVaultUserState>(cacheKey);
+    const completedAt = params.completedAt ?? Date.now();
+    const next: PreVaultUserState = existing
+      ? {
+          ...existing,
+          setupCompleted: true,
+          setupSkipped: params.skipped,
+          setupCompletedAt: completedAt,
+          setupStateUpdatedAt: completedAt,
+        }
+      : normalizeResponse(params.userId, {
+          userId: params.userId,
+          setupCompleted: true,
+          setupSkipped: params.skipped,
+          setupCompletedAt: completedAt,
+          setupStateUpdatedAt: completedAt,
+        });
+    CacheService.getInstance().set(cacheKey, next, CACHE_TTL.SESSION);
+    return next;
+  }
 }

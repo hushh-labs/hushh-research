@@ -70,12 +70,14 @@ def test_resolve_voice_explain_knowledge_resolves_global_concept() -> None:
     assert "structured personal memory layer" in resolution.summary.lower()
 
 
-def test_resolve_global_concept_describes_kai_as_app_with_in_app_voice_interface() -> None:
+def test_resolve_global_concept_describes_kai_as_finance_specialist_under_one_voice() -> None:
     message = resolve_global_concept("What is Kai?")
 
     assert message is not None
-    assert "Kai is the investor app" in message
-    assert "voice assistant" in message.lower()
+    # Canonical ontology: One Voice is the direct voice surface; Kai is the
+    # finance specialist One summons (docs/vision/agent-ontology.md).
+    assert "One Voice is the direct voice surface" in message
+    assert "Kai is the finance specialist" in message
 
 
 def test_resolve_global_concept_describes_voice_assistant_identity() -> None:

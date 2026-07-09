@@ -288,11 +288,20 @@ def _fingerprint_public_key(public_key_jwk: dict[str, Any]) -> str:
 # classification and message-filtering agree on the same string.
 _SOS_SHARE_REASON = "sos_panic"
 
+# Grant "reason" marker for a Drive-To share. The destination and ETA never live
+# here (they are inside the encrypted envelope); this marker only tags the kind.
+_DRIVE_TO_SHARE_REASON = "drive_to"
+
 # Internal grant "reason" markers used for plain shares, approved access requests,
 # and the SOS panic flow. These are plumbing, never a human message, so they must
 # NOT be surfaced verbatim to the recipient. Anything else (e.g. a Check-In note)
 # is a real message. SOS still gets its own dedicated copy via the share kind.
-_INTERNAL_SHARE_REASONS = {"owner_approved", "request_approved", _SOS_SHARE_REASON}
+_INTERNAL_SHARE_REASONS = {
+    "owner_approved",
+    "request_approved",
+    _SOS_SHARE_REASON,
+    _DRIVE_TO_SHARE_REASON,
+}
 
 
 def _classify_share_kind(reason: str | None) -> str:
@@ -306,6 +315,8 @@ def _classify_share_kind(reason: str | None) -> str:
     text = " ".join(str(reason or "").split()).lower()
     if text == _SOS_SHARE_REASON:
         return "sos"
+    if text == _DRIVE_TO_SHARE_REASON:
+        return "drive_to"
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
@@ -952,24 +963,19 @@ class OneLocationAgentService:
         signals: dict[str, dict[str, Any]],
     ) -> None:
         rows = self._optional_signal_rows(
-            signal_name="one_location_network_connections",
+            signal_name="trusted_connections",
             sql="""
-            SELECT user_a_id, user_b_id, inviter_user_id, invitee_user_id,
-                   status, connected_at, updated_at
-            FROM one_location_network_connections
+            SELECT owner_user_id, trusted_user_id, status, created_at, updated_at
+            FROM trusted_connections
             WHERE status = 'active'
-              AND (user_a_id = :owner_user_id OR user_b_id = :owner_user_id)
-            ORDER BY connected_at DESC
+              AND owner_user_id = :owner_user_id
+            ORDER BY created_at DESC
             LIMIT 200
             """,
             params={"owner_user_id": owner_user_id},
         )
         for row in rows:
-            other_user_id = (
-                str(row.get("user_b_id") or "")
-                if row.get("user_a_id") == owner_user_id
-                else str(row.get("user_a_id") or "")
-            )
+            other_user_id = str(row.get("trusted_user_id") or "")
             if other_user_id not in recipient_ids:
                 continue
             signal = signals[other_user_id]
@@ -982,7 +988,7 @@ class OneLocationAgentService:
             signal["trusted"] = True
             signal["relationship_type"] = signal.get("relationship_type") or "One Network"
             signal["verification_badge"] = signal.get("verification_badge") or "One Network"
-            self._remember_signal_time(signal, row.get("updated_at"), row.get("connected_at"))
+            self._remember_signal_time(signal, row.get("updated_at"), row.get("created_at"))
 
     def _add_mutual_kai_relationship_signals(
         self,
@@ -1605,29 +1611,23 @@ class OneLocationAgentService:
         return payload
 
     @staticmethod
-    def _network_pair(user_id: str, other_user_id: str) -> tuple[str, str]:
-        if not user_id or not other_user_id or user_id == other_user_id:
-            raise OneLocationAgentError(
-                "LOCATION_NETWORK_CONNECTION_INVALID",
-                "Choose a different One user.",
-                status_code=422,
-            )
-        first, second = sorted((user_id, other_user_id))
-        return first, second
-
-    @staticmethod
-    def _one_network_connection_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _trusted_connection_as_network_payload(
+        row: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Map a trusted_connections edge (owner -> trusted) into the legacy
+        networkConnections payload shape the frontend SOS/check-in selectors read.
+        userAId is always the owner, userBId the trusted person."""
         if not row:
             return None
         return {
             "id": str(row.get("id") or ""),
-            "userAId": str(row.get("user_a_id") or ""),
-            "userBId": str(row.get("user_b_id") or ""),
-            "inviterUserId": str(row.get("inviter_user_id") or ""),
-            "inviteeUserId": str(row.get("invitee_user_id") or ""),
-            "inviteId": str(row.get("invite_id") or "") or None,
+            "userAId": str(row.get("owner_user_id") or ""),
+            "userBId": str(row.get("trusted_user_id") or ""),
+            "inviterUserId": str(row.get("owner_user_id") or ""),
+            "inviteeUserId": str(row.get("trusted_user_id") or ""),
+            "inviteId": None,
             "status": str(row.get("status") or "active"),
-            "connectedAt": _iso(row.get("connected_at")),
+            "connectedAt": _iso(row.get("created_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
@@ -2272,6 +2272,7 @@ class OneLocationAgentService:
         public_key_jwk: dict[str, Any],
         key_id: str | None = None,
         algorithm: str = "ECDH-P256-AES256-GCM",
+        encrypted_private_key_jwk: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not user_id:
             raise OneLocationAgentError(
@@ -2301,15 +2302,25 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id, "key_id": normalized_key_id},
         )
+        # Opaque client-encrypted (vault-key) private key blob, stored verbatim so
+        # every device the user signs into can recover the SAME keypair. COALESCE on
+        # update so a device that only re-registers the public key doesn't wipe an
+        # existing blob.
+        encrypted_private_key_json = (
+            json.dumps(encrypted_private_key_jwk, sort_keys=True, separators=(",", ":"))
+            if isinstance(encrypted_private_key_jwk, dict)
+            else None
+        )
         row = self._execute_one(
             """
             INSERT INTO one_location_recipient_keys (
               user_id, key_id, public_key_jwk, public_key_fingerprint, algorithm,
-              status, created_at, updated_at, metadata
+              status, created_at, updated_at, metadata, encrypted_private_key_jwk
             )
             VALUES (
               :user_id, :key_id, CAST(:public_key_jwk AS JSONB), :fingerprint,
-              :algorithm, 'active', NOW(), NOW(), '{}'::jsonb
+              :algorithm, 'active', NOW(), NOW(), '{}'::jsonb,
+              CAST(:encrypted_private_key_jwk AS JSONB)
             )
             ON CONFLICT (user_id, key_id) DO UPDATE SET
               public_key_jwk = EXCLUDED.public_key_jwk,
@@ -2317,7 +2328,11 @@ class OneLocationAgentService:
               algorithm = EXCLUDED.algorithm,
               status = 'active',
               revoked_at = NULL,
-              updated_at = NOW()
+              updated_at = NOW(),
+              encrypted_private_key_jwk = COALESCE(
+                EXCLUDED.encrypted_private_key_jwk,
+                one_location_recipient_keys.encrypted_private_key_jwk
+              )
             RETURNING user_id, key_id, public_key_jwk, algorithm, created_at AS key_created_at, TRUE AS phone_verified
             """,
             {
@@ -2326,6 +2341,7 @@ class OneLocationAgentService:
                 "public_key_jwk": json.dumps(public_key_jwk, sort_keys=True, separators=(",", ":")),
                 "fingerprint": fingerprint,
                 "algorithm": algorithm,
+                "encrypted_private_key_jwk": encrypted_private_key_json,
             },
         )
         self._insert_event(
@@ -2343,7 +2359,7 @@ class OneLocationAgentService:
         # Eligibility for who can appear as a One Location recipient.
         #
         # A user is eligible when ANY of the following holds:
-        #   1. They share an active One Network connection with the owner
+        #   1. The owner has an active trusted_connections edge (owner → this person)
         #      (explicit Circle-invite claim). This is explicit mutual consent
         #      and always wins, even over marketplace visibility (below).
         #   2. They are phone-verified (the broad verified-actor directory).
@@ -2375,12 +2391,10 @@ class OneLocationAgentService:
               AND (
                 EXISTS (
                   SELECT 1
-                  FROM one_location_network_connections nc
-                  WHERE nc.status = 'active'
-                    AND (
-                      (nc.user_a_id = :owner_user_id AND nc.user_b_id = a.user_id)
-                      OR (nc.user_b_id = :owner_user_id AND nc.user_a_id = a.user_id)
-                    )
+                  FROM trusted_connections tc
+                  WHERE tc.status = 'active'
+                    AND tc.owner_user_id = :owner_user_id
+                    AND tc.trusted_user_id = a.user_id
                 )
                 OR (
                   (
@@ -2625,6 +2639,9 @@ class OneLocationAgentService:
             notification_body = (
                 f"{owner_label} triggered an SOS and is sharing live location with you."
             )
+        elif share_kind == "drive_to":
+            notification_title = "Drive shared"
+            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
         elif share_kind == "check_in":
             notification_title = "Check-in shared"
             notification_body = (
@@ -3328,8 +3345,6 @@ class OneLocationAgentService:
                 status_code=422,
             )
         invite_id = str(invite_row.get("id") or "")
-        invite_message = str(invite_row.get("message") or "").strip()
-        message_value = (message or "").strip()[:500] or None
         claimant_identity = self._identity_row(claimant_user_id)
         if not claimant_identity or not bool(claimant_identity.get("phone_verified")):
             raise OneLocationAgentError(
@@ -3338,56 +3353,9 @@ class OneLocationAgentService:
                 status_code=409,
             )
         owner_identity = self._identity_row(owner_user_id)
-        user_a_id, user_b_id = self._network_pair(owner_user_id, claimant_user_id)
-        connection_row = self._execute_one(
-            """
-            INSERT INTO one_location_network_connections (
-              user_a_id, user_b_id, inviter_user_id, invitee_user_id,
-              invite_id, status, connected_at, created_at, updated_at, metadata
-            )
-            VALUES (
-              LEAST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
-              GREATEST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
-              :inviter_user_id, :invitee_user_id,
-              CAST(:invite_id AS UUID), 'active', NOW(), NOW(), NOW(),
-              CAST(:metadata_json AS JSONB)
-            )
-            ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-              inviter_user_id = EXCLUDED.inviter_user_id,
-              invitee_user_id = EXCLUDED.invitee_user_id,
-              invite_id = EXCLUDED.invite_id,
-              status = 'active',
-              connected_at = CASE
-                WHEN one_location_network_connections.status = 'active'
-                  THEN one_location_network_connections.connected_at
-                ELSE NOW()
-              END,
-              updated_at = NOW(),
-              revoked_at = NULL,
-              metadata = EXCLUDED.metadata
-            RETURNING *
-            """,
-            {
-                "user_a_id": user_a_id,
-                "user_b_id": user_b_id,
-                "inviter_user_id": owner_user_id,
-                "invitee_user_id": claimant_user_id,
-                "invite_id": invite_id,
-                "metadata_json": _json_param(
-                    {
-                        "source": "invite_to_one",
-                        "message_present": bool(message_value or invite_message),
-                    }
-                ),
-            },
-        )
-        connection = self._one_network_connection_payload(connection_row)
-        if not connection:
-            raise OneLocationAgentError(
-                "LOCATION_NETWORK_CONNECTION_FAILED",
-                "Could not connect this One Network invite.",
-                status_code=500,
-            )
+        # Claim the invite atomically BEFORE writing the trusted edge so that a
+        # second claimant on an already-claimed invite is rejected without any
+        # spurious trusted_connections row being inserted.
         row = self._execute_one(
             """
             UPDATE one_location_circle_invites
@@ -3413,6 +3381,51 @@ class OneLocationAgentService:
                 status_code=410,
             )
         invite = self._circle_invite_payload(row) or {}
+        connection_row = self._execute_one(
+            """
+            INSERT INTO trusted_connections (
+              owner_user_id, trusted_user_id, status, source, resolved_via,
+              created_at, updated_at, metadata
+            )
+            VALUES (
+              :owner_user_id, :trusted_user_id, 'active', 'circle_invite', 'user_id',
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
+            )
+            ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
+              status = 'active',
+              updated_at = NOW(),
+              revoked_at = NULL,
+              source = 'circle_invite'
+            RETURNING id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
+            """,
+            {
+                "owner_user_id": claimant_user_id,
+                "trusted_user_id": owner_user_id,
+                "metadata_json": _json_param({"source": "invite_to_one", "invite_id": invite_id}),
+            },
+        )
+        if not connection_row:
+            raise OneLocationAgentError(
+                "LOCATION_NETWORK_CONNECTION_FAILED",
+                "Could not connect this One Network invite.",
+                status_code=500,
+            )
+        # Build the response payload with correct inviter/invitee semantics:
+        # inviterUserId = invite owner (who created the invite),
+        # inviteeUserId = claimant (who accepted it).
+        connection: dict[str, Any] = {
+            "id": str(connection_row.get("id") or ""),
+            "userAId": owner_user_id,
+            "userBId": claimant_user_id,
+            "inviterUserId": owner_user_id,
+            "inviteeUserId": claimant_user_id,
+            "inviteId": invite_id,
+            "status": str(connection_row.get("status") or "active"),
+            "connectedAt": _iso(connection_row.get("created_at")),
+            "createdAt": _iso(connection_row.get("created_at")),
+            "updatedAt": _iso(connection_row.get("updated_at")),
+            "revokedAt": _iso(connection_row.get("revoked_at")),
+        }
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=claimant_user_id,
@@ -3458,83 +3471,6 @@ class OneLocationAgentService:
             },
         )
         return {"invite": invite, "connection": connection}
-
-    def seed_trusted_connections(
-        self,
-        *,
-        owner_user_id: str,
-        dev_user_ids: list[str],
-    ) -> dict[str, Any]:
-        """Seed a fresh user's trusted network with configured developer accounts.
-
-        Only runs when the user has zero active network connections. Inserts one
-        active `one_location_network_connections` row per dev id (skipping self and
-        blanks). Idempotent via ON CONFLICT — re-running reactivates rather than
-        erroring. A seeded active connection satisfies eligibility rule #1 in
-        `list_verified_recipients`, so the dev id immediately becomes a recipient.
-        """
-        owner_user_id = (owner_user_id or "").strip()
-        if not owner_user_id:
-            raise OneLocationAgentError(
-                "LOCATION_SEED_INVALID", "Missing owner user id.", status_code=422
-            )
-
-        existing = self._execute_one(
-            """
-            SELECT COUNT(*) AS n
-            FROM one_location_network_connections
-            WHERE status = 'active'
-              AND (user_a_id = :uid OR user_b_id = :uid)
-            """,
-            {"uid": owner_user_id},
-        )
-        existing_count = int((existing or {}).get("n") or 0)
-        if existing_count > 0:
-            return {"seeded": 0, "existingCount": existing_count, "skippedSelf": 0}
-
-        seeded = 0
-        skipped_self = 0
-        for raw_dev_id in dev_user_ids:
-            dev_id = (raw_dev_id or "").strip()
-            if not dev_id or dev_id == owner_user_id:
-                skipped_self += 1
-                continue
-            user_a_id, user_b_id = sorted((owner_user_id, dev_id))
-            self._execute_one(
-                """
-                INSERT INTO one_location_network_connections (
-                  user_a_id, user_b_id, inviter_user_id, invitee_user_id,
-                  invite_id, status, connected_at, created_at, updated_at, metadata
-                )
-                VALUES (
-                  LEAST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
-                  GREATEST(CAST(:user_a_id AS TEXT), CAST(:user_b_id AS TEXT)),
-                  :inviter_user_id, :invitee_user_id,
-                  NULL, 'active', NOW(), NOW(), NOW(),
-                  CAST(:metadata_json AS JSONB)
-                )
-                ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-                  status = 'active',
-                  updated_at = NOW(),
-                  revoked_at = NULL,
-                  metadata = EXCLUDED.metadata
-                RETURNING id
-                """,
-                {
-                    "user_a_id": user_a_id,
-                    "user_b_id": user_b_id,
-                    "inviter_user_id": owner_user_id,
-                    "invitee_user_id": dev_id,
-                    "metadata_json": _json_param({"source": "sos_seed"}),
-                },
-            )
-            seeded += 1
-
-        return {
-            "seeded": seeded,
-            "existingCount": existing_count,
-            "skippedSelf": skipped_self,
-        }
 
     def revoke_circle_invite(self, *, owner_user_id: str, invite_id: str) -> dict[str, Any]:
         row = self._execute_one(
@@ -3684,11 +3620,11 @@ class OneLocationAgentService:
         network_connections = _safe_many(
             "network_connections",
             """
-            SELECT *
-            FROM one_location_network_connections
+            SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
+            FROM trusted_connections
             WHERE status = 'active'
-              AND (user_a_id = :user_id OR user_b_id = :user_id)
-            ORDER BY connected_at DESC
+              AND owner_user_id = :user_id
+            ORDER BY created_at DESC
             LIMIT 50
             """,
             {"user_id": user_id},
@@ -3708,8 +3644,37 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
+        # The caller's OWN active recipient key, including the opaque
+        # vault-key-encrypted private blob. Scoped to this user_id and returned only
+        # here (never in the `recipients` list shown to other users), so a device the
+        # user signs into can recover the shared keypair after vault unlock.
+        my_recipient_key_rows = _safe_many(
+            "my_recipient_key",
+            """
+            SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
+                   created_at AS key_created_at
+            FROM one_location_recipient_keys
+            WHERE user_id = :user_id
+              AND status = 'active'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        my_recipient_key = None
+        if my_recipient_key_rows:
+            _mrk = my_recipient_key_rows[0]
+            my_recipient_key = {
+                "keyId": str(_mrk.get("key_id") or "") or None,
+                "publicKeyJwk": _loads_json(_mrk.get("public_key_jwk")),
+                "keyAlgorithm": str(_mrk.get("algorithm") or "ECDH-P256-AES256-GCM"),
+                "encryptedPrivateKeyJwk": _loads_json(_mrk.get("encrypted_private_key_jwk")),
+                "keyRegisteredAt": _iso(_mrk.get("key_created_at")),
+            }
+
         return {
             "recipients": recipients,
+            "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload for row in owner_grants if (payload := self._grant_payload(row))
             ],
@@ -3731,7 +3696,7 @@ class OneLocationAgentService:
             "networkConnections": [
                 payload
                 for row in network_connections
-                if (payload := self._one_network_connection_payload(row))
+                if (payload := self._trusted_connection_as_network_payload(row))
             ],
             "publicInviteSubmissions": [
                 payload

@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
@@ -162,6 +163,20 @@ function rms(buffer: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, buffer.length));
 }
 
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 export class GeminiLiveClient implements RealtimeVoiceTransport {
   readonly provider = "gemini_live" as const;
   private handlers: GeminiLiveHandlers;
@@ -179,6 +194,30 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
   private sourceSeq = 0;
+  /** Snapshot captured at start(), pushed as app_context after setup. */
+  private startContext: OneVoiceContextSnapshot | null = null;
+  /** Consent token for One's specialist tools; rides only in app_context frames. */
+  private consentToken: string | null = null;
+  /**
+   * True while the model's turn is open (audio received since the last
+   * turnComplete/interrupted). The Live API closes a model turn with
+   * turnComplete, NOT when our playback buffer happens to drain; chunks
+   * arrive with network gaps, so an empty queue mid-turn must stay
+   * "speaking" instead of flickering back to "listening".
+   */
+  private modelTurnOpen = false;
+  /**
+   * Turn fence: after a local interrupt we drop any late model audio still in
+   * flight until the provider closes the interrupted turn (turnComplete) or
+   * the app starts a new turn (speakText). Without this, stale audio chunks
+   * resume playback after interrupt() because the relay's interrupt is only a
+   * local acknowledgement.
+   */
+  private suppressModelAudio = false;
+  /** Resolvers waiting for the audio queue to drain (speakText settle). */
+  private playbackDrainResolvers = new Set<() => void>();
+  /** Timestamp of the most recent enqueued audio chunk (drain heuristics). */
+  private lastAudioEnqueueAt = 0;
 
   constructor(handlers: GeminiLiveHandlers = {}) {
     this.handlers = handlers;
@@ -220,17 +259,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.setState("connecting");
 
     const context = options?.context ?? null;
+    this.startContext = context;
+    this.consentToken = options?.consentToken ?? null;
     let relayUrl: string;
     try {
-      relayUrl = await ApiService.getGeminiLiveRelayUrl({
-        voice: options?.voice ?? null,
-        screen: context?.route.screen ?? null,
-        persona: context?.persona.active ?? null,
-        routeFamily: context?.route.route_family ?? null,
-        voiceState: context?.voice.state ?? null,
-      });
+      relayUrl = options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : "Could not start Gemini Live.");
+      this.fail(error instanceof Error ? error.message : "Could not start One voice.");
       return;
     }
 
@@ -299,7 +334,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         provider: this.provider,
         level,
       });
-      if (this.state !== "speaking") this.setState("listening");
+      // Mic frames stream continuously, so they must never demote the
+      // thinking state (that is why "Thinking" used to flash for one frame
+      // and snap back to "Listening" while the model was still working).
+      if (this.state !== "speaking" && this.state !== "thinking") {
+        this.setState("listening");
+      }
       const sourceRate = this.inputContext?.sampleRate ?? INPUT_SAMPLE_RATE;
       const pcm = floatToPcm16(downsample(frame, sourceRate));
       this.ws.send(
@@ -364,18 +404,131 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if ("setupComplete" in message) {
       this.setupComplete = true;
+      // Push the initial app context (screen + governed consent token) now
+      // that the session is live; the relay never accepts these in the URL.
+      if (this.startContext) {
+        this.updateContext(this.startContext);
+        this.startContext = null;
+      } else if (this.consentToken) {
+        this.sendAppContext({});
+      }
       this.setState("listening");
       return;
     }
 
+    const clientDirective = readRecord(message.clientDirective);
+    const directiveKind = readString(clientDirective?.kind);
+    if (clientDirective && directiveKind) {
+      const eventOptions = this.nextEventOptions();
+      this.handlers.onEvent?.({
+        type: "client_directive",
+        provider: this.provider,
+        directive: {
+          kind: directiveKind,
+          payload: readRecord(clientDirective.payload) || undefined,
+        },
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+      return;
+    }
+
     const serverContent = message.serverContent as
-      | { modelTurn?: { parts?: Array<Record<string, unknown>> }; interrupted?: boolean }
+      | {
+          modelTurn?: { parts?: Array<Record<string, unknown>> };
+          interrupted?: boolean;
+          turnComplete?: boolean;
+        }
       | undefined;
+
+    const eventOptions = this.nextEventOptions();
+    const inputTranscription =
+      readRecord(message.inputTranscription) ||
+      readRecord(message.input_transcription) ||
+      readRecord(message.transcriptFinal);
+    const inputText = readString(
+      inputTranscription?.text ?? inputTranscription?.transcript ?? inputTranscription?.final
+    );
+    if (inputText) {
+      // The provider transcribed the user's speech, which means the user's
+      // turn ended and the model is now working on a response. Surface that
+      // processing gap as "thinking" until the first audio chunk arrives so
+      // the user knows they were heard.
+      if (this.state === "listening") {
+        this.setState("thinking");
+      }
+      this.handlers.onEvent?.({
+        type: "transcript_final",
+        provider: this.provider,
+        text: inputText,
+        turnId: readString(inputTranscription?.turn_id ?? inputTranscription?.turnId),
+        confidence: readNumber(inputTranscription?.confidence),
+        source: "provider",
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
+    const outputTranscription =
+      readRecord(message.outputTranscription) ||
+      readRecord(message.output_transcription) ||
+      readRecord(message.assistantText);
+    const outputText = readString(
+      outputTranscription?.text ?? outputTranscription?.transcript
+    );
+    if (outputText) {
+      this.handlers.onEvent?.({
+        type: "assistant_text",
+        provider: this.provider,
+        text: outputText,
+        turnId: readString(outputTranscription?.turn_id ?? outputTranscription?.turnId),
+        source: "provider",
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
+    const handoff = readRecord(message.handoff);
+    const handoffTarget = readString(handoff?.target);
+    const handoffReason = readString(handoff?.reason);
+    if (
+      (handoffTarget === "chat" || handoffTarget === "consent" || handoffTarget === "route") &&
+      handoffReason
+    ) {
+      this.handlers.onEvent?.({
+        type: "handoff",
+        provider: this.provider,
+        target: handoffTarget,
+        reason: handoffReason,
+        payload: readRecord(handoff?.payload) || undefined,
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+    }
+
     if (!serverContent) return;
 
     if (serverContent.interrupted) {
+      this.modelTurnOpen = false;
       this.stopPlayback();
       this.setState("listening");
+      return;
+    }
+
+    if (serverContent.turnComplete) {
+      // The interrupted (or finished) model turn is closed; stop fencing and
+      // settle back to listening when nothing is queued for playback.
+      // When audio is still queued, the last node's onended settles instead.
+      this.modelTurnOpen = false;
+      this.suppressModelAudio = false;
+      if (this.activeSources.size === 0 && !this.closed && this.state !== "idle") {
+        this.setState("listening");
+        this.resolvePlaybackDrain();
+      }
       return;
     }
 
@@ -385,9 +538,167 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         | { mimeType?: string; data?: string }
         | undefined;
       if (inlineData?.data && (inlineData.mimeType ?? "").startsWith("audio/")) {
-        this.enqueueAudio(bytesFromBase64(inlineData.data));
+        if (!this.suppressModelAudio) {
+          this.enqueueAudio(bytesFromBase64(inlineData.data));
+        }
+      }
+      const textPart = readString(part.text);
+      if (textPart) {
+        const textEventOptions = this.nextEventOptions();
+        this.handlers.onEvent?.({
+          type: "assistant_text",
+          provider: this.provider,
+          text: textPart,
+          source: "model",
+          sessionId: textEventOptions.sessionId,
+          sourceId: textEventOptions.sourceId,
+          sourceSeq: textEventOptions.sourceSeq,
+        });
       }
     }
+  }
+
+  async speakText(input: {
+    text: string;
+    turnId?: string | null;
+    segmentType?: "ack" | "final";
+    signal?: AbortSignal;
+  }): Promise<boolean> {
+    const text = input.text.trim();
+    if (!text || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return false;
+    }
+    if (input.signal?.aborted) return false;
+    // App speech starts a fresh model turn; lift any interrupt fence so the
+    // synthesized response is audible.
+    this.suppressModelAudio = false;
+    this.ws.send(
+      JSON.stringify({
+        type: "app_speech",
+        text,
+        turn_id: input.turnId ?? null,
+        segment_type: input.segmentType ?? "final",
+      })
+    );
+    // Settle on playback, not on socket send. Resolving at ws.send made the
+    // bridge flip the UI back to "Listening" while the answer was still being
+    // synthesized and played, which read as the agent talking over itself.
+    const audioStarted = await this.waitForAudioStart(4000, input.signal);
+    if (audioStarted) {
+      await this.waitForPlaybackDrain(30000, input.signal);
+    }
+    return true;
+  }
+
+  interrupt(): void {
+    this.stopPlayback();
+    // Fence out any model audio still in flight for the interrupted turn;
+    // the relay's interrupt frame is a local acknowledgement, so without the
+    // fence stale chunks resume playing right after this call.
+    this.suppressModelAudio = true;
+    this.resolvePlaybackDrain();
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: "interrupt" }));
+  }
+
+  private resolvePlaybackDrain(): void {
+    for (const resolve of this.playbackDrainResolvers) resolve();
+    this.playbackDrainResolvers.clear();
+  }
+
+  /** Resolves true when a new audio chunk starts within the timeout. */
+  private waitForAudioStart(timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+    const startedAfter = Date.now();
+    return new Promise((resolve) => {
+      const poll = setInterval(() => {
+        if (this.closed || signal?.aborted) {
+          clearInterval(poll);
+          resolve(false);
+          return;
+        }
+        if (this.lastAudioEnqueueAt >= startedAfter || this.activeSources.size > 0) {
+          clearInterval(poll);
+          resolve(true);
+          return;
+        }
+        if (Date.now() - startedAfter > timeoutMs) {
+          clearInterval(poll);
+          resolve(false);
+        }
+      }, 50);
+    });
+  }
+
+  /** Resolves when the playback queue empties (or the timeout/abort hits). */
+  private waitForPlaybackDrain(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    if (this.activeSources.size === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        clearInterval(abortPoll);
+        this.playbackDrainResolvers.delete(done);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      const abortPoll = setInterval(() => {
+        if (this.closed || signal?.aborted) done();
+      }, 100);
+      this.playbackDrainResolvers.add(done);
+    });
+  }
+
+  updateContext(context: OneVoiceContextSnapshot): boolean {
+    return this.sendAppContext({
+      screen: context.route.screen,
+      route_family: context.route.route_family,
+      persona: context.persona.active,
+      voice_state: context.voice.state,
+      available_action_ids: context.available_action_ids,
+      visible_modules: context.ui.visible_modules,
+      cache_freshness: context.cache.freshness,
+      vault_ready: context.cache.vault_ready,
+      portfolio_ready: context.cache.portfolio_ready,
+    });
+  }
+
+  /**
+   * Refresh the consent token mid-call (sign-in / vault unlock while a voice
+   * session is already open). Stored locally so it also rides on the next
+   * screen-change app_context frame, then pushed immediately so specialist
+   * tools stop failing closed without the user having to restart the call.
+   */
+  updateConsentToken(consentToken: string | null): boolean {
+    const trimmed = consentToken?.trim() || null;
+    if (trimmed === this.consentToken) return false;
+    this.consentToken = trimmed;
+    if (!trimmed) return false;
+    return this.sendAppContext({});
+  }
+
+  /**
+   * Send an app_context frame. The governed consent token and timezone ride
+   * here (post-connect, never in the URL) so One's specialist tools can act;
+   * the relay stores them in session state and they never reach the model.
+   */
+  private sendAppContext(appContext: Record<string, unknown>): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return false;
+    }
+    const timezone =
+      typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : undefined;
+    this.ws.send(
+      JSON.stringify({
+        type: "app_context",
+        appContext: {
+          ...appContext,
+          ...(this.consentToken ? { consent_token: this.consentToken } : {}),
+          ...(timezone ? { timezone } : {}),
+        },
+      })
+    );
+    return true;
   }
 
   private ensureOutputContext(): AudioContext {
@@ -424,13 +735,21 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const startAt = Math.max(context.currentTime, this.playheadTime);
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
+    this.lastAudioEnqueueAt = Date.now();
+    this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
     node.onended = () => {
       this.activeSources.delete(node);
       if (this.activeSources.size === 0 && !this.closed) {
+        if (this.modelTurnOpen) {
+          // Transient buffer underrun mid-turn: more chunks are coming
+          // (the provider has not sent turnComplete). Stay "speaking".
+          return;
+        }
         this.setState("listening");
         this.handlers.onOutputLevel?.(0);
+        this.resolvePlaybackDrain();
       }
     };
   }
@@ -482,6 +801,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    this.resolvePlaybackDrain();
 
     if (this.outputLevelTimer) {
       clearInterval(this.outputLevelTimer);

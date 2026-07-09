@@ -13,6 +13,7 @@ flowchart TD
   mobile["Mobile"]
   location["One Location UAT"]
   feature["New Feature"]
+  a2a["Agent One A2A"]
 
   root --> start
   root --> env
@@ -20,6 +21,7 @@ flowchart TD
   root --> mobile
   root --> location
   root --> feature
+  root --> a2a
 ```
 
 ## Canonical Guides
@@ -30,6 +32,7 @@ flowchart TD
 - [mobile.md](./mobile.md): native/mobile operating model, with child pages for runtime, plugins, build/release, and verification.
 - [one-location-uat-test-plan.md](./one-location-uat-test-plan.md): One Location UAT entrypoint, with child pages for setup, sharing, Access Manager, and resilience.
 - [new-feature.md](./new-feature.md): implementation checklist when adding product surface.
+- [agent-one-a2a-external-developer.md](./agent-one-a2a-external-developer.md): shareable Agent One A2A guide for external developers and partner agent platforms.
 
 ## Deeper Guides
 

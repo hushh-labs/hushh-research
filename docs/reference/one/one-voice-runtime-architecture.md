@@ -1,6 +1,6 @@
 # One Voice Runtime Architecture
 
-Status: current-state foundation for the One Voice migration.
+Status: current-state truth for the ADK-based One voice runtime.
 
 ## Visual Map
 
@@ -10,99 +10,169 @@ flowchart TD
   fsm["Shared One Voice FSM<br/>accessible transitions"]
   context["OneVoiceContextSnapshot<br/>redacted active state"]
   transport["RealtimeVoiceTransport<br/>provider adapter seam"]
-  gemini["GeminiLiveTransport<br/>active realtime adapter"]
-  openai["OpenAIRealtimeTransport<br/>future adapter target"]
-  gateway["Generated action gateway<br/>canonical action authority"]
-  kai["Kai-era compatibility runtime<br/>planner, compose, settlement"]
-  oneapi["/api/one/voice/*<br/>product-facing wrappers"]
+  gemini["GeminiLiveClient<br/>audio pump + wire envelope"]
+  relay["/api/one/adk/live<br/>ADK live relay"]
+  runner["ADK Runner (run_live)<br/>single ordered event stream"]
+  one["One root LlmAgent<br/>gemini-live model"]
+  search["google_search<br/>web grounding"]
+  nav["open_screen<br/>governed navigation allowlist"]
+  agenttools["AgentTool specialists<br/>Finance, RIA"]
+  fntools["Specialist turn tools<br/>Email, Location, Connections,<br/>Marketplace, Connected Systems, Consent"]
+  a2a["adk_bridge dispatch<br/>A2A scope-gated specialists"]
 
   shell --> fsm
   shell --> context
   shell --> transport
   transport --> gemini
-  transport --> openai
-  context --> oneapi
-  oneapi --> kai
-  kai --> gateway
+  gemini -- "relay ticket ws" --> relay
+  relay --> runner
+  runner --> one
+  one --> search
+  one --> nav
+  one --> agenttools
+  one --> fntools
+  fntools --> a2a
 ```
 
 ## Current Truth
 
-One Voice is now a product-facing contract layer, not a second voice runtime.
+One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
+browser is an audio pump and directive executor; every decision (conversation
+vs tool call vs navigation vs specialist delegation) is made inside One's
+agent tree on the backend.
 
-Implemented foundation:
+What shipped:
 
-- Agent Bar and Agent Chat can share the same One Voice transition vocabulary.
-- `OneVoiceContextSnapshot` carries route, surface, cache, persona, voice-state, and action-id metadata without raw vault data, user ids, transcript history, private documents, or cache keys.
-- Gemini Live is represented as a provider adapter over the `RealtimeVoiceTransport` interface.
-- `/api/one/voice/session`, `/api/one/voice/plan`, and `/api/one/voice/compose` are One route wrappers over the Kai-era compatibility runtime.
-- `/api/one/voice/benchmark` reports that live benchmark promotion still requires provider adapters and versioned artifacts.
-- Native iOS and Android UI audits include a One Voice control smoke flow that starts the realtime surface, observes a voice mode or deterministic simulator permission/provider fallback, and ends the session when active.
+- `consent-protocol/hushh_mcp/one_adk/agent_tree.py` builds One as the root
+  `LlmAgent` (name `one`, model `gemini-live-2.5-flash-native-audio` via
+  `AGENT_ONE_ADK_MODEL`; the native-audio Live model is served regionally on
+  Vertex, so the live client pins `AGENT_ONE_ADK_LOCATION`, default
+  `us-central1`) with the full roster wired as tools: `google_search`,
+  `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and six
+  dispatch-backed specialist turn functions.
+- `consent-protocol/api/routes/one/adk_live.py` is the only voice relay:
+  `POST /api/one/adk/relay-session` mints a signed one-time ticket
+  (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
+  browser wire envelope onto `run_live`.
+- The legacy hand-rolled Vertex pump
+  (`api/routes/kai/agent_realtime_gemini.py`), the client-side lexical
+  planner (`lib/voice/one-voice-live-action-bridge.ts`), and the
+  `action_proposal` transport event were deleted. There is no second
+  decision-maker anywhere in the voice path.
 
-The mature execution runtime still carries Kai-era implementation identifiers today. The generated Kai action gateway remains the semantic authority for action ids, `speaker_persona`, `delegate_agent_id`, confirmation policy, and runtime grounding until the One-owned gateway migration is complete.
+Voice responder contract (who makes LLM calls, who speaks):
 
-## Runtime Boundary
+- The root Live model is the ONLY audio producer. Specialists never speak.
+- `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
+  `run_async` call on the specialist model inside the live turn; the root
+  model folds the result into its spoken answer.
+- The six `ask_*` specialist turn tools and `open_screen` make ZERO extra
+  LLM calls: they are deterministic handlers (A2A dispatch / directive
+  parking) whose structured results return to the root model.
 
-One Voice owns the user-facing voice surface and transition contract. It does not widen authority.
+Why this fixes the "random commands" class of bugs by construction:
 
-Rules:
+- ONE decision-maker: One's root agent decides inside ADK's own flow. There
+  is no client-side re-ranker and no separately-timed proposal frame to race
+  the transcript.
+- Turn correlation: `run_live` yields a single ordered `Event` stream per
+  invocation; audio, transcriptions, function calls, and directives share the
+  same ordered channel.
+- Real interruption: interrupted turns surface as `event.interrupted` from
+  the provider.
 
-1. Realtime providers are audio/session adapters only.
-2. Voice actions must still route through the generated action gateway.
-3. `/api/one/voice/*` must preserve `VAULT_OWNER`, user-id match, rollout, canary, kill-switch, planner, composer, and settlement behavior from the Kai-era compatibility runtime.
-4. Gemini Live remains tool-less unless a later change routes function calls through the generated gateway and confirmation policy.
-5. OpenAI Realtime support should attach behind `RealtimeVoiceTransport`, not through a parallel planner or action registry.
+## Wire Protocol
+
+Browser to relay:
+
+| Frame | Meaning |
+| --- | --- |
+| `{"realtimeInput": {"audio": {"data": b64, "mimeType"}}}` | 16 kHz mono PCM16 mic audio |
+| `{"type": "app_context", "appContext": {...}}` | redacted screen context + governed `consent_token` + `timezone` |
+| `{"type": "app_speech", "text"}` | app-composed response for One to speak verbatim |
+| `{"type": "user_text", "text"}` | typed user turn (chat parity / accessibility) |
+| `{"type": "interrupt"}` | stop talking, close the activity window |
+
+Relay to browser:
+
+| Frame | Meaning |
+| --- | --- |
+| `{"setupComplete": {}}` | session live; client now pushes initial app_context |
+| `{"serverContent": {"modelTurn": {"parts": [...]}}}` | 24 kHz PCM16 audio chunks |
+| `{"serverContent": {"interrupted": true}}` | provider confirmed interruption |
+| `{"serverContent": {"turnComplete": true}}` | model turn closed |
+| `{"inputTranscription": {"text"}}` | final user transcript |
+| `{"outputTranscription": {"text"}}` | final assistant transcript |
+| `{"clientDirective": {"kind", "payload"}}` | tool-decided client action (e.g. navigate) |
+
+## Auth and Consent Boundary
+
+- The ws URL carries ONLY the opaque relay ticket. No hints, no bearer, no
+  consent token in any URL.
+- The vault owner consent token rides in the post-connect `app_context` frame
+  and lands in ADK session state (`hussh:consent_token`). It is read by
+  specialist turn tools only; it never reaches the model prompt.
+- Specialist tools fail closed: without `hussh:user_id` + consent token in
+  session state they return `needs_auth` instead of calling the specialist.
+- Session state writes go through `session_service.append_event` with a
+  `state_delta` (the relay's session object is a service copy; direct
+  mutation does not persist).
+
+## Directives
+
+Tools never touch the client directly. They park a directive in session
+state (`hussh:pending_directive`), which lands in the event's `state_delta`;
+the relay forwards it exactly once as a `clientDirective` frame, ordered with
+the event stream. The client executes it (`agent-bar.tsx` handles
+`kind: "navigate"` via `router.push`).
+
+`open_screen` is allowlist-governed: `APP_ROUTES` in `agent_tree.py` maps
+screen ids to routes; anything outside the map is refused by construction.
+
+## Chat Runtime (parity path)
+
+Typed Agent Chat (`api/routes/kai/agent_chat.py`) still uses its own
+delegation gate (`classify_specialist_domain` + `adk_bridge.dispatch`) and
+durable encrypted history. It shares the same specialist dispatch contract
+(`A2ATask` / `SpecialistTurnResult`) as One's voice tools, so specialists
+behave identically on both surfaces.
+
+Migration rule for chat: move the chat turn loop onto the same
+`get_one_runner()` via `run_async` only with dedicated regression coverage
+for durable history, CRM action plans, and the SSE frame contract. Do not
+fork a second agent tree for chat.
 
 ## Context Snapshot
 
-`OneVoiceContextSnapshot` is safe for realtime prompt shaping because it is intentionally lossy:
+`OneVoiceContextSnapshot` stays intentionally lossy:
 
-- keeps screen id, route family, visible modules, available action ids, cache posture, persona, and voice state
-- reduces selected entities to presence flags
-- redacts user ids, vault owner tokens, vault keys, raw PKM, transcript history, private documents, and raw cache keys
-- treats world-model context as `redacted_summary_only`
+- keeps screen id, route family, visible modules, available action ids,
+  cache posture, vault readiness, portfolio readiness, persona, voice state
+- redacts user ids, vault keys, raw PKM, transcript history, private
+  documents, and raw cache keys
 
-Vault-backed planning may still send the richer structured screen context through the existing planner contract. The One snapshot is attached as `one_voice_context` so backend consumers that read `screen_context.route` continue to work.
-
-## Route Context Cascade
-
-One Voice route awareness follows the same route contract cascade as the app shell:
-
-- `deriveVoiceRouteScreen` must understand canonical nested routes and legacy compatibility inputs.
-- Profile panels are canonical nested routes, for example `/profile/security`, `/profile/gmail/actions`, and `/profile/support/compose?kind=<support_kind>`.
-- Legacy `/profile?panel=...&detail=...` URLs are accepted for compatibility, but generated route actions should target nested profile routes unless they intentionally target canonical One capability routes such as `/one/gmail`, `/one/pkm`, or `/one/connected-systems`.
-- Realtime context snapshots may include route family, active panel/detail, allowed action ids, cache posture, vault readiness, and redacted world-model summary. They must not include raw vault data, decrypted PKM, raw cache keys, transcript history, or private documents.
-
-## Migration Rule
-
-Do not describe One Voice as fully shipped end-to-end until these are true:
-
-1. Agent Bar and Agent Chat consume the shared FSM in integration coverage.
-2. Gemini and OpenAI adapters report through the same transport event contract.
-3. All executable voice proposals go through generated gateway action ids.
-4. Sensitive actions show intent preview, confirmation, result, and audit receipt states.
-5. Live benchmark artifacts exist for provider promotion claims.
+The client pushes it (plus consent token + timezone) as `app_context` on
+`setupComplete` and again on every screen change while a session is live.
+Screen changes surface to the model as bracketed non-speech user content.
 
 ## Verification
 
-Focused checks for this foundation:
-
 ```bash
-cd hushh-webapp && npm run test -- __tests__/voice/voice-ui-state-machine.test.ts __tests__/lib/agent-voice-state.test.ts __tests__/voice/screen-context-builder.test.ts __tests__/voice/api-service-voice.test.ts
-cd consent-protocol && python3 -m pytest tests/test_agent_persona.py tests/test_kai_voice_rollout_guardrails.py -q
-cd hushh-webapp && npm run verify:voice-gateway
-cd hushh-webapp && npm run ios:voice:test
-cd hushh-webapp && npm run android:voice:test
-./bin/hushh docs verify
+cd consent-protocol && ./bin/consent-protocol test-ci
+cd consent-protocol && python3 -m pytest tests/test_one_adk_agent_tree.py -q
+cd hushh-webapp && npx vitest run __tests__/voice
+cd hushh-webapp && npm run typecheck && npm run verify:design-system
 ```
 
-Simulator voice tests prove the native control path, state exposure, permission fallback, and recovery behavior. They do not prove microphone quality, audio latency, or provider quality; those claims require live device/provider benchmark artifacts.
+Live smoke (backend running locally): mint a ticket via
+`POST /api/one/adk/relay-session`, open `WS /api/one/adk/live?relay_ticket=`,
+send `{"type": "user_text", "text": "what is your name?"}`, and expect
+audio frames plus `outputTranscription` containing "I'm One".
 
 ## Related References
 
+- [One Agent Hierarchy](./one-agent-hierarchy.md)
 - [One Reference Index](./README.md)
 - [One Voice Kai Compatibility Runtime](./one-voice-kai-compatibility-runtime.md)
-- [Kai Action Gateway vNext](../kai/kai-action-gateway-vnext.md)
-- [One Voice Action Coverage Audit](./one-voice-action-coverage-audit.md)
-- [One Agent Chained Voice Architecture](./one-agent-chained-voice-architecture.md)
+- [Agent Delegation Boundary](../iam/agent-delegation-boundary.md)
 - [Hussh Agent Ontology](../../vision/agent-ontology.md)

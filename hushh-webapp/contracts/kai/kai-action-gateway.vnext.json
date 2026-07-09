@@ -2,11 +2,13 @@
   "schema_version": "kai.action_gateway.vnext",
   "generator": "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
   "source_contracts": [
+    "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
+    "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
@@ -16,6 +18,7 @@
     "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
     "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
+    "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
     "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
@@ -25,6 +28,25 @@
     "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json"
   ],
   "surfaces": [
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "onboarding",
+      "surface_title": "Onboarding",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/getting-started/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
+      }
+    },
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "marketplace_ria_profile",
@@ -101,7 +123,7 @@
           ]
         },
         "speaker_persona": "kyc",
-        "delegate_agent_id": "kyc"
+        "delegate_agent_id": "agent_kyc"
       }
     },
     {
@@ -112,6 +134,24 @@
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_agents",
+      "surface_title": "Agents",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/page.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -269,6 +309,36 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_specialist_turns",
+      "surface_title": "One Specialist Turns",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one"
+          ],
+          "screens": [
+            "one_agents"
+          ],
+          "hidden_navigable": true,
+          "navigation_prerequisites": [
+            "signed-in vault-owner token is required before private specialist turns"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "consents",
       "surface_title": "Consent Center",
       "docs_references": [
@@ -384,6 +454,430 @@
   ],
   "actions": [
     {
+      "action_id": "route.getting_started",
+      "surface_id": "onboarding",
+      "label": "Open Welcome",
+      "aliases": [
+        "open welcome",
+        "show the welcome screen",
+        "go to getting started",
+        "start over",
+        "show me what one can do"
+      ],
+      "search_keywords": [
+        "welcome",
+        "getting started",
+        "onboarding",
+        "intro"
+      ],
+      "meaning": "Navigates to the Hussh welcome carousel for new visitors.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/getting-started"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_setup"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "None; the welcome carousel is public."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/getting-started"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /getting-started"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.getting_started",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.getting_started",
+            "label": "Open Welcome",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/getting-started",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "onboarding.continue",
+      "surface_id": "onboarding",
+      "label": "Continue",
+      "aliases": [
+        "continue",
+        "let's go",
+        "get started",
+        "next step",
+        "move on"
+      ],
+      "search_keywords": [
+        "continue",
+        "next",
+        "get started"
+      ],
+      "meaning": "Moves from the welcome carousel to sign in and account setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/getting-started"
+        ],
+        "screens": [
+          "getting_started"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/login"
+      },
+      "control_ids": [
+        "onboarding_continue"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /login"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.onboarding.continue",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "onboarding.continue",
+            "label": "Continue",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "auth.sign_in_open",
+      "surface_id": "onboarding",
+      "label": "Open Sign In",
+      "aliases": [
+        "sign in",
+        "log in",
+        "open sign in",
+        "go to login",
+        "sign me in"
+      ],
+      "search_keywords": [
+        "sign in",
+        "login",
+        "authenticate",
+        "account"
+      ],
+      "meaning": "Navigates to the Hussh sign-in screen so the person can authenticate.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "None; sign-in is reachable from any anonymous screen."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/login"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /login"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.auth.sign_in_open",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_open",
+            "label": "Open Sign In",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "vault.setup_open",
+      "surface_id": "onboarding",
+      "label": "Open Vault Setup",
+      "aliases": [
+        "set up my vault",
+        "unlock my vault",
+        "open vault setup",
+        "finish setting up",
+        "open one setup"
+      ],
+      "search_keywords": [
+        "vault",
+        "setup",
+        "unlock",
+        "capabilities"
+      ],
+      "meaning": "Navigates to One setup so a signed-in person can create or unlock their private vault.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "getting_started",
+          "login",
+          "one_setup",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Requires a signed-in session before vault setup can begin."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.vault.setup_open",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "vault.setup_open",
+            "label": "Open Vault Setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.marketplace_ria_profile",
       "surface_id": "marketplace_ria_profile",
       "label": "Open Marketplace RIA Profile",
@@ -456,6 +950,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.marketplace_ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.marketplace_ria_profile",
+            "label": "Open Marketplace RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace/ria",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -541,6 +1071,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.ria.request_advisory",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "marketplace.ria.request_advisory",
+            "label": "Request Advisory Access",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace/ria",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -612,6 +1178,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.ria.manage_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "marketplace.ria.manage_profile",
+            "label": "Manage RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/settings",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -678,6 +1280,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.marketplace_browse_from_ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.marketplace_browse_from_ria_profile",
+            "label": "Continue Browsing Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -751,6 +1389,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.ria.open_public_disclosure",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "marketplace.ria.open_public_disclosure",
+            "label": "Open Public Disclosure",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace/ria",
+              "screen": "marketplace_ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -793,7 +1467,9 @@
         "path": "route",
         "target": "/one/gmail"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_gmail"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -822,6 +1498,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_receipts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_receipts",
+            "label": "Open Receipts Page",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -893,6 +1605,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.connect",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_gmail_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -971,6 +1719,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.sync_now",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.sync_now",
+            "label": "Sync Gmail Receipts Now",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1039,6 +1823,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.receipts_memory.preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.receipts_memory.preview",
+            "label": "Build receipts memory preview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1105,6 +1925,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.receipts_memory.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.receipts_memory.save",
+            "label": "Save receipts memory to PKM",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -1174,6 +2030,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.disconnect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.disconnect",
+            "label": "Disconnect Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/gmail",
+              "screen": "profile_gmail_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1233,6 +2125,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_analysis",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_analysis",
+            "label": "Open Analysis Surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -1294,6 +2222,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.analysis_history",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.analysis_history",
+            "label": "Open Analysis History",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -1361,6 +2325,81 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.start_debate",
+        "required_inputs": [
+          {
+            "name": "ticker",
+            "prompt": "Which stock should I analyze?",
+            "required": true,
+            "slot": "symbol",
+            "resolver": "ticker_symbol"
+          },
+          {
+            "name": "pick_source",
+            "prompt": "Which list should Kai use for this debate?",
+            "required": true,
+            "slot": "pickSource",
+            "resolver": "kai_pick_source",
+            "default_value": "default",
+            "options": [
+              "default"
+            ]
+          }
+        ],
+        "input_resolvers": [
+          "ticker_symbol",
+          "kai_pick_source"
+        ],
+        "slot_schema": {
+          "symbol": "ticker_symbol",
+          "pickSource": "kai_pick_source"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Prepare stock analysis",
+            "failure_behavior": "stop",
+            "action_id": "analysis.start",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          },
+          {
+            "type": "service",
+            "label": "Run Kai debate",
+            "failure_behavior": "stop",
+            "service": "kai_debate.ensure_run",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "milestone",
+          "milestone_events": [
+            "started",
+            "agent_complete",
+            "decision"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": true,
+          "cancel_action_id": "analysis.cancel_active"
+        },
+        "result_contract": {
+          "summary_mode": "decision_summary"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -1430,6 +2469,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.resume_active",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.resume_active",
+            "label": "Resume Active Analysis Run",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1498,6 +2573,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.cancel_active",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.cancel_active",
+            "label": "Cancel Active Analysis Run",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": true,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1559,6 +2670,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.open_transcript_tab_legacy",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.open_transcript_tab_legacy",
+            "label": "Legacy Transcript Tab Route",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/analysis?tab=transcript",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1578,7 +2725,7 @@
       ],
       "meaning": "Navigates to One email request review.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -1606,7 +2753,8 @@
         "target": "/one/kyc"
       },
       "control_ids": [
-        "one-kyc-open"
+        "one-kyc-open",
+        "top_agent_section_email"
       ],
       "state_exposure": [
         "workflow list metadata only"
@@ -1631,6 +2779,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_kyc",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_kyc",
+            "label": "Open Email",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1649,7 +2833,7 @@
       ],
       "meaning": "Opens the verified email address panel used to match email requests.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -1702,6 +2886,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.aliases.manage",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.aliases.manage",
+            "label": "Manage Verified Emails",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1719,7 +2939,7 @@
       ],
       "meaning": "Refreshes the selected email request status after consent approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -1771,6 +2991,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.workflow.sync_status",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.workflow.sync_status",
+            "label": "Sync Email Status",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1788,7 +3044,7 @@
       ],
       "meaning": "Reads or focuses the current approval-gated email draft.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -1840,6 +3096,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.draft.review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.review",
+            "label": "Review Email Draft",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1857,7 +3149,7 @@
       ],
       "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -1910,6 +3202,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.draft.request_redraft",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.request_redraft",
+            "label": "Request Email Redraft",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1927,7 +3255,7 @@
       ],
       "meaning": "Sends the email draft only after explicit user approval.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -1981,6 +3309,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.draft.approve_send",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.approve_send",
+            "label": "Approve Email Send",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -1998,7 +3362,7 @@
       ],
       "meaning": "Rejects the current email draft and blocks the workflow.",
       "speaker_persona": "kyc",
-      "delegate_agent_id": "kyc",
+      "delegate_agent_id": "agent_kyc",
       "reachability": {
         "routes": [
           "/one/kyc"
@@ -2050,6 +3414,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.kyc.draft.reject",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kyc.draft.reject",
+            "label": "Reject Email Draft",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "one_kyc"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -2099,7 +3499,9 @@
         "path": "route",
         "target": "/one/marketplace"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_marketplace"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -2119,6 +3521,352 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_marketplace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_marketplace",
+            "label": "Open Information Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/marketplace",
+              "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_agents",
+      "surface_id": "one_agents",
+      "label": "Open Agents",
+      "aliases": [
+        "open agents",
+        "open one agents",
+        "go to agents",
+        "show agents",
+        "open the one dashboard",
+        "open one"
+      ],
+      "search_keywords": [
+        "agents",
+        "one",
+        "dashboard",
+        "apps"
+      ],
+      "meaning": "Navigates to the One Agents dashboard.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one"
+        ],
+        "screens": [
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one"
+      },
+      "control_ids": [
+        "top_agent_section_dropdown"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_agents",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_agents",
+            "label": "Open Agents",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one",
+              "screen": "one_agents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_location",
+      "surface_id": "one_agents",
+      "label": "Open Location",
+      "aliases": [
+        "open location",
+        "open location agent",
+        "go to location",
+        "show location"
+      ],
+      "search_keywords": [
+        "location",
+        "live sharing",
+        "local context"
+      ],
+      "meaning": "Navigates to the One Location agent route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location"
+      },
+      "control_ids": [
+        "top_agent_section_location"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_location",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_location",
+            "label": "Open Location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_pkm",
+      "surface_id": "one_agents",
+      "label": "Open Memory",
+      "aliases": [
+        "open personal data",
+        "open my personal data",
+        "go to personal data",
+        "show personal data",
+        "open saved knowledge"
+      ],
+      "search_keywords": [
+        "personal data",
+        "saved knowledge",
+        "memory"
+      ],
+      "meaning": "Navigates to the One Memory route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm"
+      },
+      "control_ids": [
+        "top_agent_section_pkm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_pkm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_pkm",
+            "label": "Open Memory",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2182,6 +3930,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile",
+            "label": "Open Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2248,6 +4032,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_gmail_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_gmail_panel",
+            "label": "Open Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -2294,7 +4114,8 @@
         "target": "/one/connected-systems"
       },
       "control_ids": [
-        "connected_systems"
+        "connected_systems",
+        "top_agent_section_connected-systems"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -2315,6 +4136,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_connected_systems",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_connected_systems",
+            "label": "Open Connected Systems Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/connected-systems",
+              "screen": "connected_systems"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2378,6 +4235,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_support_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_support_panel",
+            "label": "Open Support Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/support",
+              "screen": "profile_support_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2443,6 +4336,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_security_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_security_panel",
+            "label": "Open Vault Security Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/security",
+              "screen": "profile_security_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -2507,6 +4436,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_pkm_agent_lab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_pkm_agent_lab",
+            "label": "Open PKM",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2576,6 +4541,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.support.submit_message",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.support.submit_message",
+            "label": "Submit Support Message",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/support",
+              "screen": "profile_support_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -2639,6 +4640,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.marketplace_visibility.toggle",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.marketplace_visibility.toggle",
+            "label": "Toggle Marketplace Visibility",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/access",
+              "screen": "profile_privacy"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -2701,6 +4738,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.sign_out",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.sign_out",
+            "label": "Sign Out",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2766,6 +4839,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.delete_account",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.delete_account",
+            "label": "Delete Account",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2835,6 +4944,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.pkm.preview_capture",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.pkm.preview_capture",
+            "label": "Generate PKM capture preview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/pkm-agent-lab",
+              "screen": "profile_pkm_agent_lab"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -2908,6 +5053,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.pkm.save_capture",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.pkm.save_capture",
+            "label": "Save PKM capture",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/profile/pkm-agent-lab",
+              "screen": "profile_pkm_agent_lab"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -2979,6 +5160,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_clients",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_clients",
+            "label": "Open RIA Clients",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients",
+              "screen": "ria_clients"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -3054,6 +5271,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.clients.open_client_workspace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.clients.open_client_workspace",
+            "label": "Open Client Workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients",
+              "screen": "ria_clients"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3123,6 +5376,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_marketplace_connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_marketplace_connect",
+            "label": "Open RIA Connect Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/marketplace",
+              "screen": "marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -3225,6 +5514,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_onboarding",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_onboarding",
+            "label": "Open RIA Onboarding",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3302,6 +5627,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.onboarding.verify_name",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.onboarding.verify_name",
+            "label": "Verify Advisor Name",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -3382,6 +5743,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.onboarding.submit_verification",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.onboarding.submit_verification",
+            "label": "Submit RIA Verification",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3458,6 +5855,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.onboarding.dev_bypass_verification",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.onboarding.dev_bypass_verification",
+            "label": "Bypass RIA Verification In Dev",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -3562,6 +5995,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_home",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_home",
+            "label": "Open RIA Home",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3635,6 +6104,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.home.open_priority_item",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.home.open_priority_item",
+            "label": "Open Priority Queue Item",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3705,6 +6210,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_picks",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_picks",
+            "label": "Open RIA Picks",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3771,6 +6312,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_source_kai",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_source_kai",
+            "label": "Show Kai Picks Source",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?source=kai",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -3841,6 +6418,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_source_my",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_source_my",
+            "label": "Show My Advisor Picks",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?source=my",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -3907,6 +6520,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_category_top_picks",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_category_top_picks",
+            "label": "Show Top Picks",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?category=top-picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -3975,6 +6624,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_category_avoid",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_category_avoid",
+            "label": "Show Avoid List",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?category=avoid",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4041,6 +6726,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.open_category_screening",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.open_category_screening",
+            "label": "Show Screening Rules",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks?category=screening",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4115,6 +6836,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.start_edit_package",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.start_edit_package",
+            "label": "Edit Advisor Package",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4192,6 +6949,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.save_package",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.save_package",
+            "label": "Save Advisor Package",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4271,6 +7064,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.upload_csv_replace_top_picks",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.upload_csv_replace_top_picks",
+            "label": "Upload Top Picks CSV",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4347,6 +7176,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.copy_from_kai",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.copy_from_kai",
+            "label": "Copy Kai Package Into My List",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4418,6 +7283,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.discard_package_changes",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.discard_package_changes",
+            "label": "Discard Advisor Package Changes",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4504,6 +7405,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.edit_rows_manual",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.edit_rows_manual",
+            "label": "Edit Picks Rows Manually",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/picks",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4570,6 +7507,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.picks.download_template",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.picks.download_template",
+            "label": "Download Picks CSV Template",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/templates/ria-picks-template.csv",
+              "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4642,6 +7615,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_requests_compat",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_requests_compat",
+            "label": "Open RIA Requests",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/requests",
+              "screen": "ria_requests_compat"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4711,6 +7720,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_settings_compat",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_settings_compat",
+            "label": "Open RIA Settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/settings",
+              "screen": "ria_settings_compat"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4791,6 +7836,1175 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_workspace_compat",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_workspace_compat",
+            "label": "Open RIA Workspace Compatibility Route",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/workspace",
+              "screen": "ria_workspace_compat"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "email.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Email",
+      "aliases": [
+        "what needs a reply today",
+        "what needs a reply",
+        "what needs reply today",
+        "check my inbox",
+        "show emails that need a reply",
+        "summarize my gmail",
+        "search my email"
+      ],
+      "search_keywords": [
+        "email",
+        "gmail",
+        "inbox",
+        "needs a reply",
+        "unread email",
+        "reply today"
+      ],
+      "meaning": "Delegates a governed read-only Gmail or Email triage turn to the Email specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_email",
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one"
+        ],
+        "screens": [
+          "gmail",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "gmail connection required for mailbox content"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_email"
+        }
+      },
+      "control_ids": [
+        "agent_chat_email_turn"
+      ],
+      "state_exposure": [
+        "gmail_connection_status",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.email.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Email?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "gmail_connection_status"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Email specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Location",
+      "aliases": [
+        "who can see me right now",
+        "who can see my location",
+        "show who can see me",
+        "start sharing my location",
+        "share my location with",
+        "stop sharing my location",
+        "where am i",
+        "check in here"
+      ],
+      "search_keywords": [
+        "location",
+        "live location",
+        "who can see me",
+        "share my location",
+        "check in",
+        "trusted location"
+      ],
+      "meaning": "Delegates live-location status and client-side location directives to the Location specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_location",
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one"
+        ],
+        "screens": [
+          "one_location",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "browser location permission may be requested for share/check-in actions"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "location_permission_when_needed"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_location"
+        }
+      },
+      "control_ids": [
+        "agent_chat_location_turn"
+      ],
+      "state_exposure": [
+        "active_location_shares",
+        "location_permission_status",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Location?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "active_location_shares",
+          "location_permission_status"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Location specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "directive_or_answer",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer_or_directive"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connections.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Manage Trusted Connections",
+      "aliases": [
+        "add kushal to my trusted connections",
+        "add to my trusted connections",
+        "add a trusted connection",
+        "remove from my trusted connections",
+        "who do i trust",
+        "show trusted connections"
+      ],
+      "search_keywords": [
+        "trusted connection",
+        "trusted connections",
+        "add connection",
+        "remove connection",
+        "people i trust",
+        "connections"
+      ],
+      "meaning": "Delegates trusted-connection questions and write proposals to the Connections specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_connections",
+      "reachability": {
+        "routes": [
+          "/marketplace/connections",
+          "/consents",
+          "/one"
+        ],
+        "screens": [
+          "marketplace_connections",
+          "consents",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "trusted-connection writes require governed confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_connections"
+        }
+      },
+      "control_ids": [
+        "agent_chat_connections_turn"
+      ],
+      "state_exposure": [
+        "trusted_connections_summary",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /marketplace/connections"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connections.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Connections?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "trusted_connections_summary"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Connections specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/consents?tab=connections",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "confirmation_needed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "chat_handoff"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "gmail.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Gmail",
+      "aliases": [
+        "what did i buy this month",
+        "show my receipts",
+        "how much did i spend at",
+        "show my purchases",
+        "is my receipt sync working",
+        "are my receipts up to date"
+      ],
+      "search_keywords": [
+        "receipts",
+        "purchases",
+        "purchase memory",
+        "spending",
+        "merchant",
+        "receipt sync"
+      ],
+      "meaning": "Delegates read-only purchase-receipt and receipt-sync questions to the Gmail specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_gmail",
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one"
+        ],
+        "screens": [
+          "gmail",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "gmail connection required for synced receipt content"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_gmail"
+        }
+      },
+      "control_ids": [
+        "agent_chat_gmail_turn"
+      ],
+      "state_exposure": [
+        "gmail_connection_status",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.gmail.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Gmail?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "gmail_connection_status"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Gmail specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Consent (Nav)",
+      "aliases": [
+        "what have i shared",
+        "who has access to my data",
+        "what am i sharing right now",
+        "how do i revoke access",
+        "review my consents",
+        "who can see my information"
+      ],
+      "search_keywords": [
+        "consent",
+        "shared",
+        "access",
+        "revoke",
+        "privacy",
+        "permissions"
+      ],
+      "meaning": "Delegates consent questions - what the user has shared, with whom, and how to revoke it - to the Nav specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_nav",
+      "reachability": {
+        "routes": [
+          "/consents",
+          "/one"
+        ],
+        "screens": [
+          "consents",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "consent reviews require the signed-in owner"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_nav"
+        }
+      },
+      "control_ids": [
+        "agent_chat_consent_turn"
+      ],
+      "state_exposure": [
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /consents"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Nav about your consents?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Nav consent specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/consents",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connected_systems.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Connected Systems",
+      "aliases": [
+        "check my crm",
+        "show my connected systems",
+        "what systems are connected",
+        "look up a crm record",
+        "update my crm"
+      ],
+      "search_keywords": [
+        "crm",
+        "connected systems",
+        "external system",
+        "records",
+        "integration"
+      ],
+      "meaning": "Delegates CRM and connected-system workflow questions to the Connected Systems specialist under One.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_connected_systems",
+      "reachability": {
+        "routes": [
+          "/connected-systems",
+          "/one"
+        ],
+        "screens": [
+          "connected_systems",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "connected-system writes require governed confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_connected_systems"
+        }
+      },
+      "control_ids": [
+        "agent_chat_connected_systems_turn"
+      ],
+      "state_exposure": [
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /connected-systems"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connected_systems.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask Connected Systems?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Connected Systems specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/connected-systems",
+              "screen": "connected_systems"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "confirmation_needed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "chat_handoff"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "marketplace.information.chat.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Ask Information Marketplace",
+      "aliases": [
+        "how many subscriptions have i put available on marketplace",
+        "how many listings have i put available on marketplace",
+        "what have i published to the information marketplace",
+        "what data have i published",
+        "how much is my data worth",
+        "show marketplace demand"
+      ],
+      "search_keywords": [
+        "information marketplace",
+        "data marketplace",
+        "marketplace listing",
+        "marketplace listings",
+        "subscription available",
+        "published slices",
+        "data slices",
+        "potential earnings"
+      ],
+      "meaning": "Delegates read-only Information Marketplace questions about published data slices, listings, demand, and potential earnings.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_personal_information",
+      "reachability": {
+        "routes": [
+          "/one/marketplace",
+          "/one"
+        ],
+        "screens": [
+          "one_marketplace",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "marketplace data requires vault and marketplace readiness"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_personal_information"
+        }
+      },
+      "control_ids": [
+        "agent_chat_information_marketplace_turn"
+      ],
+      "state_exposure": [
+        "marketplace_readiness",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/marketplace"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.information.chat.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask the Information Marketplace?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "marketplace_readiness"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Information Marketplace specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/marketplace",
+              "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "completed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "specialist_answer"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "marketplace.information.requests.turn",
+      "surface_id": "one_specialist_turns",
+      "label": "Review Information Marketplace Requests",
+      "aliases": [
+        "can you approve any pending request for information marketplace",
+        "approve pending information marketplace request",
+        "approve marketplace request",
+        "review pending marketplace requests",
+        "show pending marketplace requests",
+        "deny marketplace request"
+      ],
+      "search_keywords": [
+        "information marketplace request",
+        "pending marketplace request",
+        "approve request",
+        "deny request",
+        "access request",
+        "marketplace approvals"
+      ],
+      "meaning": "Delegates pending Information Marketplace request review to the specialist and requires chat confirmation before any approval or denial mutation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_personal_information",
+      "reachability": {
+        "routes": [
+          "/one/marketplace",
+          "/one"
+        ],
+        "screens": [
+          "one_marketplace",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "marketplace approvals require explicit owner confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "specialist_chat.turn",
+        "params": {
+          "delegate_agent_id": "agent_personal_information"
+        }
+      },
+      "control_ids": [
+        "agent_chat_information_marketplace_requests"
+      ],
+      "state_exposure": [
+        "marketplace_pending_requests",
+        "vault_ready",
+        "allowed_action_ids"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/marketplace"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.marketplace.information.requests.turn",
+        "required_inputs": [
+          {
+            "name": "utterance",
+            "prompt": "What should I ask the Information Marketplace request reviewer?",
+            "required": true,
+            "slot": "utterance",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance",
+          "marketplace_pending_requests"
+        ],
+        "slot_schema": {
+          "utterance": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Delegate to Information Marketplace request specialist",
+            "failure_behavior": "stop",
+            "service": "specialist_chat.turn",
+            "settlement_target": {
+              "route": "/one/marketplace",
+              "screen": "one_marketplace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "single_turn",
+          "milestone_events": [
+            "delegated",
+            "confirmation_needed"
+          ]
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "chat_handoff"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4831,7 +9045,9 @@
         "path": "kai_command",
         "target": "consent"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_consent"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -4851,6 +9067,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.consents",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.consents",
+            "label": "Open Consent Center",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/consents",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -4919,6 +9171,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.back",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.back",
+            "label": "Go Back",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai",
+              "screen": "kai_market"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -4981,6 +9269,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_dashboard",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_dashboard",
+            "label": "Open Portfolio Dashboard",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio",
+              "screen": "kai_portfolio_dashboard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -5042,6 +9366,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_import",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_import",
+            "label": "Open Portfolio Import",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/import",
+              "screen": "kai_portfolio_dashboard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5108,6 +9468,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_investments",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_investments",
+            "label": "Open Investments Surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/investments",
+              "screen": "kai_investments"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -5172,6 +9568,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_optimize",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_optimize",
+            "label": "Open Optimize Surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/optimize",
+              "screen": "kai_optimize"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -5214,7 +9646,9 @@
         "path": "kai_command",
         "target": "home"
       },
-      "control_ids": [],
+      "control_ids": [
+        "top_agent_section_finance"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -5234,6 +9668,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_home",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_home",
+            "label": "Open Market Home",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai",
+              "screen": "kai_market"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5311,6 +9781,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_client_account_detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_client_account_detail",
+            "label": "Open RIA Client Account Detail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]/accounts/[accountId]",
+              "screen": "ria_client_account_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5391,6 +9897,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_account.open_workspace_fallback",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_account.open_workspace_fallback",
+            "label": "Return To Client Data Explorer",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=explorer",
+              "screen": "ria_client_account_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -5468,6 +10010,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_client_request_detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_client_request_detail",
+            "label": "Open RIA Client Request Detail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]/requests/[requestId]",
+              "screen": "ria_client_request_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5548,6 +10126,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_request.open_access_fallback",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_request.open_access_fallback",
+            "label": "Return To Client Access",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=access",
+              "screen": "ria_client_request_detail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -5623,6 +10237,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_client_workspace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_client_workspace",
+            "label": "Open RIA Client Workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5702,6 +10352,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_overview_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_overview_tab",
+            "label": "Show Client Overview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=overview",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5783,6 +10469,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_access_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_access_tab",
+            "label": "Show Client Sharing",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=access",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -5867,6 +10589,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_portfolio_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_portfolio_tab",
+            "label": "Show Client Portfolio",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=kai",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -5949,6 +10707,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_explorer_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_explorer_tab",
+            "label": "Show Client Data Explorer",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=explorer",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -6033,6 +10827,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_account_detail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_account_detail",
+            "label": "Open Client Account Detail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -6106,6 +10936,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.open_access_manager",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.open_access_manager",
+            "label": "Open Access Manager",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/consents?tab=pending",
+              "screen": "ria_client_workspace_access"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     },
@@ -6202,6 +11068,42 @@
           "keyboard",
           "programmatic"
         ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.request_access",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.request_access",
+            "label": "Send Client Access Request",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]?tab=access",
+              "screen": "ria_client_workspace_access"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
       }
     },
     {
@@ -6286,6 +11188,42 @@
           "tap",
           "keyboard",
           "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.client_workspace.disconnect_relationship",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.client_workspace.disconnect_relationship",
+            "label": "Disconnect Client Relationship",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/clients/[userId]",
+              "screen": "ria_client_workspace"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
         ]
       }
     }

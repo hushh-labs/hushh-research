@@ -12,6 +12,7 @@ ENVIRONMENT = _SETTINGS.environment
 AGENT_ID = _SETTINGS.agent_id
 HUSHH_HACKATHON = _SETTINGS.hushh_hackathon
 GOOGLE_API_KEY = _SETTINGS.google_api_key or None
+GOOGLE_MAPS_API_KEY = _SETTINGS.google_maps_api_key or None
 
 __all__ = [
     "APP_SIGNING_KEY",
@@ -22,4 +23,5 @@ __all__ = [
     "AGENT_ID",
     "HUSHH_HACKATHON",
     "GOOGLE_API_KEY",
+    "GOOGLE_MAPS_API_KEY",
 ]

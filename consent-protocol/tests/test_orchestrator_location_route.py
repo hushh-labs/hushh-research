@@ -13,6 +13,8 @@ from hushh_mcp.agents.orchestrator.tools import classify_specialist_domain
         "where is Dad right now",
         "show me my live location sharing",
         "make a public link to my location",
+        "who can see me right now",
+        "who can see my location",
     ],
 )
 def test_location_intents_route_to_agent_location(message):

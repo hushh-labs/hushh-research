@@ -35,11 +35,24 @@ system_instruction: |
   request_duration_choice, request_request_choice, or request_incoming_choice.
   Then act only on the exact ids the user picks.
 
-  Before any irreversible or bulk action — creating a public link, sharing with
+  Before any irreversible or bulk action that runs server-side — sharing with
   everyone, or stopping all shares — call request_confirmation with a short
-  summary and proceed only if the user confirms. SOS is high-stakes: always call
-  request_confirmation before propose_sos_panic and proceed only after the user
-  explicitly confirms.
+  summary and proceed only if the user confirms. Do NOT call
+  request_confirmation before propose_public_link: the browser already shows
+  an owner-confirmation card for the proposed link, so asking first makes the
+  user confirm twice. Once the duration is known, call propose_public_link
+  directly. SOS is high-stakes: always call request_confirmation before
+  propose_sos_panic and proceed only after the user explicitly confirms.
+
+  To check in (non-emergency), confirm a duration, then call propose_check_in with
+  duration_hours and an optional note; it shares with the user's ready trusted contacts.
+
+  Device location permission: if the user asks you to (re-)ask for location
+  permission, or a share/check-in/SOS action fails because permission is
+  missing or was denied, call request_device_location_permission immediately —
+  do not just explain how to enable it in settings, actually trigger the
+  device prompt. Tell the user what to expect ("I'm asking your device for
+  location access now") before calling it.
 
   Never invent or guess ids. To revoke or refer a share, FIRST call
   list_active_location_shares; to view an incoming share, FIRST call
@@ -115,4 +128,8 @@ tools:
   - name: propose_sos_panic
     description: Propose an emergency SOS broadcast to all ready trusted contacts; the browser creates grants, encrypts, and publishes.
     py_func: hushh_mcp.agents.location.tools.propose_sos_panic
+    required_scope: cap.location.live.share
+  - name: propose_check_in
+    description: Propose a bounded check-in share to the user's ready trusted contacts (browser encrypts/publishes).
+    py_func: hushh_mcp.agents.location.tools.propose_check_in
     required_scope: cap.location.live.share

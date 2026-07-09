@@ -122,6 +122,7 @@ from api.routes import (  # noqa: E402
     notifications,
     session,
     sse,
+    trust,
 )
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
@@ -279,6 +280,9 @@ app.include_router(consent.router)
 
 # Session token routes (/api/consent/issue-token, /api/user/lookup, etc.)
 app.include_router(session.router)
+
+# TrustLink routes (/api/trust/create-link, /api/trust/verify-link)
+app.include_router(trust.router)
 
 # Developer API routes (/api/v1/*)
 app.include_router(developer.router)

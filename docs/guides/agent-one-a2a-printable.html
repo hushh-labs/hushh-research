@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hussh Agent One A2A Integration Brief</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #16191f;
+      --muted: #5b6472;
+      --line: #d8dde6;
+      --soft: #f5f7fa;
+      --accent: #0f766e;
+      --accent-dark: #115e59;
+      --code: #f1f4f8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #eef2f6;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.48;
+    }
+
+    main {
+      width: min(920px, calc(100% - 32px));
+      margin: 32px auto;
+      padding: 48px;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 45px rgba(20, 32, 45, 0.12);
+    }
+
+    header {
+      padding-bottom: 24px;
+      border-bottom: 2px solid var(--accent);
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent-dark);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+      max-width: 760px;
+    }
+
+    h2 {
+      margin: 30px 0 12px;
+      font-size: 20px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 15px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    th {
+      background: var(--soft);
+      text-align: left;
+      font-weight: 700;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    code {
+      background: var(--code);
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+
+    pre {
+      margin: 10px 0 16px;
+      padding: 14px 16px;
+      background: var(--code);
+      border: 1px solid var(--line);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 16px 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    .notice {
+      border-left: 4px solid var(--accent);
+      background: #edf8f6;
+      padding: 12px 14px;
+      margin: 14px 0 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 12px 0 18px;
+    }
+
+    .box {
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 14px;
+    }
+
+    .box strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .page-break {
+      break-before: page;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      main {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      pre,
+      table,
+      .box {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">External Developer Brief</p>
+      <h1>Hussh Agent One A2A Integration</h1>
+      <p class="subtitle">
+        A printable handoff for external developers and partner agent platforms such as Salesforce Agentforce.
+        Fill in the credential fields separately and keep real tokens out of the document.
+      </p>
+    </header>
+
+    <section>
+      <h2>What This Enables</h2>
+      <p>
+        Agent One is the Hussh personal-agent coordination surface. A partner agent sends a user request to
+        Agent One, and Agent One either answers directly or routes the request internally.
+      </p>
+      <p>
+        In this brief, A2A means agent-to-agent integration over normal HTTPS API calls. The partner does
+        not need a special transport: it discovers the Agent Card, then calls the Agent One message API with
+        the required developer and consent headers.
+      </p>
+      <div class="notice">
+        <strong>Important:</strong> Share the document without real developer tokens or consent tokens.
+        Send credentials through a secure channel after the partner has been approved.
+      </div>
+    </section>
+
+    <section>
+      <h2>Credential Sheet</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Hussh base URL</td>
+            <td><code>https://api.uat.hushh.ai</code></td>
+          </tr>
+          <tr>
+            <td>A2A agent id</td>
+            <td><code>agent_one</code></td>
+          </tr>
+          <tr>
+            <td>Required consent scope</td>
+            <td><code>agent.one.orchestrate</code></td>
+          </tr>
+          <tr>
+            <td>Developer app agent id</td>
+            <td><code>developer:app_________________________________</code></td>
+          </tr>
+          <tr>
+            <td>Developer token</td>
+            <td>Provide separately through a secure channel.</td>
+          </tr>
+          <tr>
+            <td>User consent token</td>
+            <td>Generated after the user approves <code>agent.one.orchestrate</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">
+        The developer token is setup-time partner authentication. The consent token is part of the runtime
+        flow: request approval first, then use the user-approved token to execute Agent One.
+      </p>
+      <pre>HUSHH_DEVELOPER_TOKEN="&lt;developer-token-issued-by-hussh&gt;"</pre>
+    </section>
+
+    <section>
+      <h2>How To Get Developer Credentials</h2>
+      <ol>
+        <li>Open <code>https://uat.kai.hushh.ai/developers</code> and sign in with Google or Apple.</li>
+        <li>Enable developer access for the account.</li>
+        <li>Copy the developer app agent id shown in the portal. It uses the format <code>developer:app_...</code>.</li>
+        <li>Copy the developer token when it is first issued. The full raw token is shown only at issue time.</li>
+        <li>If the token was lost, use the portal's rotate-key action to revoke the old token and reveal a replacement.</li>
+        <li>Store the token in a secure credential manager or Salesforce Named Credential. Do not paste it into prompts, docs, tickets, CRM notes, source code, or screenshots.</li>
+      </ol>
+      <div class="notice">
+        <strong>Credential rule:</strong> the developer token and developer app agent id are linked. Agent One
+        rejects a user consent token if it belongs to a different developer app agent id.
+      </div>
+    </section>
+
+    <section>
+      <h2>Endpoints</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Path</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>GET</code></td>
+            <td><code>/.well-known/agent-card.json</code></td>
+            <td>Discover Agent One metadata.</td>
+          </tr>
+          <tr>
+            <td><code>GET</code></td>
+            <td><code>/api/one/a2a/card</code></td>
+            <td>Compatibility alias for the same Agent Card.</td>
+          </tr>
+          <tr>
+            <td><code>POST</code></td>
+            <td><code>/api/one/a2a/message</code></td>
+            <td>Request consent or execute Agent One after approval.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Headers</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Header</th>
+            <th>When to use it</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>Authorization: Bearer &lt;developer-token&gt;</code></td>
+            <td>Required for partner calls to the message endpoint.</td>
+          </tr>
+          <tr>
+            <td><code>X-Consent-Token: &lt;consent-token&gt;</code></td>
+            <td>Required only after the user has approved Agent One orchestration.</td>
+          </tr>
+          <tr>
+            <td><code>Content-Type: application/json</code></td>
+            <td>Required for POST requests.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Typical Flow</h2>
+      <ol>
+        <li>Partner discovers Agent One through the Agent Card endpoint.</li>
+        <li>Partner calls the message endpoint without <code>X-Consent-Token</code> to create or check a consent request.</li>
+        <li>The user approves <code>agent.one.orchestrate</code> in Hussh.</li>
+        <li>Partner calls the message endpoint again with both the developer token and the user consent token.</li>
+        <li>Agent One returns an answer or routes the request internally.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Conversation Id</h2>
+      <p>
+        <code>conversationId</code> is created by the calling partner system, not by the Agent One A2A endpoint.
+        Treat it as a correlation id for the partner's own session, case, chat, or workflow.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Partner system</th>
+            <th>Good conversation id examples</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Salesforce Case</td>
+            <td><code>sf-case-500xx0000012345</code></td>
+          </tr>
+          <tr>
+            <td>Salesforce Agentforce session</td>
+            <td><code>sf-agentforce-session-a1b2c3</code></td>
+          </tr>
+          <tr>
+            <td>Partner chat session</td>
+            <td><code>partner-chat-20260706-001</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">
+        Send the same <code>conversationId</code> on follow-up calls for the same partner-side conversation.
+        If the partner omits it, the A2A response may return <code>null</code>; Agent One does not mint one for this endpoint.
+      </p>
+    </section>
+
+    <section class="page-break">
+      <h2>Call 1: Discover Agent One</h2>
+      <p>
+        The Agent Card is discovery metadata. It tells the partner where Agent One is, what scope is required,
+        and how to authenticate. The actual user task, such as a KYC account-opening request, belongs in
+        <code>POST /api/one/a2a/message</code>.
+      </p>
+      <p>
+        Other agents use the card's public name, description, required scope, endpoint, and capability hints
+        to decide whether to delegate to Hussh Agent One. Delegate when the user request needs Hussh-managed
+        consent, user-owned personal data, KYC/account-opening data, advisor onboarding context, or privacy
+        and vault coordination. Do not delegate ordinary CRM updates that do not need Hussh user consent or
+        Hussh-held data.
+      </p>
+      <pre>curl -sS "https://api.uat.hushh.ai/.well-known/agent-card.json"</pre>
+      <h3>Expected fields</h3>
+      <pre>{
+  "agentId": "agent_one",
+  "name": "Agent One",
+  "protocolVersion": "1.0.0",
+  "url": "https://api.uat.hushh.ai/api/one/a2a/message",
+  "preferredTransport": "HTTP+JSON",
+  "supportedInterfaces": [
+    {
+      "url": "https://api.uat.hushh.ai/api/one/a2a/message",
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0.0"
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false,
+    "extendedAgentCard": false
+  },
+  "securitySchemes": {
+    "developerBearer": {
+      "type": "http",
+      "scheme": "bearer",
+      "bearerFormat": "developer-token"
+    },
+    "userConsentToken": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Consent-Token"
+    }
+  },
+  "security": [{"developerBearer": []}],
+  "securityRequirements": [{"developerBearer": []}],
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "account_opening_identity_data",
+      "name": "Account-opening identity data",
+      "tags": ["identity", "account-opening", "advisor-onboarding", "tax-residency", "government-id"],
+      "inputModes": ["text/plain", "application/json"],
+      "outputModes": ["application/json", "text/plain"],
+      "security": [{"developerBearer": [], "userConsentToken": []}],
+      "securityRequirements": [{"developerBearer": [], "userConsentToken": []}]
+    },
+    {
+      "id": "financial_eligibility_data",
+      "name": "Financial eligibility data",
+      "tags": ["financial-eligibility", "net-worth", "bank-statements", "connected-accounts", "fund-onboarding"],
+      "examples": [
+        "I need your financial net worth score, so that I can review your eligibility to join my Hedge Fund.",
+        "I need your last 3 months bank statement details for each of your connected bank accounts."
+      ],
+      "inputModes": ["text/plain", "application/json"],
+      "outputModes": ["application/json", "text/plain"],
+      "security": [{"developerBearer": [], "userConsentToken": []}],
+      "securityRequirements": [{"developerBearer": [], "userConsentToken": []}]
+    }
+  ],
+  "requiredScopes": ["agent.one.orchestrate"],
+  "endpoints": {
+    "message": "/api/one/a2a/message",
+    "card": "/api/one/a2a/card"
+  },
+  "protocol": {
+    "developerAuth": "Authorization: Bearer &lt;developer-token&gt;",
+    "consentHeader": "X-Consent-Token",
+    "requiredScope": "agent.one.orchestrate"
+  }
+}</pre>
+    </section>
+
+    <section>
+      <h2>KYC Data Request Pattern</h2>
+      <p>
+        For Salesforce and advisor workflows, send the business question or data need directly.
+        A good request names the account-opening context, the KYC fields needed, and the decision the
+        advisor is trying to make.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Use this request</th>
+            <th>Do not use this</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>I need your legal name, date of birth, address, tax residency, and government ID details required for account opening.</td>
+            <td>Send all KYC documents to Salesforce.</td>
+          </tr>
+          <tr>
+            <td>Before I submit this onboarding case, confirm whether your identity verification is complete and list any required account-opening items you still need to provide.</td>
+            <td>Export the user's full identity vault.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">
+        A2A coordinates the KYC workflow through Agent One. Government ID details usually means structured
+        fields needed for the workflow, not a raw ID image. If the partner needs an encrypted scoped data
+        export, use the MCP/developer API consent lane with an identity scope such as
+        <code>attr.identity.*</code>; keep raw documents out of Salesforce unless a separate explicit
+        workflow and retention policy allows it.
+      </p>
+    </section>
+
+    <section>
+      <h2>Call 2: Request User Consent</h2>
+      <p>Use this when the partner does not yet have a user-approved consent token.</p>
+      <pre>curl -sS -X POST "https://api.uat.hushh.ai/api/one/a2a/message" \
+  -H "Authorization: Bearer $HUSHH_DEVELOPER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "I need your legal name, date of birth, address, tax residency, and government ID details required for account opening.",
+    "email": "user@example.com",
+    "conversationId": "sf-case-500xx0000012345",
+    "reason": "Salesforce Agentforce is helping an advisor prepare for account opening and needs Agent One to review KYC readiness with user approval.",
+    "approvalTimeoutMinutes": 60,
+    "expiryHours": 24
+  }'</pre>
+      <h3>Pending response shape</h3>
+      <pre>{
+  "agentId": "agent_one",
+  "conversationId": "sf-case-500xx0000012345",
+  "userId": "user-one",
+  "response": "Consent request submitted. User approval is required before Agent One can execute.",
+  "delegation": null,
+  "consent": {
+    "status": "pending",
+    "requiredScope": "agent.one.orchestrate",
+    "requestId": "req_...",
+    "requestUrl": "https://&lt;hussh-app-host&gt;/consents?tab=pending&amp;requestId=req_...",
+    "approvalSurface": "/consents?tab=pending",
+    "tokenRequired": true
+  },
+  "isComplete": false
+}</pre>
+    </section>
+
+    <section class="page-break">
+      <h2>Call 3: Execute Agent One</h2>
+      <p>Run this only after the user approves the request from Call 2 and the integration has the resulting consent token.</p>
+      <pre>curl -sS -X POST "https://api.uat.hushh.ai/api/one/a2a/message" \
+  -H "Authorization: Bearer $HUSHH_DEVELOPER_TOKEN" \
+  -H "X-Consent-Token: &lt;user-approved-consent-token-from-call-2&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "I need your legal name, date of birth, address, tax residency, and government ID details required for account opening.",
+    "userId": "user-one",
+    "conversationId": "sf-case-500xx0000012345",
+    "persona": "ria"
+  }'</pre>
+      <div class="grid">
+        <div class="box">
+          <strong>Direct response</strong>
+          <p class="small">Agent One returns the user-approved workflow response.</p>
+          <pre>{
+  "agentId": "agent_one",
+  "response": "Hi, I am One...",
+  "delegation": null,
+  "isComplete": true
+}</pre>
+        </div>
+        <div class="box">
+          <strong>Internal routing</strong>
+          <p class="small">Internal routing details are not part of the partner integration contract.</p>
+          <pre>{
+  "agentId": "agent_one",
+  "response": "Your request is being handled by Agent One.",
+  "isComplete": true
+}</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-break">
+      <h2>Salesforce Agentforce Notes</h2>
+      <ol>
+        <li>Create a Salesforce Named Credential or equivalent secure HTTP credential for <code>https://api.uat.hushh.ai</code>.</li>
+        <li>Store the developer token in the secure credential store, not in Apex source, prompt text, custom object fields, or case comments.</li>
+        <li>Pass <code>Authorization: Bearer &lt;developer-token&gt;</code> on every call.</li>
+        <li>Pass <code>X-Consent-Token</code> only after user approval.</li>
+        <li>Store only workflow metadata in Salesforce: request id, consent status, scope, expiry, user-visible reason, audit references, and narrow approved workflow outputs.</li>
+      </ol>
+      <h3>Apex-style callout</h3>
+      <pre>HttpRequest req = new HttpRequest();
+req.setEndpoint('callout:Hussh_One_A2A/api/one/a2a/message');
+req.setMethod('POST');
+req.setHeader('Content-Type', 'application/json');
+req.setHeader('Authorization', 'Bearer ' + developerToken);
+req.setHeader('X-Consent-Token', consentToken);
+req.setBody(JSON.serialize(new Map&lt;String, Object&gt;{
+    'message' =&gt; 'I need your legal name, date of birth, address, tax residency, and government ID details required for account opening.',
+    'userId' =&gt; 'user-one',
+    'conversationId' =&gt; 'sf-case-500xx0000012345',
+    'persona' =&gt; 'ria'
+}));
+
+Http http = new Http();
+HttpResponse res = http.send(req);</pre>
+    </section>
+
+    <section>
+      <h2>Error Handling</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Common cause</th>
+            <th>Partner action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>401</code></td>
+            <td>Missing developer token.</td>
+            <td>Add the developer bearer token.</td>
+          </tr>
+          <tr>
+            <td><code>403</code></td>
+            <td>Invalid consent token, wrong scope, app mismatch, or user mismatch.</td>
+            <td>Re-request consent or verify token ownership.</td>
+          </tr>
+          <tr>
+            <td><code>404</code></td>
+            <td>User lookup by email or phone did not find a Hussh account.</td>
+            <td>Ask the user to sign in or provide the correct identifier.</td>
+          </tr>
+          <tr>
+            <td><code>410</code></td>
+            <td>Developer API disabled in the target environment.</td>
+            <td>Confirm target environment and partner enablement.</td>
+          </tr>
+          <tr>
+            <td><code>500</code></td>
+            <td>Agent One orchestration failed.</td>
+            <td>Retry only if idempotent; include conversation id in support handoff.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Security Boundary</h2>
+      <ul>
+        <li><code>agent_one</code> coordinates requests. It does not grant broad data access by itself.</li>
+        <li>Developer tokens identify the external app. Consent tokens identify user-approved authority for a scope.</li>
+        <li>Do not put developer tokens or consent tokens into Salesforce prompts, CRM text fields, support transcripts, analytics events, or public logs.</li>
+        <li>Do not send raw vault contents, private keys, KYC documents, full email bodies, or broad personal-memory exports through this A2A route unless a separate explicit workflow allows it.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Handoff Checklist</h2>
+      <ul>
+        <li>Have the partner enable developer access at <code>https://uat.kai.hushh.ai/developers</code>.</li>
+        <li>Confirm the portal shows a developer app agent id in the format <code>developer:app_...</code>.</li>
+        <li>Copy or rotate the developer token and deliver it securely.</li>
+        <li>Confirm Hussh base URL for the target environment. For UAT, use <code>https://api.uat.hushh.ai</code>.</li>
+        <li>Confirm user lookup strategy: user id, email, or phone number.</li>
+        <li>Test Agent Card discovery.</li>
+        <li>Test consent-request mode without <code>X-Consent-Token</code>.</li>
+        <li>Test execute mode with <code>X-Consent-Token</code>.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

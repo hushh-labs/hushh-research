@@ -130,7 +130,8 @@
         "target": "/one/connected-systems"
       },
       "control_ids": [
-        "connected_systems"
+        "connected_systems",
+        "top_agent_section_connected-systems"
       ],
       "state_exposure": [],
       "docs_references": [

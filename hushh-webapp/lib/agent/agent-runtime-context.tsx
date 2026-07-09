@@ -129,7 +129,16 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     let syncTimer: number | null = null;
     const syncNow = () => {
       const search = window.location.search;
-      setRouteQuery(search.startsWith("?") ? search.slice(1) : search);
+      const next = search.startsWith("?") ? search.slice(1) : search;
+      // pushState/replaceState may be invoked synchronously from another
+      // component's useInsertionEffect (styling libs, the Next router). Setting
+      // state right here would schedule an update during that phase, which React
+      // forbids ("useInsertionEffect must not schedule updates"). Defer to a
+      // microtask so the update always lands outside the insertion-effect phase,
+      // and bail out when the query is unchanged to avoid extra renders.
+      queueMicrotask(() => {
+        setRouteQuery((prev) => (prev === next ? prev : next));
+      });
     };
     const scheduleSync = () => {
       if (syncTimer !== null) {
@@ -227,6 +236,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
 
   const availablePersonas = useMemo(() => {
     const personas = new Set<Persona>([activePersona]);
+    personas.add("investor");
     if (riaSwitchAvailable) personas.add("ria");
     personas.add(primaryNavPersona);
     return Array.from(personas);

@@ -31,7 +31,7 @@ def main() -> int:
             ROOT / "hushh_mcp/adk_bridge/kai_agent.py",
             [
                 r"X-Consent-Token",
-                r"validate_a2a_consent_token\(\"agent_kai\",\s*consent_token\)",
+                r"validate_a2a_consent_token_with_db\(\"agent_kai\",\s*consent_token\)",
                 r"orchestrate_debate_stream",
                 r"DebateEngine",
             ],

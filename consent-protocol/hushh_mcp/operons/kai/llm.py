@@ -246,6 +246,55 @@ def get_gemini_unavailable_reason() -> Optional[str]:
     return _gemini_unavailable_reason
 
 
+async def agent_chat_model_call(
+    contents: Any,
+    config: Any,
+    *,
+    attempt_timeout_s: float = 10.0,
+    total_timeout_s: float = 30.0,
+) -> Any:
+    """Shared non-streaming model call for specialist chat services.
+
+    Tail-latency guard (Dean & Barroso, "The Tail at Scale"): individual
+    generate_content requests occasionally stall far beyond the median
+    (~1s observed vs 30s+ hangs). One long timeout converts that rare stall
+    into a guaranteed user-facing failure. Instead, each attempt gets a
+    short deadline and we retry within the total budget, so the p99 collapses
+    toward median + one attempt deadline while the median path is untouched.
+
+    Raises asyncio.TimeoutError when the total budget is exhausted, matching
+    the single-shot behavior callers already handle.
+    """
+    if not _require_gemini_ready():
+        raise RuntimeError(_gemini_unavailable_reason or "Gemini client unavailable")
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + total_timeout_s
+    attempt = 0
+    while True:
+        attempt += 1
+        remaining = deadline - loop.time()
+        if remaining <= 0.05:
+            raise asyncio.TimeoutError(
+                f"agent model call exhausted {total_timeout_s}s budget after {attempt - 1} attempts"
+            )
+        try:
+            return await asyncio.wait_for(
+                _gemini_client.aio.models.generate_content(
+                    model=_gemini_model_name,
+                    contents=contents,
+                    config=config,
+                ),
+                timeout=min(attempt_timeout_s, remaining),
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "agent_chat_model_call attempt %d timed out after %.1fs; retrying",
+                attempt,
+                min(attempt_timeout_s, remaining),
+            )
+
+
 async def _generate_content_text(
     *,
     prompt: str,

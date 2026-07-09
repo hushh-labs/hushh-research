@@ -56,7 +56,6 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
-import { PersonaBootstrapRedirect } from "@/components/iam/persona-bootstrap-redirect";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
@@ -79,10 +78,13 @@ function readCustomVar(style: CSSProperties, key: string): string {
 
 // Shared bottom chrome glass vars. Mirrors the top app bar glass (same bg,
 // blur via the .bar-glass default, overscan, and fade strengths) so the bottom
-// mask fade matches the top exactly, just flipped to fade upward.
+// mask fade matches the top exactly, just flipped to fade upward. The dark
+// tint derives from the live --background (same as the top bar) so neither
+// band can read lighter (milky) than the page behind it.
 const SHARED_BOTTOM_CHROME_GLASS_VARS = {
   "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-  "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
+  "--app-bar-glass-bg-dark":
+    "color-mix(in oklab, var(--background) 76%, transparent)",
   "--app-bar-shadow": "none",
   "--app-bar-mask-overscan": "14px",
 } as const;
@@ -327,7 +329,6 @@ function AppShellFrame({ children }: ProvidersProps) {
             <NativeTestRouter />
             <NativeTestBootstrap />
             <NativeTestRouteStatus />
-            <PersonaBootstrapRedirect />
             <Suspense
               fallback={
                 <>

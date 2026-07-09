@@ -64,7 +64,8 @@ Current One Voice foundation:
 - `/api/one/voice/session`, `/api/one/voice/plan`, and `/api/one/voice/compose` are product-facing wrappers over the existing Kai-era compatibility runtime.
 - The wrappers preserve the same `VAULT_OWNER`, request `user_id`, rollout, canary, kill-switch, planner, composer, and settlement rules.
 - Frontend One Voice state is represented through the shared One Voice FSM and redacted `OneVoiceContextSnapshot`; the snapshot augments existing structured screen context instead of replacing it.
-- Gemini Live is an active realtime provider adapter for tool-less in-bar conversation. It does not execute app actions unless a later change routes proposals through the generated action gateway.
+- In-bar realtime conversation now runs through One's ADK agent tree over `/api/one/adk/live` (see [One Voice Runtime Architecture](./one-voice-runtime-architecture.md)). The legacy proposal-only Gemini Live relay was deleted; the compatibility paths on this page serve typed chat, chained voice, and planner surfaces, not the in-bar realtime lane.
+- One Goal is the product execution layer above these compatibility paths. Gemini Live, Agent Chat, typed search, command bar, and UI actions should enter [One Goal](./one-goal-framework.md) before executing generated actions.
 
 See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for the current One Voice contract layer.
 
@@ -98,6 +99,9 @@ The maintained runtime now depends on these canonical surfaces:
   - [hushh-webapp/lib/voice/investor-kai-action-registry.ts](../../../hushh-webapp/lib/voice/investor-kai-action-registry.ts)
   - [hushh-webapp/lib/voice/voice-action-manifest.ts](../../../hushh-webapp/lib/voice/voice-action-manifest.ts)
 - Frontend runtime:
+  - [hushh-webapp/lib/one-goal/one-goal-planner.ts](../../../hushh-webapp/lib/one-goal/one-goal-planner.ts)
+  - [hushh-webapp/lib/one-goal/one-goal-runner.ts](../../../hushh-webapp/lib/one-goal/one-goal-runner.ts)
+  - [hushh-webapp/lib/one-goal/one-goal-session-store.ts](../../../hushh-webapp/lib/one-goal/one-goal-session-store.ts)
   - [hushh-webapp/lib/voice/voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts)
   - [hushh-webapp/lib/voice/voice-session-manager.ts](../../../hushh-webapp/lib/voice/voice-session-manager.ts)
   - [hushh-webapp/lib/voice/voice-realtime-client.ts](../../../hushh-webapp/lib/voice/voice-realtime-client.ts)
@@ -115,6 +119,7 @@ The maintained runtime now depends on these canonical surfaces:
   - [hushh-webapp/components/kai/kai-command-bar-global.tsx](../../../hushh-webapp/components/kai/kai-command-bar-global.tsx)
   - [hushh-webapp/components/kai/kai-search-bar.tsx](../../../hushh-webapp/components/kai/kai-search-bar.tsx)
 - Backend runtime:
+  - [consent-protocol/api/routes/one/goal.py](../../../consent-protocol/api/routes/one/goal.py)
   - [consent-protocol/api/routes/kai/voice.py](../../../consent-protocol/api/routes/kai/voice.py)
   - [consent-protocol/hushh_mcp/services/voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py)
   - [consent-protocol/hushh_mcp/services/voice_prompt_builder.py](../../../consent-protocol/hushh_mcp/services/voice_prompt_builder.py)
@@ -321,6 +326,8 @@ Generated actions include `speaker_persona` and may include `delegate_agent_id`:
 - `nav`: privacy, consent, vault, deletion, revocation, and scope-review actions
 - `kyc`: explicit identity/KYC workflow status, missing-document review, approval-gated draft, and structured writeback actions
 
+`speaker_persona` is the public prompt/copy owner. Runtime `delegate_agent_id` can name wired A2A specialists such as `agent_location`, `agent_connections`, `agent_email`, `agent_personal_information`, and `agent_connected_systems` while One remains the user-facing host.
+
 Navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions and must not be used for ordinary route changes.
 
 If the generated manifest is missing, the backend manifest loader degrades to an empty `source: "missing"` manifest instead of failing import. That is a degraded prompt-selection state, not a valid release state; `verify:voice-gateway` and docs/runtime verification should catch it. When a manifest is present but no action ranks for the current screen/transcript, prompt selection falls back to the first generated actions.
@@ -438,6 +445,26 @@ Important analysis actions include:
 - `analysis.cancel_active`
 
 The same action plane now also powers typed search suggestions and control-id mapping in the Kai search bar.
+
+## Realtime Finance Context
+
+The in-bar realtime lane now runs through One's ADK agent tree
+(`consent-protocol/hushh_mcp/one_adk/agent_tree.py`); the Finance and RIA
+specialists are `AgentTool` members of that tree, so finance capability is
+declared in One's identity instruction rather than per-session prompt hints.
+The client pushes the redacted `OneVoiceContextSnapshot` (screen, route
+family, persona, voice state, action ids, cache posture) as post-connect
+`app_context` frames on `/api/one/adk/live`; nothing rides in the ws URL
+except the opaque relay ticket. `compose_voice_instructions` in
+`consent-protocol/hushh_mcp/services/agent_persona.py` still serves the
+chained-voice and intro chat surfaces.
+
+Expected behavior:
+
+- Do not categorically refuse stock analysis, market analysis, or portfolio-analysis questions when Kai finance contracts are present.
+- Use One as the host voice and Kai as the finance specialist framing when useful.
+- If vault/cache/portfolio readiness is missing, say what is missing and route the user to import, unlock, analysis, portfolio, investments, or optimize surfaces.
+- Do not claim raw holdings, live quotes, saved PKM data, trades, transfers, or completed actions unless a governed app action result confirms that outcome.
 
 ## Memory And Privacy
 

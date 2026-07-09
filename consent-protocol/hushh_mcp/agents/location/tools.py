@@ -233,6 +233,22 @@ async def propose_sos_panic() -> dict[str, Any]:
     return {"proposed": "sos_panic"}
 
 
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_check_in")
+async def propose_check_in(duration_hours: float, note: str | None = None) -> dict[str, Any]:
+    """Propose a check-in: share live location with the user's ready trusted
+    contacts for a bounded time with an optional note. The browser creates the
+    grants per recipient, encrypts, and publishes. Coordinate-free."""
+    _ctx()
+    try:
+        hours = float(duration_hours)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_hours must be a number between 0 and 24") from exc
+    if not (0 < hours <= 24):
+        raise ValueError("duration_hours must be greater than 0 and at most 24")
+    clean_note = (note or "").strip()[:120] or None
+    return {"proposed": "check_in", "durationHours": hours, "note": clean_note}
+
+
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="propose_location_view")
 async def propose_location_view(grant_id: str) -> dict[str, Any]:
     """Propose viewing an incoming share's latest location. The browser fetches the
@@ -241,6 +257,18 @@ async def propose_location_view(grant_id: str) -> dict[str, Any]:
     _ctx()
     grant_id = _require_uuid(grant_id, "grant_id")
     return {"proposed": "view_envelope", "grantId": grant_id}
+
+
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_device_location_permission")
+async def request_device_location_permission() -> dict[str, Any]:
+    """Ask the device to (re-)prompt the OS location permission dialog. Use this
+    whenever an action needs the device's location and it is not currently
+    available or was previously denied - e.g. the user asks to share, check in,
+    or send SOS and a prior attempt failed because permission was never granted
+    or was denied. The server never receives a coordinate here; the OS prompt
+    and outcome happen entirely client-side."""
+    _ctx()
+    return {"proposed": "request_device_location_permission"}
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="revoke_public_link")
@@ -458,8 +486,10 @@ async def request_incoming_choice() -> dict[str, Any]:
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_confirmation")
 async def request_confirmation(summary: str, destructive: bool = True) -> dict[str, Any]:
     """Ask the user to confirm an irreversible or bulk action before it runs. Returns
-    a coordinate-free yes/no confirm prompt. Use before creating a public link,
-    sharing with everyone, or stopping all shares."""
+    a coordinate-free yes/no confirm prompt. Use before sharing with everyone or
+    stopping all shares. Do NOT use before propose_public_link — the browser shows
+    its own owner-confirmation card for the link, so confirming here would make
+    the user confirm twice."""
     _ctx()
     return {
         "prompt": {
@@ -519,6 +549,7 @@ V2_LOCATION_TOOLS = [
     propose_public_link,
     propose_location_view,
     revoke_public_link,
+    request_device_location_permission,
     request_recipient_choice,
     request_active_share_choice,
     request_duration_choice,
@@ -526,4 +557,5 @@ V2_LOCATION_TOOLS = [
     request_incoming_choice,
     request_confirmation,
     propose_sos_panic,
+    propose_check_in,
 ]

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Lock, RefreshCw, Store } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +12,10 @@ import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
+import {
+  decryptMarketplaceEnvelope,
+  type MarketplaceEncryptedEnvelope,
+} from "@/lib/one-marketplace/encryption";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
@@ -97,6 +100,82 @@ function isStructurallyBlockedForPublish(topLevelScopePath: string): boolean {
 function attributeCountFor(manifest: DomainManifest, scopeHandle: string | null): number {
   const entry = (manifest.scope_registry || []).find((s) => s.scope_handle === scopeHandle);
   return (entry?.segment_ids || []).length || 1;
+}
+
+/** Lazy per-request state for a decrypted delivered slice (Received-data tab). */
+type DeliveryState =
+  | { status: "loading" }
+  | { status: "empty" }
+  | { status: "error"; message: string }
+  | { status: "ready"; presentation: PkmSectionPreviewPresentation };
+
+function statusBadgeClass(status: MarketplaceRequest["status"]): string {
+  const base = "rounded-full px-2 py-0.5 text-[11px] font-medium ";
+  if (status === "pending") return base + "bg-amber-500/12 text-amber-700 dark:text-amber-300";
+  if (status === "approved") return base + "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300";
+  return base + "bg-muted text-muted-foreground";
+}
+
+/**
+ * Parse a delivered envelope's canonical scope (`attr.<domain>.<path>.*`) into the
+ * domain + top-level scope path the preview builder needs to unwrap the slice.
+ */
+function parseDeliveryScope(
+  scope: string,
+  fallbackDomain: string,
+): { domain: string; topLevelScopePath: string } {
+  const match = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/.exec(String(scope || "").trim());
+  if (!match) return { domain: fallbackDomain, topLevelScopePath: "" };
+  const remainder = (match[2] || "").replace(/\.\*$/, "").replace(/^\*$/, "").trim();
+  return { domain: match[1] || fallbackDomain, topLevelScopePath: remainder };
+}
+
+/**
+ * The decrypted payload is `{ [domain]: {…}, __export_metadata }` (see
+ * export-builder + projectDomainDataForScope). Strip the metadata and return the
+ * domain's record so the preview builder can project it like any other section.
+ */
+function extractDeliveredValue(
+  decrypted: unknown,
+  domain: string,
+): Record<string, unknown> | null {
+  if (!decrypted || typeof decrypted !== "object" || Array.isArray(decrypted)) return null;
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(decrypted as Record<string, unknown>)) {
+    if (key === "__export_metadata") continue;
+    rest[key] = value;
+  }
+  const domainValue = domain ? rest[domain] : undefined;
+  if (domainValue && typeof domainValue === "object" && !Array.isArray(domainValue)) {
+    return domainValue as Record<string, unknown>;
+  }
+  const keys = Object.keys(rest);
+  if (keys.length === 1) {
+    const only = rest[keys[0]!];
+    if (only && typeof only === "object" && !Array.isArray(only)) {
+      return only as Record<string, unknown>;
+    }
+  }
+  return rest;
+}
+
+/** Build the safe-summary presentation for a decrypted delivered slice. */
+function buildDeliveryPresentation(
+  request: MarketplaceRequest,
+  envelope: MarketplaceEncryptedEnvelope,
+  decrypted: unknown,
+): PkmSectionPreviewPresentation {
+  const scope = String(envelope.metadata?.scope ?? "");
+  const { domain, topLevelScopePath } = parseDeliveryScope(scope, request.domain || "");
+  const value = extractDeliveredValue(decrypted, domain);
+  return buildPkmSectionPreviewPresentation({
+    domain: domain || request.domain || "",
+    domainTitle: request.domain || domain || "Information",
+    permissionLabel: request.sliceName || "Delivered slice",
+    permissionDescription: null,
+    topLevelScopePath,
+    value,
+  });
 }
 
 function usePrice(input: SlicePricingInput | null, token?: string) {
@@ -398,7 +477,6 @@ function ListingPreviewToggle({ presentation }: { presentation: PkmSectionPrevie
 }
 
 export default function OneMarketplacePage() {
-  const router = useRouter();
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const token = vaultOwnerToken ?? undefined;
@@ -414,8 +492,12 @@ export default function OneMarketplacePage() {
   // Owner is about to publish this section to the marketplace and must explicitly
   // consent first (consent-first). Null when no confirmation is pending.
   const [confirmPublish, setConfirmPublish] = useState<Section | null>(null);
-  // Durable access-request inbox (server-side records, migration 075).
-  const [requests, setRequests] = useState<MarketplaceRequest[]>([]);
+  // The buyer's own requests + delivered slices (migrations 075/079). Approvals
+  // now happen entirely in the Consent Guardian; this "Received data" tab lets the
+  // buyer view what sellers delivered, decrypting each envelope on-device.
+  const [received, setReceived] = useState<MarketplaceRequest[]>([]);
+  // Per-request decrypted delivery state, populated lazily on "View delivered data".
+  const [deliveries, setDeliveries] = useState<Record<string, DeliveryState>>({});
 
   const [records, setRecords] = useState<DomainRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -423,20 +505,66 @@ export default function OneMarketplacePage() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
-  // Load the durable request inbox on mount and whenever the page refreshes.
-  const loadRequests = useCallback(async () => {
+  // Load the buyer's own requests (role=buyer) on mount and on refresh. Owner
+  // approvals live in the Consent Guardian, so this page only tracks what the
+  // buyer requested and what has been delivered back to them.
+  const loadReceived = useCallback(async () => {
     if (!vaultOwnerToken) return;
     try {
-      const rows = await OneMarketplaceService.listRequests({ vaultOwnerToken });
-      setRequests(rows);
+      const rows = await OneMarketplaceService.listRequests({
+        vaultOwnerToken,
+        role: "buyer",
+      });
+      setReceived(rows);
     } catch {
-      // Non-fatal: the inbox stays as-is until the next refresh.
+      // Non-fatal: the received list stays as-is until the next refresh.
     }
   }, [vaultOwnerToken]);
 
   useEffect(() => {
-    void loadRequests();
-  }, [loadRequests, refreshToken]);
+    void loadReceived();
+  }, [loadReceived, refreshToken]);
+
+  // Fetch + decrypt a delivered slice on demand. The envelope is ciphertext only;
+  // the private half of the recipient key never left this device (IndexedDB), so
+  // decryption happens locally and a slice from another device simply can't open.
+  const viewDelivery = useCallback(
+    async (request: MarketplaceRequest) => {
+      if (!vaultOwnerToken || !user?.uid) {
+        toast.error("Unlock your vault to open the delivered slice.");
+        return;
+      }
+      setDeliveries((current) => ({ ...current, [request.id]: { status: "loading" } }));
+      try {
+        const { envelope } = await OneMarketplaceService.getDelivery({
+          vaultOwnerToken,
+          requestId: request.id,
+        });
+        if (!envelope) {
+          setDeliveries((current) => ({ ...current, [request.id]: { status: "empty" } }));
+          return;
+        }
+        const decrypted = await decryptMarketplaceEnvelope({ userId: user.uid, envelope });
+        const presentation = buildDeliveryPresentation(request, envelope, decrypted);
+        setDeliveries((current) => ({
+          ...current,
+          [request.id]: { status: "ready", presentation },
+        }));
+      } catch (error) {
+        setDeliveries((current) => ({
+          ...current,
+          [request.id]: {
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not open the delivered slice on this device.",
+          },
+        }));
+      }
+    },
+    [vaultOwnerToken, user?.uid],
+  );
 
   // Load the anonymized cross-user Buyer directory (other users' published slices).
   const loadListings = useCallback(async () => {
@@ -704,7 +832,7 @@ export default function OneMarketplacePage() {
     [runPosture]
   );
 
-  const pendingRequestCount = requests.filter((r) => r.status === "pending").length;
+  const deliveredCount = received.filter((r) => r.status === "approved").length;
 
   // Identity keys of slices already published — the chat publish card filters
   // these out so a just-published slice drops off the recommendation.
@@ -749,42 +877,21 @@ export default function OneMarketplacePage() {
           vaultOwnerToken,
           listingId: listing.listingId,
         });
-        await loadRequests();
+        await loadReceived();
         setView("flow");
         toast.success("Request filed — the owner will approve or deny it.");
       } catch {
         toast.error("Couldn't file the request. Try again.");
       }
     })();
-  }, [requestListing, vaultOwnerToken, loadRequests]);
+  }, [requestListing, vaultOwnerToken, loadReceived]);
 
-  const approveRequest = useCallback(
-    async (id: string) => {
-      if (!vaultOwnerToken) return;
-      try {
-        await OneMarketplaceService.approveRequest({ vaultOwnerToken, requestId: id });
-        await loadRequests();
-        toast.success("Approved — the safe summary would be delivered to that buyer only.");
-      } catch {
-        toast.error("Couldn't approve. Refresh and try again.");
-      }
-    },
-    [vaultOwnerToken, loadRequests]
-  );
-
-  const denyRequest = useCallback(
-    async (id: string) => {
-      if (!vaultOwnerToken) return;
-      try {
-        await OneMarketplaceService.denyRequest({ vaultOwnerToken, requestId: id });
-        await loadRequests();
-        toast("Denied. Nothing shared.");
-      } catch {
-        toast.error("Couldn't deny. Refresh and try again.");
-      }
-    },
-    [vaultOwnerToken, loadRequests]
-  );
+  // Approve/deny live entirely in the Consent Guardian now — a marketplace
+  // request surfaces there as a normal consent row (see
+  // MarketplaceCenterContributor) where approval runs the real E2E delivery
+  // (seal the slice to the buyer's recipient key -> deliver ciphertext). This
+  // page no longer duplicates that action; it just shows request status and
+  // deep-links to the Guardian.
 
   const bandControls = (
     <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -830,9 +937,7 @@ export default function OneMarketplacePage() {
               {
                 value: "flow",
                 label:
-                  pendingRequestCount > 0
-                    ? `Flow & requests (${pendingRequestCount})`
-                    : "Flow & requests",
+                  deliveredCount > 0 ? `Received data (${deliveredCount})` : "Received data",
               },
             ]}
           />
@@ -867,7 +972,9 @@ export default function OneMarketplacePage() {
       <div className="mb-5">
         <MarketplaceChatPanel
           vaultOwnerToken={token ?? null}
-          onStateChanged={loadRequests}
+          userId={user?.uid ?? null}
+          vaultKey={vaultKey}
+          onStateChanged={loadReceived}
           onPublishSlice={onPublishSlice}
           publishedSliceKeys={publishedSliceKeys}
         />
@@ -895,7 +1002,7 @@ export default function OneMarketplacePage() {
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  No shareable sections yet. Add some Personal Data (e.g. via onboarding or the PKM
+                  No shareable sections yet. Add some Memory (e.g. via onboarding or the PKM
                   workspace), then each section will appear here to price and publish.
                 </div>
               ) : (
@@ -1016,8 +1123,10 @@ export default function OneMarketplacePage() {
                       <div className="mt-2 text-lg font-semibold">{listing.label}</div>
                       <div className="mt-0.5 text-sm text-muted-foreground">
                         {listing.attributeCount} attribute{listing.attributeCount === 1 ? "" : "s"} · safe
-                        summary · seller{" "}
-                        <span className="font-mono text-xs">{listing.ownerRef}</span>
+                        summary · published by{" "}
+                        <span className="font-medium text-foreground">
+                          {listing.ownerName || listing.ownerRef}
+                        </span>
                       </div>
                       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-4">
                         <div className="text-2xl font-semibold tracking-tight">
@@ -1045,130 +1154,98 @@ export default function OneMarketplacePage() {
             </div>
           ) : null}
 
-          {/* FLOW & REQUESTS — marketplace's own durable consent inbox */}
+          {/* RECEIVED DATA — the buyer's own requests + delivered slices. Owner
+              approvals happen in the Consent Guardian; here the buyer views what
+              sellers delivered, decrypting each envelope on this device. */}
           {view === "flow" ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold">Access requests</div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="none"
-                  effect="fade"
-                  onClick={() => router.push("/consents?tab=pending")}
-                >
-                  Real Consent Guardian →
-                </Button>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Slices you requested. Once the owner approves in their Consent Guardian, the encrypted
+                safe summary is delivered here — decrypted on this device with a private key only you
+                hold. The server only ever relays ciphertext.
+              </p>
 
-              {requests.length === 0 ? (
+              {received.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  No requests yet. In the <span className="font-medium text-foreground">Buyer</span> tab,
-                  buy an available slice — the request lands here for you to approve or deny.
+                  <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
+                  Nothing here yet. In the <span className="font-medium text-foreground">Buyer</span> tab,
+                  request an available slice — once the owner approves, the delivered data shows here.
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {requests.map((req) => (
-                    <div key={req.id} className="rounded-2xl border p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold">{req.sliceName}</span>
-                            <span
-                              className={
-                                "rounded-full px-2 py-0.5 text-[11px] font-medium " +
-                                (req.status === "pending"
-                                  ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
-                                  : req.status === "approved"
-                                    ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-                                    : "bg-muted text-muted-foreground")
-                              }
-                            >
-                              {req.status}
-                            </span>
+                  {received.map((req) => {
+                    const delivery = deliveries[req.id];
+                    return (
+                      <div key={req.id} className="rounded-2xl border p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold">{req.sliceName}</span>
+                              <span className={statusBadgeClass(req.status)}>{req.status}</span>
+                            </div>
+                            <div className="mt-0.5 text-sm text-muted-foreground">
+                              {req.durationDays ?? 30}-day scoped access · safe summary only
+                            </div>
                           </div>
-                          <div className="mt-0.5 text-sm text-muted-foreground">
-                            {req.buyerLabel ? `${req.buyerLabel} · ` : ""}
-                            {req.durationDays ?? 30}-day scoped access · safe summary only
+                          <div className="text-right text-lg font-semibold tracking-tight">
+                            {formatCents(req.priceCents ?? 0, req.currency ?? "USD")}{" "}
+                            <span className="text-sm font-medium text-muted-foreground">/ 30 days</span>
                           </div>
                         </div>
-                        <div className="text-right text-lg font-semibold tracking-tight">
-                          {formatCents(req.priceCents ?? 0, req.currency ?? "USD")}{" "}
-                          <span className="text-sm font-medium text-muted-foreground">/ 30 days</span>
-                        </div>
+
+                        {req.status === "approved" ? (
+                          <div className="mt-3 border-t pt-3">
+                            {delivery?.status === "loading" ? (
+                              <div className="text-sm text-muted-foreground">Decrypting your slice…</div>
+                            ) : delivery?.status === "ready" ? (
+                              <div className="rounded-xl border bg-muted/20 p-4">
+                                <PkmSectionPreview presentation={delivery.presentation} />
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {delivery?.status === "error"
+                                    ? delivery.message
+                                    : delivery?.status === "empty"
+                                      ? "Approved — the slice hasn’t been delivered yet. Check back shortly."
+                                      : "Approved — the encrypted safe summary was delivered to you."}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="none"
+                                  effect="fade"
+                                  onClick={() => void viewDelivery(req)}
+                                >
+                                  {delivery?.status === "error" ? "Try again" : "View delivered data"}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ) : req.status === "pending" ? (
+                          <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                            Waiting for the owner to approve in their Consent Guardian. Nothing is shared
+                            until they say yes.
+                          </div>
+                        ) : req.status === "denied" ? (
+                          <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                            Denied — nothing was shared.
+                          </div>
+                        ) : (
+                          <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                            Expired — access is no longer available.
+                          </div>
+                        )}
                       </div>
-                      {req.status === "pending" ? (
-                        <div className="mt-3 flex gap-2 border-t pt-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="none"
-                            effect="fade"
-                            onClick={() => void approveRequest(req.id)}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="none"
-                            effect="fade"
-                            onClick={() => void denyRequest(req.id)}
-                          >
-                            Deny
-                          </Button>
-                        </div>
-                      ) : req.status === "approved" ? (
-                        <div className="mt-3 border-t pt-3 text-xs text-emerald-700 dark:text-emerald-300">
-                          Approved — the safe summary would be delivered to this buyer only (never raw
-                          PKM). Encrypted per-buyer delivery and payment settlement are the next phase.
-                        </div>
-                      ) : req.status === "denied" ? (
-                        <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-                          Denied — nothing was shared.
-                        </div>
-                      ) : (
-                        <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-                          Expired — access is no longer available.
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
               <div className="rounded-xl bg-muted/30 px-4 py-3 text-[12.5px] text-muted-foreground">
-                These are real, saved requests — they persist across refresh. You can approve or deny
-                here or by asking the Information Marketplace agent. Encrypted per-buyer delivery and
-                payment settlement are the next phase.
-              </div>
-
-              <div className="rounded-2xl border p-5">
-                <div className="mb-3 text-sm font-medium">How a purchase flows</div>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  {[
-                    { t: "1 · Buyer finds slice + price", now: false },
-                    { t: "2 · Buyer requests access", now: true },
-                    { t: "3 · Owner approves", now: true },
-                    { t: "4 · Encrypted slice delivered to that buyer only", now: false },
-                  ].map((step, i, arr) => (
-                    <span key={step.t} className="flex items-center gap-2">
-                      <span
-                        className={
-                          "rounded-full px-3 py-1.5 font-medium " +
-                          (step.now ? "bg-foreground text-background" : "bg-muted text-muted-foreground")
-                        }
-                      >
-                        {step.t}
-                      </span>
-                      {i < arr.length - 1 ? <span className="text-muted-foreground">→</span> : null}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-                  Step 3 is mandatory. Today’s app already enforces steps 2–4 via the Consent Guardian.
-                  The storefront only adds step 1 (price + browse).
-                </div>
+                Delivery is end-to-end encrypted: the seller sealed the slice against a public key you
+                published, and only this device holds the private half. The server relayed ciphertext
+                only — it never saw the data. Switching devices means re-requesting the slice.
               </div>
             </div>
           ) : null}
@@ -1190,8 +1267,10 @@ export default function OneMarketplacePage() {
             <p className="mt-2 text-sm text-muted-foreground">
               You’re requesting <span className="font-medium text-foreground">30-day scoped access</span> to
               the safe summary of{" "}
-              <span className="font-medium text-foreground">{requestListing.label}</span> from seller{" "}
-              <span className="font-mono text-xs">{requestListing.ownerRef}</span>. This files a request the
+              <span className="font-medium text-foreground">{requestListing.label}</span>, published by{" "}
+              <span className="font-medium text-foreground">
+                {requestListing.ownerName || requestListing.ownerRef}
+              </span>. This files a request the
               owner must approve — nothing is shared until they say yes.
             </p>
             <p className="mt-2 text-xs text-muted-foreground">

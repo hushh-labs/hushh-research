@@ -399,7 +399,7 @@ export function RiaClientWorkspace({
         },
         {
           id: "ria_client_workspace_tab_explorer",
-          label: "Data",
+          label: "Information",
           type: "tab",
           state: activeTab === "explorer" ? "active" : "available",
           actionId: "ria.client_workspace.open_explorer_tab",
@@ -434,7 +434,7 @@ export function RiaClientWorkspace({
         })),
       ],
       activeTab,
-      visibleModules: ["Workspace tabs", "Client summary", "Access", "Portfolio", "Data"],
+      visibleModules: ["Workspace tabs", "Client summary", "Access", "Portfolio", "Information"],
       selectedEntity: detail?.investor_display_name || detail?.investor_email || clientId,
       selectedObjects: activeAccountBranches
         .slice(0, 8)
@@ -563,7 +563,7 @@ export function RiaClientWorkspace({
               { value: "overview", label: "Overview" },
               { value: "access", label: "Sharing" },
               { value: "kai", label: "Portfolio" },
-              { value: "explorer", label: "Data" },
+              { value: "explorer", label: "Information" },
             ]}
           />
 
@@ -903,18 +903,18 @@ export function RiaClientWorkspace({
             <div className="space-y-4" data-testid="ria-client-workspace-explorer">
               {!workspace?.workspace_ready ? (
                 <RiaSurface className="p-4 sm:p-5">
-                  <p className="text-sm font-medium text-foreground">Data is locked</p>
+                  <p className="text-sm font-medium text-foreground">Information is locked</p>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    Approval is still pending, or the client data is still getting ready.
+                    Approval is still pending, or the client's information is still getting ready.
                   </p>
                 </RiaSurface>
               ) : (
                 <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
                   <RiaSurface className="space-y-3 p-4 sm:p-5">
                     <div className="space-y-1">
-                      <p className="text-sm font-semibold tracking-tight text-foreground">Available data</p>
+                      <p className="text-sm font-semibold tracking-tight text-foreground">Available information</p>
                       <p className="text-sm leading-6 text-muted-foreground">
-                        The data groups that are ready to explore.
+                        The information groups that are ready to explore.
                       </p>
                     </div>
                     <SettingsGroup embedded>

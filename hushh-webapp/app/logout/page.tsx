@@ -40,6 +40,14 @@ export default function LogoutPage() {
   }, [registerSteps, reset]);
 
   useEffect(() => {
+    const replaceWithHome = () => {
+      if (typeof window !== "undefined") {
+        window.location.replace(ROUTES.HOME);
+        return;
+      }
+      router.replace(ROUTES.HOME);
+    };
+
     const handleLogout = async () => {
       const storageKeysToClear = [
         "vault_key",
@@ -84,7 +92,7 @@ export default function LogoutPage() {
         // Step 1: Logout complete
         completeStep();
 
-        router.push(ROUTES.HOME);
+        replaceWithHome();
       } catch (error) {
         console.error("Logout failed:", error);
         completeStep(); // Complete step on error
@@ -100,7 +108,7 @@ export default function LogoutPage() {
         clearLocalStorage();
         clearSessionStorage();
         CacheSyncService.onAuthSignedOut(auth.currentUser?.uid ?? null);
-        router.push(ROUTES.HOME);
+        replaceWithHome();
       }
     };
 

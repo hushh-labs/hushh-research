@@ -973,6 +973,11 @@ export interface KaiHomeOverviewItem {
   as_of: string | null;
   source: string;
   degraded: boolean;
+  /**
+   * Optional real intraday series (chronological closes) for an honest
+   * sparkline. When absent the UI must not invent a chart shape.
+   */
+  sparkline?: number[] | null;
 }
 
 export interface KaiHomeSpotlightItem {
@@ -1378,6 +1383,58 @@ export class ApiService {
         action_result: data.actionResult ?? null,
         memory_short: data.memoryShort || [],
         memory_retrieved: data.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async planOneGoal(data: {
+    vaultOwnerToken: string;
+    transcript?: string | null;
+    actionId?: string | null;
+    candidateActionId?: string | null;
+    slots?: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    entrypoint: "voice" | "chat" | "typed_search" | "command_bar" | "ui";
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/goal/plan", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        transcript: data.transcript ?? null,
+        action_id: data.actionId ?? null,
+        candidate_action_id: data.candidateActionId ?? null,
+        slots: data.slots || {},
+        app_state: data.appState || {},
+        entrypoint: data.entrypoint,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async composeOneGoal(data: {
+    vaultOwnerToken: string;
+    goalId: string;
+    actionId: string;
+    state: string;
+    events?: Array<Record<string, unknown>>;
+    result?: Record<string, unknown> | null;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/one/goal/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        goal_id: data.goalId,
+        action_id: data.actionId,
+        state: data.state,
+        events: data.events || [],
+        result: data.result ?? null,
       }),
       signal: data.signal,
     });
@@ -2726,6 +2783,7 @@ export class ApiService {
     timezone?: string;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
+    delegateAgentId?: string | null;
     delegateResult?: Record<string, unknown>;
     signal?: AbortSignal;
   }): Promise<Response> {
@@ -2743,6 +2801,7 @@ export class ApiService {
         timezone: data.timezone || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
+        delegate_agent_id: data.delegateAgentId || undefined,
         delegate_result: data.delegateResult || undefined,
       }),
       signal: data.signal,
@@ -2778,111 +2837,49 @@ export class ApiService {
     });
   }
 
-  /**
-   * Mint a short-lived, constrained Gemini Live ephemeral token for in-bar
-   * full-duplex voice. The browser connects directly to the Gemini Live API
-   * with this token, so the managed Gemini key never leaves the backend.
-   *
-   * Firebase auth is attached when available so the backend can pick the full
-   * (signed-in) vs. intro (pre-vault / onboarding) persona; anonymous callers
-   * send no Authorization header, which this route accepts.
-   */
-  static async fetchGeminiLiveToken(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    return ApiService.apiFetch("/api/kai/agent/realtime/gemini/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
-      },
-      body: JSON.stringify({
-        voice: data?.voice || undefined,
-        screen: data?.screen || undefined,
-        persona: data?.persona || undefined,
-        route_family: data?.routeFamily || undefined,
-        voice_state: data?.voiceState || undefined,
-      }),
-      signal: data?.signal,
-    });
-  }
-
-  static async createGeminiLiveRelaySession(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
+  static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
     relay_ticket: string;
     expires_at: number;
     model: string;
-    voice: string;
     tier: string;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch(
-      "/api/kai/agent/realtime/gemini/relay-session",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
-        },
-        body: JSON.stringify({
-          voice: data?.voice || undefined,
-          screen: data?.screen || undefined,
-          persona: data?.persona || undefined,
-          route_family: data?.routeFamily || undefined,
-          voice_state: data?.voiceState || undefined,
-        }),
-        signal: data?.signal,
-      }
-    );
+    const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({}),
+      signal: data?.signal,
+    });
     if (!response.ok) {
-      throw new Error(`Gemini Live relay session failed: ${response.status}`);
+      throw new Error(`One voice relay session failed: ${response.status}`);
     }
     return response.json();
   }
 
   /**
-   * Build the WebSocket URL for the server-side Gemini Live relay.
+   * Build the WebSocket URL for the server-side One ADK live relay.
    *
-   * Unlike the ephemeral-token path (browser connects straight to Google), this
-   * relay runs Gemini Live over Vertex AI on the backend via ADC, so it works
-   * on projects where the Developer API is restricted. The browser opens a
-   * WebSocket to our backend; the backend bridges audio to/from Vertex.
+   * The relay runs One's agent tree through ADK's Runner over Vertex AI via
+   * ADC on the backend; the browser only streams audio frames.
    *
-   * WebSockets cannot carry an Authorization header from the browser and do not
-   * pass through the Next.js middleware proxy, so the browser first mints a
-   * short-lived opaque relay ticket over HTTPS. The WebSocket URL carries only
-   * that ticket, never the Firebase bearer.
+   * WebSockets cannot carry an Authorization header from the browser and do
+   * not pass through the Next.js middleware proxy, so the browser first mints
+   * a short-lived opaque relay ticket over HTTPS. The WebSocket URL carries
+   * only that ticket, never the Firebase bearer. App context (screen, consent
+   * token) rides in post-connect app_context frames.
    */
-  static async getGeminiLiveRelayUrl(data?: {
-    voice?: string | null;
-    screen?: string | null;
-    persona?: string | null;
-    routeFamily?: string | null;
-    voiceState?: string | null;
-  }): Promise<string> {
+  static async getOneAdkLiveRelayUrl(data?: { signal?: AbortSignal }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
     const wsBase = base.replace(/^http/i, "ws");
-    const url = new URL(`${wsBase}/api/kai/agent/realtime/gemini/live`);
-    const relaySession = await this.createGeminiLiveRelaySession(data);
+    const url = new URL(`${wsBase}/api/one/adk/live`);
+    const relaySession = await this.createOneAdkRelaySession(data);
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
-    if (data?.voice) url.searchParams.set("voice", data.voice);
-    if (data?.screen) url.searchParams.set("screen", data.screen);
-    if (data?.persona) url.searchParams.set("persona", data.persona);
-    if (data?.routeFamily) url.searchParams.set("route_family", data.routeFamily);
-    if (data?.voiceState) url.searchParams.set("voice_state", data.voiceState);
     return url.toString();
   }
 

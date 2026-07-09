@@ -1,13 +1,14 @@
 """Agent One A2A endpoint.
 
 This route exposes Agent One over the existing Hussh A2A consent boundary.
-It does not mint tokens and does not grant specialist execution authority; the
+It does not mint tokens and does not expose internal routing authority; the
 caller must present a consent token scoped to ``agent.one.orchestrate``.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -66,24 +67,187 @@ class AgentOneA2AMessageResponse(BaseModel):
     is_complete: bool = Field(default=True, alias="isComplete")
 
 
-def _agent_card() -> dict[str, Any]:
+def _absolute_url(request: Request, path: str) -> str:
+    return f"{str(request.base_url).rstrip('/')}{path}"
+
+
+def _agent_card(request: Request) -> dict[str, Any]:
     manifest = get_manifest()
+    required_scopes = [
+        str(scope.value if hasattr(scope, "value") else scope)
+        for scope in manifest["required_scopes"]
+    ]
     return {
-        "agentId": manifest["agent_id"],
-        "legacyIds": list(manifest.get("legacy_ids") or []),
         "name": manifest["name"],
         "version": manifest["version"],
-        "description": manifest["description"],
-        "requiredScopes": [
-            str(scope.value if hasattr(scope, "value") else scope)
-            for scope in manifest["required_scopes"]
+        "description": (
+            "User-consent coordination agent for Hussh-held personal data, "
+            "identity/account-opening workflows, advisor onboarding context, "
+            "and privacy or vault coordination."
+        ),
+        "supportedInterfaces": [
+            {
+                "url": _absolute_url(request, "/api/one/a2a/message"),
+                "protocolBinding": "HTTP+JSON",
+                "protocolVersion": "1.0.0",
+            }
         ],
+        "protocolVersion": "1.0.0",
+        "url": _absolute_url(request, "/api/one/a2a/message"),
+        "preferredTransport": "HTTP+JSON",
+        "provider": {
+            "organization": "Hussh",
+            "url": "https://hushh.ai",
+        },
+        "documentationUrl": _absolute_url(request, "/api/one/a2a/card"),
+        "capabilities": {
+            "streaming": False,
+            "pushNotifications": False,
+            "stateTransitionHistory": False,
+            "extendedAgentCard": False,
+        },
+        "securitySchemes": {
+            "developerBearer": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "developer-token",
+                "description": "Developer token issued for the partner app.",
+            },
+            "userConsentToken": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Consent-Token",
+                "description": (
+                    "User-approved consent token scoped to agent.one.orchestrate. "
+                    "Required when executing an approved user request."
+                ),
+            },
+        },
+        "securityRequirements": [
+            {"developerBearer": []},
+        ],
+        "security": [
+            {"developerBearer": []},
+        ],
+        "defaultInputModes": ["text/plain", "application/json"],
+        "defaultOutputModes": ["application/json", "text/plain"],
+        "skills": [
+            {
+                "id": "consent_managed_personal_data",
+                "name": "Consent-managed personal data request",
+                "description": (
+                    "Coordinate a user-approved request for Hussh-held personal data "
+                    "when a partner agent needs explicit consent before proceeding."
+                ),
+                "tags": [
+                    "consent",
+                    "personal-data",
+                    "user-approved",
+                    "privacy",
+                    "vault",
+                ],
+                "examples": [
+                    "I need your approved personal data for this advisor workflow.",
+                    "I need your consent to use your Hussh-held information for this request.",
+                ],
+                "inputModes": ["text/plain", "application/json"],
+                "outputModes": ["application/json", "text/plain"],
+                "securityRequirements": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+                "security": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+            },
+            {
+                "id": "account_opening_identity_data",
+                "name": "Account-opening identity data",
+                "description": (
+                    "Coordinate a user-approved request for identity and account-opening "
+                    "fields needed by an advisor or onboarding workflow."
+                ),
+                "tags": [
+                    "identity",
+                    "account-opening",
+                    "advisor-onboarding",
+                    "tax-residency",
+                    "government-id",
+                ],
+                "examples": [
+                    "I need your legal name, date of birth, address, tax residency, and government ID details required for account opening."
+                ],
+                "inputModes": ["text/plain", "application/json"],
+                "outputModes": ["application/json", "text/plain"],
+                "securityRequirements": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+                "security": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+            },
+            {
+                "id": "privacy_and_vault_coordination",
+                "name": "Privacy and vault coordination",
+                "description": (
+                    "Coordinate consent, scope review, revocation, deletion, or vault-safe "
+                    "handling for partner workflows that touch Hussh-held user data."
+                ),
+                "tags": [
+                    "privacy",
+                    "vault",
+                    "scope-review",
+                    "revocation",
+                    "deletion",
+                ],
+                "examples": [
+                    "I need to review what Hussh data this partner is allowed to use.",
+                    "I need to revoke this partner's access to my Hussh data.",
+                ],
+                "inputModes": ["text/plain", "application/json"],
+                "outputModes": ["application/json", "text/plain"],
+                "securityRequirements": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+                "security": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+            },
+            {
+                "id": "financial_eligibility_data",
+                "name": "Financial eligibility data",
+                "description": (
+                    "Coordinate user-approved requests for financial eligibility, net worth, "
+                    "and connected-account statement data needed by an advisor or fund workflow."
+                ),
+                "tags": [
+                    "financial-eligibility",
+                    "net-worth",
+                    "bank-statements",
+                    "connected-accounts",
+                    "fund-onboarding",
+                ],
+                "examples": [
+                    "I need your financial net worth score, so that I can review your eligibility to join my Hedge Fund.",
+                    "I need your last 3 months bank statement details for each of your connected bank accounts.",
+                ],
+                "inputModes": ["text/plain", "application/json"],
+                "outputModes": ["application/json", "text/plain"],
+                "securityRequirements": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+                "security": [
+                    {"developerBearer": [], "userConsentToken": []},
+                ],
+            },
+        ],
+        # Compatibility fields for existing Hussh callers. Do not include internal routing names.
+        "agentId": manifest["agent_id"],
+        "legacyIds": list(manifest.get("legacy_ids") or []),
+        "requiredScopes": required_scopes,
         "optionalScopes": [
             str(scope.value if hasattr(scope, "value") else scope)
             for scope in manifest.get("optional_scopes", [])
         ],
-        "specialists": list(manifest.get("specialists") or []),
-        "capabilities": dict(manifest.get("capabilities") or {}),
         "compliance": dict(manifest.get("compliance") or {}),
         "endpoints": {
             "message": "/api/one/a2a/message",
@@ -160,6 +324,15 @@ def _consent_response(
         consent=consent,
         isComplete=False,
     )
+
+
+def _public_delegation(delegation: Any) -> dict[str, Any] | None:
+    if not isinstance(delegation, dict) or not delegation.get("delegated"):
+        return None
+    return {
+        "delegated": True,
+        "status": "routed_internally",
+    }
 
 
 async def _resolve_consent_user_id(body: AgentOneA2AMessageRequest) -> str:
@@ -320,15 +493,15 @@ async def _create_or_report_consent_request(
 
 
 @router.get("/card")
-async def agent_one_a2a_card() -> dict[str, Any]:
+async def agent_one_a2a_card(request: Request) -> dict[str, Any]:
     """Return Agent One capability metadata from the checked-in manifest."""
-    return _agent_card()
+    return _agent_card(request)
 
 
 @well_known_router.get("/.well-known/agent-card.json")
-async def agent_one_well_known_agent_card() -> dict[str, Any]:
+async def agent_one_well_known_agent_card(request: Request) -> dict[str, Any]:
     """Return the public A2A Agent Card at the standard well-known URI."""
-    return _agent_card()
+    return _agent_card(request)
 
 
 @router.post("/message", response_model=AgentOneA2AMessageResponse)
@@ -373,6 +546,27 @@ async def agent_one_a2a_message(
             logger.warning("agent_one_a2a.request_rejected_user_mismatch")
             raise HTTPException(status_code=403, detail="Token user does not match request user")
 
+    if _adk_runtime_enabled():
+        try:
+            response_text = await _run_adk_turn(
+                user_id=user_id,
+                consent_token=consent_token,
+                message=body.message,
+                timezone=None,
+            )
+        except Exception:
+            logger.exception("agent_one_a2a.adk_runtime_failed")
+            raise HTTPException(status_code=500, detail="Agent One could not process the request")
+        return AgentOneA2AMessageResponse(
+            agentId="agent_one",
+            conversationId=body.conversation_id,
+            userId=user_id,
+            response=response_text,
+            delegation=None,
+            consent=None,
+            isComplete=True,
+        )
+
     try:
         result = get_orchestrator().handle_message(
             message=body.message,
@@ -389,7 +583,71 @@ async def agent_one_a2a_message(
         conversationId=body.conversation_id,
         userId=user_id,
         response=str(result.get("response") or ""),
-        delegation=result.get("delegation") if isinstance(result.get("delegation"), dict) else None,
+        delegation=_public_delegation(result.get("delegation")),
         consent=None,
         isComplete=True,
     )
+
+
+def _adk_runtime_enabled() -> bool:
+    """Route external A2A turns through the ADK One head (default ON).
+
+    Set AGENT_ONE_A2A_RUNTIME=legacy to fall back to the keyword-classifier
+    orchestrator. The ADK path uses the SAME agent tree as voice (text head),
+    honoring the no-second-decision-maker doctrine at the external boundary.
+    """
+    return (os.getenv("AGENT_ONE_A2A_RUNTIME") or "adk").strip().lower() != "legacy"
+
+
+async def _run_adk_turn(
+    *,
+    user_id: str,
+    consent_token: str,
+    message: str,
+    timezone: str | None,
+) -> str:
+    """Run one text turn on One's ADK head with consent in session state.
+
+    The consent token rides ONLY in session state (STATE_CONSENT_TOKEN), the
+    same channel the voice relay uses; specialist tools read it and fail
+    closed without it. It never enters the model prompt.
+    """
+    from google.genai import types as genai_types
+
+    from hushh_mcp.one_adk.agent_tree import (
+        ONE_APP_NAME,
+        STATE_CONSENT_TOKEN,
+        STATE_TIMEZONE,
+        STATE_USER_ID,
+        get_one_text_runner,
+    )
+
+    runner = get_one_text_runner()
+    session_id = f"a2a_{uuid.uuid4().hex}"
+    await runner.session_service.create_session(
+        app_name=ONE_APP_NAME,
+        user_id=user_id,
+        session_id=session_id,
+        state={
+            STATE_USER_ID: user_id,
+            STATE_CONSENT_TOKEN: consent_token,
+            STATE_TIMEZONE: timezone or "",
+        },
+    )
+
+    content = genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=message)])
+    final_text = ""
+    async for event in runner.run_async(
+        user_id=user_id, session_id=session_id, new_message=content
+    ):
+        if event.content and event.content.parts:
+            texts = [part.text for part in event.content.parts if isinstance(part.text, str)]
+            if texts and event.is_final_response():
+                final_text = "".join(texts)
+    try:
+        await runner.session_service.delete_session(
+            app_name=ONE_APP_NAME, user_id=user_id, session_id=session_id
+        )
+    except Exception:  # noqa: BLE001 - ephemeral cleanup best-effort
+        logger.debug("agent_one_a2a.session_cleanup_skipped")
+    return final_text or "One could not produce a response for this request."
