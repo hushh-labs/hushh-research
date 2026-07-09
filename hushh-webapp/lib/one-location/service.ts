@@ -76,6 +76,10 @@ export class OneLocationService {
     return HushhLocation.requestLocationPermission();
   }
 
+  static async requestAlwaysAuthorization() {
+    return HushhLocation.requestAlwaysAuthorization();
+  }
+
   static async openAppSettings() {
     return HushhLocation.openAppSettings();
   }
@@ -116,6 +120,16 @@ export class OneLocationService {
   static async clearLocationWatch(id: string): Promise<void> {
     if (!id) return;
     return HushhLocation.clearWatch({ id });
+  }
+
+  static async startBackgroundShare(
+    session: import("@/lib/capacitor").BackgroundShareSession,
+  ) {
+    return HushhLocation.startBackgroundShare(session);
+  }
+
+  static async stopBackgroundShare(): Promise<void> {
+    return HushhLocation.stopBackgroundShare();
   }
 
 

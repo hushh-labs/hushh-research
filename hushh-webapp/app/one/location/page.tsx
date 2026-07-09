@@ -187,6 +187,13 @@ import { LocationChatPanel } from "@/components/one-location/redesign/location-c
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
+import { LiveMap } from "@/components/one-location/live-map";
+import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
+import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
+import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
+import { liveFreshness } from "@/lib/one-location/freshness";
+import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
+import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const DURATION_OPTIONS = [
@@ -198,6 +205,9 @@ const DURATION_OPTIONS = [
 ];
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+// Recipients poll faster than the owner's publish heartbeat so the shared dot
+// stays fresh; the LiveMap marker interpolates between these reads.
+const LIVE_VIEW_REFRESH_INTERVAL_MS = 5_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // True live tracking: while a share is active and the app is foregrounded, the
@@ -781,11 +791,6 @@ function locationCoordinateQuery(point: PlainLocationPoint): string {
   ].join(",");
 }
 
-function googleMapsLocationEmbedUrl(point: PlainLocationPoint): string {
-  const query = encodeURIComponent(locationCoordinateQuery(point));
-  return `https://www.google.com/maps?q=${query}&z=16&output=embed`;
-}
-
 function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
   const destination = encodeURIComponent(locationCoordinateQuery(point));
   return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
@@ -830,22 +835,22 @@ function LocalMapPreview({
   const captured = formatDateTime(point.capturedAt);
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
-  const embedUrl = googleMapsLocationEmbedUrl(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
-  const statusLabel = isStale ? "Last known location" : "Live location";
+  const freshness = liveFreshness(
+    point.capturedAt,
+    Date.now(),
+    LIVE_LOCATION_STALE_THRESHOLD_MS,
+  );
+  const statusLabel =
+    freshness.state === "live"
+      ? `Live · ${freshness.agoLabel}`
+      : `Paused · last seen ${freshness.agoLabel}`;
 
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <iframe
-          title="Live location map preview"
-          src={embedUrl}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          allowFullScreen
-          className="h-full w-full border-0"
-        />
+        <LiveMap point={point} />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
@@ -1720,6 +1725,8 @@ function OneLocationAgentPageContent() {
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  // Opt-in: keep publishing location while the app is backgrounded (native only).
+  const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
@@ -1786,6 +1793,9 @@ function OneLocationAgentPageContent() {
   const [myLocationPoint, setMyLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
+  // True once the owner taps "Show my location" — keeps their own preview
+  // streaming live (foreground) even before any share exists.
+  const [selfPreviewStreaming, setSelfPreviewStreaming] = useState(false);
   const [decryptedPoints, setDecryptedPoints] = useState<
     Record<string, PlainLocationPoint>
   >({});
@@ -1823,6 +1833,7 @@ function OneLocationAgentPageContent() {
   // geolocation watch id, the last point we actually published (to measure
   // movement), and the timestamp of that publish (to throttle bursts).
   const liveWatchIdRef = useRef<string | null>(null);
+  const selfWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
   const driveSessionRef = useRef<{
@@ -3505,6 +3516,67 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
+  // Live self-preview (Device readiness): once the owner taps "Show my location"
+  // we stream their own position continuously so the preview moves in real time,
+  // even before any share exists. Foreground-only (visibility-guarded). When a
+  // share IS active the publish watch above already keeps myLocationPoint fresh,
+  // so this standalone watch stands down to avoid a duplicate GPS stream.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (
+      !shouldStreamSelfPreview({
+        streaming: selfPreviewStreaming,
+        activeGrantCount: activeOwnerGrants.length,
+        permissionState: permission?.state,
+      })
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const watchId = await OneLocationService.watchCurrentPosition(
+          (point) => {
+            if (cancelled) return;
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "hidden"
+            ) {
+              return;
+            }
+            setMyLocationPoint(point);
+          },
+          (error) => {
+            console.warn(
+              "[OneLocationAgent] Self-preview watch error:",
+              error.message,
+            );
+          },
+        );
+        if (cancelled) {
+          void OneLocationService.clearLocationWatch(watchId).catch(() => null);
+          return;
+        }
+        selfWatchIdRef.current = watchId;
+      } catch (error) {
+        console.warn(
+          "[OneLocationAgent] Could not start self-preview watch:",
+          error,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      const watchId = selfWatchIdRef.current;
+      selfWatchIdRef.current = null;
+      if (watchId) {
+        void OneLocationService.clearLocationWatch(watchId).catch(() => null);
+      }
+    };
+  }, [selfPreviewStreaming, activeOwnerGrants.length, permission?.state]);
+
   useEffect(() => {
     if (!activeVisibleReceivedGrants.length) return;
     if (busy && busy !== "load") return;
@@ -3535,10 +3607,28 @@ function OneLocationAgentPageContent() {
     void refreshVisibleGrants();
     const interval = window.setInterval(
       () => void refreshVisibleGrants(),
-      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+      LIVE_VIEW_REFRESH_INTERVAL_MS,
     );
     return () => window.clearInterval(interval);
   }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
+
+  // Keep native background publishing in sync with the opt-in toggle + grants.
+  // Web returns { started:false } and this is a no-op there.
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    const session = buildBackgroundShareSession({
+      activeGrants: activeOwnerGrants,
+      recipients,
+      vaultOwnerToken,
+      backendBaseUrl: getApiBaseUrl(),
+      minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
+      minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+    });
+    void syncBackgroundShare({ enabled: backgroundShareEnabled, session });
+    return () => {
+      void OneLocationService.stopBackgroundShare();
+    };
+  }, [backgroundShareEnabled, activeOwnerGrants, recipients, vaultOwnerToken]);
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
@@ -4731,6 +4821,8 @@ function OneLocationAgentPageContent() {
         return;
       }
       setMyLocationPoint(result.point);
+      // Keep the preview live from here on (foreground streaming watch below).
+      setSelfPreviewStreaming(true);
       toast.success("Your live location preview is ready.");
     } catch (error) {
       const message = locationServicesErrorMessage(error);
@@ -5745,6 +5837,17 @@ function OneLocationAgentPageContent() {
                   className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("people"))}
                 >
                   {sectionLabel("People who can see me")}
+                  {activeOwnerGrants.length > 0 ? (
+                    <div className="px-1 pb-1">
+                      <BackgroundShareToggle
+                        enabled={backgroundShareEnabled}
+                        onEnabledChange={setBackgroundShareEnabled}
+                        requestAlwaysAuthorization={
+                          OneLocationService.requestAlwaysAuthorization
+                        }
+                      />
+                    </div>
+                  ) : null}
                   <div className={oneScrollablePanelClassName}>
                     {(state?.ownerGrants ?? []).length ? (
                       state?.ownerGrants.map((grant, index) => (

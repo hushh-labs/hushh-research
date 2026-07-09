@@ -33,6 +33,8 @@ const iosUsageDescriptionKeys = [
 const allowedIosUsageDescriptionKeys = new Set([
   "NSMicrophoneUsageDescription",
   "NSLocationWhenInUseUsageDescription",
+  // Background location sharing (One Location) needs Always authorization.
+  "NSLocationAlwaysAndWhenInUseUsageDescription",
   "NSContactsUsageDescription",
 ]);
 const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
@@ -96,8 +98,8 @@ if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
 if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
   fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
 }
-if (infoPlist.includes("<string>location</string>")) {
-  fail("One Location Agent v1 must not add iOS background location mode.");
+if (!infoPlist.includes("<string>location</string>")) {
+  fail("One Location background sharing requires the iOS 'location' background mode in Info.plist UIBackgroundModes.");
 }
 
 const routeValues = routeValuesFromRoutesTs(read(routesPath));
