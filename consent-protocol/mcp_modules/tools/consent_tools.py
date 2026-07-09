@@ -425,7 +425,6 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                                     "covered_by_existing_grant", True
                                 ),
                                 "expiry_hours": data.get("expiry_hours"),
-                                "request_url": data.get("request_url"),
                                 "requester_label": data.get("requester_label"),
                                 "requester_image_url": data.get("requester_image_url"),
                                 "reason": data.get("reason"),
@@ -484,8 +483,17 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                                 "message",
                                 "Consent request submitted. User approval is pending in Hussh app.",
                             ),
-                            "approval_surface": data.get("approval_surface", "/consents"),
-                            "request_url": data.get("request_url"),
+                            # Device-flow boundary: the OWNER approves on their
+                            # own device. Hussh has already notified them (push
+                            # + consent inbox). The requesting party never gets
+                            # or relays an approval link - it is not their
+                            # surface, and link-relay invites phishing patterns.
+                            "user_notification": (
+                                "The user has been notified in their Hussh app "
+                                "(push notification + consent inbox) and will "
+                                "approve or decline there. Do not send them a "
+                                "link; there is nothing for you to forward."
+                            ),
                             "approval_timeout_at": data.get("approval_timeout_at")
                             or data.get("poll_timeout_at"),
                             "approval_timeout_minutes": data.get("approval_timeout_minutes"),
@@ -497,7 +505,10 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                             "existing_granted_scopes": data.get("existing_granted_scopes"),
                             "additional_access_summary": data.get("additional_access_summary"),
                             "offer": data.get("offer"),
-                            "next_step": "Call check_consent_status later, or wait for user confirmation.",
+                            "next_step": (
+                                "Poll check_consent_status with this request_id "
+                                "until it reports granted or denied."
+                            ),
                         }
                     ),
                 )
@@ -608,6 +619,17 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
             )
             status_response.raise_for_status()
             data = status_response.json()
+
+        # Same device-flow boundary as request_consent: the approval deep link
+        # belongs to the owner's notified device, never to the requesting party.
+        if isinstance(data, dict):
+            data.pop("request_url", None)
+            data.pop("approval_surface", None)
+            if str(data.get("status") or "").strip().lower() == "pending":
+                data["user_notification"] = (
+                    "The user has been notified in their Hussh app and approves "
+                    "or declines there. Keep polling; do not send them a link."
+                )
 
         return [TextContent(type="text", text=json.dumps(data))]
 
