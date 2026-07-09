@@ -880,6 +880,45 @@ class UatKaiSmoke:
             "connectorKeyId": connector_key_id,
         }
 
+    def _fetch_export_ciphertext(self, package: dict[str, Any]) -> bytes:
+        """Resolve ciphertext bytes from an export package.
+
+        Small exports inline base64 in encrypted_data. Larger exports set
+        delivery=download; fetch the raw bytes from the authenticated download
+        endpoint exactly the way an external connector script would.
+        """
+        inline = package.get("encrypted_data")
+        if inline:
+            return _b64decode(str(inline))
+
+        download = package.get("download") or {}
+        download_body = download.get("json_body") or {}
+        consent_token = str(
+            package.get("consent_token")
+            or package.get("token")
+            or download_body.get("consent_token")
+            or ""
+        ).strip()
+        user_id = str(
+            package.get("user_id") or download_body.get("user_id") or self.user_id
+        ).strip()
+        if not consent_token:
+            raise RuntimeError(
+                "Export package has no inline ciphertext and no consent_token for download."
+            )
+        response = self._request(
+            "POST",
+            "/api/v1/scoped-export/download",
+            params={"token": self.developer_token},
+            headers={"Content-Type": "application/json"},
+            json_body={"user_id": user_id, "consent_token": consent_token},
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"scoped-export download failed: {response.status_code} {response.text[:300]}"
+            )
+        return response.content
+
     def _decrypt_scoped_export(self, package: dict[str, Any]) -> dict[str, Any]:
         wrapped = package.get("wrapped_key_bundle") or {}
         sender_public = X25519PublicKey.from_public_bytes(
@@ -895,9 +934,10 @@ class UatKaiSmoke:
             + _b64decode(str(wrapped["wrapped_key_tag"])),
             None,
         )
+        ciphertext = self._fetch_export_ciphertext(package)
         plaintext = AESGCM(export_key).decrypt(
             _b64decode(str(package["iv"])),
-            _b64decode(str(package["encrypted_data"])) + _b64decode(str(package["tag"])),
+            ciphertext + _b64decode(str(package["tag"])),
             None,
         )
         return json.loads(plaintext)

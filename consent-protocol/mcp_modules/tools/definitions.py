@@ -281,7 +281,11 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "📦 Retrieve the encrypted wrapped-key export for any valid consent token. "
                 "This is the recommended dynamic data-access tool for all new integrations. "
-                "Hussh returns ciphertext plus wrapped key metadata only; the external connector decrypts client-side."
+                "Hussh returns ciphertext plus wrapped key metadata only; the external connector decrypts client-side. "
+                "Small exports include the base64 ciphertext inline (encrypted_data). Larger exports set "
+                "delivery=download: fetch the raw bytes with the returned download instructions (an authenticated "
+                "POST your script runs directly). Never retype or reconstruct ciphertext through the model context; "
+                "always download and decrypt in your script."
             ),
             inputSchema={
                 "type": "object",

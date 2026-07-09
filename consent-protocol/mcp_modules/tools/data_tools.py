@@ -13,10 +13,51 @@ import httpx
 from mcp.types import TextContent
 
 from hushh_mcp.consent.token import validate_token_with_db
-from mcp_modules.config import FASTAPI_URL
+from mcp_modules.config import CONSENT_API_PUBLIC_ORIGIN, FASTAPI_URL
 from mcp_modules.developer_context import get_developer_request_query
 
 logger = logging.getLogger("hushh-mcp-server")
+
+# Exports whose base64 ciphertext fits comfortably in a tool result stay inline
+# so small reads remain a single turn. Anything larger is delivered via the
+# authenticated download endpoint so the ciphertext never transits LLM context
+# (models are slow and lossy at re-emitting large base64 through text tools).
+# Threshold is evidence-driven: a 31.7KB-base64 portfolio export stalled a
+# Claude Desktop connector that tried to re-emit it through text tools, so the
+# inline lane is reserved for genuinely small payloads.
+INLINE_EXPORT_MAX_BASE64_CHARS = 16_000
+
+
+def _download_instructions(*, user_id: str, consent_token: str) -> dict:
+    """Build connector-facing instructions for fetching ciphertext directly.
+
+    The developer token is intentionally NOT embedded here: the connector
+    already holds it, and echoing it into model context would leak a
+    credential. The curl template references the env var instead.
+    """
+    url = f"{CONSENT_API_PUBLIC_ORIGIN}/api/v1/scoped-export/download"
+    body = json.dumps({"user_id": user_id, "consent_token": consent_token})
+    return {
+        "url": url,
+        "method": "POST",
+        "auth": "Authorization: Bearer <your developer token> (same token this MCP connection uses)",
+        "json_body": {"user_id": user_id, "consent_token": consent_token},
+        "response": (
+            "Raw ciphertext bytes (application/octet-stream). IV and tag ride the "
+            "X-Export-IV / X-Export-Tag response headers (base64)."
+        ),
+        "curl_example": (
+            f'curl -sf -X POST "{url}" '
+            '-H "Authorization: Bearer $HUSHH_DEVELOPER_TOKEN" '
+            "-H 'Content-Type: application/json' "
+            f"-d '{body}' -o export.bin -D headers.txt"
+        ),
+        "important": (
+            "Fetch the ciphertext inside your script or shell. Never echo the "
+            "ciphertext into the model context or retype it through text tools; "
+            "decrypt export.bin locally with the wrapped key bundle."
+        ),
+    }
 
 
 async def resolve_user_identifier_to_uid(
@@ -168,6 +209,20 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     if status_value != "success":
         return [TextContent(type="text", text=json.dumps(export_payload))]
 
+    encrypted_data = str(export_payload.get("encrypted_data") or "")
+    inline_ok = len(encrypted_data) <= INLINE_EXPORT_MAX_BASE64_CHARS
+    delivery: dict = {
+        "delivery": "inline" if inline_ok else "download",
+        "encrypted_data": encrypted_data if inline_ok else None,
+        "download": _download_instructions(user_id=user_id, consent_token=str(consent_token)),
+    }
+    if not inline_ok:
+        delivery["delivery_note"] = (
+            f"Ciphertext is {len(encrypted_data)} base64 chars, above the "
+            f"{INLINE_EXPORT_MAX_BASE64_CHARS}-char inline limit. Fetch it with the "
+            "download instructions; do not attempt to reconstruct it from context."
+        )
+
     return [
         TextContent(
             type="text",
@@ -184,7 +239,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
                     "export_revision": export_payload.get("export_revision"),
                     "export_generated_at": export_payload.get("export_generated_at"),
                     "export_refresh_status": export_payload.get("export_refresh_status"),
-                    "encrypted_data": export_payload.get("encrypted_data"),
+                    **delivery,
                     "iv": export_payload.get("iv"),
                     "tag": export_payload.get("tag"),
                     "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),

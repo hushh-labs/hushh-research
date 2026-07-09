@@ -3,6 +3,7 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_scoped_export_download.py
 tests/quality/test_kai_route_auth_compliance.py
 tests/test_kai_auth_matrix.py
 tests/test_kai_consent_grant_dynamic_scopes.py

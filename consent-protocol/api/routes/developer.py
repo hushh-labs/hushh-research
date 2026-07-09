@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import inspect
 import json
 import logging
@@ -8,7 +10,7 @@ import time
 import uuid
 from typing import Any, AsyncGenerator, Literal, Optional, TypedDict, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -96,6 +98,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
             "Dynamic attr scopes are derived from PKM discovery metadata and the scope registry.",
             "Scopes marked default_available are safe projections published by the user; read them through /api/v1/default-available-export instead of creating a consent request.",
             "Use get_encrypted_scoped_export for all consented reads; Hussh does not return plaintext user data to developer callers.",
+            "Large export ciphertext should be fetched as raw bytes via POST /api/v1/scoped-export/download (same auth) instead of routing base64 through an LLM context.",
         ]
     )
 
@@ -862,6 +865,7 @@ def _developer_root_payload() -> dict[str, object]:
             "default_available_export": "/api/v1/default-available-export",
             "consent_status": "/api/v1/consent-status",
             "scoped_export": "/api/v1/scoped-export",
+            "scoped_export_download": "/api/v1/scoped-export/download",
         },
         "recommended_resources": [
             "hushh://info/connector",
@@ -1596,21 +1600,29 @@ async def get_default_available_export(
     )
 
 
-@developer_api_router.post("/scoped-export", response_model=DeveloperScopedExportResponse)
-async def get_scoped_export(
-    payload: DeveloperScopedExportRequest,
+async def _load_scoped_export_or_raise(
+    *,
     request: Request,
-    token: Optional[str] = Query(None, max_length=2048),
-    authorization: Optional[str] = Header(None),
-):
+    token: Optional[str],
+    authorization: Optional[str],
+    user_id: str,
+    consent_token: str,
+    expected_scope: str | None,
+) -> tuple[DeveloperPrincipal, Any, dict]:
+    """Shared auth + fetch path for /scoped-export and /scoped-export/download.
+
+    Validates the developer principal, the consent token (signature, expiry,
+    scope), user binding, and app binding, then loads the active encrypted
+    export. Raises HTTPException on any failure; both endpoints must enforce
+    an identical trust boundary.
+    """
     principal = _resolve_principal(
         request=request,
         token=token,
         authorization=authorization,
     )
-    expected_scope = normalize_scope(payload.expected_scope) if payload.expected_scope else None
     valid, reason, token_obj = await validate_token_with_db(
-        payload.consent_token,
+        consent_token,
         expected_scope=expected_scope,
     )
     if not valid or token_obj is None:
@@ -1622,7 +1634,7 @@ async def get_scoped_export(
             },
         )
 
-    if str(token_obj.user_id) != payload.user_id:
+    if str(token_obj.user_id) != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -1640,7 +1652,7 @@ async def get_scoped_export(
         )
 
     service = ConsentDBService()
-    export_data = await service.get_consent_export(payload.consent_token)
+    export_data = await service.get_consent_export(consent_token)
     if not export_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1649,6 +1661,26 @@ async def get_scoped_export(
                 "message": "No active encrypted export is available for this consent token.",
             },
         )
+    return principal, token_obj, export_data
+
+
+@developer_api_router.post("/scoped-export", response_model=DeveloperScopedExportResponse)
+async def get_scoped_export(
+    payload: DeveloperScopedExportRequest,
+    request: Request,
+    token: Optional[str] = Query(None, max_length=2048),
+    authorization: Optional[str] = Header(None),
+):
+    expected_scope = normalize_scope(payload.expected_scope) if payload.expected_scope else None
+    principal, token_obj, export_data = await _load_scoped_export_or_raise(
+        request=request,
+        token=token,
+        authorization=authorization,
+        user_id=payload.user_id,
+        consent_token=payload.consent_token,
+        expected_scope=expected_scope,
+    )
+    service = ConsentDBService()
 
     if not export_data.get("is_strict_zero_knowledge"):
         await service.invalidate_legacy_active_token(
@@ -1693,6 +1725,78 @@ async def get_scoped_export(
             if not expected_scope or expected_scope == granted_scope
             else "Encrypted export ready. The granted scope is broader than expected_scope, so narrow it client-side after decrypting."
         ),
+    )
+
+
+@developer_api_router.post("/scoped-export/download")
+async def download_scoped_export(
+    payload: DeveloperScopedExportRequest,
+    request: Request,
+    token: Optional[str] = Query(None, max_length=2048),
+    authorization: Optional[str] = Header(None),
+):
+    """Serve the encrypted export ciphertext as raw bytes.
+
+    Same trust boundary as /scoped-export (developer principal + consent token
+    + user/app binding), but returns the base64-decoded ciphertext as an
+    application/octet-stream body so connectors can fetch it directly in a
+    script instead of routing a large base64 blob through an LLM context.
+    IV, tag, and revision ride response headers; the wrapped key bundle stays
+    JSON-only via /scoped-export. POST keeps the consent token out of URLs.
+
+    Scale seam: exports are capped at 10MB base64 today, far below the 32MB
+    Cloud Run response limit. If exports ever outgrow that, replace this body
+    with a short-lived signed storage URL without changing the request shape.
+    """
+    expected_scope = normalize_scope(payload.expected_scope) if payload.expected_scope else None
+    _, token_obj, export_data = await _load_scoped_export_or_raise(
+        request=request,
+        token=token,
+        authorization=authorization,
+        user_id=payload.user_id,
+        consent_token=payload.consent_token,
+        expected_scope=expected_scope,
+    )
+
+    if not export_data.get("is_strict_zero_knowledge"):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "LEGACY_EXPORT_INVALIDATED",
+                "message": (
+                    "This consent grant used a deprecated non-zero-knowledge export format. "
+                    "Request consent again to receive a wrapped-key-only export."
+                ),
+            },
+        )
+
+    encrypted_b64 = str(export_data.get("encrypted_data") or "")
+    try:
+        ciphertext = base64.b64decode(encrypted_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "SCOPED_EXPORT_CORRUPT",
+                "message": "Stored export payload is not valid base64.",
+            },
+        )
+
+    granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
+    headers = {
+        "X-Export-IV": str(export_data.get("iv") or ""),
+        "X-Export-Tag": str(export_data.get("tag") or ""),
+        "X-Export-Scope": granted_scope,
+        "Cache-Control": "no-store",
+    }
+    export_revision = export_data.get("export_revision")
+    if export_revision is not None:
+        headers["X-Export-Revision"] = str(export_revision)
+
+    return Response(
+        content=ciphertext,
+        media_type="application/octet-stream",
+        headers=headers,
     )
 
 

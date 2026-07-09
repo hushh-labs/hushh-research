@@ -155,3 +155,78 @@ async def test_get_encrypted_scoped_export_denies_invalid_token(monkeypatch):
     payload = json.loads(result[0].text)
     assert payload["status"] == "access_denied"
     assert payload["required_scope"] == "attr.financial.*"
+
+
+def _wire_success(monkeypatch, *, encrypted_data: str) -> None:
+    async def _resolve(user_id: str, **kwargs) -> str:  # noqa: ANN003
+        return "user_123"
+
+    async def _validate(token: str, expected_scope=None):  # noqa: ANN001
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user_123",
+                scope_str="attr.financial.*",
+                scope=SimpleNamespace(value="attr.financial.*"),
+            ),
+        )
+
+    async def _fetch(*, user_id: str, consent_token: str, expected_scope: str | None):
+        return {
+            "status": "success",
+            "granted_scope": "attr.financial.*",
+            "coverage_kind": "exact",
+            "expires_at": 123456789,
+            "export_revision": 4,
+            "export_generated_at": "2026-03-24T18:30:00Z",
+            "export_refresh_status": "current",
+            "encrypted_data": encrypted_data,
+            "iv": "iv",
+            "tag": "tag",
+            "wrapped_key_bundle": {"wrapped_export_key": "wrapped"},
+        }
+
+    monkeypatch.setattr(data_tools, "resolve_email_to_uid", _resolve)
+    monkeypatch.setattr(data_tools, "validate_token_with_db", _validate)
+    monkeypatch.setattr(data_tools, "_fetch_encrypted_export_package", _fetch)
+
+
+@pytest.mark.asyncio
+async def test_small_export_inlines_and_still_offers_download(monkeypatch):
+    _wire_success(monkeypatch, encrypted_data="small_ciphertext")
+
+    result = await data_tools.handle_get_encrypted_scoped_export(
+        {"user_id": "user@example.com", "consent_token": "token_123"}
+    )
+
+    payload = json.loads(result[0].text)
+    assert payload["delivery"] == "inline"
+    assert payload["encrypted_data"] == "small_ciphertext"
+    download = payload["download"]
+    assert download["url"].endswith("/api/v1/scoped-export/download")
+    assert download["method"] == "POST"
+    assert download["json_body"] == {"user_id": "user_123", "consent_token": "token_123"}
+    # The developer token must never be echoed into model context.
+    assert "hdk_" not in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_large_export_omits_inline_blob_and_directs_to_download(monkeypatch):
+    big_blob = "A" * (data_tools.INLINE_EXPORT_MAX_BASE64_CHARS + 1)
+    _wire_success(monkeypatch, encrypted_data=big_blob)
+
+    result = await data_tools.handle_get_encrypted_scoped_export(
+        {"user_id": "user@example.com", "consent_token": "token_123"}
+    )
+
+    payload = json.loads(result[0].text)
+    assert payload["delivery"] == "download"
+    assert payload["encrypted_data"] is None
+    assert "delivery_note" in payload
+    # Metadata needed for decryption still rides inline.
+    assert payload["iv"] == "iv"
+    assert payload["tag"] == "tag"
+    assert payload["wrapped_key_bundle"] == {"wrapped_export_key": "wrapped"}
+    # The tool result must be dramatically smaller than the blob itself.
+    assert len(result[0].text) < len(big_blob)
