@@ -505,6 +505,27 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
         refs = set(extract_referenced_issues(pr.get("body", "")))
         refs.update(extract_referenced_issues(pr.get("headRefName", "")))
         r = pr["repo"]
+
+        # Unlinked-merge guard (Hussh Research SOP gap, 2026-07-09): a merged/
+        # closed owned PR with ZERO issue references cannot drive any board
+        # item to Done -- the completion is invisible to this sync. Flag it in
+        # the report instead of silently reporting a clean "no changes" run,
+        # so the operator notices and backfills issues/Closes-# links rather
+        # than the board silently drifting behind real shipped work.
+        unlinked_key = f"{r}-pr#{pr['number']}-unlinked"
+        if not refs:
+            if prev_state.get(unlinked_key) != "flagged":
+                pr_title = pr.get("title", "")
+                out.append(
+                    f"- \u26a0\ufe0f **{r}#{pr['number']}** ({pr_title!r}) merged/closed with "
+                    f"NO issue references -- board not updated. Add `Closes #NNNN` to the PR body "
+                    f"and re-run sync, or backfill an issue for this work."
+                )
+                has_changes = True
+            cur_state[unlinked_key] = "flagged"
+        else:
+            cur_state[unlinked_key] = "linked"
+
         for num in refs:
             try:
                 details = board_ops.get_issue_json(r, num)

@@ -34,6 +34,8 @@ This reference documents the canonical GitHub board workflow for this repo.
 5. When the user asks for labels, update them explicitly and verify the final label set on the issue.
 6. If a task is duplicate or redundant, consolidate its remaining scope into the canonical issue, add a traceability comment, and remove the duplicate project item from the board. Preserve GitHub issue history unless the user explicitly asks for destructive issue deletion.
 7. Do not mark duplicate or redundant tasks as `Done` unless the duplicated task itself was actually delivered and accepted.
+8. Every PR that ships owner-scoped work MUST reference at least one issue via `Closes #NNNN` / `Fixes #NNNN` / `#NNNN` in the PR body (or branch name) — one reference per logical unit of work for multi-workstream PRs. This is what lets the daily board sync auto-complete the linked issue; a PR with no issue reference is invisible to that automation and the board silently drifts behind real shipped work (see 2026-07-09 incident: PR #4376 shipped 7 workstreams with zero issue links; board sync correctly reported nothing to do). Create the issue(s) BEFORE or WHILE opening the PR, not after merge.
+9. `board_sync_cycle.py` flags (does not silently skip) any owned merged/closed PR with zero issue references in its "Completion & Delivery" report section. Treat that warning as an action item: backfill an issue, edit the PR body to add `Closes #NNNN`, and re-run the sync so the board catches up.
 
 ## Board hygiene SOP
 
