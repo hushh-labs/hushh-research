@@ -152,7 +152,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "consent",
     // Nav owns the consent center: approvals, revocations, and the
-    // Relationships tab (trusted connections are Nav's domain too).
+    // Connections tab (trusted connections are Nav's domain too).
     agentId: "agent_nav",
     title: "Consent",
     description: "Access requests, approvals, and revocations.",

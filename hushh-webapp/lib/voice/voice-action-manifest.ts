@@ -9,6 +9,7 @@ export type VoiceActionManifestDelegateAgentId =
   | "kai"
   | "nav"
   | "agent_kyc"
+  | "agent_nav"
   | "agent_connected_systems"
   | "agent_connections"
   | "agent_email"
@@ -85,6 +86,7 @@ function validateDelegateAgentId(value: unknown): VoiceActionManifestDelegateAge
     value === "kai" ||
     value === "nav" ||
     value === "agent_kyc" ||
+    value === "agent_nav" ||
     value === "agent_connected_systems" ||
     value === "agent_connections" ||
     value === "agent_email" ||

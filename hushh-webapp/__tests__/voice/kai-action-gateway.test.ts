@@ -66,6 +66,7 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
   "kai",
   "nav",
   "agent_kyc",
+  "agent_nav",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
