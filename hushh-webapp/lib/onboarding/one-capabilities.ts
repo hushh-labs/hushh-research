@@ -41,6 +41,16 @@ export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export interface OneCapability {
   id: string;
+  /**
+   * Backend agent lane this tile is bound to, or null when the tile is a
+   * pure access/preview surface with no agent behind it (consent center,
+   * marketplace preview) or the lane does not exist yet (gmail).
+   *
+   * This is a CONTRACT, not a comment: ids must exist in the backend
+   * SPECIALIST_A2A_SCOPE_MAP and are enforced by
+   * consent-protocol/scripts/verify_agent_hierarchy_contract.py.
+   */
+  agentId: string | null;
   title: string;
   /** Plain-language, rookie-safe description of what this capability does. */
   description: string;
@@ -80,6 +90,7 @@ export interface OneCapability {
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "finance",
+    agentId: "agent_kai",
     // Public agent name is "Finance" (renamed back from a brief "Investor"
     // pass). Kai remains the internal finance runtime naming: id, routes,
     // contracts, and code identifiers unchanged.
@@ -94,6 +105,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "gmail",
+    // No dedicated agent lane yet: receipt sync runs as a service pipeline,
+    // not a roster agent. Revisit when a gmail specialist lands.
+    agentId: null,
     title: "Gmail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
@@ -105,6 +119,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "email",
+    agentId: "agent_email",
     title: "Email",
     description: "Approval drafts and client request workflows.",
     href: ROUTES.ONE_KYC,
@@ -115,6 +130,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "location",
+    agentId: "agent_location",
     title: "Location",
     description: "Live sharing, referrals, and local context.",
     previewLabel: "Live sharing & local context",
@@ -126,6 +142,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "pkm",
+    agentId: "agent_personal_information",
     title: "Personal Data",
     description: "Saved knowledge and information you can review.",
     href: ROUTES.PKM,
@@ -136,6 +153,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "consent",
+    // Access surface (approve/revoke), not an agent workspace.
+    agentId: null,
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
@@ -146,6 +165,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "marketplace",
+    // Preview surface only today; no roster agent behind it.
+    agentId: null,
     title: "Information Marketplace",
     description: "Preview priced slices of your data you could publish.",
     previewLabel: "Priced data slices",
@@ -157,6 +178,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "connected-systems",
+    agentId: "agent_connected_systems",
     title: "Connected Systems",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
