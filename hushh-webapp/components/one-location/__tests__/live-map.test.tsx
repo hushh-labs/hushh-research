@@ -34,6 +34,23 @@ describe("LiveMap", () => {
     expect(iframe.src).toContain(encodeURIComponent("12.971600,77.594600"));
   });
 
+  it("keeps the iframe centered until the point moves past the recenter threshold", () => {
+    mockStatus.current = "error";
+    const iframeSrc = () =>
+      (screen.getByTitle("Live location map preview") as HTMLIFrameElement).src;
+
+    const { rerender } = render(<LiveMap point={point} />);
+    expect(iframeSrc()).toContain(encodeURIComponent("12.971600,77.594600"));
+
+    // ~11 m north — below the 50 m threshold, embed stays put (no reload).
+    rerender(<LiveMap point={{ ...point, latitude: 12.9717 }} />);
+    expect(iframeSrc()).toContain(encodeURIComponent("12.971600,77.594600"));
+
+    // ~111 m north — past the threshold, embed recenters.
+    rerender(<LiveMap point={{ ...point, latitude: 12.9726 }} />);
+    expect(iframeSrc()).toContain(encodeURIComponent("12.972600,77.594600"));
+  });
+
   it("creates an interactive map + marker when ready", () => {
     // vitest 4.x requires non-arrow implementations for mocks called with `new`.
     const Marker = vi.fn(function () {

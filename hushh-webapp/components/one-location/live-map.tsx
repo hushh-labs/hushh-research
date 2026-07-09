@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   easeInOutQuad,
+  haversineMeters,
   lerpLatLng,
   shouldSnap,
   type LatLngLiteral,
@@ -19,6 +20,13 @@ import { cn } from "@/lib/utils";
 // One glide should finish before the next ~5s poll lands.
 const MARKER_ANIMATION_MS = 1200;
 
+// In iframe-fallback mode (Maps JS unavailable — e.g. the iOS App:// WebView)
+// every src change reloads the whole embed, a visible flash. So we only recenter
+// the embed once the point has moved a meaningful distance: stationary stays put
+// (no flashing), and movement recenters occasionally instead of on every fix.
+// The interactive JS map path is unaffected — it glides smoothly on every point.
+const IFRAME_RECENTER_METERS = 50;
+
 export interface LiveMapProps {
   point: PlainLocationPoint;
   className?: string;
@@ -32,6 +40,17 @@ export function LiveMap({ point, className }: LiveMapProps) {
   const frameRef = useRef<number | null>(null);
 
   const target: LatLngLiteral = locationLatLng(point);
+
+  // The point the iframe embed is currently centered on. Updated lazily so tiny
+  // GPS jitter / frequent fixes don't reload the embed on every render.
+  const [iframePoint, setIframePoint] = useState(point);
+  useEffect(() => {
+    setIframePoint((current) =>
+      haversineMeters(locationLatLng(current), target) >= IFRAME_RECENTER_METERS
+        ? point
+        : current,
+    );
+  }, [target.lat, target.lng, point]);
 
   // Create the map + marker once the API is ready and the container exists.
   useEffect(() => {
@@ -97,7 +116,7 @@ export function LiveMap({ point, className }: LiveMapProps) {
     return (
       <iframe
         title="Live location map preview"
-        src={googleMapsLocationEmbedUrl(point)}
+        src={googleMapsLocationEmbedUrl(iframePoint)}
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
         allowFullScreen
