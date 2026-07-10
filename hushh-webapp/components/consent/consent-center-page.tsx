@@ -85,6 +85,8 @@ import {
 } from "@/lib/consent/location-consent";
 import { isMarketplaceConsent } from "@/lib/consent/marketplace-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
+import { isConnectionRequestEntry } from "@/components/consent/connection-request-entry";
+import { ConnectionsService } from "@/lib/services/connections-service";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -1404,6 +1406,19 @@ export function ConsentCenterPage() {
   );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
+      if (isConnectionRequestEntry(entry)) {
+        void (async () => {
+          if (!user) return;
+          try {
+            const idToken = await user.getIdToken();
+            await ConnectionsService.accept({ idToken, requestId: entry.request_id || entry.id });
+            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+          } catch {
+            /* toast handled by caller UI */
+          }
+        })();
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationApprove(entry, durationHours);
         return;
@@ -1420,10 +1435,24 @@ export function ConsentCenterPage() {
       handleMarketplaceApprove,
       isLocationEntry,
       isMarketplaceEntry,
+      user,
     ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isConnectionRequestEntry(entry)) {
+        void (async () => {
+          if (!user) return;
+          try {
+            const idToken = await user.getIdToken();
+            await ConnectionsService.reject({ idToken, requestId: entry.request_id || entry.id });
+            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+          } catch {
+            /* toast handled by caller UI */
+          }
+        })();
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationDeny(entry);
         return;
@@ -1440,6 +1469,7 @@ export function ConsentCenterPage() {
       handleMarketplaceDeny,
       isLocationEntry,
       isMarketplaceEntry,
+      user,
     ],
   );
   const revokeEntry = useCallback(
