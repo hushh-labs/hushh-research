@@ -2029,27 +2029,38 @@ export function ConsentCenterPage() {
   ]);
   usePublishVoiceSurfaceMetadata(consentVoiceSurfaceMetadata);
 
-  const setParam = (updates: Record<string, string | null>) => {
-    const next = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if (!value) {
-        next.delete(key);
-      } else {
-        next.set(key, value);
+  // IMPORTANT: this must depend on the current searchParams/pathname/
+  // riaOutgoingCompatibilityRoute so every caller always mutates the CURRENT
+  // URL, never a stale snapshot from an earlier render. (A previous version
+  // of closeDetailPanel captured this function once via useCallback([]) and
+  // replayed page-load-time searchParams forever, which reset the active
+  // tab to "requests" every time the detail panel closed - see below.)
+  const setParam = useCallback(
+    (updates: Record<string, string | null>) => {
+      const next = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (!value) {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
       }
-    }
-    if (!riaOutgoingCompatibilityRoute && !("actor" in updates)) {
-      next.delete("actor");
-      next.delete("view");
-    }
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, {
-      scroll: false,
-    });
-  };
+      if (!riaOutgoingCompatibilityRoute && !("actor" in updates)) {
+        next.delete("actor");
+        next.delete("view");
+      }
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [pathname, riaOutgoingCompatibilityRoute, router, searchParams],
+  );
 
   // Close the detail panel instantly, then clear its URL params in a transition
-  // so the route navigation never blocks the panel's close animation.
+  // so the route navigation never blocks the panel's close animation. Only the
+  // panel-specific params are cleared; tab/page/q/actor/view are untouched, so
+  // closing never changes which tab you are viewing.
   const closeDetailPanel = useCallback(() => {
     setPanelCloseRequested(true);
     startPanelUrlSync(() => {
@@ -2060,10 +2071,7 @@ export function ConsentCenterPage() {
         notificationAction: null,
       });
     });
-    // setParam intentionally excluded; it is recreated each render and only
-    // reads current searchParams/router refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startPanelUrlSync]);
+  }, [setParam, startPanelUrlSync]);
 
   // When the selected request changes (deep link, list selection, or after the
   // URL finishes clearing), drop the local close override so the panel can open

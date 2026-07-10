@@ -299,6 +299,47 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
   });
 
+  it("closing the detail panel preserves the active tab instead of reverting to pending", async () => {
+    // Regression test: closeDetailPanel used to be memoized with an empty
+    // dependency array, permanently capturing the setParam/searchParams
+    // snapshot from the FIRST render (mounted on tab=pending). Once the user
+    // navigated to a different tab (a later render with fresh searchParams),
+    // the frozen closeDetailPanel kept calling the stale, pending-tab-bound
+    // setParam, silently reverting tab=history back to tab=pending on close.
+    // Reproduce by mounting on pending, then re-rendering as the URL would
+    // after a real tab switch (Next.js gives fresh searchParams on
+    // navigation), then closing the panel.
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 0, previous: 1 },
+    });
+    mocks.listEntries.mockResolvedValue(emptyListResponse());
+    mocks.search = "tab=pending";
+
+    const { rerender } = render(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.listEntries).toHaveBeenCalled());
+
+    // Simulate the URL after switching to History and opening an entry -
+    // exactly what a real router.replace + Next.js re-render would produce.
+    mocks.listEntries.mockResolvedValue(groupedHistoryListResponse());
+    mocks.search = "tab=history&requestId=identifier:macy";
+    rerender(<ConsentCenterPage />);
+
+    await screen.findByText("Consent history");
+
+    const closeButton = screen.getByRole("button", { name: /close/i });
+    await act(async () => {
+      closeButton.click();
+    });
+
+    await waitFor(() => {
+      expect(mocks.replace).toHaveBeenCalled();
+    });
+    const [calledPath] = mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
+    expect(calledPath).toContain("tab=history");
+    expect(calledPath).not.toContain("requestId");
+  });
+
   it("disables pending decision buttons while the selected request is in flight", async () => {
     mocks.busyRequestIds = new Set(["req_deep"]);
     mocks.activeAction = {
