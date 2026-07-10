@@ -27,17 +27,19 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://dev.kai.hushh.ai
+  # TEMPORARY: deterministic Cloud Run URL until dev.kai.hushh.ai DNS exists.
+  # Flip to https://dev.kai.hushh.ai once the domain mapping + DNS record land,
+  # then redeploy (secret sync propagates origin/CORS automatically).
+  APP_FRONTEND_ORIGIN: https://hushh-webapp-621416509462.us-central1.run.app
   DEV_CLOUDSQL_INSTANCE: hushh-pda-dev:us-central1:hushh-dev-pg
   DEV_DB_UNIX_SOCKET: /cloudsql/hushh-pda-dev:us-central1:hushh-dev-pg
   # One Email KYC runs in dev via topic fanout: dev consumes the SAME UAT
-  # Pub/Sub topic through its own push subscription. UAT remains the single
-  # owner of the Gmail watch; never schedule watch renewal against dev.
-  # Update the audience to the dev backend Cloud Run URL after the first
-  # backend deploy and create the matching push subscription (see
-  # consent-protocol/docs/reference/dev-environment-setup.md).
+  # Pub/Sub topic through its own push subscription
+  # (one-email-kyc-dev-push in hushh-pda, provisioned 2026-07-10). UAT remains
+  # the single owner of the Gmail watch; never schedule watch renewal against
+  # dev. See consent-protocol/docs/reference/dev-environment-setup.md.
   DEV_ONE_EMAIL_PUBSUB_TOPIC: projects/hushh-pda/topics/one-email-kyc-uat
-  DEV_ONE_EMAIL_WEBHOOK_AUDIENCE: https://consent-protocol-REPLACE_WITH_DEV_HASH-uc.a.run.app/api/one/email/webhook
+  DEV_ONE_EMAIL_WEBHOOK_AUDIENCE: https://consent-protocol-621416509462.us-central1.run.app/api/one/email/webhook
   CLOUD_RUN_REVISION_RETENTION: "10"
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 

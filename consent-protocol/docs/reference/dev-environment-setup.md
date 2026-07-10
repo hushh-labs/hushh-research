@@ -10,6 +10,27 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 ---
 
+## Provisioned State (as of 2026-07-10)
+
+Phases 1–3, the IAM plumbing, and the One Email fanout subscription were executed via
+the governed operator service account. Current live facts:
+
+| Item | Value |
+| --- | --- |
+| Project | `hushh-pda-dev` (number `621416509462`, folder shared with UAT, billing `014D7F-FD970D-D2459E`) |
+| Cloud SQL | `hushh-pda-dev:us-central1:hushh-dev-pg` (POSTGRES_15, db-custom-1-3840, 20GB SSD), user `hushh_uat_app` (new password in dev `DB_PASSWORD`) |
+| Secrets | all 144 UAT secrets replicated; overrides: `APP_FRONTEND_ORIGIN`, `BACKEND_URL`, `DB_PASSWORD` |
+| Backend URL (deterministic) | `https://consent-protocol-621416509462.us-central1.run.app` |
+| Frontend URL (deterministic) | `https://hushh-webapp-621416509462.us-central1.run.app` |
+| One Email fanout | subscription `one-email-kyc-dev-push` in `hushh-pda` on topic `one-email-kyc-uat`, OIDC audience = dev backend webhook |
+| Runtime SAs | compute + cloudbuild SAs granted UAT-parity roles |
+
+Still pending: `dev.kai.hushh.ai` DNS + domain mapping (origin temporarily set to the
+deterministic frontend Cloud Run URL in `deploy-dev.yml`; passkey unlock is unavailable
+on the temporary origin because the RP id is `kai.hushh.ai` — passphrase unlock works),
+GitHub environment `dev` + `GCP_SA_KEY_DEV`, first deploy, and the post-deploy
+schedulers below.
+
 ## Identity Model (read this first)
 
 The dev environment splits infrastructure identity from runtime identity on purpose:
