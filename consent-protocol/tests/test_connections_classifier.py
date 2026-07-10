@@ -35,3 +35,19 @@ def test_resolve_delegate_target_picks_connections():
     from api.routes.kai.agent_chat import resolve_delegate_target
 
     assert resolve_delegate_target("add Alice to my trusted connections") == "agent_connections"
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "connect me with Priya",
+        "who are my connections",
+        "accept Priya's connection request",
+        "reject Sam's connection request",
+        "remove Alex from my connections",
+        "show my pending connection requests",
+    ],
+)
+def test_connection_phrasings_route_to_connections(msg):
+    domain, target = classify_specialist_domain(msg)
+    assert target == "agent_connections"
