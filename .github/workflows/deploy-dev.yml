@@ -253,9 +253,18 @@ jobs:
             --plaid-tx-history-days "730" \
             > /tmp/dev-runtime-secret-sync.json
 
+          # Same main-workflow vs train-tree skew guard as the backend sync:
+          # newer trees accept --environment dev; older train SHAs only know
+          # uat|production. Probe --help and fall back to uat (dev's runtime
+          # identity IS uat — see dev-environment-setup.md Identity Model).
+          FE_HELP="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py --help 2>/dev/null || true)"
+          FE_ENV="uat"
+          if grep -q "'dev'" <<<"$FE_HELP" || grep -q 'dev,' <<<"$FE_HELP" || grep -qE '\bdev\b.*production' <<<"$FE_HELP"; then
+            FE_ENV="dev"
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment dev \
+            --environment "$FE_ENV" \
             > /tmp/dev-frontend-runtime-secret-sync.json
 
       - name: Install Cloud SQL Auth Proxy
@@ -311,8 +320,16 @@ jobs:
             cd consent-protocol
             "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release
           )
+          # Skew guard (same class as the secret-sync probes): the dev
+          # contract file may not exist on older train SHAs. Fall back to the
+          # UAT contract, which dev replicates by design.
+          CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [ ! -f "$CONTRACT_FILE" ]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
+            echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/contracts/dev_minimum_schema.json \
+            --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-predeploy.json
 
       - name: Deploy backend using Cloud Build
@@ -538,8 +555,16 @@ jobs:
           export DB_USER
           export DB_PASSWORD
 
+          # Skew guard (same class as the secret-sync probes): the dev
+          # contract file may not exist on older train SHAs. Fall back to the
+          # UAT contract, which dev replicates by design.
+          CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [ ! -f "$CONTRACT_FILE" ]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
+            echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/contracts/dev_minimum_schema.json \
+            --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-postdeploy.json
 
       - name: Bootstrap dev runtime files for semantic verification
