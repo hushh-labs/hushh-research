@@ -2290,8 +2290,13 @@
         "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "kai.setup.answer_drawdown",
+        "kai.setup.answer_horizon",
+        "kai.setup.answer_volatility",
+        "kai.setup.launch_dashboard"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -3411,8 +3416,11 @@
         "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/register-phone/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "phone_mandate.submit_code",
+        "phone_mandate.submit_number"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
