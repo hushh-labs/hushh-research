@@ -10,6 +10,22 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 ---
 
+## End-to-End Audit (run this first)
+
+The dev environment has a dedicated doctor that derives its baseline live from UAT
+(APIs, secret names, SQL shape and users, runtime-SA roles, Cloud Run services,
+scheduler jobs) and audits the dev project against it, printing a remediation command
+for every failure:
+
+```bash
+python3 scripts/ops/dev_environment_doctor.py \
+  --dev-project hushh-pda-dev --uat-project hushh-pda-uat \
+  --report-path /tmp/dev-doctor.json
+```
+
+Exit 0 = healthy, 1 = failures. Run it after any environment change and before
+declaring dev ready.
+
 ## Provisioned State (as of 2026-07-10)
 
 Phases 1–3, the IAM plumbing, and the One Email fanout subscription were executed via
@@ -17,7 +33,7 @@ the governed operator service account. Current live facts:
 
 | Item | Value |
 | --- | --- |
-| Project | `hushh-pda-dev` (number `621416509462`, folder shared with UAT, billing `014D7F-FD970D-D2459E`) |
+| Project | `hushh-pda-dev`, display name **consent-protocol dev** (number `621416509462`, folder shared with UAT, billing `014D7F-FD970D-D2459E`) |
 | Cloud SQL | `hushh-pda-dev:us-central1:hushh-dev-pg` (POSTGRES_15, db-custom-1-3840, 20GB SSD), user `hushh_uat_app` (new password in dev `DB_PASSWORD`) |
 | Secrets | all 144 UAT secrets replicated; overrides: `APP_FRONTEND_ORIGIN`, `BACKEND_URL`, `DB_PASSWORD` |
 | Backend URL (deterministic) | `https://consent-protocol-621416509462.us-central1.run.app` |
@@ -254,10 +270,15 @@ gcloud pubsub subscriptions create one-email-kyc-dev-push \
 
 Ongoing schedulers to replicate (after first deploy):
 
+- One KYC retention purge (Phase 6b above; UAT runs it daily at 09:37 PT).
 - One Location retention purge: `POST /api/one/location/retention/purge?older_than_hours=12`
-  with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN` (Cloud Scheduler,
-  same cadence as UAT).
-- One KYC retention purge (Phase 6b above).
+  with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN` (note: UAT itself has
+  no such job today — parity means matching UAT, so treat this as optional until UAT
+  adds it).
+- `marketplace-investor-replenisher-every-8h` and `obs-supabase-data-health-every-30m`
+  trigger Cloud Run *jobs* that must first be created in dev
+  (`deploy/marketplace/setup_investor_replenisher_scheduler.sh`,
+  `deploy/observability/`); the doctor reports them as warnings until then.
 - Do NOT schedule One Email watch renewal in dev — watch ownership stays with UAT
   (see divergences above).
 
