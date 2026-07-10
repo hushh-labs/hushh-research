@@ -24,7 +24,7 @@ describe("ConnectionsService", () => {
     );
     const out = await ConnectionsService.searchDirectory({ idToken: "tok", query: "bo", page: 1 });
     const [path, opts] = mockApiFetch.mock.calls[0];
-    expect(path).toContain("/api/connections/directory");
+    expect(path).toContain("/api/one/connections/directory");
     expect(path).toContain("query=bo");
     expect((opts.headers as Record<string, string>).Authorization).toBe("Bearer tok");
     expect(out.items[0].userId).toBe("u2");
@@ -34,7 +34,7 @@ describe("ConnectionsService", () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ request: { id: "r1" } }));
     await ConnectionsService.sendRequest({ idToken: "tok", addresseeUserId: "u2" });
     const [path, opts] = mockApiFetch.mock.calls[0];
-    expect(path).toBe("/api/connections/requests");
+    expect(path).toBe("/api/one/connections/requests");
     expect(opts.method).toBe("POST");
     expect(JSON.parse(opts.body as string)).toEqual({ addressee_user_id: "u2", message: undefined });
   });
@@ -43,7 +43,7 @@ describe("ConnectionsService", () => {
     mockApiFetch.mockResolvedValue(jsonResponse({ result: { status: "accepted" } }));
     await ConnectionsService.accept({ idToken: "tok", requestId: "r1" });
     const [path, opts] = mockApiFetch.mock.calls[0];
-    expect(path).toBe("/api/connections/requests/r1/accept");
+    expect(path).toBe("/api/one/connections/requests/r1/accept");
     expect(opts.method).toBe("POST");
   });
 });
