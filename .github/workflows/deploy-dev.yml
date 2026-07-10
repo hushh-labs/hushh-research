@@ -1,5 +1,9 @@
 name: Deploy to Dev
 
+# Dev Fast Lane: dev deploys are decoupled from main. main stays the
+# UAT -> production signoff lane; dev deploys the agentic intake branch
+# (integration/pr-train) by default, or any CI-green ref a governed
+# maintainer chooses. Contract: docs/reference/operations/dev-fast-lane.md
 on:
   workflow_dispatch:
     inputs:
@@ -13,8 +17,13 @@ on:
           - all
           - backend
           - frontend
+      ref:
+        description: "Branch/ref to deploy (default: integration/pr-train, the agentic intake lane)"
+        required: false
+        default: "integration/pr-train"
+        type: string
       sha:
-        description: "Exact green main SHA to deploy (blank defaults to latest origin/main)"
+        description: "Exact CI-green SHA to deploy (blank defaults to head of ref; must be reachable from ref)"
         required: false
         type: string
 
@@ -51,6 +60,8 @@ jobs:
     environment: dev
 
     steps:
+      # The workflow DEFINITION always runs from main (single routing
+      # authority); the CONTENT deployed comes from inputs.ref / inputs.sha.
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |
@@ -82,20 +93,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          DEPLOY_REF="${{ github.event.inputs.ref }}"
+          DEPLOY_REF="${DEPLOY_REF:-integration/pr-train}"
+          git fetch --no-tags origin "$DEPLOY_REF"
           if [ -n "${{ github.event.inputs.sha }}" ]; then
             DEPLOY_SHA="${{ github.event.inputs.sha }}"
           else
-            git fetch --no-tags origin main
-            DEPLOY_SHA="$(git rev-parse origin/main)"
+            DEPLOY_SHA="$(git rev-parse "origin/${DEPLOY_REF}")"
           fi
+          echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Validate deployment SHA against main
+      # Dev correctness gate: the SHA must be reachable from the requested
+      # ref AND carry a green CI Status Gate (the same authoritative check
+      # required to land on the train). No Main Post-Merge Smoke here by
+      # design — dev does not route through main.
+      - name: Validate deployment SHA against requested ref
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUIRED_BRANCH: main
+          REQUIRED_BRANCH: ${{ steps.resolve-sha.outputs.ref }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
+          REQUIRED_CHECK_NAME: "CI Status Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Checkout deployment SHA
@@ -277,7 +295,7 @@ jobs:
             "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release
           )
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
+            --contract-file consent-protocol/db/contracts/dev_minimum_schema.json \
             --report-path /tmp/dev-db-migration-guard-predeploy.json
 
       - name: Deploy backend using Cloud Build
@@ -504,7 +522,7 @@ jobs:
           export DB_PASSWORD
 
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
+            --contract-file consent-protocol/db/contracts/dev_minimum_schema.json \
             --report-path /tmp/dev-db-migration-guard-postdeploy.json
 
       - name: Bootstrap dev runtime files for semantic verification
