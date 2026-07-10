@@ -282,6 +282,44 @@ def test_remove_connection_returns_zero_when_not_member_or_missing():
     )
 
 
+def test_link_circle_invite_creates_connection_with_claim_proof():
+    svc = _svc()
+    responses = iter(
+        [
+            SimpleNamespace(data=[{"exists": 1}]),  # SELECT trusted edge (claim proof) -> found
+            SimpleNamespace(data=[{"id": "conn-7"}]),  # INSERT connections RETURNING id
+            SimpleNamespace(data=[{"id": "te-1"}]),  # _mirror_trusted_edge (caller -> peer)
+            SimpleNamespace(data=[{"id": "te-2"}]),  # _mirror_trusted_edge (peer -> caller)
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.link_circle_invite("claimant", peer_user_id="inviter")
+    assert out["status"] == "connected"
+    assert out["connectionId"] == "conn-7"
+
+
+def test_link_circle_invite_requires_claim_proof():
+    svc = _svc()
+    # No claim-sourced trusted edge exists -> reject.
+    with patch(
+        "hushh_mcp.services.connections_service.get_db",
+        _db_returning([]),
+    ):
+        with pytest.raises(ConnectionsError) as err:
+            svc.link_circle_invite("claimant", peer_user_id="stranger")
+    assert err.value.code == "CONNECTION_CIRCLE_INVITE_REQUIRED"
+    assert err.value.status_code == 403
+
+
+def test_link_circle_invite_rejects_self_peer():
+    svc = _svc()
+    with pytest.raises(ConnectionsError) as err:
+        svc.link_circle_invite("me", peer_user_id="me")
+    assert err.value.code == "CONNECTION_INVALID_PEER"
+    assert err.value.status_code == 422
+
+
 def test_remove_connection_self_heals_when_already_revoked():
     svc = _svc()
     # SELECT returns the row with status='revoked' (partial-failure state).

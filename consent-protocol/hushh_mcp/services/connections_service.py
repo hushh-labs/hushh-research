@@ -225,6 +225,56 @@ class ConnectionsService:
             "connectionId": (conn or {}).get("id"),
         }
 
+    def link_circle_invite(self, user_id: str, *, peer_user_id: str) -> dict[str, Any]:
+        """Materialize a connection from a claimed circle invite.
+
+        Dormant capability: only invoked by an explicit frontend call after a
+        successful `claim_circle_invite`. Authorization relies on the
+        server-written proof that the caller claimed the peer's invite -- the
+        active `circle_invite`-sourced trusted edge (owner=caller, trusted=peer)
+        that `claim_circle_invite` inserts. No invite token is needed.
+        """
+        user_id = (user_id or "").strip()
+        peer_user_id = (peer_user_id or "").strip()
+        if not peer_user_id or peer_user_id == user_id:
+            raise ConnectionsError(
+                "CONNECTION_INVALID_PEER", "Invalid connection peer.", status_code=422
+            )
+        proof = self._execute_one(
+            """
+            SELECT 1
+            FROM trusted_connections
+            WHERE owner_user_id = :owner
+              AND trusted_user_id = :trusted
+              AND status = 'active'
+              AND source = 'circle_invite'
+            LIMIT 1
+            """,
+            {"owner": user_id, "trusted": peer_user_id},
+        )
+        if not proof:
+            raise ConnectionsError(
+                "CONNECTION_CIRCLE_INVITE_REQUIRED",
+                "No claimed circle invite for this peer.",
+                status_code=403,
+            )
+        user_a, user_b = self._canonical_pair(user_id, peer_user_id)
+        conn = self._execute_one(
+            """
+            INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
+            VALUES (:a, :b, 'active', 'circle_invite', NOW(), NOW())
+            ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+              status = 'active', revoked_at = NULL, updated_at = NOW()
+            RETURNING id
+            """,
+            {"a": user_a, "b": user_b},
+        )
+        # Mirror both directional trusted edges (parity with accept_request) so
+        # location/SOS readers treat this as a full mutual connection.
+        self._mirror_trusted_edge(user_id, peer_user_id)
+        self._mirror_trusted_edge(peer_user_id, user_id)
+        return {"status": "connected", "connectionId": (conn or {}).get("id")}
+
     def reject_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         req = self._load_request(request_id)
