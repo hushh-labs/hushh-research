@@ -218,6 +218,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The workflow file runs from main, but the deployed tree is the
+          # requested (train) SHA. Newer flags in this workflow may not exist
+          # in the checked-out script yet — feature-probe --help and pass
+          # newer flags only when the script supports them (version-skew
+          # guard; first governed run failed on exactly this).
+          SYNC_HELP="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py --help 2>/dev/null || true)"
+          EXTRA_ARGS=()
+          if grep -q -- '--crm-registry-db-enabled' <<<"$SYNC_HELP"; then
+            EXTRA_ARGS+=(--crm-registry-db-enabled "true")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
@@ -231,7 +241,7 @@ jobs:
             --sync-remote-enabled "false" \
             --developer-api-enabled "true" \
             --remote-mcp-enabled "true" \
-            --crm-registry-db-enabled "true" \
+            "${EXTRA_ARGS[@]}" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
             --passkey-allowed-rp-ids "localhost,127.0.0.1,kai.hushh.ai,dev.kai.hushh.ai" \
