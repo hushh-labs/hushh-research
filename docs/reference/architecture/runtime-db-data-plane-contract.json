@@ -350,6 +350,22 @@
       "expected_row_growth": "medium_per_user_connection"
     },
     {
+      "id": "two_way_connection_graph",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "connection_requests",
+        "connections"
+      ],
+      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester→addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory.",
+      "retention_policy": "Active connections persist as the users' mutual relationship graph; revoked connections and terminal requests (rejected/cancelled) are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is either party (requester/addressee, or user_a/user_b); revoke active connections and their mirrored trusted_connections edges before deletion where possible.",
+      "trust_boundary": "Backend stores only connection metadata (user references, status, source, optional plaintext message on a request, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_connection"
+    },
+    {
       "id": "relay_ticket_replay_guard",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",

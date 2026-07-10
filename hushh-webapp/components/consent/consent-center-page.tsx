@@ -85,6 +85,8 @@ import {
 } from "@/lib/consent/location-consent";
 import { isMarketplaceConsent } from "@/lib/consent/marketplace-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
+import { isConnectionRequestEntry } from "@/components/consent/connection-request-entry";
+import { ConnectionsService } from "@/lib/services/connections-service";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -99,6 +101,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -948,7 +951,8 @@ function ConsentEntryDetail({
         title="Decision"
         description="Approve or reject first. Details stay below for review before you decide."
       >
-        {entry.kind === "incoming_request" && entry.status === "pending" ? (
+        {(entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+        entry.status === "pending" ? (
           <>
             <SettingsRow
               title="Decision"
@@ -1416,6 +1420,20 @@ export function ConsentCenterPage() {
   );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
+      if (isConnectionRequestEntry(entry)) {
+        void (async () => {
+          if (!user) return;
+          try {
+            const idToken = await user.getIdToken();
+            await ConnectionsService.accept({ idToken, requestId: entry.request_id || entry.id });
+            CacheSyncService.onConsentMutated(user.uid);
+            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+          } catch (error) {
+            console.error("[ConsentCenter] Couldn't accept the connection request:", error);
+          }
+        })();
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationApprove(entry, durationHours);
         return;
@@ -1432,10 +1450,25 @@ export function ConsentCenterPage() {
       handleMarketplaceApprove,
       isLocationEntry,
       isMarketplaceEntry,
+      user,
     ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isConnectionRequestEntry(entry)) {
+        void (async () => {
+          if (!user) return;
+          try {
+            const idToken = await user.getIdToken();
+            await ConnectionsService.reject({ idToken, requestId: entry.request_id || entry.id });
+            CacheSyncService.onConsentMutated(user.uid);
+            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+          } catch (error) {
+            console.error("[ConsentCenter] Couldn't decline the connection request:", error);
+          }
+        })();
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationDeny(entry);
         return;
@@ -1452,6 +1485,7 @@ export function ConsentCenterPage() {
       handleMarketplaceDeny,
       isLocationEntry,
       isMarketplaceEntry,
+      user,
     ],
   );
   const revokeEntry = useCallback(
