@@ -279,9 +279,10 @@ Manual dispatch now supports `scope`:
 
 **For seamless deployment:**
 
-1. **GitHub secret:** add `GCP_SA_KEY` (and optionally `GCP_SA_KEY_UAT`) with Cloud Build + Cloud Run + Secret Manager permissions.
+1. **GitHub secret:** add `GCP_SA_KEY` (and optionally `GCP_SA_KEY_UAT` and `GCP_SA_KEY_DEV`) with Cloud Build + Cloud Run + Secret Manager permissions.
 2. **Branch flow:** merge to `main` for UAT rollout; use manual dispatch for production rollout from a green `main` SHA.
 3. **Environment policy:** keep only the canonical deploy environments in active use:
+   - `dev` (UAT infrastructure replica; see [consent-protocol/docs/reference/dev-environment-setup.md](../consent-protocol/docs/reference/dev-environment-setup.md))
    - `uat`
    - `production`
    Legacy unused production environments should not remain as parallel approval lanes.
