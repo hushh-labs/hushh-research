@@ -153,6 +153,17 @@ def _function_declarations(types: Any) -> list:
                 required=["connection_id"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="request_person_choice",
+            description="When connecting and a name is ambiguous, ask the user to pick which person. Returns status 'resolved' (one match: then call propose_send_request), 'ambiguous' (shows a picker), or 'not_found'.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "name": schema(type=kind.STRING, description="Name fragment the user gave"),
+                },
+                required=["name"],
+            ),
+        ),
     ]
 
 
@@ -342,6 +353,30 @@ class ConnectionsChatService:
                 }
             }
 
+        def request_person_choice(name: str) -> dict:
+            items = (service.search_directory(user_id, query=name) or {}).get("items") or []
+            people = [p for p in items if p.get("userId")]
+            if not people:
+                return {"status": "not_found", "name": name}
+            if len(people) == 1:
+                p = people[0]
+                return {
+                    "status": "resolved",
+                    "addresseeUserId": str(p.get("userId")),
+                    "label": str(p.get("displayName") or "them"),
+                }
+            return {
+                "status": "ambiguous",
+                "name": name,
+                "candidates": [
+                    {
+                        "userId": str(p.get("userId")),
+                        "displayName": str(p.get("displayName") or "Someone"),
+                    }
+                    for p in people
+                ],
+            }
+
         return {
             "list_my_connections": list_my_connections,
             "list_pending_requests": list_pending_requests,
@@ -350,11 +385,36 @@ class ConnectionsChatService:
             "propose_accept_request": propose_accept_request,
             "propose_reject_request": propose_reject_request,
             "propose_remove_connection": propose_remove_connection,
+            "request_person_choice": request_person_choice,
         }
 
     def _prompt_from_tool(self, name: str, result: dict) -> dict | None:
         if not isinstance(result, dict) or result.get("error"):
             return None
+        if name == "request_person_choice" and result.get("status") == "ambiguous":
+            options = [
+                {
+                    "label": c["displayName"],
+                    "ref": {
+                        "op": "send_request",
+                        "addresseeUserId": c["userId"],
+                        "label": c["displayName"],
+                    },
+                    "hint": None,
+                }
+                for c in (result.get("candidates") or [])
+                if c.get("userId")
+            ]
+            return {
+                "id": "prm-" + uuid4().hex[:12],
+                "kind": "select",
+                "purpose": "send_trusted_connection",
+                "question": f'Which "{result.get("name")}"?',
+                "options": options,
+                "minSelections": 1,
+                "maxSelections": 1,
+                "allowFreeText": False,
+            }
         proposal = result.get("proposal")
         if not (name.startswith("propose_") and isinstance(proposal, dict)):
             return None
@@ -394,44 +454,6 @@ class ConnectionsChatService:
         return out
 
     # ---- selection round-trip ----
-    def _selection_prompt(
-        self, name: str, candidates: list[dict[str, Any]], *, op: str, conv: str
-    ) -> dict[str, Any]:
-        """Build a coordinate-free select prompt whose refs carry the real ids.
-
-        Mirrors the Location specialist's clientPrompt contract so the shared
-        frontend pick-card renders it and rounds-trips the choice back here.
-        """
-        verb = "add" if op == "add" else "remove"
-        options = [
-            {
-                "label": str(c.get("displayName") or "Someone"),
-                "ref": {
-                    "trustedUserId": str(c.get("userId") or ""),
-                    "label": str(c.get("displayName") or "Someone"),
-                    "op": op,
-                },
-                "hint": None,
-            }
-            for c in candidates
-            if c.get("userId")
-        ]
-        prompt = {
-            "id": "prm-" + uuid4().hex[:12],
-            "kind": "select",
-            "purpose": f"{op}_trusted_connection",
-            "question": f'Which "{name}" should I {verb}?',
-            "options": options,
-            "minSelections": 1,
-            "maxSelections": 1,
-            "allowFreeText": False,
-        }
-        return self._reply(
-            f'I found more than one match for "{name}". Which one?',
-            conv,
-            state_changed=False,
-            client_prompt=prompt,
-        )
 
     _SUCCESS_TEXT = {
         "send_request": "Sent a connection request to {label}.",

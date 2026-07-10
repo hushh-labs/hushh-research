@@ -266,3 +266,27 @@ async def test_confirm_roundtrip_executes_send(monkeypatch):
     out = await svc.handle_turn(user_id="u1", message="", selection_result=sel)
     fake.create_request.assert_called_once_with("u1", addressee_user_id="u2")
     assert out["stateChanged"] is True
+
+
+async def test_request_person_choice_multi_candidate_prompt():
+    fake = MagicMock()
+    fake.search_directory.return_value = {
+        "items": [
+            {"userId": "u2", "displayName": "Priya Rao", "relationship": "none"},
+            {"userId": "u3", "displayName": "Priya Shah", "relationship": "none"},
+        ],
+        "hasMore": False,
+    }
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("request_person_choice", {"name": "Priya"}),
+            _text_response("Which Priya?"),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="connect me with Priya", consent_token=_TOKEN)
+    prompt = out["clientPrompt"]
+    assert prompt["kind"] == "select"
+    assert [o["ref"]["addresseeUserId"] for o in prompt["options"]] == ["u2", "u3"]
+    assert all(o["ref"]["op"] == "send_request" for o in prompt["options"])
