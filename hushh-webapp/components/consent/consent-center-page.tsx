@@ -101,6 +101,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -942,7 +943,8 @@ function ConsentEntryDetail({
         title="Decision"
         description="Approve or reject first. Details stay below for review before you decide."
       >
-        {entry.kind === "incoming_request" && entry.status === "pending" ? (
+        {(entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+        entry.status === "pending" ? (
           <>
             <SettingsRow
               title="Decision"
@@ -1412,6 +1414,7 @@ export function ConsentCenterPage() {
           try {
             const idToken = await user.getIdToken();
             await ConnectionsService.accept({ idToken, requestId: entry.request_id || entry.id });
+            CacheSyncService.onConsentMutated(user.uid);
             window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
           } catch (error) {
             console.error("[ConsentCenter] Couldn't accept the connection request:", error);
@@ -1446,6 +1449,7 @@ export function ConsentCenterPage() {
           try {
             const idToken = await user.getIdToken();
             await ConnectionsService.reject({ idToken, requestId: entry.request_id || entry.id });
+            CacheSyncService.onConsentMutated(user.uid);
             window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
           } catch (error) {
             console.error("[ConsentCenter] Couldn't decline the connection request:", error);
