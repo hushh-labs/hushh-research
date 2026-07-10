@@ -1,9 +1,9 @@
-"""Deterministic intent handler for the trusted-connections specialist.
+"""Deterministic intent handler for the connections specialist.
 
 One delegates "add/remove/list trusted connections" turns here. The parsing is
-deterministic (regex), matching the repo's existing deterministic-planner style —
+deterministic (regex), matching the repo's existing deterministic-planner style --
 no LLM call is needed for these three intents. All writes go through
-TrustedConnectionsService, so this is the single write surface for the graph.
+ConnectionsService, so this is the single write surface for the graph.
 
 Disambiguation reuses the SAME selection round-trip the Location specialist uses:
 when a name matches more than one directory person, we return a coordinate-free
@@ -21,10 +21,10 @@ import re
 from typing import Any
 from uuid import uuid4
 
-from hushh_mcp.services.trusted_connections_service import (
+from hushh_mcp.services.connections_service import (
+    ConnectionsError,
+    ConnectionsService,
     IdentityUnresolvedError,
-    TrustedConnectionsError,
-    TrustedConnectionsService,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,8 +49,8 @@ _HELP = (
 
 
 class ConnectionsChatService:
-    def __init__(self, service: TrustedConnectionsService | None = None) -> None:
-        self._service = service or TrustedConnectionsService()
+    def __init__(self, service: ConnectionsService | None = None) -> None:
+        self._service = service or ConnectionsService()
 
     async def handle_turn(
         self,
@@ -85,49 +85,30 @@ class ConnectionsChatService:
     # ---- intents ----
     def _add(self, user_id: str, name: str, conv: str) -> dict[str, Any]:
         try:
-            self._service.add_connection(user_id, query=name)
+            self._service.create_request(user_id, query=name)
         except IdentityUnresolvedError as exc:
             if len(exc.candidates) > 1:
                 return self._selection_prompt(name, exc.candidates, op="add", conv=conv)
             return self._reply(
-                f"I couldn't find “{name}” in your directory yet, so I didn't add anyone.",
+                f"I couldn't find “{name}” in your directory yet, so I didn't send a request.",
                 conv,
                 state_changed=False,
             )
-        except TrustedConnectionsError as exc:
+        except ConnectionsError as exc:
             return self._reply(exc.message, conv, state_changed=False)
-        return self._reply(f"Added {name} to your trusted connections.", conv, state_changed=True)
+        return self._reply(f"Sent a connection request to {name}.", conv, state_changed=True)
 
     def _remove(self, user_id: str, name: str, conv: str) -> dict[str, Any]:
-        try:
-            target = self._service._resolve_query(user_id, name)  # noqa: SLF001
-        except IdentityUnresolvedError as exc:
-            if len(exc.candidates) > 1:
-                return self._selection_prompt(name, exc.candidates, op="remove", conv=conv)
-            return self._reply(
-                f"I couldn't find “{name}” to remove, so nothing changed.",
-                conv,
-                state_changed=False,
-            )
-        result = self._service.remove_connection(user_id, target)
-        if result.get("removed"):
-            return self._reply(
-                f"Removed {name} from your trusted connections.", conv, state_changed=True
-            )
-        return self._reply(f"{name} wasn't in your trusted connections.", conv, state_changed=False)
+        return self._reply(
+            "You can manage connections from the Connect page now.", conv, state_changed=False
+        )
 
     def _list(self, user_id: str, conv: str) -> dict[str, Any]:
         rows = self._service.list_connections(user_id)
         if not rows:
-            return self._reply(
-                "You don't have any trusted connections yet.", conv, state_changed=False
-            )
-        names = [str(r.get("displayName") or r.get("trustedUserId") or "someone") for r in rows]
-        return self._reply(
-            "Your trusted connections: " + ", ".join(names) + ".",
-            conv,
-            state_changed=False,
-        )
+            return self._reply("You don't have any connections yet.", conv, state_changed=False)
+        names = [str(r.get("displayName") or r.get("userId") or "someone") for r in rows]
+        return self._reply("Your connections: " + ", ".join(names) + ".", conv, state_changed=False)
 
     # ---- selection round-trip ----
     def _selection_prompt(
@@ -183,25 +164,18 @@ class ConnectionsChatService:
 
         if not trusted_user_id:
             return self._reply(
-                "I didn't catch who you picked — try again?", conv, state_changed=False
+                "I didn't catch who you picked -- try again?", conv, state_changed=False
             )
 
+        if op == "remove":
+            return self._reply(
+                "You can manage connections from the Connect page now.", conv, state_changed=False
+            )
         try:
-            if op == "remove":
-                result = self._service.remove_connection(user_id, trusted_user_id)
-                if result.get("removed"):
-                    return self._reply(
-                        f"Removed {label} from your trusted connections.",
-                        conv,
-                        state_changed=True,
-                    )
-                return self._reply(
-                    f"{label} wasn't in your trusted connections.", conv, state_changed=False
-                )
-            self._service.add_connection(user_id, trusted_user_id=trusted_user_id)
-        except TrustedConnectionsError as exc:
+            self._service.create_request(user_id, addressee_user_id=trusted_user_id)
+        except ConnectionsError as exc:
             return self._reply(exc.message, conv, state_changed=False)
-        return self._reply(f"Added {label} to your trusted connections.", conv, state_changed=True)
+        return self._reply(f"Sent a connection request to {label}.", conv, state_changed=True)
 
     @staticmethod
     def _reply(
