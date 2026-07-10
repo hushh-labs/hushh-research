@@ -17,6 +17,7 @@ from typing import Optional
 import httpx
 from mcp.types import TextContent
 
+from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 from mcp_modules.config import (
     DEVELOPER_API_ENABLED,
@@ -25,6 +26,7 @@ from mcp_modules.config import (
     resolve_scope_api,
 )
 from mcp_modules.developer_context import get_developer_request_headers, get_developer_request_query
+from mcp_modules.transport_context import is_local_stdio_transport
 
 logger = logging.getLogger("hushh-mcp-server")
 
@@ -320,6 +322,22 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
 
     display_id = user_display_name or user_email or user_id
     logger.info("Requesting consent for %s / %s", display_id, scope_str)
+
+    # On the local stdio transport, the MCP server manages its own persisted
+    # X25519 keypair (see local_mcp_keypair_service) so the LLM host never
+    # has to generate/remember one. This also fixes the prior failure mode
+    # where an LLM generated a fresh key each session but a later decrypt
+    # attempt targeted a stale connector_key_id. Explicit args still win if
+    # a caller passes its own key even on stdio. The remote/hosted transport
+    # never auto-fills: third-party connectors always supply their own key.
+    if is_local_stdio_transport() and not all(
+        [connector_public_key, connector_key_id, connector_wrapping_alg]
+    ):
+        local_keypair = get_or_create_local_connector_keypair()
+        connector_public_key = connector_public_key or local_keypair.public_key_b64
+        connector_key_id = connector_key_id or local_keypair.key_id
+        connector_wrapping_alg = connector_wrapping_alg or local_keypair.wrapping_alg
+
     if not all([connector_public_key, connector_key_id, connector_wrapping_alg]):
         return [
             TextContent(

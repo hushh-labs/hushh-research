@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
-import copy
 import json
 import os
 import sys
@@ -50,6 +49,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from api.utils.fcm_messages import build_push_message  # noqa: E402
+
+# Scoped-export decrypt + scope-narrowing utilities live in the shared
+# hushh_mcp.consent.export_projection module so the local stdio MCP server
+# can reuse the identical, tested logic.
+from hushh_mcp.consent.export_projection import (  # noqa: E402
+    decrypt_scoped_export_package,
+    narrow_decrypted_export,
+    project_domain_data_for_scope,
+)
 
 DEFAULT_BACKEND_URL = "https://api.uat.hushh.ai"
 DEFAULT_PROTOCOL_ENV = str(PROJECT_ROOT / ".env")
@@ -128,81 +136,6 @@ def _partition_domain_segments(domain_data: dict[str, Any]) -> dict[str, Any]:
     if root_payload or not segmented:
         segmented["root"] = root_payload
     return segmented
-
-
-def _extract_path_value(value: Any, segments: list[str]) -> Any:
-    if not segments:
-        return copy.deepcopy(value)
-    segment = segments[0]
-    rest = segments[1:]
-    if segment == "_items":
-        if not isinstance(value, list):
-            return None
-        extracted = [_extract_path_value(item, rest) for item in value]
-        filtered = [item for item in extracted if item is not None]
-        return filtered or None
-    if not isinstance(value, dict) or segment not in value:
-        return None
-    return _extract_path_value(value[segment], rest)
-
-
-def _rebuild_projected_value(segments: list[str], value: Any) -> Any:
-    if not segments:
-        return copy.deepcopy(value)
-    segment = segments[0]
-    rest = segments[1:]
-    if segment == "_items":
-        if not isinstance(value, list):
-            return []
-        return [_rebuild_projected_value(rest, item) for item in value]
-    return {segment: _rebuild_projected_value(rest, value)}
-
-
-def project_domain_data_for_scope(
-    domain: str, scope: str, domain_data: dict[str, Any]
-) -> dict[str, Any]:
-    if scope in {"pkm.read", f"attr.{domain}.*"}:
-        return {domain: copy.deepcopy(domain_data)}
-
-    prefix = f"attr.{domain}."
-    if not scope.startswith(prefix):
-        return {domain: {}}
-
-    raw_path = scope[len(prefix) :].removesuffix(".*")
-    normalized_segments = [
-        "".join(ch.lower() if ch.isalnum() or ch == "_" else "_" for ch in segment).strip("_")
-        for segment in raw_path.split(".")
-    ]
-    normalized_segments = [segment for segment in normalized_segments if segment]
-    if not normalized_segments:
-        return {domain: copy.deepcopy(domain_data)}
-
-    extracted = _extract_path_value(domain_data, normalized_segments)
-    if extracted is None:
-        return {domain: {}}
-    return {domain: _rebuild_projected_value(normalized_segments, extracted)}
-
-
-def narrow_decrypted_export(payload: dict[str, Any], expected_scope: str | None) -> dict[str, Any]:
-    if not expected_scope:
-        return copy.deepcopy(payload)
-    export_metadata = payload.get("__export_metadata")
-    source_domain = None
-    if isinstance(export_metadata, dict):
-        source_domain = str(export_metadata.get("source_domain") or "").strip() or None
-    if not source_domain and expected_scope.startswith("attr."):
-        parts = expected_scope.split(".")
-        if len(parts) >= 2:
-            source_domain = parts[1]
-    if not source_domain:
-        return copy.deepcopy(payload)
-    domain_data = payload.get(source_domain)
-    if not isinstance(domain_data, dict):
-        return copy.deepcopy(payload)
-    narrowed = project_domain_data_for_scope(source_domain, expected_scope, domain_data)
-    if "__export_metadata" in payload:
-        narrowed["__export_metadata"] = copy.deepcopy(payload["__export_metadata"])
-    return narrowed
 
 
 @dataclass
@@ -920,27 +853,14 @@ class UatKaiSmoke:
         return response.content
 
     def _decrypt_scoped_export(self, package: dict[str, Any]) -> dict[str, Any]:
-        wrapped = package.get("wrapped_key_bundle") or {}
-        sender_public = X25519PublicKey.from_public_bytes(
-            _b64decode(str(wrapped["sender_public_key"]))
-        )
-        shared_secret = self.connector_private.exchange(sender_public)
-        digest = hashes.Hash(hashes.SHA256())
-        digest.update(shared_secret)
-        wrapping_key = digest.finalize()
-        export_key = AESGCM(wrapping_key).decrypt(
-            _b64decode(str(wrapped["wrapped_key_iv"])),
-            _b64decode(str(wrapped["wrapped_export_key"]))
-            + _b64decode(str(wrapped["wrapped_key_tag"])),
-            None,
-        )
         ciphertext = self._fetch_export_ciphertext(package)
-        plaintext = AESGCM(export_key).decrypt(
-            _b64decode(str(package["iv"])),
-            ciphertext + _b64decode(str(package["tag"])),
-            None,
+        return decrypt_scoped_export_package(
+            wrapped_key_bundle=package.get("wrapped_key_bundle") or {},
+            iv_b64=str(package["iv"]),
+            tag_b64=str(package["tag"]),
+            ciphertext=ciphertext,
+            connector_private_key=self.connector_private,
         )
-        return json.loads(plaintext)
 
     def request_developer_consent(
         self,

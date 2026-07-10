@@ -11,6 +11,9 @@ from typing import Any
 
 from mcp.types import TextContent
 
+from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
+from mcp_modules.transport_context import is_local_stdio_transport
+
 from .consent_tools import handle_check_consent_status, handle_request_consent
 from .data_tools import handle_get_encrypted_scoped_export
 from .utility_tools import handle_discover_user_domains
@@ -348,6 +351,21 @@ def _connector_bundle(args: dict[str, Any]) -> dict[str, str]:
     }
     if not bundle["connector_wrapping_alg"] and bundle["connector_public_key"]:
         bundle["connector_wrapping_alg"] = "X25519-AES256-GCM"
+
+    # On the local stdio transport, fall back to the MCP server's own
+    # persisted keypair (see local_mcp_keypair_service) so campaign-context
+    # callers never have to generate/supply a connector key either. Explicit
+    # args still win. The remote/hosted transport never auto-fills.
+    if is_local_stdio_transport() and not all(bundle.values()):
+        local_keypair = get_or_create_local_connector_keypair()
+        bundle["connector_public_key"] = (
+            bundle["connector_public_key"] or local_keypair.public_key_b64
+        )
+        bundle["connector_key_id"] = bundle["connector_key_id"] or local_keypair.key_id
+        bundle["connector_wrapping_alg"] = (
+            bundle["connector_wrapping_alg"] or local_keypair.wrapping_alg
+        )
+
     return bundle
 
 
