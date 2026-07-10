@@ -127,7 +127,7 @@ the remote `/mcp` endpoint, without spawning any local process.
   authorization-server flow is required or supported today; a static
   per-integration bearer token is the intended credential model).
 - **Provisioning**: issue a dedicated `partner_crm` developer app + token per
-  CRM system with `scripts/ops/provision_partner_developer_app.py`:
+  CRM system with `consent-protocol/scripts/ops/provision_partner_developer_app.py`:
 
   ```bash
   cd consent-protocol
