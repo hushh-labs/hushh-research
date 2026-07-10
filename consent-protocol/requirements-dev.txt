@@ -1,9 +1,11 @@
 # Generated from pyproject.toml + uv.lock via scripts/sync_runtime_requirements.sh
 # Contributor and CI installs must use: uv sync --frozen --group dev
 
+anyio==4.13.0
 bandit==1.9.4
 colorama==0.4.6 ; sys_platform == 'win32'
 coverage==7.13.5
+idna==3.11
 iniconfig==2.3.0
 librt==0.9.0 ; platform_python_implementation != 'PyPy'
 markdown-it-py==4.0.0
@@ -24,4 +26,5 @@ rich==15.0.0
 ruff==0.15.11
 stevedore==5.7.0
 typing-extensions==4.15.0
+watchfiles==1.2.0
 wcwidth==0.6.0

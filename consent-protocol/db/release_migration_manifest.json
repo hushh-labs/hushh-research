@@ -63,6 +63,7 @@
     "082_marketplace_request_revoked_status.sql",
     "083_one_location_recipient_key_encrypted_private.sql",
     "084_relay_ticket_nonces.sql",
+    "085_developer_partner_apps.sql",
     "085_connections.sql"
   ],
   "groups": {
@@ -116,7 +117,8 @@
       "074_pkm_scope_registry_owner_consent_override.sql"
     ],
     "developer": [
-      "070_developer_registry.sql"
+      "070_developer_registry.sql",
+      "085_developer_partner_apps.sql"
     ]
   }
 }

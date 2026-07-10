@@ -746,12 +746,53 @@ async function runOneLocationForegroundAttempt<T>(params: {
   }
 }
 
+// Consumer UI must never surface raw backend or database internals such as SQL
+// text, driver errors, stack traces, encrypted key blobs, or table and column
+// identifiers. Those belong in logs and developer tooling only. We only let
+// short, human-readable messages through; anything that looks like an internal
+// dump is replaced with a friendly summary. This keeps the vault and PKM data
+// boundary intact and stops raw driver errors from reaching users.
+
+const ONE_LOCATION_UNSAFE_ERROR_MARKERS = [
+  "psycopg2",
+  "sqlalchemy",
+  "sql:",
+  "select ",
+  "insert into",
+  "update ",
+  "delete from",
+  "relation ",
+  "column ",
+  "constraint",
+  "traceback",
+  "jsonb",
+  "public_key",
+  "encrypted_",
+  "jwk",
+  "background on this error",
+  "undefinedcolumn",
+];
+
+function isSafeUserFacingMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  // Long strings or multi-line payloads are almost always internal dumps.
+  if (trimmed.length > 160) return false;
+  if (/[\n\r]/.test(trimmed)) return false;
+  const lower = trimmed.toLowerCase();
+  return !ONE_LOCATION_UNSAFE_ERROR_MARKERS.some((marker) =>
+    lower.includes(marker),
+  );
+}
+
 function oneLocationErrorMessage(error: unknown, fallback: string): string {
   if (isTransientOneApiError(error)) {
     return "One is still catching up. Please refresh once, then check this page before retrying.";
   }
-  return error instanceof Error ? error.message : fallback;
+  const raw = error instanceof Error ? error.message : "";
+  return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
+
 
 function isLocationPointStale(point: PlainLocationPoint): boolean {
   const capturedAt = new Date(point.capturedAt).getTime();
@@ -789,6 +830,11 @@ function locationCoordinateQuery(point: PlainLocationPoint): string {
     formatLocationCoordinate(point.latitude),
     formatLocationCoordinate(point.longitude),
   ].join(",");
+}
+
+function googleMapsLocationUrl(point: PlainLocationPoint): string {
+  const query = encodeURIComponent(locationCoordinateQuery(point));
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
 function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
@@ -1932,15 +1978,20 @@ function OneLocationAgentPageContent() {
   // convenience deep-link, NOT a requirement. Shares the recipient explicitly
   // "unwatched" are hidden. Terminal (revoked/expired) grants are never listed
   // here (the backend keeps them for ~12h for history only).
+  const activeReceivedGrants = useMemo(
+    () =>
+      (state?.receivedGrants ?? []).filter(
+        (grant) => grant.status === "active",
+      ),
+    [state?.receivedGrants],
+  );
   const visibleReceivedGrants = useMemo(() => {
     void openedGrantTick;
     void unwatchedTick;
-    return (state?.receivedGrants ?? []).filter(
-      (grant) =>
-        grant.status === "active" &&
-        !isOneLocationGrantUnwatched(auth.userId, grant.id),
+    return activeReceivedGrants.filter(
+      (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
-  }, [auth.userId, openedGrantTick, unwatchedTick, state?.receivedGrants]);
+  }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
   const activeOwnerGrants = useMemo(
     () =>
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
@@ -1995,7 +2046,12 @@ function OneLocationAgentPageContent() {
     }
   }, [state, activeOwnerGrants]);
 
-  const activeVisibleReceivedGrants = visibleReceivedGrants;
+  // The redesigned Inbox keeps every active share live-refreshing even when a
+  // legacy build previously persisted an "unwatched" id. In the redesigned
+  // UX, Dismiss owns preview presentation only and never changes grant reachability.
+  const activeVisibleReceivedGrants = USE_LOCATION_REDESIGN
+    ? activeReceivedGrants
+    : visibleReceivedGrants;
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
   const unwatchedActiveReceivedGrantCount = useMemo(() => {
@@ -5056,7 +5112,10 @@ function OneLocationAgentPageContent() {
     recipients: rankedRecipients,
     visibleRecipients,
     activeOwnerGrants,
-    receivedGrants: visibleReceivedGrants,
+    // The redesigned Inbox always keeps active received grants reachable.
+    // Its Dismiss action collapses only the decrypted map preview; legacy
+    // recipient-side "unwatch" state must not remove the durable row.
+    receivedGrants: activeReceivedGrants,
     pendingOwnerRequests,
     requestedByMe,
     latestActivePublicInvite,
@@ -5092,7 +5151,6 @@ function OneLocationAgentPageContent() {
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
-    onUnwatchGrant: (grant) => handleUnwatch(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
@@ -5116,6 +5174,7 @@ function OneLocationAgentPageContent() {
     renderMapPreview: (point, showNavigation) => (
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
+    mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
     sosRecipients: sosActionRecipients,
     sosActive: Boolean(sosIncident?.grantIds.length),
@@ -5143,15 +5202,33 @@ function OneLocationAgentPageContent() {
   };
 
 
-  if (USE_LOCATION_REDESIGN && !loadError) {
+  // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in
+  // every state — success, loading, AND error — so a load failure (e.g. the
+  // vault-owner token is missing, or a backend/schema hiccup) surfaces as a
+  // small inline banner on the current design, and NEVER drops the user back to
+  // the retired legacy page. The `!loadError` fallthrough was the root cause of
+  // the "old location UI reappears on error" bug. The legacy block below is kept
+  // only as a compile-time fallback (guarded by the `boolean`-typed flag) and is
+  // unreachable at runtime.
+  if (USE_LOCATION_REDESIGN) {
     return (
       <AppPageShell width="standard" nativeTest={nativeTestConfig}>
         <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
+          {loadError ? (
+            <div
+              role="alert"
+              className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm font-medium text-[#ff3b30] dark:text-[#ff9f9a]"
+            >
+              {loadError}
+            </div>
+          ) : null}
+
           {showInitialSkeleton ? (
             <HushhLoader variant="page" label="Loading location..." />
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
+
 
           <LocationChatPanel
             vaultOwnerToken={vaultOwnerToken ?? null}

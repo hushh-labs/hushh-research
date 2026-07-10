@@ -21,6 +21,15 @@ def _read_developer_token() -> str:
 _DEFAULT_PORT = str(os.environ.get("PORT", "8000")).strip() or "8000"
 FASTAPI_URL = os.environ.get("CONSENT_API_URL", f"http://127.0.0.1:{_DEFAULT_PORT}")
 
+# Public origin external connectors can reach for direct HTTP fetches (for
+# example the scoped-export download lane). FASTAPI_URL is loopback when the
+# remote MCP is mounted in-process on Cloud Run, so download URLs handed to
+# connectors must use this instead. Falls back to FASTAPI_URL, which is
+# correct for stdio/local development where the backend is directly reachable.
+CONSENT_API_PUBLIC_ORIGIN = (
+    str(os.environ.get("CONSENT_API_PUBLIC_ORIGIN", "")).strip().rstrip("/") or FASTAPI_URL
+)
+
 # Optional frontend origin used only for internal/backend-generated app links.
 APP_FRONTEND_ORIGIN = get_app_runtime_settings().app_frontend_origin or "http://localhost:3000"
 

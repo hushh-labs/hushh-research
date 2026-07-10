@@ -239,6 +239,10 @@ class DeveloperPrincipal:
     token_id: int | None = None
     auth_source: str = "registry"
     is_internal_fallback: bool = False
+    # self_serve = portal-provisioned human developer app;
+    # partner_crm = ops-provisioned app representing one CRM system.
+    kind: str = "self_serve"
+    crm_id: str | None = None
 
 
 def normalize_tool_groups(raw_groups: Any) -> tuple[str, ...]:
@@ -418,6 +422,8 @@ class DeveloperRegistryService:
             token_id=row.get("token_id"),
             auth_source=str(row.get("auth_source") or "registry"),
             is_internal_fallback=bool(row.get("is_internal_fallback")),
+            kind=str(row.get("kind") or "self_serve").strip() or "self_serve",
+            crm_id=cls._sanitize_optional_text(row.get("crm_id")),
         )
 
     def ensure_tables(self) -> None:
@@ -496,6 +502,10 @@ class DeveloperRegistryService:
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_display_name TEXT",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_provider_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS brand_image_url TEXT",
+            # Partner-class apps (canonical: db/migrations/085_developer_partner_apps.sql).
+            "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'self_serve'",
+            "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS crm_id TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_developer_apps_kind ON developer_apps(kind)",
             "CREATE INDEX IF NOT EXISTS idx_developer_apps_status ON developer_apps(status)",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_developer_apps_owner_firebase_uid ON developer_apps(owner_firebase_uid) WHERE owner_firebase_uid IS NOT NULL",
             """
@@ -930,6 +940,136 @@ class DeveloperRegistryService:
             "issued_token": issued_token,
         }
 
+    def get_partner_app_by_display_name(self, display_name: str) -> dict[str, Any] | None:
+        self.ensure_tables()
+        result = self._db.execute_raw(
+            """
+            SELECT * FROM developer_apps
+            WHERE kind = 'partner_crm'
+              AND display_name = :display_name
+            LIMIT 1
+            """,
+            {"display_name": str(display_name or "").strip()},
+        )
+        return result.data[0] if result.data else None
+
+    def provision_partner_app(
+        self,
+        *,
+        display_name: str,
+        contact_email: str,
+        crm_id: str | None = None,
+        allowed_tool_groups: list[str] | tuple[str, ...] | None = None,
+        notes: str | None = None,
+        provisioned_by: str = "ops_partner_provisioning",
+    ) -> dict[str, Any]:
+        """Provision (idempotently) a partner-class app for one CRM system.
+
+        Architecture rule: every CRM system gets its OWN app + token so
+        revocation, audit, and last-used telemetry stay per-system. Partner
+        apps have no owner_firebase_uid: they never collide with the
+        self-serve one-app-per-Firebase-user contract and stay invisible to
+        the /developers portal (ops-managed by design).
+
+        Re-running for the same display_name reuses the existing app and only
+        issues a token when none is active. The raw token is returned exactly
+        once per issuance; it is never persisted in plaintext.
+        """
+        self.ensure_tables()
+        clean_display_name = str(display_name or "").strip()
+        if not clean_display_name:
+            raise ValueError("display_name is required for partner app provisioning")
+        clean_contact_email = str(contact_email or "").strip().lower()
+        if not clean_contact_email or "@" not in clean_contact_email:
+            raise ValueError("A valid contact_email is required for partner app provisioning")
+        clean_crm_id = self._sanitize_optional_text(crm_id)
+
+        app = self.get_partner_app_by_display_name(clean_display_name)
+        created_app = False
+        if not app:
+            # Stable identity: partner apps have no owner uid, so derive the
+            # suffix from the partner identity itself for idempotent re-runs.
+            identity_seed = f"partner_crm:{clean_display_name}:{clean_crm_id or ''}"
+            slug = self._slugify(clean_display_name, fallback="partner-crm")
+            suffix = hashlib.sha256(identity_seed.encode("utf-8")).hexdigest()[:8]
+            app_id = f"app_{slug}_{suffix}"
+            agent_id = f"developer:{app_id}"
+            now_ms = self._now_ms()
+            groups = normalize_tool_groups(allowed_tool_groups or DEFAULT_PUBLIC_TOOL_GROUPS)
+            result = self._db.execute_raw(
+                """
+                INSERT INTO developer_apps (
+                    app_id,
+                    application_id,
+                    agent_id,
+                    display_name,
+                    contact_email,
+                    status,
+                    allowed_tool_groups,
+                    approved_at,
+                    approved_by,
+                    notes,
+                    created_at,
+                    updated_at,
+                    kind,
+                    crm_id
+                )
+                VALUES (
+                    :app_id,
+                    NULL,
+                    :agent_id,
+                    :display_name,
+                    :contact_email,
+                    'active',
+                    CAST(:allowed_tool_groups AS JSONB),
+                    :approved_at,
+                    :approved_by,
+                    :notes,
+                    :created_at,
+                    :updated_at,
+                    'partner_crm',
+                    :crm_id
+                )
+                RETURNING *
+                """,
+                {
+                    "app_id": app_id,
+                    "agent_id": agent_id,
+                    "display_name": clean_display_name,
+                    "contact_email": clean_contact_email,
+                    "allowed_tool_groups": json.dumps(list(groups)),
+                    "approved_at": now_ms,
+                    "approved_by": self._sanitize_optional_text(provisioned_by),
+                    "notes": self._sanitize_optional_text(notes)
+                    or "Partner CRM app provisioned via ops script.",
+                    "created_at": now_ms,
+                    "updated_at": now_ms,
+                    "crm_id": clean_crm_id,
+                },
+            )
+            app = result.data[0]
+            created_app = True
+
+        active_token = self.get_active_token(app_id=str(app["app_id"]))
+        issued_token = False
+        raw_token: str | None = None
+        if active_token is None:
+            active_token = self.create_token(
+                app_id=str(app["app_id"]),
+                created_by=provisioned_by,
+                label="partner-crm-primary",
+            )
+            raw_token = str(active_token.get("raw_token") or "")
+            issued_token = True
+
+        return {
+            "app": app,
+            "active_token": active_token,
+            "raw_token": raw_token,
+            "created_app": created_app,
+            "issued_token": issued_token,
+        }
+
     def update_self_serve_profile(
         self,
         *,
@@ -1030,6 +1170,8 @@ class DeveloperRegistryService:
                    apps.website_url,
                    apps.brand_image_url,
                    apps.contact_email,
+                   apps.kind,
+                   apps.crm_id,
                    tokens.id AS token_id
             FROM developer_tokens AS tokens
             INNER JOIN developer_apps AS apps

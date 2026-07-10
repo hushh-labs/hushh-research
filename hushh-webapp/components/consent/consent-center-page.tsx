@@ -347,6 +347,14 @@ function consentEntryMatchesSelectedId(
   );
 }
 
+function consentEntryMatchesBundleId(
+  entry: ConsentCenterEntry,
+  bundleId: string,
+) {
+  const metadata = entry.metadata as Record<string, unknown> | undefined;
+  return Boolean(metadata && metadata.bundle_id === bundleId);
+}
+
 function consentEntryMatchesScope(entry: ConsentCenterEntry, scope: string) {
   if (entry.scope === scope) return true;
   return Boolean(
@@ -1215,6 +1223,9 @@ export function ConsentCenterPage() {
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const selectedId =
     searchParams.get("requestId") || searchParams.get("selected");
+  // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
+  // without a requestId). Used as a selection fallback below.
+  const selectedBundleId = searchParams.get("bundleId");
   const notificationAction = normalizeNotificationAction(
     searchParams.get("notificationAction"),
   );
@@ -1225,7 +1236,8 @@ export function ConsentCenterPage() {
   // transition so the navigation never blocks the close animation.
   const [panelCloseRequested, setPanelCloseRequested] = useState(false);
   const [, startPanelUrlSync] = useTransition();
-  const isPanelOpen = Boolean(selectedId) && !panelCloseRequested;
+  const isPanelOpen =
+    Boolean(selectedId || selectedBundleId) && !panelCloseRequested;
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
@@ -1721,8 +1733,25 @@ export function ConsentCenterPage() {
         null
       );
     }
-    return items[0] ?? null;
-  }, [items, selectedId]);
+    // Bundle deep links carry bundleId without a requestId: select the
+    // matching bundle entry so backend-generated bundle URLs land somewhere.
+    if (selectedBundleId) {
+      return (
+        items.find((item) =>
+          consentEntryMatchesBundleId(item, selectedBundleId),
+        ) ?? null
+      );
+    }
+    // No selectedId/selectedBundleId in the URL means no entry is actually
+    // selected (the detail panel is closed - see isPanelOpen). Falling back
+    // to items[0] here made the FIRST row of every tab render as visually
+    // "selected" (accent border/surface) on every render, including right
+    // after switching tabs, with no click and no open panel. Because items
+    // differ per tab, the highlighted row appeared to jump/flicker to a
+    // different, unclicked entry every time the tab changed - the reported
+    // "acting funny" when switching from History to Active.
+    return null;
+  }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
     user?.uid &&
       selectedId &&
@@ -2042,47 +2071,56 @@ export function ConsentCenterPage() {
   ]);
   usePublishVoiceSurfaceMetadata(consentVoiceSurfaceMetadata);
 
-  const setParam = (updates: Record<string, string | null>) => {
-    const next = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if (!value) {
-        next.delete(key);
-      } else {
-        next.set(key, value);
+  // IMPORTANT: this must depend on the current searchParams/pathname/
+  // riaOutgoingCompatibilityRoute so every caller always mutates the CURRENT
+  // URL, never a stale snapshot from an earlier render. (A previous version
+  // of closeDetailPanel captured this function once via useCallback([]) and
+  // replayed page-load-time searchParams forever, which reset the active
+  // tab to "requests" every time the detail panel closed - see below.)
+  const setParam = useCallback(
+    (updates: Record<string, string | null>) => {
+      const next = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (!value) {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
       }
-    }
-    if (!riaOutgoingCompatibilityRoute && !("actor" in updates)) {
-      next.delete("actor");
-      next.delete("view");
-    }
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, {
-      scroll: false,
-    });
-  };
+      if (!riaOutgoingCompatibilityRoute && !("actor" in updates)) {
+        next.delete("actor");
+        next.delete("view");
+      }
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [pathname, riaOutgoingCompatibilityRoute, router, searchParams],
+  );
 
   // Close the detail panel instantly, then clear its URL params in a transition
-  // so the route navigation never blocks the panel's close animation.
+  // so the route navigation never blocks the panel's close animation. Only the
+  // panel-specific params are cleared; tab/page/q/actor/view are untouched, so
+  // closing never changes which tab you are viewing.
   const closeDetailPanel = useCallback(() => {
     setPanelCloseRequested(true);
     startPanelUrlSync(() => {
       setParam({
         requestId: null,
         selected: null,
+        bundleId: null,
         notificationAction: null,
       });
     });
-    // setParam intentionally excluded; it is recreated each render and only
-    // reads current searchParams/router refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startPanelUrlSync]);
+  }, [setParam, startPanelUrlSync]);
 
   // When the selected request changes (deep link, list selection, or after the
   // URL finishes clearing), drop the local close override so the panel can open
   // again and stays in sync with the URL.
   useEffect(() => {
     setPanelCloseRequested(false);
-  }, [selectedId]);
+  }, [selectedId, selectedBundleId]);
 
   const pageEyebrow = "Access / Consent";
   const pageTitle = "Access manager";
@@ -2116,9 +2154,22 @@ export function ConsentCenterPage() {
           <section className="space-y-4" data-testid="consent-manager-primary">
             <SettingsSegmentedTabs
               value={tab}
-              onValueChange={(value) =>
-                setParam({ tab: value, page: "1", requestId: null })
-              }
+              onValueChange={(value) => {
+                // Each tab has its own search placeholder ("Search requests
+                // by...", "Search connections by...") implying independent
+                // scope, but the query string carried over silently: search
+                // "macy" on Requests, click Active Access, and the list
+                // stays filtered by "macy" with no visible reason why it
+                // looks empty. Clear the search on every tab switch.
+                setSearchValue("");
+                setParam({
+                  tab: value,
+                  page: "1",
+                  requestId: null,
+                  bundleId: null,
+                  q: null,
+                });
+              }}
               options={[
                 {
                   value: "requests",
@@ -2262,8 +2313,23 @@ export function ConsentCenterPage() {
                       key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
                       entry={entry}
                       selected={
-                        selectedEntry?.id === entry.id ||
-                        selectedEntry?.request_id === entry.request_id ||
+                        // Bug: when nothing is selected, selectedEntry is null,
+                        // so selectedEntry?.id and selectedEntry?.request_id are
+                        // both undefined. Entries without their own request_id
+                        // (e.g. one_location_grant rows) also have
+                        // entry.request_id === undefined, so
+                        // "undefined === undefined" was true and falsely
+                        // highlighted that row as selected on every render -
+                        // this is the row that appeared to randomly "jump" to
+                        // a different entry on every tab switch. Require a
+                        // real selectedEntry (or a matching selectedId) before
+                        // comparing ids at all.
+                        Boolean(
+                          selectedEntry &&
+                            (selectedEntry.id === entry.id ||
+                              (selectedEntry.request_id &&
+                                selectedEntry.request_id === entry.request_id)),
+                        ) ||
                         Boolean(
                           selectedId &&
                             consentEntryMatchesSelectedId(entry, selectedId),

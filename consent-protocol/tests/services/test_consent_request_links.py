@@ -62,9 +62,26 @@ class TestBuildConsentRequestPath:
         _, params = _parse_path(build_consent_request_path(bundle_id=None))
         assert "bundleId" not in params
 
-    def test_view_overrides_tab(self):
+    def test_unknown_view_normalizes_to_pending(self):
+        # The consent center only understands pending|active|history|connections;
+        # unknown values must not mint unrecognized tab params.
         _, params = _parse_path(build_consent_request_path(view="approved"))
-        assert params["tab"] == ["approved"]
+        assert params["tab"] == ["pending"]
+
+    def test_incoming_view_aliases_to_pending(self):
+        _, params = _parse_path(build_consent_request_path(view="incoming"))
+        assert params["tab"] == ["pending"]
+
+    def test_valid_tabs_pass_through(self):
+        for view in ("pending", "active", "history", "connections"):
+            _, params = _parse_path(build_consent_request_path(view=view))
+            assert params["tab"] == [view]
+
+    def test_legacy_aliases_normalize(self):
+        _, params = _parse_path(build_consent_request_path(view="previous"))
+        assert params["tab"] == ["history"]
+        _, params = _parse_path(build_consent_request_path(view="relationships"))
+        assert params["tab"] == ["connections"]
 
     def test_empty_view_falls_back_to_pending(self):
         _, params = _parse_path(build_consent_request_path(view=""))
@@ -106,14 +123,14 @@ class TestBuildConsentRequestPath:
         path = build_consent_request_path(
             request_id="r1",
             bundle_id="b1",
-            view="approved",
+            view="active",
             actor="investor",
             manager_view="incoming",
         )
         _, params = _parse_path(path)
         assert params["requestId"] == ["r1"]
         assert params["bundleId"] == ["b1"]
-        assert params["tab"] == ["approved"]
+        assert params["tab"] == ["active"]
         assert params["actor"] == ["investor"]
         assert params["view"] == ["incoming"]
 

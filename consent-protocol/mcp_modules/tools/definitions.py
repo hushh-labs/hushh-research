@@ -115,6 +115,9 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                 "Use this after discover_user_domains and a scope-based check_consent_status call. "
                 "Returns a cryptographically signed consent token (HCT format) if already granted, "
                 "or a pending request id if the One user must approve in the Hussh app. "
+                "Approval works like an OAuth device flow: Hussh notifies the user on THEIR device "
+                "(push + consent inbox) and they approve or decline there. You never receive or relay "
+                "an approval link - just poll check_consent_status with the request id. "
                 "If an exact or broader active grant already covers the requested scope, the existing token "
                 "is reused and the response exposes requested_scope, granted_scope, coverage_kind, and "
                 "covered_by_existing_grant. If an exact pending request already exists, it is reused."
@@ -180,16 +183,24 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "type": "string",
                         "description": (
                             "Base64-encoded X25519 public key owned by the external connector. "
-                            "Hussh wraps the export key to this public key and never manages the private key."
+                            "Hussh wraps the export key to this public key and never manages the private key. "
+                            "Optional on the local stdio server, which auto-manages its own persisted keypair "
+                            "when omitted; required on the remote/hosted MCP endpoint."
                         ),
                     },
                     "connector_key_id": {
                         "type": "string",
-                        "description": "Stable caller-managed identifier for the connector public key.",
+                        "description": (
+                            "Stable caller-managed identifier for the connector public key. Optional on the "
+                            "local stdio server (auto-managed); required on the remote/hosted MCP endpoint."
+                        ),
                     },
                     "connector_wrapping_alg": {
                         "type": "string",
-                        "description": "Connector key-wrapping algorithm. Use X25519-AES256-GCM.",
+                        "description": (
+                            "Connector key-wrapping algorithm. Use X25519-AES256-GCM. Optional on the local "
+                            "stdio server (auto-managed); required on the remote/hosted MCP endpoint."
+                        ),
                         "enum": ["X25519-AES256-GCM"],
                     },
                     "scope_bundle": {
@@ -243,12 +254,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "required": ["bid_amount"],
                     },
                 },
-                "required": [
-                    "user_id",
-                    "connector_public_key",
-                    "connector_key_id",
-                    "connector_wrapping_alg",
-                ],
+                "required": ["user_id"],
                 "anyOf": [{"required": ["scope"]}, {"required": ["scope_bundle"]}],
             },
         ),
@@ -279,9 +285,23 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
         Tool(
             name="get_encrypted_scoped_export",
             description=(
-                "📦 Retrieve the encrypted wrapped-key export for any valid consent token. "
-                "This is the recommended dynamic data-access tool for all new integrations. "
-                "Hussh returns ciphertext plus wrapped key metadata only; the external connector decrypts client-side."
+                "📦 Retrieve data for any valid consent token. This is the recommended dynamic "
+                "data-access tool for all new integrations. "
+                "On the local stdio server: decrypts and narrows the export locally using the server's own "
+                "persisted connector keypair, returning a small plaintext `data` object directly - no ciphertext, "
+                "no download step, no risk of overflowing model context on large exports. If the decrypted "
+                "result for a whole domain (e.g. attr.financial.*) is still too large, retry with a narrower "
+                "expected_scope/sub-path (e.g. attr.financial.profile.* or attr.financial.analytics.*) rather "
+                "than falling back to raw ciphertext, since raw delivery requires reaching a download URL that "
+                "sandboxed hosts often cannot route to. "
+                "On the remote/hosted MCP endpoint (no local trusted process to hold a key): returns ciphertext "
+                "plus wrapped key metadata only; the external connector decrypts client-side. Small exports "
+                "include the base64 ciphertext inline (encrypted_data); larger exports set delivery=download - "
+                "fetch the raw bytes with the returned download instructions (an authenticated POST your script "
+                "runs directly). Never retype or reconstruct ciphertext through the model context. If your script "
+                "environment cannot reach the download URL (sandboxes, egress allowlists, localhost servers), "
+                "retry with delivery='inline'. Pass raw=true on the local stdio server to opt out of automatic "
+                "decryption and receive the same raw ciphertext contract as the remote endpoint."
             ),
             inputSchema={
                 "type": "object",
@@ -314,6 +334,28 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                             "Optional safety check. Pass the original discovered/requested scope here. "
                             "If the token came from a reused broader grant, the server returns the canonical broader encrypted export "
                             "and echoes expected_scope so the connector can narrow after decrypting."
+                        ),
+                    },
+                    "delivery": {
+                        "type": "string",
+                        "enum": ["auto", "inline", "raw"],
+                        "description": (
+                            "auto (default): on the local stdio server, decrypt and narrow locally and return "
+                            "`data` directly; on the remote/hosted endpoint, small exports inline, large exports "
+                            "via the download endpoint. inline: force the full base64 ciphertext into the tool "
+                            "result - use ONLY when your script environment cannot reach the download URL, and "
+                            "write it to a file in one step without retyping it. raw: on the local stdio server, "
+                            "opt out of automatic decryption and receive the raw ciphertext contract instead "
+                            "(same as the remote endpoint's default behavior)."
+                        ),
+                    },
+                    "raw": {
+                        "type": "boolean",
+                        "description": (
+                            "Local stdio server only: set true to opt out of automatic local decryption and "
+                            "receive the raw ciphertext contract (encrypted_data/iv/tag/wrapped_key_bundle) "
+                            "instead of a decrypted `data` object. Equivalent to delivery='raw'. No effect on "
+                            "the remote/hosted endpoint, which always returns raw ciphertext."
                         ),
                     },
                 },
@@ -424,7 +466,9 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             description=(
                 "🔄 Check consent status for a user/scope pair or a specific request id. "
                 "Call this before request_consent to reuse an existing active grant, then use it "
-                "for bounded polling after request_consent returns pending. "
+                "for bounded polling after request_consent returns pending. The user approves on "
+                "their own notified device (device-flow pattern); polling this tool is your only "
+                "wait mechanism - never ask for or forward an approval link. "
                 "If a broader active grant covers the scope, the response returns status=granted "
                 "with requested_scope/granted_scope coverage metadata. If no matching grant or "
                 "request exists, status is not_found."

@@ -15,11 +15,11 @@ Usage:
   ./bin/hushh <command> [subcommand] [options]
 
 Core commands:
-  bootstrap [--mode <local|uat|prod>]
-  doctor --mode <local|uat|prod> [--json]
+  bootstrap [--mode <local|uat|dev|prod>]
+  doctor --mode <local|uat|dev|prod> [--json]
   proxy --mode local
   terminal <proxy|web|backend> [...]
-  web [--mode <local|uat|prod|offline>] [-- <next-dev args>]
+  web [--mode <local|uat|dev|prod|offline>] [-- <next-dev args>]
   backend [--mode <local|offline>] [--reload|--no-reload]
 
 Local runtime uses three separate terminals (one component each):
@@ -27,7 +27,7 @@ Local runtime uses three separate terminals (one component each):
   2. ./bin/hushh backend --mode local --reload
   3. ./bin/hushh web     --mode local
   compose <init|up|down|nuke|logs|ps|config|health>
-  native <ios|android> [--mode <local|uat|prod>] [--fresh]
+  native <ios|android> [--mode <local|uat|dev|prod>] [--fresh]
   native mac <build|run|test>
   lint
   test
@@ -37,11 +37,12 @@ Local runtime uses three separate terminals (one component each):
 Operational commands:
   docs verify
   env bootstrap
-  env use --mode <local|uat|prod> [--dry-run]
+  env use --mode <local|uat|dev|prod> [--dry-run]
   db init-iam
   db verify-iam-schema
   db verify-release-contract
   db verify-uat-schema
+  db verify-dev-schema
   db report-prod-posture [--json]
   compose <subcommand>
   protocol <subcommand>
@@ -144,7 +145,7 @@ run_web() {
       -h|--help)
         cat <<'EOF'
 Usage:
-  ./bin/hushh web [--mode <local|uat|prod>] [-- <next-dev args>]
+  ./bin/hushh web [--mode <local|uat|dev|prod>] [-- <next-dev args>]
 
 Defaults to: --mode local
 EOF
@@ -213,7 +214,7 @@ EOF
           -h|--help)
             cat <<'EOF'
 Usage:
-  ./bin/hushh terminal web [--mode <local|uat|prod>] [-- <next-dev args>]
+  ./bin/hushh terminal web [--mode <local|uat|dev|prod>] [-- <next-dev args>]
 
 Defaults to: --mode local
 EOF
@@ -265,7 +266,7 @@ EOF
       cat <<'EOF'
 Usage:
   ./bin/hushh terminal proxy [--mode local]
-  ./bin/hushh terminal web [--mode <local|uat|prod>] [-- <next-dev args>]
+  ./bin/hushh terminal web [--mode <local|uat|dev|prod>] [-- <next-dev args>]
   ./bin/hushh terminal backend [--mode local] [--reload|--no-reload]
 
 Opens a visible OS terminal window and runs the canonical Hushh command there.
@@ -338,7 +339,7 @@ run_native() {
       -h|--help)
         cat <<'EOF'
 Usage:
-  ./bin/hushh native <ios|android> [--mode <local|uat|prod>] [--fresh]
+  ./bin/hushh native <ios|android> [--mode <local|uat|dev|prod>] [--fresh]
   ./bin/hushh native mac <build|run|test>
 EOF
         exit 0
@@ -601,7 +602,7 @@ run_env() {
           -h|--help)
             cat <<'EOF'
 Usage:
-  ./bin/hushh env use --mode <local|uat|prod> [--dry-run]
+  ./bin/hushh env use --mode <local|uat|dev|prod> [--dry-run]
 EOF
             exit 0
             ;;
@@ -665,6 +666,37 @@ EOF
       done
       cmd=(bash "$REPO_ROOT/scripts/ops/verify_runtime_db_contract.sh" \
         --project hushh-pda-uat \
+        --region us-central1 \
+        --service consent-protocol \
+        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
+      if [ -n "$report_path" ]; then
+        cmd+=(--report-path "$report_path")
+      fi
+      exec "${cmd[@]}"
+      ;;
+    verify-dev-schema)
+      shift
+      report_path=""
+      while [ "$#" -gt 0 ]; do
+        case "${1:-}" in
+          --report-path)
+            report_path="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            cat <<'EOF'
+Usage:
+  ./bin/hushh db verify-dev-schema [--report-path <path>]
+EOF
+            exit 0
+            ;;
+          *)
+            die "Unknown option for db verify-dev-schema: $1"
+            ;;
+        esac
+      done
+      cmd=(bash "$REPO_ROOT/scripts/ops/verify_runtime_db_contract.sh" \
+        --project "${DEV_PROJECT_ID:-hushh-pda-dev}" \
         --region us-central1 \
         --service consent-protocol \
         --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
@@ -760,7 +792,7 @@ case "$COMMAND" in
         -h|--help)
           cat <<'EOF'
 Usage:
-  ./bin/hushh doctor --mode <local|uat|prod> [--json]
+  ./bin/hushh doctor --mode <local|uat|dev|prod> [--json]
 EOF
           exit 0
           ;;

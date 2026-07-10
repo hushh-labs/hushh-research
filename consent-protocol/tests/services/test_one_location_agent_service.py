@@ -2186,3 +2186,137 @@ def test_assert_grant_capability_token_allows_legacy_tokenless_grant() -> None:
     service._assert_grant_capability_token({"metadata": {"reason": "owner_approved"}})
     service._assert_grant_capability_token({"metadata": None})
     service._assert_grant_capability_token({})
+
+
+# ── Migration-083 (encrypted_private_key_jwk) self-heal ─────────────────────
+
+
+def test_missing_encrypted_private_column_detector_is_narrow() -> None:
+    """The self-heal detector must only match the specific migration-083 drift."""
+    from db.db_client import DatabaseExecutionError
+    from hushh_mcp.services.one_location_agent_service import (
+        _is_missing_encrypted_private_column,
+    )
+
+    drift = DatabaseExecutionError(
+        table_name="<raw_sql>",
+        operation="execute_raw",
+        details=(
+            '(psycopg2.errors.UndefinedColumn) column "encrypted_private_key_jwk" '
+            'of relation "one_location_recipient_keys" does not exist'
+        ),
+    )
+    assert _is_missing_encrypted_private_column(drift) is True
+
+    # A different column error must NOT be swallowed by the self-heal.
+    unrelated = DatabaseExecutionError(
+        table_name="<raw_sql>",
+        operation="execute_raw",
+        details='column "some_other_col" does not exist',
+    )
+    assert _is_missing_encrypted_private_column(unrelated) is False
+
+    # A transient/connection error must NOT match either.
+    transient = DatabaseExecutionError(
+        table_name="<raw_sql>",
+        operation="execute_raw",
+        details="connection refused",
+    )
+    assert _is_missing_encrypted_private_column(transient) is False
+
+
+class _RecipientKeySelfHealService(OneLocationAgentService):
+    """Fails the recipient-key INSERT once with the exact migration-083 drift,
+    records the ensure-column call, then succeeds on retry."""
+
+    def __init__(self) -> None:
+        self.ensure_column_calls = 0
+        self.insert_attempts = 0
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        from db.db_client import DatabaseExecutionError
+
+        if "UPDATE one_location_recipient_keys" in sql:
+            return None
+        if "INSERT INTO one_location_recipient_keys" in sql:
+            self.insert_attempts += 1
+            if self.insert_attempts == 1:
+                raise DatabaseExecutionError(
+                    table_name="<raw_sql>",
+                    operation="execute_raw",
+                    details=(
+                        "(psycopg2.errors.UndefinedColumn) column "
+                        '"encrypted_private_key_jwk" of relation '
+                        '"one_location_recipient_keys" does not exist'
+                    ),
+                )
+            return {
+                "user_id": (params or {}).get("user_id"),
+                "key_id": (params or {}).get("key_id"),
+                "public_key_jwk": (params or {}).get("public_key_jwk"),
+                "algorithm": "ECDH-P256-AES256-GCM",
+                "key_created_at": datetime.now(timezone.utc),
+                "phone_verified": True,
+            }
+        if "INSERT INTO one_location_events" in sql:
+            return None
+        return None
+
+    def _ensure_recipient_encrypted_private_column(self) -> None:
+        self.ensure_column_calls += 1
+        type(self)._recipient_encrypted_private_column_ensured = True
+
+
+def test_register_recipient_key_self_heals_missing_encrypted_private_column() -> None:
+    OneLocationAgentService._recipient_encrypted_private_column_ensured = False
+    service = _RecipientKeySelfHealService()
+
+    result = service.register_recipient_key(
+        user_id="user_a",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "abc", "y": "def"},
+        key_id="recipient-key-id-1234",
+    )
+
+    # The column ensure ran exactly once and the INSERT was retried to success.
+    assert service.ensure_column_calls == 1
+    assert service.insert_attempts == 2
+    assert result.get("userId") == "user_a"
+
+
+class _RecipientKeyUnrelatedErrorService(OneLocationAgentService):
+    """INSERT raises an unrelated DB error; the self-heal must NOT fire and the
+    original error must propagate."""
+
+    def __init__(self) -> None:
+        self.ensure_column_calls = 0
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        from db.db_client import DatabaseExecutionError
+
+        if "UPDATE one_location_recipient_keys" in sql:
+            return None
+        if "INSERT INTO one_location_recipient_keys" in sql:
+            raise DatabaseExecutionError(
+                table_name="<raw_sql>",
+                operation="execute_raw",
+                details="some unrelated integrity violation",
+            )
+        return None
+
+    def _ensure_recipient_encrypted_private_column(self) -> None:  # pragma: no cover
+        self.ensure_column_calls += 1
+
+
+def test_register_recipient_key_propagates_unrelated_db_error() -> None:
+    from db.db_client import DatabaseExecutionError
+
+    OneLocationAgentService._recipient_encrypted_private_column_ensured = False
+    service = _RecipientKeyUnrelatedErrorService()
+
+    with pytest.raises(DatabaseExecutionError):
+        service.register_recipient_key(
+            user_id="user_a",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": "abc", "y": "def"},
+            key_id="recipient-key-id-1234",
+        )
+    assert service.ensure_column_calls == 0

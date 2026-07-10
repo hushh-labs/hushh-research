@@ -1,14 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Building2,
   Database,
   ListChecks,
   RefreshCw,
-  Search,
   SendHorizontal,
   Shuffle,
   Trash2,
@@ -31,6 +31,7 @@ import {
 } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { DataTable } from "@/components/app-ui/data-table";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -119,8 +120,8 @@ const RANDOM_DEMO_NAMES = [
   { FirstName: "Kushal", LastName: "Trivedi" },
 ];
 
-const CRM_LIST_PAGE_SIZE = 12;
-const SALESFORCE_CRM_LOGO_SRC = "/brand/salesforce-crm-logo.svg";
+
+
 const MACYS_LOGO_SRC = "/brand/macys-logo.svg";
 const CRM_FIELD_PLACEHOLDERS: Record<CrmProfileFieldKey, string> = {
   FirstName: "Maria",
@@ -261,21 +262,10 @@ function customerLogoSrc(system?: ConnectedSystemSummary | null): string | null 
   return null;
 }
 
-function crmTypeLogoSrc(system?: ConnectedSystemSummary | null): string | null {
-  const systemType = String(system?.systemType || system?.displayName || "")
-    .trim()
-    .toLowerCase();
-  if (systemType.includes("salesforce")) {
-    return SALESFORCE_CRM_LOGO_SRC;
-  }
-  return null;
-}
-
 function crmTypeDisplayLabel(
   system?: Pick<ConnectedSystemSummary, "systemType" | "systemName"> | null
 ): string {
-  const rawLabel = [system?.systemType, system?.systemName].filter(Boolean).join(" ");
-  return rawLabel.toLowerCase().includes("salesforce") ? "Connected CRM" : rawLabel;
+  return [system?.systemType, system?.systemName].filter(Boolean).join(" ");
 }
 
 function ConnectedSystemLogo({
@@ -312,22 +302,41 @@ function ConnectedSystemLogo({
   );
 }
 
-function CrmTypeLogoBadge({ system }: { system?: ConnectedSystemSummary | null }) {
-  const logoSrc = crmTypeLogoSrc(system);
-  if (!logoSrc) return null;
-  return (
-    <span className="hidden h-7 w-20 items-center justify-center rounded-md border border-border/60 bg-white px-2 py-1 shadow-sm sm:inline-flex">
-      <Image
-        src={logoSrc}
-        alt="CRM platform logo"
-        width={80}
-        height={28}
-        className="max-h-4 w-full object-contain"
-        unoptimized
-      />
-    </span>
-  );
-}
+// Compact CRM overview table: one row per connected system with just the
+// facts that matter at a glance (name, CRM type, status). Row click opens the
+// system workspace; everything else lives on the detail page.
+const crmSystemColumns: ColumnDef<ConnectedSystemSummary>[] = [
+  {
+    accessorKey: "displayName",
+    header: "Name",
+    cell: ({ row }) => (
+      <div className="flex min-w-0 items-center gap-3">
+        <ConnectedSystemLogo system={row.original} />
+        <span className="truncate font-medium text-foreground">
+          {row.original.displayName ||
+            row.original.customerDisplayName ||
+            "CRM system"}
+        </span>
+      </div>
+    ),
+  },
+  {
+    accessorKey: "systemType",
+    header: "Type",
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">
+        {crmTypeDisplayLabel(row.original) || "CRM"}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => (
+      <Badge variant="secondary">{statusBadge(row.original.status)}</Badge>
+    ),
+  },
+];
 
 function randomItem<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)] || items[0]!;
@@ -546,6 +555,7 @@ export function ConnectedSystemsPanel({
   agentInstruction,
   profile,
 }: ConnectedSystemsPanelProps) {
+  const router = useRouter();
   const [systems, setSystems] = useState<ConnectedSystemSummary[]>([]);
   const [schema, setSchema] = useState<ConnectedSystemSchemaResponse | null>(null);
   const [binding, setBinding] = useState<ConnectedSystemRecordBinding | null>(null);
@@ -564,8 +574,6 @@ export function ConnectedSystemsPanel({
   const [updateReadbackEmail, setUpdateReadbackEmail] = useState("");
   const [updateReadbackPhone, setUpdateReadbackPhone] = useState("");
   const [deleteId, setDeleteId] = useState("");
-  const [listSearchQuery, setListSearchQuery] = useState("");
-  const [listPage, setListPage] = useState(1);
   const [bindingResolvedKey, setBindingResolvedKey] = useState<string | null>(null);
   const [autoLinkResolvedKey, setAutoLinkResolvedKey] = useState<string | null>(null);
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
@@ -677,40 +685,6 @@ export function ConnectedSystemsPanel({
     (!selectedSystem || !bindingResolved || !autoLinkResolved || isBoundRecordHydrating);
   const canShowUnboundRecordActions = !hasBoundRecord && !isRecordStateLoading;
   const canShowBoundRecordActions = hasBoundRecord && !isRecordStateLoading;
-  const filteredSystems = useMemo(() => {
-    const query = listSearchQuery.trim().toLowerCase();
-    if (!query) return systems;
-    return systems.filter((system) => {
-      const haystack = [
-        system.displayName,
-        system.customerDisplayName,
-        system.systemType,
-        system.systemName,
-        system.target,
-        system.objectTypeDefault,
-        system.transportLabel,
-        system.status,
-        system.registrySource,
-        ...(system.toolCatalog || []).map((tool) =>
-          [tool.name, tool.operation, tool.description].filter(Boolean).join(" ")
-        ),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [listSearchQuery, systems]);
-  const listPageCount = Math.max(1, Math.ceil(filteredSystems.length / CRM_LIST_PAGE_SIZE));
-  const normalizedListPage = Math.min(listPage, listPageCount);
-  const pagedSystems = useMemo(() => {
-    const start = (normalizedListPage - 1) * CRM_LIST_PAGE_SIZE;
-    return filteredSystems.slice(start, start + CRM_LIST_PAGE_SIZE);
-  }, [filteredSystems, normalizedListPage]);
-
-  useEffect(() => {
-    setListPage(1);
-  }, [listSearchQuery, systems.length]);
 
   useEffect(() => {
     const email = cleanFieldValue(profile?.email);
@@ -742,11 +716,20 @@ export function ConnectedSystemsPanel({
   }, [crmRecordReadKey, mode]);
 
   const refreshSystems = useCallback(async () => {
-    if (!vaultOwnerToken) return;
+    // Listing needs sign-in only, not vault unlock: fall back to the Firebase
+    // ID token when the vault is locked so the CRM overview never dead-ends
+    // into an unlock prompt. Record-level actions below still require the
+    // vault owner token.
+    let authToken = vaultOwnerToken || "";
+    if (!authToken) {
+      const { AuthService } = await import("@/lib/services/auth-service");
+      authToken = (await AuthService.getIdToken()) || "";
+    }
+    if (!authToken) return;
     setBusy("systems");
     setError(null);
     try {
-      setSystems(await ConnectedSystemsService.listSystems(vaultOwnerToken));
+      setSystems(await ConnectedSystemsService.listSystems(authToken));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connected Systems could not load.";
       setError(message);
@@ -1435,7 +1418,7 @@ export function ConnectedSystemsPanel({
       </div>
     ) : null;
 
-  if (!canUseBackend) {
+  if (!canUseBackend && mode !== "list") {
     return (
       <SettingsGroup title="CRM system">
         <SettingsRow
@@ -1452,60 +1435,8 @@ export function ConnectedSystemsPanel({
   if (mode === "list") {
     return (
       <div className="space-y-4 sm:space-y-5">
-        <SettingsGroup
-          title="CRM systems"
-          description="Open a connected system to inspect the bound record and run user-approved record actions."
-        >
-          <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            <label className="sr-only" htmlFor="connected-systems-search">
-              Search CRM systems
-            </label>
-            <div className="relative">
-              <Search
-                aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                id="connected-systems-search"
-                type="search"
-                value={listSearchQuery}
-                onChange={(event) => setListSearchQuery(event.target.value)}
-                placeholder="Search by CRM, customer, target, or status"
-                className="pl-9"
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>
-                {filteredSystems.length} CRM system{filteredSystems.length === 1 ? "" : "s"}
-              </span>
-              <div className="flex items-center gap-2">
-                {filteredSystems.length > CRM_LIST_PAGE_SIZE ? (
-                  <span>
-                    Page {normalizedListPage} of {listPageCount}
-                  </span>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() => void refreshSystems()}
-                  aria-label="Refresh CRM systems"
-                  className="h-7 px-2 text-xs"
-                >
-                  <Icon
-                    icon={RefreshCw}
-                    size="xs"
-                    className={busy === "systems" ? "mr-1.5 animate-spin" : "mr-1.5"}
-                  />
-                  Refresh
-                </Button>
-              </div>
-            </div>
-          </div>
-          {systems.length === 0 && busy === "systems" ? (
+        {systems.length === 0 && busy === "systems" ? (
+          <SettingsGroup>
             <SettingsRow
               icon={RefreshCw}
               title="Loading connected systems"
@@ -1513,12 +1444,14 @@ export function ConnectedSystemsPanel({
               trailing={<Icon icon={RefreshCw} size="sm" className="animate-spin" />}
               stackTrailingOnMobile
             />
-          ) : null}
-          {systems.length === 0 && busy !== "systems" ? (
+          </SettingsGroup>
+        ) : null}
+        {systems.length === 0 && busy !== "systems" ? (
+          <SettingsGroup>
             <SettingsRow
               icon={Database}
               title="No connected CRM systems"
-              description="Refresh to check the Customer 0 CRM MCP registry."
+              description="Refresh to check the CRM MCP registry."
               trailing={
                 <Button
                   type="button"
@@ -1527,82 +1460,34 @@ export function ConnectedSystemsPanel({
                   size="sm"
                   disabled={busy !== null}
                   onClick={() => void refreshSystems()}
+                  aria-label="Refresh CRM systems"
                 >
-                  <Icon
-                    icon={RefreshCw}
-                    size="sm"
-                  />
+                  <Icon icon={RefreshCw} size="sm" />
                 </Button>
               }
               stackTrailingOnMobile
             />
-          ) : null}
-          {systems.length > 0 && filteredSystems.length === 0 ? (
-            <SettingsRow
-              icon={Search}
-              title="No matching CRM systems"
-              description="Try a different customer, CRM type, target, or status."
-              stackTrailingOnMobile
-            />
-          ) : null}
-          {pagedSystems.map((system) => {
-            const systemCustomer = system.customerDisplayName || system.target || "Customer";
-            const typeLabel = crmTypeDisplayLabel(system);
-            return (
-              <SettingsRow
-                key={system.systemId}
-                asChild
-                leading={<ConnectedSystemLogo system={system} />}
-                className="[--settings-row-stack-indent:4.75rem]"
-                title={system.displayName || "CRM system"}
-                description={`${systemCustomer} / ${
-                  system.objectTypeDefault || "Contact"
-                } / ${system.transportLabel || "External CRM MCP"}`}
-                trailing={
-                  <div className="flex min-w-0 max-w-[calc(100%-1.75rem)] flex-wrap items-center justify-start gap-2 sm:max-w-none sm:justify-end">
-                    <CrmTypeLogoBadge system={system} />
-                    <Badge variant="secondary">{statusBadge(system.status)}</Badge>
-                    {typeLabel ? <Badge variant="secondary">{typeLabel}</Badge> : null}
-                  </div>
-                }
-                chevron
-                stackTrailingOnMobile
-              >
-                <Link href={buildConnectedSystemRoute(system.systemId)} />
-              </SettingsRow>
-            );
-          })}
-          {filteredSystems.length > CRM_LIST_PAGE_SIZE ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="sm"
-                disabled={normalizedListPage <= 1}
-                onClick={() => setListPage((page) => Math.max(1, page - 1))}
-              >
-                Previous
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {Math.min(filteredSystems.length, (normalizedListPage - 1) * CRM_LIST_PAGE_SIZE + 1)}
-                -
-                {Math.min(filteredSystems.length, normalizedListPage * CRM_LIST_PAGE_SIZE)} of{" "}
-                {filteredSystems.length}
-              </span>
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="sm"
-                disabled={normalizedListPage >= listPageCount}
-                onClick={() => setListPage((page) => Math.min(listPageCount, page + 1))}
-              >
-                Next
-              </Button>
-            </div>
-          ) : null}
-        </SettingsGroup>
+          </SettingsGroup>
+        ) : null}
+        {systems.length > 0 ? (
+          <DataTable
+            columns={crmSystemColumns}
+            data={systems}
+            globalSearchKeys={[
+              "displayName",
+              "customerDisplayName",
+              "systemType",
+              "systemName",
+              "status",
+              "target",
+            ]}
+            searchPlaceholder="Search CRM systems"
+            onRowClick={(system) =>
+              router.push(buildConnectedSystemRoute(system.systemId))
+            }
+            initialPageSize={8}
+          />
+        ) : null}
 
         {error ? (
           <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
@@ -1633,11 +1518,8 @@ export function ConnectedSystemsPanel({
             </div>
           </div>
           <div className="text-left text-xs text-muted-foreground sm:text-right">
-            <CrmTypeLogoBadge system={selectedSystem} />
-            <div className="mt-2">
-              {statusBadge(selectedSystem?.status || "connected")} through{" "}
-              {selectedSystem?.transportLabel || "External CRM MCP"}
-            </div>
+            {statusBadge(selectedSystem?.status || "connected")} through{" "}
+            {selectedSystem?.transportLabel || "External CRM MCP"}
           </div>
         </div>
       </SurfaceInset>

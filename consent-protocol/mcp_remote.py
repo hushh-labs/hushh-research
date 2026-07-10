@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 from typing import Any
 from urllib.parse import parse_qs
 
+from limits import parse as parse_rate_limit
+from limits.storage import storage_from_string
+from limits.strategies import MovingWindowRateLimiter
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from api.developer_auth import remote_mcp_disabled_error, remote_mcp_enabled
@@ -16,6 +21,28 @@ from mcp_modules.developer_context import (
 from mcp_server import server as mcp_server
 
 logger = logging.getLogger(__name__)
+
+# The `/mcp` mount is a raw ASGI sub-app (app.mount("/mcp", remote_mcp_app) in
+# server.py), so slowapi's route-decorator rate limiting (api/middlewares/
+# rate_limit.py, used everywhere else in the FastAPI app) never applies to
+# it. This is a genuinely unbounded surface today: a hosted CRM integration
+# (Salesforce Agentforce/FSC via Named Credential, Mulesoft-fronted
+# connectors) calling at scale, or a runaway retry loop, has no rate limit,
+# timeout, or concurrency cap protecting it. This module implements a manual
+# per-developer-app limiter directly using the `limits` library (already a
+# slowapi dependency), reusing the same RATE_LIMIT_STORAGE_URI seam
+# documented in api/middlewares/rate_limit.py (Postgres now, Redis/Memorystore
+# later; in-memory when unset - single-process-scoped like the rest of the
+# app's rate limiting).
+_MCP_REMOTE_RATE_LIMIT = str(os.environ.get("MCP_REMOTE_RATE_LIMIT", "") or "120/minute").strip()
+_MCP_REMOTE_REQUEST_TIMEOUT_SECONDS = float(
+    os.environ.get("MCP_REMOTE_REQUEST_TIMEOUT_SECONDS", "") or "120"
+)
+_rate_limit_item = parse_rate_limit(_MCP_REMOTE_RATE_LIMIT)
+_rate_limit_storage = storage_from_string(
+    os.environ.get("RATE_LIMIT_STORAGE_URI", "") or "memory://"
+)
+_rate_limiter = MovingWindowRateLimiter(_rate_limit_storage)
 
 
 def _header_value(scope: dict[str, Any], header_name: bytes) -> str | None:
@@ -125,9 +152,50 @@ class AuthenticatedRemoteMCPApp:
             )
             return
 
+        # Per-developer-app rate limit. Keyed by app_id (not IP) so a single
+        # hosted CRM integration's own traffic is bounded regardless of how
+        # many IPs/instances it fans out from, and so one noisy app can never
+        # starve another app's quota.
+        if not _rate_limiter.hit(_rate_limit_item, "mcp_remote", principal.app_id):
+            logger.warning(
+                "Remote MCP rate limit exceeded",
+                extra={"event_type": "mcp_remote_rate_limited", "app_id": principal.app_id},
+            )
+            await _send_json(
+                send,
+                429,
+                {
+                    "error_code": "RATE_LIMIT_EXCEEDED",
+                    "message": (
+                        f"Remote MCP rate limit exceeded ({_MCP_REMOTE_RATE_LIMIT} per developer "
+                        "app). Retry with standard backoff."
+                    ),
+                },
+            )
+            return
+
         context_tokens = set_current_developer_principal(principal, token=raw_token)
         try:
-            await self._inner(scope, receive, send)
+            await asyncio.wait_for(
+                self._inner(scope, receive, send),
+                timeout=_MCP_REMOTE_REQUEST_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Remote MCP request timed out",
+                extra={"event_type": "mcp_remote_request_timeout", "app_id": principal.app_id},
+            )
+            await _send_json(
+                send,
+                504,
+                {
+                    "error_code": "REQUEST_TIMEOUT",
+                    "message": (
+                        f"Remote MCP request exceeded the {_MCP_REMOTE_REQUEST_TIMEOUT_SECONDS:.0f}s "
+                        "timeout."
+                    ),
+                },
+            )
         finally:
             reset_current_developer_principal(context_tokens)
 

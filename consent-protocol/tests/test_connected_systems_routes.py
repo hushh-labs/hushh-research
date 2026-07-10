@@ -117,6 +117,9 @@ def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(connected_systems.router)
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    # The list endpoint accepts signed-in users (Firebase ID token) without
+    # vault unlock; record-level routes still require the vault owner token.
+    app.dependency_overrides[connected_systems._require_signed_in_lister] = lambda: "user_123"
     return app
 
 
