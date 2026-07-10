@@ -359,7 +359,20 @@
       "page_file": "app/connect/page.tsx",
       "physical_page_exists": true,
       "route_contract": null,
-      "native": null,
+      "native": {
+        "route": "/connect",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fconnect",
+        "expectedMarker": "native-route-connect",
+        "expectedRoute": "/connect",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,

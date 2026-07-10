@@ -32,10 +32,11 @@ const config: NextConfig = {
   trailingSlash: isCapacitorBuild,
 
   // Page Extensions Strategy for Mobile Build
-  // When building for mobile, we ONLY want to include UI pages (.tsx)
-  // This effectively ignores app/api/ route.ts files, preventing invalid export errors.
+  // Mobile static export still needs TS resolution for App Router internals.
+  // `cap:build` applies the app-page-only build-path filter that keeps web-only
+  // app/api route handlers out of Capacitor bundles.
   pageExtensions: isCapacitorBuild
-    ? ["tsx"] // Mobile: Only include .tsx pages (no .ts API routes)
+    ? ["tsx", "ts"] // Mobile: Include TypeScript app-loader resolution.
     : ["tsx", "ts", "jsx", "js"], // Web: Include everything
 
   images: {
