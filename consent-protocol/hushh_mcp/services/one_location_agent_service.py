@@ -409,8 +409,30 @@ def format_activity_time(value: datetime) -> str:
         return value.strftime("%b %#d, %H:%M UTC")
 
 
+def _is_missing_encrypted_private_column(exc: DatabaseExecutionError) -> bool:
+    """True when a DB error is the specific `encrypted_private_key_jwk` drift.
+
+    Matches the psycopg2 `UndefinedColumn` (SQLSTATE 42703) raised when the
+    `one_location_recipient_keys` table exists but migration 083 (which adds the
+    optional `encrypted_private_key_jwk` column) has not been applied to the
+    running database. We match narrowly on both the column name and an
+    undefined-column signature so this never swallows an unrelated failure.
+    """
+    detail = str(getattr(exc, "details", "") or "").lower()
+    return "encrypted_private_key_jwk" in detail and (
+        "does not exist" in detail or "undefinedcolumn" in detail
+    )
+
+
 class OneLocationAgentService:
     """Persistence service for recipient-encrypted One Location Agent workflows."""
+
+    # Per-process idempotency cache for the additive `encrypted_private_key_jwk`
+    # self-heal below. The service is instantiated per request, so a class-level
+    # flag keeps the backstop DDL from running on every call once it has
+    # succeeded. This is a local DDL-idempotency cache, not shared runtime
+    # state, so it needs no Postgres/Redis coordination.
+    _recipient_encrypted_private_column_ensured: bool = False
 
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         result = get_db().execute_raw(sql, params or {})
@@ -419,6 +441,32 @@ class OneLocationAgentService:
     def _execute_many(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
+
+    def _ensure_recipient_encrypted_private_column(self) -> None:
+        """Idempotently add `one_location_recipient_keys.encrypted_private_key_jwk`.
+
+        This mirrors migration 083 exactly (`ADD COLUMN IF NOT EXISTS ... JSONB`).
+        The runtime startup schema guard only verifies table *existence*, never
+        columns, so a database that has the table but never ran migration 083
+        would 500 on recipient-key registration with `UndefinedColumn`. This
+        additive, `IF NOT EXISTS` backstop self-heals that drift the same way
+        `create_vault_keys` / `create_tickers` add columns idempotently in the
+        migration runner — it never reads, rewrites, or drops data. The proper
+        fix is still to run `python db/migrate.py --release`; this only keeps the
+        feature from hard-failing when an environment is a migration behind.
+        """
+        try:
+            get_db().execute_raw(
+                "ALTER TABLE one_location_recipient_keys "
+                "ADD COLUMN IF NOT EXISTS encrypted_private_key_jwk JSONB",
+                {},
+            )
+            OneLocationAgentService._recipient_encrypted_private_column_ensured = True
+        except DatabaseExecutionError as exc:
+            logger.warning(
+                "one_location.recipient_key_column_backfill_failed detail=%s",
+                redact_log_value(str(getattr(exc, "details", exc))),
+            )
 
     def _insert_event(
         self,
@@ -2311,8 +2359,7 @@ class OneLocationAgentService:
             if isinstance(encrypted_private_key_jwk, dict)
             else None
         )
-        row = self._execute_one(
-            """
+        insert_sql = """
             INSERT INTO one_location_recipient_keys (
               user_id, key_id, public_key_jwk, public_key_fingerprint, algorithm,
               status, created_at, updated_at, metadata, encrypted_private_key_jwk
@@ -2334,16 +2381,36 @@ class OneLocationAgentService:
                 one_location_recipient_keys.encrypted_private_key_jwk
               )
             RETURNING user_id, key_id, public_key_jwk, algorithm, created_at AS key_created_at, TRUE AS phone_verified
-            """,
-            {
-                "user_id": user_id,
-                "key_id": normalized_key_id,
-                "public_key_jwk": json.dumps(public_key_jwk, sort_keys=True, separators=(",", ":")),
-                "fingerprint": fingerprint,
-                "algorithm": algorithm,
-                "encrypted_private_key_jwk": encrypted_private_key_json,
-            },
-        )
+            """
+        insert_params = {
+            "user_id": user_id,
+            "key_id": normalized_key_id,
+            "public_key_jwk": json.dumps(public_key_jwk, sort_keys=True, separators=(",", ":")),
+            "fingerprint": fingerprint,
+            "algorithm": algorithm,
+            "encrypted_private_key_jwk": encrypted_private_key_json,
+        }
+        try:
+            row = self._execute_one(insert_sql, insert_params)
+        except DatabaseExecutionError as exc:
+            # Self-heal the specific `encrypted_private_key_jwk` migration drift
+            # (migration 083 not yet applied) once, then retry. Any other DB
+            # error propagates unchanged. The retry is bounded: it only fires
+            # when the column was actually missing and we have not already
+            # ensured it this process.
+            if (
+                _is_missing_encrypted_private_column(exc)
+                and not OneLocationAgentService._recipient_encrypted_private_column_ensured
+            ):
+                logger.warning(
+                    "one_location.recipient_key_column_missing_self_heal user=%s",
+                    redact_log_value(user_id),
+                )
+                self._ensure_recipient_encrypted_private_column()
+                row = self._execute_one(insert_sql, insert_params)
+            else:
+                raise
+
         self._insert_event(
             owner_user_id=user_id,
             actor_user_id=user_id,
