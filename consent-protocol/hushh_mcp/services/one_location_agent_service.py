@@ -2362,7 +2362,8 @@ class OneLocationAgentService:
         #   1. The owner has an active trusted_connections edge (owner → this person)
         #      (explicit Circle-invite claim). This is explicit mutual consent
         #      and always wins, even over marketplace visibility (below).
-        #   2. They are connected to the owner through the marketplace
+        #   2. They are phone-verified (the broad verified-actor directory).
+        #   3. They are connected to the owner through the marketplace
         #      ("Connect" tab) via an approved advisor<->investor relationship,
         #      AND they are currently marketplace-discoverable.
         #
@@ -2396,15 +2397,18 @@ class OneLocationAgentService:
                     AND tc.trusted_user_id = a.user_id
                 )
                 OR (
-                  EXISTS (
-                    SELECT 1
-                    FROM advisor_investor_relationships air
-                    JOIN ria_profiles rp ON rp.id = air.ria_profile_id
-                    WHERE air.status = 'approved'
-                      AND (
-                        (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
-                        OR (rp.user_id = :owner_user_id AND air.investor_user_id = a.user_id)
-                      )
+                  (
+                    a.phone_verified = TRUE
+                    OR EXISTS (
+                      SELECT 1
+                      FROM advisor_investor_relationships air
+                      JOIN ria_profiles rp ON rp.id = air.ria_profile_id
+                      WHERE air.status = 'approved'
+                        AND (
+                          (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
+                          OR (rp.user_id = :owner_user_id AND air.investor_user_id = a.user_id)
+                        )
+                    )
                   )
                   AND NOT EXISTS (
                     SELECT 1

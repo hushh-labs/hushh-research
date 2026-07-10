@@ -303,58 +303,76 @@ class ConnectionsService:
         user_id = (user_id or "").strip()
         page = max(1, int(page or 1))
         limit = max(1, min(int(limit or 20), 50))
-        offset = (page - 1) * limit
-        needle = (query or "").strip()
-        rows = self._execute_many(
-            """
-            SELECT
-              a.user_id, a.display_name, a.photo_url, a.email,
-              EXISTS (
-                SELECT 1 FROM connection_requests cr
-                WHERE cr.status = 'pending'
-                  AND cr.requester_user_id = :user_id AND cr.addressee_user_id = a.user_id
-              ) AS rel_out,
-              EXISTS (
-                SELECT 1 FROM connection_requests cr
-                WHERE cr.status = 'pending'
-                  AND cr.requester_user_id = a.user_id AND cr.addressee_user_id = :user_id
-              ) AS rel_in,
-              EXISTS (
-                SELECT 1 FROM connections c
-                WHERE c.status = 'active'
-                  AND ((c.user_a_id = LEAST(:user_id, a.user_id) AND c.user_b_id = GREATEST(:user_id, a.user_id)))
-              ) AS connected
-            FROM actor_identity_cache a
-            WHERE a.user_id <> :user_id
-              AND (:needle = '' OR a.display_name ILIKE '%' || :needle || '%'
-                   OR a.email ILIKE '%' || :needle || '%')
-            ORDER BY COALESCE(a.display_name, a.email, a.user_id), a.user_id
-            LIMIT :limit OFFSET :offset
-            """,
-            {"user_id": user_id, "needle": needle, "limit": limit + 1, "offset": offset},
-        )
-        has_more = len(rows) > limit
-        rows = rows[:limit]
+        needle = (query or "").strip().lower()
 
-        def relationship(r: dict[str, Any]) -> str:
-            if r.get("connected"):
+        # Reuse the One Location "Ready people" directory (list_verified_recipients)
+        # as the source of people, so display names resolve exactly as they do on
+        # the Location screen (never a raw user id). The connection-graph
+        # relationship is annotated on top.
+        people = self._directory_lookup(user_id) or []
+        if needle:
+            people = [
+                p for p in people if needle in str(p.get("displayName") or "").strip().lower()
+            ]
+
+        # Load the caller's pending requests (both directions) and active
+        # connections once, then classify each person in Python.
+        out_pending = {
+            str(r.get("addressee_user_id") or "")
+            for r in self._execute_many(
+                """
+                SELECT addressee_user_id FROM connection_requests
+                WHERE requester_user_id = :user_id AND status = 'pending'
+                """,
+                {"user_id": user_id},
+            )
+        }
+        in_pending = {
+            str(r.get("requester_user_id") or "")
+            for r in self._execute_many(
+                """
+                SELECT requester_user_id FROM connection_requests
+                WHERE addressee_user_id = :user_id AND status = 'pending'
+                """,
+                {"user_id": user_id},
+            )
+        }
+        connected: set[str] = set()
+        for r in self._execute_many(
+            """
+            SELECT user_a_id, user_b_id FROM connections
+            WHERE status = 'active' AND (user_a_id = :user_id OR user_b_id = :user_id)
+            """,
+            {"user_id": user_id},
+        ):
+            a = str(r.get("user_a_id") or "")
+            b = str(r.get("user_b_id") or "")
+            connected.add(b if a == user_id else a)
+
+        def relationship(uid: str) -> str:
+            if uid in connected:
                 return "connected"
-            if r.get("rel_out"):
+            if uid in out_pending:
                 return "pending_outgoing"
-            if r.get("rel_in"):
+            if uid in in_pending:
                 return "pending_incoming"
             return "none"
+
+        total = len(people)
+        offset = (page - 1) * limit
+        window = people[offset : offset + limit]
+        has_more = offset + limit < total
 
         return {
             "items": [
                 {
-                    "userId": str(r.get("user_id") or ""),
-                    "displayName": r.get("display_name"),
-                    "photoUrl": r.get("photo_url"),
-                    "email": r.get("email"),
-                    "relationship": relationship(r),
+                    "userId": str(p.get("userId") or ""),
+                    "displayName": p.get("displayName"),
+                    "photoUrl": p.get("photoUrl"),
+                    "email": p.get("email"),
+                    "relationship": relationship(str(p.get("userId") or "")),
                 }
-                for r in rows
+                for p in window
             ],
             "page": page,
             "hasMore": has_more,

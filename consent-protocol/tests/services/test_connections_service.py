@@ -176,33 +176,44 @@ def test_reject_rejected_when_not_addressee():
     assert exc.value.status_code == 403
 
 
-def test_search_directory_annotates_relationship_and_excludes_self():
+def test_search_directory_reuses_ready_people_and_annotates_relationship():
     svc = _svc()
-    rows = [
-        {
-            "user_id": "user-b",
-            "display_name": "Bob",
-            "photo_url": None,
-            "email": None,
-            "rel_out": 1,
-            "rel_in": 0,
-            "connected": 0,
-        },
-        {
-            "user_id": "user-c",
-            "display_name": "Cara",
-            "photo_url": None,
-            "email": None,
-            "rel_out": 0,
-            "rel_in": 0,
-            "connected": 1,
-        },
+    # People come from the One Location "Ready people" lookup (list_verified_recipients),
+    # which resolves display names — never a raw user id.
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": "user-b", "displayName": "Bob"},
+        {"userId": "user-c", "displayName": "Cara"},
+        {"userId": "user-d", "displayName": "Dan"},
+        {"userId": "user-e", "displayName": "Eve"},
     ]
-    with patch("hushh_mcp.services.connections_service.get_db", _db_returning(rows)):
+    # Relationship queries run in order: outgoing pending, incoming pending, connections.
+    db = _RecordingDB(
+        [
+            [{"addressee_user_id": "user-b"}],  # outgoing pending -> user-b
+            [{"requester_user_id": "user-d"}],  # incoming pending -> user-d
+            [{"user_a_id": "user-a", "user_b_id": "user-c"}],  # connected -> user-c
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.search_directory("user-a", query="", page=1, limit=20)
     by_id = {i["userId"]: i for i in out["items"]}
+    assert by_id["user-b"]["displayName"] == "Bob"
     assert by_id["user-b"]["relationship"] == "pending_outgoing"
     assert by_id["user-c"]["relationship"] == "connected"
+    assert by_id["user-d"]["relationship"] == "pending_incoming"
+    assert by_id["user-e"]["relationship"] == "none"
+
+
+def test_search_directory_filters_by_query_against_display_name():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": "user-b", "displayName": "Bob"},
+        {"userId": "user-c", "displayName": "Cara"},
+    ]
+    db = _RecordingDB([[], [], []])  # no pending / connections
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="car", page=1, limit=20)
+    assert [i["userId"] for i in out["items"]] == ["user-c"]
 
 
 def test_list_connections_maps_rows():
