@@ -355,6 +355,25 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/connect",
+      "page_file": "app/connect/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/connected-systems",
       "page_file": "app/connected-systems/page.tsx",
       "physical_page_exists": true,

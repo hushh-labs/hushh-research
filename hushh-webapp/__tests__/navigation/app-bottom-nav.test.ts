@@ -169,7 +169,7 @@ describe("app bottom navigation", () => {
 
   it("maps One context nav actions to the intended routes", () => {
     expect(resolveBottomNavHref("finance", "one")).toBe(ROUTES.KAI_HOME);
-    expect(resolveBottomNavHref("connect", "one")).toBe(ROUTES.MARKETPLACE);
+    expect(resolveBottomNavHref("connect", "one")).toBe(ROUTES.CONNECT);
     expect(resolveBottomNavHref("gmail", "one")).toBe(ROUTES.GMAIL);
     expect(resolveBottomNavHref("email", "one")).toBe(ROUTES.ONE_KYC);
     expect(resolveBottomNavHref("location", "one")).toBe(ROUTES.ONE_LOCATION);
