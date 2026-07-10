@@ -114,9 +114,13 @@ New service modeled on `TrustedConnectionsService` +
 `one_location_access_requests` handshake. Router
 `consent-protocol/api/routes/connections.py`:
 
-- `GET /connections/directory?query=&page=&limit=` — search/list `actor_profiles`
-  (exclude self), each annotated with relationship status for the current user:
-  `none | pending_outgoing | pending_incoming | connected`.
+- `GET /connections/directory?query=&page=&limit=` — search/list users from
+  `actor_identity_cache` (the table holding `display_name`/`photo_url`/`email`;
+  `actor_profiles` is only the persona parent), excluding self, each annotated with
+  relationship status for the current user:
+  `none | pending_outgoing | pending_incoming | connected`. Auth via
+  `require_firebase_auth` (Firebase idToken), matching the consent-center endpoints
+  (user-initiated), **not** the VAULT_OWNER token used by location routes.
 - `POST /connections/requests` `{ addressee_user_id, message? }` — create pending
   request; dedupe returns the existing pending request.
 - `POST /connections/requests/{id}/accept` — create `connections` row + mirrored
@@ -224,7 +228,11 @@ Consent Center Requests → Accept
 - Migration: `consent-protocol/db/migrations/081_connections.sql` (new)
 - Backend service: `consent-protocol/hushh_mcp/services/connections_service.py` (new)
 - Backend router: `consent-protocol/api/routes/connections.py` (new)
-- Location fix: `consent-protocol/hushh_mcp/services/one_location_agent_service.py:2356`
+- Directory source table: `actor_identity_cache` (`db/migrations/037` + `047`)
+- Location fix: `consent-protocol/hushh_mcp/services/one_location_agent_service.py:2356` (`list_verified_recipients`, remove `OR a.phone_verified = TRUE`)
+- Backend auth deps: `consent-protocol/api/middleware.py` — `require_firebase_auth` (user-initiated), `require_vault_owner_token` (vault ops)
+- Router registration: `consent-protocol/api/routes/one/__init__.py`
+- Consent summary/counts: `consent-protocol/hushh_mcp/services/consent_center_service.py` — `get_center_summary`, `_get_surface_count`, `list_center`
 - Chat agent: `consent-protocol/hushh_mcp/services/connections_chat_service.py`
 - Consent summary/list: `consent-protocol` consent-center endpoints + `hushh-webapp/lib/services/consent-center-service.ts`
 - Proxy routes: `hushh-webapp/app/api/connections/**` (new)
