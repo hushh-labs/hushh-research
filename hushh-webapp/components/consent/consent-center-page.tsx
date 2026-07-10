@@ -1413,8 +1413,8 @@ export function ConsentCenterPage() {
             const idToken = await user.getIdToken();
             await ConnectionsService.accept({ idToken, requestId: entry.request_id || entry.id });
             window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
-          } catch {
-            /* toast handled by caller UI */
+          } catch (error) {
+            console.error("[ConsentCenter] Couldn't accept the connection request:", error);
           }
         })();
         return;
@@ -1447,8 +1447,8 @@ export function ConsentCenterPage() {
             const idToken = await user.getIdToken();
             await ConnectionsService.reject({ idToken, requestId: entry.request_id || entry.id });
             window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
-          } catch {
-            /* toast handled by caller UI */
+          } catch (error) {
+            console.error("[ConsentCenter] Couldn't decline the connection request:", error);
           }
         })();
         return;
