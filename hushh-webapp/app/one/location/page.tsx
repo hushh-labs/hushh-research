@@ -156,7 +156,7 @@ import {
 import {
   isSosShareReadyRecipient,
   runSosPanic,
-  selectSosConnectedRecipients,
+  selectShareReadyRecipients,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 import type {
@@ -1998,29 +1998,13 @@ function OneLocationAgentPageContent() {
     [state?.ownerGrants],
   );
 
-  // SOS alerts ONLY your actual One Network connections (e.g. the seeded trusted
-  // contacts), never the broad phone-verified directory that `recipients` also
-  // includes. Connection membership comes straight from networkConnections.
-  const sosTrustedRecipients = useMemo(
-    () =>
-      selectSosConnectedRecipients(
-        rankedRecipients,
-        state?.networkConnections,
-        auth.userId,
-      ),
-    [rankedRecipients, state?.networkConnections, auth.userId],
+  // All quick actions (SOS, check-in, drive-to, pick-me-up, safe-arrival) share
+  // the same recipients: your connections that are ready for private sharing.
+  // Recipients are already scoped to the connections graph server-side.
+  const sosActionRecipients = useMemo(
+    () => selectShareReadyRecipients(rankedRecipients),
+    [rankedRecipients],
   );
-
-  // Recipients shown + alerted by the SOS and Check-In quick actions. Prefer the
-  // explicit One Network (SOS-connected) circle; when the user has no active
-  // network connections yet, fall back to their share-ready trusted people (the
-  // same list the People tab shows) so "Who gets alerted?" / "Who should know?"
-  // are never empty and the SOS button stays actionable, mirroring how the
-  // original main-page panic panel surfaced trusted contacts.
-  const sosActionRecipients = useMemo(() => {
-    if (sosTrustedRecipients.length > 0) return sosTrustedRecipients;
-    return rankedRecipients.filter(isShareReadyRecipient);
-  }, [sosTrustedRecipients, rankedRecipients]);
 
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
