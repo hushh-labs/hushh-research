@@ -1121,25 +1121,6 @@ class FourUserMemoryService(OneLocationAgentService):
                 "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.trusted_connections[tc_id] = row
-            # Mirror circle_invite trusted_connections into self.connections so
-            # the connections-only recipient directory (FROM connections c) can
-            # see circle-invite peers.  Mirrors the production behaviour where
-            # claim_circle_invite is expected to write a connections row
-            # (source='circle_invite') in addition to the trusted_connections edge.
-            source = params.get("source", "circle_invite")
-            if source == "circle_invite":
-                owner_id = params.get("owner_user_id") or ""
-                trusted_id = params.get("trusted_user_id") or ""
-                a, b = sorted((owner_id, trusted_id))
-                conn_key = f"{a}:{b}"
-                if conn_key not in self.connections:
-                    self.connections[conn_key] = {
-                        "id": tc_id,
-                        "user_a_id": a,
-                        "user_b_id": b,
-                        "status": "active",
-                        "source": "circle_invite",
-                    }
             return {
                 "id": tc_id,
                 "owner_user_id": row["owner_user_id"],
@@ -1991,16 +1972,11 @@ def test_invite_to_one_claim_creates_network_connection_without_location_access(
         event["event_type"] == "location_one_network_joined" for event in service.events.values()
     )
 
-    # Claimer (user_b) sees the inviter (user_a) as a trusted_circle recipient.
+    # Claiming alone no longer confers location-recipient eligibility: that now
+    # requires an explicit `connections` row (created by a separate, frontend-
+    # gated path), not just the circle-invite trusted edge.
     recipients_for_claimer = service.list_verified_recipients(owner_user_id="user_b")
-    user_a = next(
-        recipient for recipient in recipients_for_claimer if recipient["userId"] == "user_a"
-    )
-    assert user_a["recommendationCategory"] == "trusted_circle"
-    assert user_a["relationshipType"] == "One Network"
-    assert any(
-        reason["code"] == "one_network_connection" for reason in user_a["recommendationReasons"]
-    )
+    assert all(recipient["userId"] != "user_a" for recipient in recipients_for_claimer)
 
     with pytest.raises(OneLocationAgentError) as duplicate:
         service.claim_circle_invite(invite_token=token, claimant_user_id="user_c")
