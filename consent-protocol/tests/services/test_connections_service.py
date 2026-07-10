@@ -21,14 +21,39 @@ def _db_returning(rows):
 
 def test_create_request_inserts_pending_with_explicit_id():
     svc = _svc()
-    with patch(
-        "hushh_mcp.services.connections_service.get_db",
-        _db_returning([{"id": "req-1"}]),
-    ):
+    responses = iter(
+        [
+            SimpleNamespace(data=[]),  # idempotency SELECT -> none
+            SimpleNamespace(data=[{"id": "req-1"}]),  # INSERT ... RETURNING id
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.create_request("user-a", addressee_user_id="user-b", message="hi")
     assert out["id"] == "req-1"
     assert out["requesterUserId"] == "user-a"
     assert out["addresseeUserId"] == "user-b"
+    assert out["status"] == "pending"
+
+
+def test_create_request_returns_existing_reverse_direction_request():
+    svc = _svc()
+    # A pending request already exists in the reverse direction (user-b -> user-a).
+    existing_row = {
+        "id": "req-9",
+        "requester_user_id": "user-b",
+        "addressee_user_id": "user-a",
+        "status": "pending",
+        "message": "hey",
+    }
+    with patch(
+        "hushh_mcp.services.connections_service.get_db",
+        _db_returning([existing_row]),
+    ):
+        out = svc.create_request("user-a", addressee_user_id="user-b")
+    assert out["id"] == "req-9"
+    assert out["requesterUserId"] == "user-b"
+    assert out["addresseeUserId"] == "user-a"
     assert out["status"] == "pending"
 
 

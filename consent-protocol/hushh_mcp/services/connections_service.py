@@ -122,8 +122,8 @@ class ConnectionsService:
         if existing:
             return {
                 "id": existing.get("id"),
-                "requesterUserId": requester_user_id,
-                "addresseeUserId": target,
+                "requesterUserId": existing.get("requester_user_id"),
+                "addresseeUserId": existing.get("addressee_user_id"),
                 "status": existing.get("status") or "pending",
                 "message": existing.get("message"),
             }
