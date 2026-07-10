@@ -2423,29 +2423,19 @@ class OneLocationAgentService:
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
-        # Eligibility for who can appear as a One Location recipient.
-        #
-        # A user is eligible when ANY of the following holds:
-        #   1. The owner has an active trusted_connections edge (owner → this person)
-        #      (explicit Circle-invite claim). This is explicit mutual consent
-        #      and always wins, even over marketplace visibility (below).
-        #   2. They are phone-verified (the broad verified-actor directory).
-        #   3. They are connected to the owner through the marketplace
-        #      ("Connect" tab) via an approved advisor<->investor relationship,
-        #      AND they are currently marketplace-discoverable.
-        #
-        # Privacy gate (mirrors the marketplace "Connect" tab): if a user turns
-        # their marketplace visibility OFF (marketplace_public_profiles
-        # .is_discoverable = FALSE) they disappear from the One Location
-        # directory too -- the SAME flag the Connect tab already filters on --
-        # UNLESS the owner has an explicit One Network connection with them.
-        # Users who never created a marketplace profile are unaffected.
+        # A user appears as a One Location recipient only when the owner has an
+        # active connection with them (the two-way `connections` graph).
         rows = self._execute_many(
             """
             SELECT
               a.user_id, a.display_name, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
-            FROM actor_identity_cache a
+            FROM connections c
+            JOIN actor_identity_cache a
+              ON a.user_id = CASE
+                   WHEN c.user_a_id = :owner_user_id THEN c.user_b_id
+                   ELSE c.user_a_id
+                 END
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys
@@ -2454,37 +2444,9 @@ class OneLocationAgentService:
               ORDER BY created_at DESC
               LIMIT 1
             ) k ON TRUE
-            WHERE a.user_id <> :owner_user_id
-              AND (
-                EXISTS (
-                  SELECT 1
-                  FROM trusted_connections tc
-                  WHERE tc.status = 'active'
-                    AND tc.owner_user_id = :owner_user_id
-                    AND tc.trusted_user_id = a.user_id
-                )
-                OR (
-                  (
-                    a.phone_verified = TRUE
-                    OR EXISTS (
-                      SELECT 1
-                      FROM advisor_investor_relationships air
-                      JOIN ria_profiles rp ON rp.id = air.ria_profile_id
-                      WHERE air.status = 'approved'
-                        AND (
-                          (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
-                          OR (rp.user_id = :owner_user_id AND air.investor_user_id = a.user_id)
-                        )
-                    )
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM marketplace_public_profiles mp
-                    WHERE mp.user_id = a.user_id
-                      AND mp.is_discoverable = FALSE
-                  )
-                )
-              )
+            WHERE c.status = 'active'
+              AND (c.user_a_id = :owner_user_id OR c.user_b_id = :owner_user_id)
+              AND a.user_id <> :owner_user_id
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
             """,
