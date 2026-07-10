@@ -2459,6 +2459,81 @@ class OneLocationAgentService:
             recipients=recipients,
         )
 
+    def list_directory_candidates(
+        self, *, owner_user_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        # Broad discovery directory for the Connections "find people" flow
+        # (/connect search + name resolution). Distinct from
+        # list_verified_recipients, which is intentionally scoped to the
+        # connections graph for LOCATION sharing.
+        #
+        # A user is discoverable when ANY of the following holds:
+        #   1. The owner has an active trusted_connections edge (owner -> person).
+        #   2. They are phone-verified (the broad verified-actor directory).
+        #   3. They are connected to the owner through the marketplace via an
+        #      approved advisor<->investor relationship, AND are currently
+        #      marketplace-discoverable.
+        #
+        # Privacy gate: a user who turned marketplace visibility OFF
+        # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
+        # the directory too, UNLESS the owner has an explicit trusted edge.
+        rows = self._execute_many(
+            """
+            SELECT
+              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
+            FROM actor_identity_cache a
+            LEFT JOIN LATERAL (
+              SELECT key_id, public_key_jwk, algorithm, created_at
+              FROM one_location_recipient_keys
+              WHERE user_id = a.user_id
+                AND status = 'active'
+              ORDER BY created_at DESC
+              LIMIT 1
+            ) k ON TRUE
+            WHERE a.user_id <> :owner_user_id
+              AND (
+                EXISTS (
+                  SELECT 1
+                  FROM trusted_connections tc
+                  WHERE tc.status = 'active'
+                    AND tc.owner_user_id = :owner_user_id
+                    AND tc.trusted_user_id = a.user_id
+                )
+                OR (
+                  (
+                    a.phone_verified = TRUE
+                    OR EXISTS (
+                      SELECT 1
+                      FROM advisor_investor_relationships air
+                      JOIN ria_profiles rp ON rp.id = air.ria_profile_id
+                      WHERE air.status = 'approved'
+                        AND (
+                          (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
+                          OR (rp.user_id = :owner_user_id AND air.investor_user_id = a.user_id)
+                        )
+                    )
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM marketplace_public_profiles mp
+                    WHERE mp.user_id = a.user_id
+                      AND mp.is_discoverable = FALSE
+                  )
+                )
+              )
+            ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
+            LIMIT :limit
+            """,
+            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+        )
+
+        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        return self._apply_kai_circle_recommendations(
+            owner_user_id=owner_user_id,
+            recipients=recipients,
+        )
+
     def _recipient_key_row(
         self,
         *,

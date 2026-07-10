@@ -2,7 +2,7 @@
 
 Directional edges (owner_user_id -> trusted_user_id). Written ONLY through the
 Hushh One agent path; read in-process by any agent. Identity is resolved through
-the SAME platform directory Location shows (list_verified_recipients), read-only.
+the broad discovery directory `list_directory_candidates`, read-only.
 
 This is now the single source of truth for the One Location trust graph: the
 legacy one_location_network_connections (SOS) table was migrated in (079) and
@@ -38,10 +38,10 @@ class IdentityUnresolvedError(TrustedConnectionsError):
 
 def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     # Lazy import avoids a hard module dependency and keeps this read-only reuse
-    # of the SAME directory Location shows. No location state is mutated.
+    # of the broad discovery directory. No location state is mutated.
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
-    recipients: list[dict[str, Any]] = OneLocationAgentService().list_verified_recipients(
+    recipients: list[dict[str, Any]] = OneLocationAgentService().list_directory_candidates(
         owner_user_id=owner_user_id
     )
     return recipients

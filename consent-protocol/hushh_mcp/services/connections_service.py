@@ -3,8 +3,8 @@
 Requests are directional (requester -> addressee). Accepting creates a mutual
 `connections` row (canonicalized user_a_id < user_b_id) AND mirrors two
 directional `trusted_connections` edges (source='connection') so existing
-location/SOS readers keep working. Identity name-resolution reuses the SAME
-platform directory Location shows (list_verified_recipients), read-only.
+location/SOS readers keep working. Identity name-resolution reuses the broad
+discovery directory `list_directory_candidates`, read-only.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class IdentityUnresolvedError(ConnectionsError):
 def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
-    return OneLocationAgentService().list_verified_recipients(owner_user_id=owner_user_id)
+    return OneLocationAgentService().list_directory_candidates(owner_user_id=owner_user_id)
 
 
 class ConnectionsService:

@@ -310,6 +310,53 @@ class FourUserMemoryService(OneLocationAgentService):
             ]
             rows.sort(key=lambda k: k.get("created_at"), reverse=True)
             return rows[:1]
+        if "FROM actor_identity_cache a" in sql:
+            owner = params["owner_user_id"]
+            rows = []
+            connected_ids = {
+                connection["user_b_id"]
+                if connection["user_a_id"] == owner
+                else connection["user_a_id"]
+                for connection in self.network_connections.values()
+                if connection["status"] == "active"
+                and owner in {connection["user_a_id"], connection["user_b_id"]}
+            } | {
+                tc["trusted_user_id"]
+                for tc in self.trusted_connections.values()
+                if tc.get("status") == "active" and tc.get("owner_user_id") == owner
+            }
+            marketplace_connected_ids = set()
+            for relationship in self.professional_relationships:
+                if str(relationship.get("status") or "") != "approved":
+                    continue
+                investor_id = str(relationship.get("investor_user_id") or "")
+                ria_id = str(relationship.get("ria_user_id") or "")
+                if owner == investor_id and ria_id:
+                    marketplace_connected_ids.add(ria_id)
+                elif owner == ria_id and investor_id:
+                    marketplace_connected_ids.add(investor_id)
+            for user_id, identity in self.identities.items():
+                if user_id == owner:
+                    continue
+                network_connected = user_id in connected_ids
+                if not network_connected:
+                    eligible = identity["phone_verified"] or user_id in marketplace_connected_ids
+                    if not eligible:
+                        continue
+                    profile = self.marketplace_profiles.get(user_id)
+                    if profile is not None and profile.get("is_discoverable") is False:
+                        continue
+                key = self._active_key(user_id)
+                rows.append(
+                    {
+                        **identity,
+                        "key_id": key["key_id"] if key else None,
+                        "public_key_jwk": key["public_key_jwk"] if key else None,
+                        "algorithm": key["algorithm"] if key else None,
+                        "key_created_at": key["created_at"] if key else None,
+                    }
+                )
+            return rows
         if "FROM connections c" in sql and "one_location_recipient_keys" in sql:
             owner = params["owner_user_id"]
             connected_ids = {
@@ -1342,6 +1389,36 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
     assert "Can you share your location?" not in encoded
     assert "attr.financial" not in encoded
     assert "private" not in encoded
+
+
+def test_directory_candidates_includes_phone_verified_without_connection() -> None:
+    # Discovery is broad: a phone-verified user with NO connection is a candidate
+    # (this is what /connect search relies on to find new people).
+    service = FourUserMemoryService()
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert "user_b" in candidate_ids
+    assert "user_c" in candidate_ids
+
+
+def test_directory_candidates_excludes_marketplace_hidden() -> None:
+    service = FourUserMemoryService()
+    service.marketplace_profiles["user_b"] = {
+        "user_id": "user_b",
+        "profile_type": "investor",
+        "is_discoverable": False,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert "user_b" not in candidate_ids
+    assert "user_c" in candidate_ids
+
+
+def test_directory_candidates_query_targets_actor_identity_cache() -> None:
+    service = RecipientDirectoryProbe()
+    assert service.list_directory_candidates(owner_user_id="owner") == []
+    assert "FROM actor_identity_cache a" in service.sql
+    assert "a.phone_verified = TRUE" in service.sql
+    assert "a.user_id <> :owner_user_id" in service.sql
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
