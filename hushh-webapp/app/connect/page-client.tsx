@@ -23,22 +23,29 @@ export default function ConnectPageClient() {
 
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const loadConnections = useCallback(async () => {
-    if (!user) return;
+  const loadConnections = useCallback(async (): Promise<ConnectionSummaryEntry[]> => {
+    if (!user) return [];
     try {
       const idToken = await user.getIdToken();
-      setConnections(await ConnectionsService.listConnections({ idToken }));
+      return await ConnectionsService.listConnections({ idToken });
     } catch {
       /* non-fatal: connections section stays empty */
+      return [];
     }
   }, [user]);
 
   useEffect(() => {
-    void loadConnections();
+    let cancelled = false;
+    void loadConnections().then((rows) => {
+      if (!cancelled) setConnections(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadConnections]);
 
   useEffect(() => {
