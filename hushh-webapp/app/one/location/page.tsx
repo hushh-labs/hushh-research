@@ -1882,6 +1882,11 @@ function OneLocationAgentPageContent() {
   const selfWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
+  // Throttles updates to the owner's OWN live-preview marker so it refreshes at
+  // the same cadence a viewer sees a shared dot (LIVE_VIEW_REFRESH_INTERVAL_MS),
+  // instead of re-rendering/animating on every raw GPS fix (~1s), which needlessly
+  // burns compute. Does NOT affect GPS accuracy or the publish heartbeat.
+  const lastSelfMarkerAtRef = useRef(0);
   const driveSessionRef = useRef<{
     grantIds: Set<string>;
     destination: DriveDestination;
@@ -3485,8 +3490,14 @@ function OneLocationAgentPageContent() {
         : Number.POSITIVE_INFINITY;
       const sincePublishMs = now - lastWatchPublishAtRef.current;
 
-      // Always reflect movement in the owner's own live preview immediately.
-      setMyLocationPoint(point);
+      // Reflect movement in the owner's own live preview, throttled to the same
+      // cadence a viewer sees a shared dot (LIVE_VIEW_REFRESH_INTERVAL_MS) so the
+      // self marker doesn't re-render/animate on every GPS fix (~1s). Publishing
+      // below still uses the raw `point`, so shared accuracy is unaffected.
+      if (now - lastSelfMarkerAtRef.current >= LIVE_VIEW_REFRESH_INTERVAL_MS) {
+        lastSelfMarkerAtRef.current = now;
+        setMyLocationPoint(point);
+      }
 
       if (
         previous &&
@@ -3585,6 +3596,17 @@ function OneLocationAgentPageContent() {
             ) {
               return;
             }
+            // Throttle the self-preview marker to the viewer refresh cadence
+            // (LIVE_VIEW_REFRESH_INTERVAL_MS) instead of updating on every GPS
+            // fix (~1s), which needlessly re-renders/animates and burns compute.
+            const now = Date.now();
+            if (
+              now - lastSelfMarkerAtRef.current <
+              LIVE_VIEW_REFRESH_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastSelfMarkerAtRef.current = now;
             setMyLocationPoint(point);
           },
           (error) => {
