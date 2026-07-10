@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import {
   Briefcase,
   Check,
@@ -45,9 +46,14 @@ type OneAgentMode = {
 };
 
 const ONE_DASHBOARD_INSET_CLASSNAME = "px-4 sm:px-6";
-const ONE_AGENT_TILE_WIDTH_CLASSNAME = "w-[5.75rem]";
-const ONE_AGENT_GRID_CLASSNAME =
-  "grid grid-cols-[repeat(auto-fill,minmax(5.75rem,5.75rem))] justify-start gap-x-6 gap-y-5 sm:gap-x-8 md:gap-x-10";
+const ONE_AGENT_TILE_WIDTH = "5.75rem";
+const ONE_AGENT_GRID_STYLE: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  justifyItems: "center",
+  columnGap: "1rem",
+  rowGap: "1.25rem",
+};
 
 /**
  * RIA is a standalone top-level agent (workspace persona) rather than a setup
@@ -64,7 +70,8 @@ const RIA_AGENT_MODE: OneAgentMode = {
   icon: Briefcase,
   status: "Explore",
   statusTone: "muted",
-  tone: "finance",
+  // RIA gets its own Sky Blue tone, distinct from Finance's Lavender Mist.
+  tone: "ria",
   locked: false,
   isExploreOnly: true,
 };
@@ -150,24 +157,28 @@ function AgentTile({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       className={cn(
         "group flex flex-col items-center gap-2 rounded-[22px] px-1.5 py-2 text-center",
-        ONE_AGENT_TILE_WIDTH_CLASSNAME,
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-black/[0.04] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.06] motion-reduce:transition-none motion-reduce:active:scale-100",
       )}
+      style={{ width: ONE_AGENT_TILE_WIDTH }}
     >
       <span className="relative">
         <AgentSectionIcon id={mode.id} icon={mode.icon} tone={mode.tone} />
         <AgentIndicator mode={mode} />
       </span>
       <span className="min-w-0 space-y-0.5">
-        <span className="block max-w-[5.75rem] truncate text-[12.5px] font-semibold leading-tight text-foreground">
+        <span
+          className="block truncate text-[12.5px] font-semibold leading-tight text-foreground"
+          style={{ maxWidth: ONE_AGENT_TILE_WIDTH }}
+        >
           {mode.title}
         </span>
         <span
           className={cn(
-            "block max-w-[5.75rem] truncate text-[11px] font-medium leading-tight",
+            "block truncate text-[11px] font-medium leading-tight",
             statusClassName(mode),
           )}
+          style={{ maxWidth: ONE_AGENT_TILE_WIDTH }}
         >
           {mode.status}
         </span>
@@ -297,7 +308,8 @@ export function OneDashboardPage({
             </div>
             <div
               data-testid="one-agents-grid"
-              className={cn(ONE_AGENT_GRID_CLASSNAME, ONE_DASHBOARD_INSET_CLASSNAME)}
+              className={ONE_DASHBOARD_INSET_CLASSNAME}
+              style={ONE_AGENT_GRID_STYLE}
             >
               {modes.map((mode) => (
                 <AgentTile key={mode.id} mode={mode} />

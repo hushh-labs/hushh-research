@@ -30,6 +30,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 export type OneCapabilityTone =
   | "finance"
+  | "ria"
   | "gmail"
   | "email"
   | "location"
@@ -205,25 +206,26 @@ export function getOneCapability(id: string): OneCapability | undefined {
  * Shared so the dashboard tile, the topbar/menu chip, and the onboarding
  * preview render identically.
  */
-const CAPABILITY_ICON_CHIP_NEUTRAL =
-  "bg-foreground/[0.06] text-foreground/70 dark:bg-foreground/[0.10] dark:text-foreground/80";
-
 // Class strings are written out in full (not built from a hex variable) so
 // Tailwind's static content scanner can find and generate each utility.
 export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<OneCapabilityTone, string> = {
-  // Finance: trust blue.
-  finance: "bg-[#5B7FDE] text-white dark:text-[#1d1d1f]",
-  // Gmail renders its own full-color brand mark (see GmailBrandIcon), so the
-  // chip stays a quiet neutral rather than fighting the logo's own colors.
-  gmail: CAPABILITY_ICON_CHIP_NEUTRAL,
-  // Email: teal.
-  email: "bg-[#4FB0AC] text-white dark:text-[#1d1d1f]",
-  // Location: green.
-  location: "bg-[#4CAF7D] text-white dark:text-[#1d1d1f]",
-  // Memory (saved knowledge) + Information Marketplace preview: violet.
-  pkm: "bg-[#9B87F5] text-white dark:text-[#1d1d1f]",
-  // Consent: gold/amber (matches the shield motif).
-  consent: "bg-[#E0A548] text-white dark:text-[#1d1d1f]",
-  // Connected Systems: slate blue-gray.
-  connected: "bg-[#7C93A8] text-white dark:text-[#1d1d1f]",
+  // One color guidelines — soft premium palette (see the "One — Color
+  // Guidelines" spec). Each tone maps to its named token.
+  // Finance: Lavender Mist.
+  finance: "bg-[#B85CF6] text-white dark:text-[#1d1d1f]",
+  // RIA: Sky Blue.
+  ria: "bg-[#60A5FA] text-white dark:text-[#1d1d1f]",
+  // Gmail renders its own full-color brand mark (see GmailBrandIcon) on a clean
+  // Cloud White tile, so the logo's colors read cleanly.
+  gmail: "bg-white text-[#1d1d1f]",
+  // Email: Mint Teal.
+  email: "bg-[#14B8A6] text-white dark:text-[#1d1d1f]",
+  // Location: Sage Green.
+  location: "bg-[#A7D7A1] text-white dark:text-[#1d1d1f]",
+  // Memory (saved knowledge) + Information Marketplace preview: Lavender Mist.
+  pkm: "bg-[#B85CF6] text-white dark:text-[#1d1d1f]",
+  // Consent: Warm Gold (matches the shield motif).
+  consent: "bg-[#C8923A] text-white dark:text-[#1d1d1f]",
+  // Connected Systems: Slate Blue-Gray.
+  connected: "bg-[#94A3B8] text-white dark:text-[#1d1d1f]",
 };

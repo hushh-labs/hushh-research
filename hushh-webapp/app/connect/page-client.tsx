@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -100,6 +101,22 @@ export default function ConnectPageClient() {
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
+      <NativeTestBeacon
+        routeId="/connect"
+        marker="native-route-connect"
+        authState={user ? "authenticated" : "pending"}
+        dataState={
+          error
+            ? "unavailable-valid"
+            : loading
+              ? "loading"
+              : people.length === 0
+                ? "empty-valid"
+                : "loaded"
+        }
+        errorCode={error ? "connect_directory_unavailable" : null}
+        errorMessage={error}
+      />
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold text-foreground">Connect</h1>
         <p className="text-sm text-muted-foreground">Find people on Hushh and send a connection request.</p>

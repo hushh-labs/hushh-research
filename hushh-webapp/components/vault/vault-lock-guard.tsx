@@ -243,9 +243,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         // this modal). signOut() fully clears the session and redirects to the
         // welcome screen. Not passed by the dismissible top-bar unlock (there
         // the user can just close the sheet).
-        onSignOut={() => {
-          void signOut();
-        }}
+        onSignOut={() => signOut()}
       />
     </>
   );
