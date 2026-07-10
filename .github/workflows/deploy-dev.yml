@@ -105,15 +105,16 @@ jobs:
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
       # Dev correctness gate: the SHA must be reachable from the requested
-      # ref AND carry a green CI Status Gate (the same authoritative check
-      # required to land on the train). No Main Post-Merge Smoke here by
+      # ref AND carry a green authoritative full-CI check. The check name
+      # differs by commit kind (PR head / merge-queue train head / main
+      # merge commit), so this is an any-of list. No signoff gate here by
       # design — dev does not route through main.
       - name: Validate deployment SHA against requested ref
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: ${{ steps.resolve-sha.outputs.ref }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "CI Status Gate"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Checkout deployment SHA
