@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
+import { useUnseenLocationShareCount } from "@/lib/one-location/use-unseen-location-share-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
@@ -180,18 +181,21 @@ const BOTTOM_NAV_OPTION_META: Record<
 function navOptionForKey(
   key: AppBottomNavKey,
   pendingConsents: number,
+  unseenLocationShares: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
   // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
   // now lives as a subroute of the One Agents dashboard.
-  return {
-    ...option,
-    badge:
-      (key === "guardian" || key === "dashboard") && pendingConsents > 0
-        ? pendingConsents
-        : undefined,
-  };
+  // Location shares someone gave you badge the Location tab so they surface
+  // wherever you are (like other notifications), clearing once you open them.
+  let badge: number | undefined;
+  if ((key === "guardian" || key === "dashboard") && pendingConsents > 0) {
+    badge = pendingConsents;
+  } else if (key === "location" && unseenLocationShares > 0) {
+    badge = unseenLocationShares;
+  }
+  return { ...option, badge };
 }
 
 export const Navbar = () => {
@@ -202,6 +206,7 @@ export const Navbar = () => {
   const agentPopover = useOptionalAgentPopover();
   const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
+  const unseenLocationShares = useUnseenLocationShareCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -267,8 +272,16 @@ export const Navbar = () => {
       navigationScope,
       { lastAgentSectionId },
     );
-    return keys.map((key) => navOptionForKey(key, pendingConsents));
-  }, [lastAgentSectionId, navigationScope, normalizedPathname, pendingConsents]);
+    return keys.map((key) =>
+      navOptionForKey(key, pendingConsents, unseenLocationShares),
+    );
+  }, [
+    lastAgentSectionId,
+    navigationScope,
+    normalizedPathname,
+    pendingConsents,
+    unseenLocationShares,
+  ]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;

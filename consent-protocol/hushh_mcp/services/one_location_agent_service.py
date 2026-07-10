@@ -2423,23 +2423,60 @@ class OneLocationAgentService:
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
-        # Eligibility for who can appear as a One Location recipient.
+        # A user appears as a One Location recipient only when the owner has an
+        # active connection with them (the two-way `connections` graph).
+        rows = self._execute_many(
+            """
+            SELECT
+              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
+            FROM connections c
+            JOIN actor_identity_cache a
+              ON a.user_id = CASE
+                   WHEN c.user_a_id = :owner_user_id THEN c.user_b_id
+                   ELSE c.user_a_id
+                 END
+            LEFT JOIN LATERAL (
+              SELECT key_id, public_key_jwk, algorithm, created_at
+              FROM one_location_recipient_keys
+              WHERE user_id = a.user_id
+                AND status = 'active'
+              ORDER BY created_at DESC
+              LIMIT 1
+            ) k ON TRUE
+            WHERE c.status = 'active'
+              AND (c.user_a_id = :owner_user_id OR c.user_b_id = :owner_user_id)
+              AND a.user_id <> :owner_user_id
+            ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
+            LIMIT :limit
+            """,
+            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+        )
+
+        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        return self._apply_kai_circle_recommendations(
+            owner_user_id=owner_user_id,
+            recipients=recipients,
+        )
+
+    def list_directory_candidates(
+        self, *, owner_user_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        # Broad discovery directory for the Connections "find people" flow
+        # (/connect search + name resolution). Distinct from
+        # list_verified_recipients, which is intentionally scoped to the
+        # connections graph for LOCATION sharing.
         #
-        # A user is eligible when ANY of the following holds:
-        #   1. The owner has an active trusted_connections edge (owner → this person)
-        #      (explicit Circle-invite claim). This is explicit mutual consent
-        #      and always wins, even over marketplace visibility (below).
+        # A user is discoverable when ANY of the following holds:
+        #   1. The owner has an active trusted_connections edge (owner -> person).
         #   2. They are phone-verified (the broad verified-actor directory).
-        #   3. They are connected to the owner through the marketplace
-        #      ("Connect" tab) via an approved advisor<->investor relationship,
-        #      AND they are currently marketplace-discoverable.
+        #   3. They are connected to the owner through the marketplace via an
+        #      approved advisor<->investor relationship, AND are currently
+        #      marketplace-discoverable.
         #
-        # Privacy gate (mirrors the marketplace "Connect" tab): if a user turns
-        # their marketplace visibility OFF (marketplace_public_profiles
-        # .is_discoverable = FALSE) they disappear from the One Location
-        # directory too -- the SAME flag the Connect tab already filters on --
-        # UNLESS the owner has an explicit One Network connection with them.
-        # Users who never created a marketplace profile are unaffected.
+        # Privacy gate: a user who turned marketplace visibility OFF
+        # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
+        # the directory too, UNLESS the owner has an explicit trusted edge.
         rows = self._execute_many(
             """
             SELECT
@@ -2594,6 +2631,22 @@ class OneLocationAgentService:
                 status_code=403,
             )
 
+    def _is_active_connection(self, *, owner_user_id: str, other_user_id: str) -> bool:
+        row = self._execute_one(
+            """
+            SELECT 1
+            FROM connections
+            WHERE status = 'active'
+              AND (
+                (user_a_id = :a AND user_b_id = :b)
+                OR (user_a_id = :b AND user_b_id = :a)
+              )
+            LIMIT 1
+            """,
+            {"a": owner_user_id, "b": other_user_id},
+        )
+        return row is not None
+
     def create_grant(
         self,
         *,
@@ -2603,12 +2656,21 @@ class OneLocationAgentService:
         duration_hours: float,
         reason: str | None = None,
         require_recipient_phone_verified: bool = True,
+        enforce_connection: bool = False,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_SELF",
                 "Choose a different verified recipient.",
                 status_code=422,
+            )
+        if enforce_connection and not self._is_active_connection(
+            owner_user_id=owner_user_id, other_user_id=recipient_user_id
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                "You can only share your live location with your connections.",
+                status_code=403,
             )
         try:
             duration = normalize_duration_hours(duration_hours)

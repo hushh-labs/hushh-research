@@ -46,4 +46,14 @@ describe("ConnectionsService", () => {
     expect(path).toBe("/api/one/connections/requests/r1/accept");
     expect(opts.method).toBe("POST");
   });
+
+  it("linkCircleInvite POSTs the peer id", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ result: { status: "connected" } }));
+    await ConnectionsService.linkCircleInvite({ idToken: "tok", peerUserId: "u2" });
+    const [path, opts] = mockApiFetch.mock.calls[0];
+    expect(path).toBe("/api/one/connections/link-circle-invite");
+    expect(opts.method).toBe("POST");
+    expect((opts.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    expect(JSON.parse(opts.body as string)).toEqual({ peer_user_id: "u2" });
+  });
 });

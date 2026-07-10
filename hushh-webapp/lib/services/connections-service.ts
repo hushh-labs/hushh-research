@@ -133,4 +133,13 @@ export class ConnectionsService {
     );
     await jsonOrThrow<unknown>(response);
   }
+
+  static async linkCircleInvite(opts: { idToken: string; peerUserId: string }): Promise<void> {
+    const response = await ApiService.apiFetch("/api/one/connections/link-circle-invite", {
+      method: "POST",
+      headers: authHeaders(opts.idToken),
+      body: JSON.stringify({ peer_user_id: opts.peerUserId }),
+    });
+    await jsonOrThrow<unknown>(response);
+  }
 }
