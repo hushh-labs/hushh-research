@@ -220,3 +220,82 @@ def test_list_connections_maps_rows():
         out = svc.list_connections("user-a")
     assert out[0]["userId"] == "user-b"
     assert out[0]["connectionId"] == "conn-1"
+
+
+def test_remove_connection_revokes_connection_and_trusted_edges():
+    svc = _svc()
+    # Call sequence: SELECT, UPDATE trusted_connections, UPDATE connections
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "conn-1",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                    "status": "active",
+                }
+            ],  # SELECT
+            [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [{"id": "conn-1"}],  # UPDATE connections
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.remove_connection("user-a", "conn-1")
+    assert out == {"removed": 1}
+    trusted_update_indices = [
+        i for i, (sql, _) in enumerate(db.calls) if "UPDATE trusted_connections" in sql
+    ]
+    conn_update_indices = [i for i, (sql, _) in enumerate(db.calls) if "UPDATE connections" in sql]
+    assert len(trusted_update_indices) >= 1, "UPDATE trusted_connections was not called"
+    assert len(conn_update_indices) >= 1, "UPDATE connections was not called"
+    # Trusted-edge revoke must happen BEFORE the connection revoke.
+    assert trusted_update_indices[0] < conn_update_indices[0], (
+        "UPDATE trusted_connections must precede UPDATE connections"
+    )
+
+
+def test_remove_connection_returns_zero_when_not_member_or_missing():
+    svc = _svc()
+    # SELECT returns no row — caller is not a member or id is unknown.
+    db = _RecordingDB(
+        [
+            [],  # SELECT -> no row
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.remove_connection("user-x", "conn-999")
+    assert out == {"removed": 0}
+    trusted_updates = [sql for sql, _ in db.calls if "UPDATE trusted_connections" in sql]
+    assert len(trusted_updates) == 0, (
+        "No trusted_connections UPDATE should occur when member check fails"
+    )
+
+
+def test_remove_connection_self_heals_when_already_revoked():
+    svc = _svc()
+    # SELECT returns the row with status='revoked' (partial-failure state).
+    # The trusted-edge UPDATE should still run (self-healing), but the
+    # connection UPDATE finds status != 'active' and returns no row.
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "conn-1",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                    "status": "revoked",
+                }
+            ],  # SELECT
+            [],  # UPDATE trusted_connections -> already clean, 0 rows (no-op)
+            [],  # UPDATE connections -> status != 'active', no row returned
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.remove_connection("user-a", "conn-1")
+    # Connection was already revoked, so removed=0.
+    assert out == {"removed": 0}
+    # The trusted-edge cleanup must still have been attempted (self-healing).
+    trusted_updates = [sql for sql, _ in db.calls if "UPDATE trusted_connections" in sql]
+    assert len(trusted_updates) >= 1, (
+        "Trusted-edge revoke must run even when connection is already revoked"
+    )

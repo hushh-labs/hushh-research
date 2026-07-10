@@ -389,20 +389,24 @@ class ConnectionsService:
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        # Step 1: Load the row regardless of status, validating membership.
         row = self._execute_one(
             """
-            UPDATE connections
-            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-            WHERE id = :id AND status = 'active'
+            SELECT id, user_a_id, user_b_id, status
+            FROM connections
+            WHERE id = :id
               AND (user_a_id = :user_id OR user_b_id = :user_id)
-            RETURNING user_a_id, user_b_id
+            LIMIT 1
             """,
             {"id": (connection_id or "").strip(), "user_id": user_id},
         )
         if not row:
             return {"removed": 0}
-        # Revoke the two mirrored trusted edges as well.
-        self._execute_one(
+        user_a = row.get("user_a_id")
+        user_b = row.get("user_b_id")
+        # Step 2: Revoke trusted edges FIRST (idempotent — runs on every call so a
+        # retry after partial failure still cleans up stale active edges).
+        self._execute_many(
             """
             UPDATE trusted_connections
             SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
@@ -411,6 +415,16 @@ class ConnectionsService:
                    OR (owner_user_id = :b AND trusted_user_id = :a))
             RETURNING id
             """,
-            {"a": row.get("user_a_id"), "b": row.get("user_b_id")},
+            {"a": user_a, "b": user_b},
         )
-        return {"removed": 1}
+        # Step 3: Revoke the connection row (no-op if already revoked).
+        conn = self._execute_one(
+            """
+            UPDATE connections
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE id = :id AND status = 'active'
+            RETURNING id
+            """,
+            {"id": (connection_id or "").strip()},
+        )
+        return {"removed": 1 if conn else 0}
