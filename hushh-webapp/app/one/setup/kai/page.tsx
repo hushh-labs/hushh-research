@@ -11,6 +11,7 @@ import { KaiPersonaScreen } from "@/components/kai/onboarding/KaiPersonaScreen";
 import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import {
   KaiProfileService,
   computeRiskScore,
@@ -400,6 +401,53 @@ function KaiOnboardingPageContent() {
     await handleLaunchDashboard();
     return { status: "succeeded", summary: "Kai setup complete. Opening portfolio import." };
   });
+
+  // Publish the screen id the generated action contract expects
+  // (kai_setup_wizard) so voice grounding and reachability checks resolve
+  // against the same screen the wizard/persona actions declare, overriding
+  // the route-derived default of "one_setup" for this sub-route.
+  usePublishVoiceSurfaceMetadata(
+    stage === "wizard" || stage === "persona"
+      ? {
+          screenId: "kai_setup_wizard",
+          title: "Kai investor preferences",
+          purpose:
+            stage === "wizard"
+              ? "Three quick questions tune Kai to your investing style."
+              : "Review your computed investor persona and launch the dashboard.",
+          actions:
+            stage === "wizard"
+              ? [
+                  {
+                    id: "answer_horizon",
+                    actionId: "kai.setup.answer_horizon",
+                    label: "Investment horizon",
+                    purpose: "Answer how long you expect to stay invested.",
+                  },
+                  {
+                    id: "answer_drawdown",
+                    actionId: "kai.setup.answer_drawdown",
+                    label: "Drawdown response",
+                    purpose: "Answer how you'd react to a 20 percent drop.",
+                  },
+                  {
+                    id: "answer_volatility",
+                    actionId: "kai.setup.answer_volatility",
+                    label: "Volatility preference",
+                    purpose: "Answer how much volatility feels comfortable.",
+                  },
+                ]
+              : [
+                  {
+                    id: "launch_dashboard",
+                    actionId: "kai.setup.launch_dashboard",
+                    label: "Launch dashboard",
+                    purpose: "Confirm the persona and open portfolio import.",
+                  },
+                ],
+        }
+      : null
+  );
 
   if (authLoading) {
     return (

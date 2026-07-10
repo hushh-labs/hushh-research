@@ -2430,7 +2430,8 @@
           "one_setup_location",
           "one_setup_pkm",
           "one_setup_consent",
-          "one_setup_connected-systems"
+          "one_setup_connected-systems",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -2503,7 +2504,8 @@
           "/one/setup/kai"
         ],
         "screens": [
-          "kai_setup_wizard"
+          "kai_setup_wizard",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -2588,7 +2590,8 @@
           "/one/setup/kai"
         ],
         "screens": [
-          "kai_setup_wizard"
+          "kai_setup_wizard",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -2675,7 +2678,8 @@
           "/one/setup/kai"
         ],
         "screens": [
-          "kai_setup_wizard"
+          "kai_setup_wizard",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -2762,7 +2766,8 @@
           "/one/setup/kai"
         ],
         "screens": [
-          "kai_setup_wizard"
+          "kai_setup_wizard",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -3710,7 +3715,8 @@
           "/register-phone"
         ],
         "screens": [
-          "phone_mandate"
+          "phone_mandate",
+          "register_phone"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -3791,7 +3797,8 @@
           "/register-phone"
         ],
         "screens": [
-          "phone_mandate"
+          "phone_mandate",
+          "register_phone"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -7107,7 +7114,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7179,7 +7187,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7250,7 +7259,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7322,7 +7332,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7394,7 +7405,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7466,7 +7478,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7538,7 +7551,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7612,7 +7626,8 @@
           "/one/setup"
         ],
         "screens": [
-          "one_setup_hub"
+          "one_setup_hub",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []

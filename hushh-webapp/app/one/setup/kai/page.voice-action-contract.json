@@ -22,7 +22,7 @@
       "search_keywords": ["horizon", "how long", "invested"],
       "reachability": {
         "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard"],
+        "screens": ["kai_setup_wizard", "one_setup"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -57,7 +57,7 @@
       "search_keywords": ["drawdown", "drop", "reaction"],
       "reachability": {
         "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard"],
+        "screens": ["kai_setup_wizard", "one_setup"],
         "hidden_navigable": false,
         "navigation_prerequisites": ["Investment horizon must already be answered."]
       },
@@ -92,7 +92,7 @@
       "search_keywords": ["volatility", "comfort", "swings"],
       "reachability": {
         "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard"],
+        "screens": ["kai_setup_wizard", "one_setup"],
         "hidden_navigable": false,
         "navigation_prerequisites": ["Drawdown response must already be answered."]
       },
@@ -127,7 +127,7 @@
       "search_keywords": ["launch", "dashboard", "finish", "persona"],
       "reachability": {
         "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard"],
+        "screens": ["kai_setup_wizard", "one_setup"],
         "hidden_navigable": false,
         "navigation_prerequisites": ["All three preference questions must be answered."]
       },

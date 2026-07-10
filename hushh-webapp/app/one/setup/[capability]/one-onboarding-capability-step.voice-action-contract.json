@@ -29,7 +29,8 @@
           "one_setup_location",
           "one_setup_pkm",
           "one_setup_consent",
-          "one_setup_connected-systems"
+          "one_setup_connected-systems",
+          "one_setup"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
