@@ -983,6 +983,63 @@ html.native-ios {
   }
 }
 
+/* Per-connector traveling highlight for the 14a onboarding timeline (single
+ * gold tone, one short segment per icon pair, unlike the older tri-tone
+ * absolutely-positioned .intro-feature-rail which spanned the whole list).
+ * A bright pulse travels down each connector once on mount, then the
+ * connector settles back to its static faded-gold gradient. */
+.intro-feature-connector {
+  position: relative;
+  overflow: hidden;
+}
+
+.intro-feature-connector::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* Deep gold in light mode: the light cream used in dark mode reads as
+     near-white and disappears against the white sheet background here. */
+  background: linear-gradient(
+    180deg,
+    transparent,
+    #9c7434 45%,
+    transparent 90%
+  );
+  transform: translateY(-100%);
+  animation: intro-feature-connector-scan 1100ms var(--motion-ease-emphasized)
+    calc(var(--intro-feature-delay, 0ms) + 260ms) both;
+}
+
+.dark .intro-feature-connector::after {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    #f4ead6 45%,
+    transparent 90%
+  );
+}
+
+@keyframes intro-feature-connector-scan {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro-feature-connector::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* Hussh Brand Text */
 .text-hushh-brand {
   background: linear-gradient(135deg, #b8894d 0%, #d4a574 100%);
