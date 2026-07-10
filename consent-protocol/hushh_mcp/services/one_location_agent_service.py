@@ -2781,30 +2781,35 @@ class OneLocationAgentService:
         else:
             notification_title = "Location shared"
             notification_body = f"{owner_label} shared location access with you."
-        self._send_metadata_notification(
-            user_id=recipient_user_id,
-            notification_type="location_share_created",
-            title=notification_title,
-            body=notification_body,
-            notification_tag=f"one-location-share:{grant['id']}",
-            request_url=_one_location_url(
-                grantId=grant["id"],
-                locationNotification="opened",
-                section="shared",
-            ),
-            data={
-                "grant_id": grant["id"],
-                "owner_user_id": owner_user_id,
-                "owner_display_label": owner_label,
-                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
-                if owner_identity
-                else None,
-                "duration_hours": str(duration),
-                "expires_at": grant.get("expiresAt"),
-                "share_kind": share_kind,
-                **({"share_message": share_message} if share_message else {}),
-            },
-        )
+        # Request approval has its own richer notification immediately after
+        # this call. Sending share-created as well produces two alerts for one
+        # user action, so direct/SOS/check-in/drive shares use this notification
+        # while approvals use only location_access_approved.
+        if reason != "request_approved":
+            self._send_metadata_notification(
+                user_id=recipient_user_id,
+                notification_type="location_share_created",
+                title=notification_title,
+                body=notification_body,
+                notification_tag=f"one-location-share:{grant['id']}",
+                request_url=_one_location_url(
+                    grantId=grant["id"],
+                    locationNotification="opened",
+                    section="shared",
+                ),
+                data={
+                    "grant_id": grant["id"],
+                    "owner_user_id": owner_user_id,
+                    "owner_display_label": owner_label,
+                    "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
+                    if owner_identity
+                    else None,
+                    "duration_hours": str(duration),
+                    "expires_at": grant.get("expiresAt"),
+                    "share_kind": share_kind,
+                    **({"share_message": share_message} if share_message else {}),
+                },
+            )
         return grant
 
     def store_encrypted_envelope(
@@ -3577,7 +3582,7 @@ class OneLocationAgentService:
             title="Invite to One accepted",
             body=f"{claimant_label} joined your One Network.",
             notification_tag=f"one-location-network:{connection['id']}",
-            request_url=_one_location_url(section="circle"),
+            request_url=_one_location_url(section="people"),
             data={
                 "connection_id": connection["id"],
                 "invite_id": invite_id,
@@ -3591,7 +3596,7 @@ class OneLocationAgentService:
             title="You're connected on One",
             body=f"You and {owner_label} can now use One Location together.",
             notification_tag=f"one-location-network:{connection['id']}",
-            request_url=_one_location_url(section="circle"),
+            request_url=_one_location_url(section="people"),
             data={
                 "connection_id": connection["id"],
                 "invite_id": invite_id,

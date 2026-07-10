@@ -34,6 +34,8 @@ import {
   buildOneLocationWorkflowHref,
   hasSeenOneLocationNotification,
   isOneLocationGrantUnwatched,
+  locationShareNotificationCopy,
+  markOneLocationGrantOpened,
   markOneLocationGrantUnwatched,
   oneLocationSectionForWorkflowNotificationType,
   recordOneLocationShareNotification,
@@ -170,6 +172,21 @@ describe("One-Location workflow deep-link sections", () => {
     expect(oneLocationSectionForWorkflowNotificationType("location_access_approved")).toBe("shared");
     expect(oneLocationSectionForWorkflowNotificationType("location_access_denied")).toBe("my_requests");
     expect(oneLocationSectionForWorkflowNotificationType("location_public_invite_submitted")).toBe("public_responses");
+    expect(oneLocationSectionForWorkflowNotificationType("location_one_network_joined")).toBe("people");
+  });
+});
+
+describe("One-Location share notification copy", () => {
+  it("preserves drive-share intent during state reconciliation", () => {
+    expect(
+      locationShareNotificationCopy({
+        ownerLabel: "Alex",
+        shareKind: "drive_to",
+      }),
+    ).toEqual({
+      title: "Drive shared",
+      description: "Alex started sharing their drive and live ETA with you.",
+    });
   });
 });
 
@@ -193,5 +210,19 @@ describe("One-Location unwatch", () => {
     markOneLocationGrantUnwatched(USER, GRANT);
     // A fresh read (no in-memory state) still reports unwatched.
     expect(isOneLocationGrantUnwatched(USER, GRANT)).toBe(true);
+  });
+});
+
+describe("One-Location opened-share suppression", () => {
+  it("does not recreate a popup/bell entry after the share was opened", () => {
+    markOneLocationGrantOpened(USER, GRANT);
+    expect(
+      recordOneLocationShareNotification({
+        userId: USER,
+        grantId: GRANT,
+        ownerLabel: "Alex",
+      }),
+    ).toBe(false);
+    expect(tasks.size).toBe(0);
   });
 });

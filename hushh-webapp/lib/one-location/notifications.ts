@@ -38,7 +38,8 @@ export type OneLocationWorkflowNotificationType =
   | "location_access_request"
   | "location_access_denied"
   | "location_referral_invite"
-  | "location_public_invite_submitted";
+  | "location_public_invite_submitted"
+  | "location_one_network_joined";
 
 export type OneLocationNotificationSection =
   | "people"
@@ -83,6 +84,10 @@ const WORKFLOW_COPY: Record<
   location_public_invite_submitted: {
     title: "Public location request",
     fallbackDescription: "Someone requested location access from your public link.",
+  },
+  location_one_network_joined: {
+    title: "Connected on One",
+    fallbackDescription: "A trusted person joined your One Network.",
   },
 };
 
@@ -368,6 +373,8 @@ export function oneLocationSectionForWorkflowNotificationType(
       return "public_responses";
     case "location_referral_invite":
       return "my_requests";
+    case "location_one_network_joined":
+      return "people";
     default:
       return "activity";
   }
@@ -379,7 +386,7 @@ export function locationShareNotificationDescription(ownerLabel?: string | null)
 }
 
 /** The share intents a recipient notification can represent. */
-export type OneLocationShareKind = "sos" | "check_in" | "share";
+export type OneLocationShareKind = "sos" | "check_in" | "drive_to" | "share";
 
 export function normalizeOneLocationShareKind(
   value?: string | null,
@@ -387,6 +394,7 @@ export function normalizeOneLocationShareKind(
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "sos") return "sos";
   if (normalized === "check_in" || normalized === "checkin") return "check_in";
+  if (normalized === "drive_to" || normalized === "drive") return "drive_to";
   return "share";
 }
 
@@ -397,6 +405,8 @@ export function oneLocationShareKindLabel(kind?: string | null): string {
       return "SOS";
     case "check_in":
       return "Check-In";
+    case "drive_to":
+      return "Drive";
     default:
       return "Share";
   }
@@ -430,6 +440,12 @@ export function locationShareNotificationCopy(params: {
         : `${label} checked in and shared their location with you.`,
     };
   }
+  if (kind === "drive_to") {
+    return {
+      title: "Drive shared",
+      description: `${label} started sharing their drive and live ETA with you.`,
+    };
+  }
   return {
     title: "Location shared",
     description: locationShareNotificationDescription(label),
@@ -443,12 +459,14 @@ export function locationWorkflowNotificationCopy(params: {
   requesterLabel?: string | null;
   referringLabel?: string | null;
   visitorLabel?: string | null;
+  networkLabel?: string | null;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
   const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
   const requesterLabel = String(params.requesterLabel || "").trim() || "Someone";
   const referringLabel = String(params.referringLabel || "").trim() || "A trusted person";
   const visitorLabel = String(params.visitorLabel || "").trim() || "Someone";
+  const networkLabel = String(params.networkLabel || "").trim() || "A trusted person";
 
   switch (params.type) {
     case "location_share_created":
@@ -486,6 +504,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${visitorLabel} requested location access from your public link.`,
+      };
+    case "location_one_network_joined":
+      return {
+        title: copy.title,
+        description: `${networkLabel} is now connected with you on One.`,
       };
     default:
       return { title: copy.title, description: copy.fallbackDescription };

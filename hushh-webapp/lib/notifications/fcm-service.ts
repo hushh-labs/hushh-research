@@ -39,7 +39,9 @@ export interface FCMInitResult {
 }
 
 let nativeListenersConfigured = false;
+let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
+let webServiceWorkerBridgeConfigured = false;
 let lastKnownSession: { userId: string; idToken: string } | null = null;
 const FIREBASE_WEB_PUSH_DATABASES = [
   "firebase-messaging-database",
@@ -372,6 +374,58 @@ export async function initializeFCM(
   return initializeWebFCM(userId, idToken);
 }
 
+export async function prepareFCMListeners(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (Capacitor.isNativePlatform()) {
+    await setupNativeListeners();
+    return;
+  }
+  setupWebServiceWorkerBridge();
+}
+
+function setupWebServiceWorkerBridge(): void {
+  if (
+    webServiceWorkerBridgeConfigured ||
+    typeof navigator === "undefined" ||
+    !("serviceWorker" in navigator)
+  ) {
+    return;
+  }
+
+  navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
+    const message = event.data as
+      | {
+          type?: string;
+          title?: string;
+          body?: string;
+          delivery_id?: string;
+          data?: Record<string, string>;
+        }
+      | undefined;
+    if (message?.type !== "hushh:fcm_push_received") return;
+    window.dispatchEvent(
+      new CustomEvent(FCM_MESSAGE_EVENT, {
+        detail: {
+          data: message.data || {},
+          notification: {
+            title: message.title || "Notification",
+            body: message.body || "",
+          },
+          source: "service_worker",
+        },
+      }),
+    );
+    if (message.delivery_id) {
+      const source = event.source as { postMessage?: (value: unknown) => void } | null;
+      source?.postMessage?.({
+        type: "hushh:fcm_push_ack",
+        delivery_id: message.delivery_id,
+      });
+    }
+  });
+  webServiceWorkerBridgeConfigured = true;
+}
+
 /**
  * Initialize FCM for native platforms (iOS/Android)
  */
@@ -393,6 +447,10 @@ async function initializeNativeFCM(
     console.log("[FCM] Initializing for native platform...");
 
     const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
+
+    // Configure listeners before permission/token/backend work so a foreground
+    // notification or tap cannot be lost during native startup.
+    await setupNativeListeners();
 
     // Step 1: Request notification permissions
     const permissionResult = await FirebaseMessaging.requestPermissions();
@@ -441,9 +499,6 @@ async function initializeNativeFCM(
         detail: `backend_register_${response.status}`,
       };
     }
-
-    // Step 4: Set up message listeners
-    setupNativeListeners();
 
     console.log("[FCM] ✅ Native initialization complete");
     return { status: "push_active" };
@@ -742,27 +797,31 @@ async function initializeWebFCM(
 /**
  * Set up message listeners for native platforms
  */
-function setupNativeListeners(): void {
-  if (nativeListenersConfigured) return;
-  nativeListenersConfigured = true;
+function setupNativeListeners(): Promise<void> {
+  if (nativeListenersConfigured) return Promise.resolve();
+  if (nativeListenersPromise) return nativeListenersPromise;
 
-  void (async () => {
+  const request = (async () => {
+    const listeners: Array<{ remove: () => Promise<void> }> = [];
     try {
       const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
 
-      await FirebaseMessaging.addListener("notificationReceived", (notification) => {
-        console.log("[FCM] Foreground message received:", notification);
+      listeners.push(
+        await FirebaseMessaging.addListener("notificationReceived", (notification) => {
+          console.log("[FCM] Foreground message received:", notification);
 
-        window.dispatchEvent(
-          new CustomEvent(FCM_MESSAGE_EVENT, {
-            detail: notification,
-          })
-        );
-      });
+          window.dispatchEvent(
+            new CustomEvent(FCM_MESSAGE_EVENT, {
+              detail: notification,
+            })
+          );
+        }),
+      );
 
-      await FirebaseMessaging.addListener(
-        "notificationActionPerformed",
-        (action) => {
+      listeners.push(
+        await FirebaseMessaging.addListener(
+          "notificationActionPerformed",
+          (action) => {
           console.log("[FCM] Notification tapped:", action);
 
           const data = action.notification.data as
@@ -828,32 +887,44 @@ function setupNativeListeners(): void {
             });
           }
 
-        }
+          },
+        ),
       );
 
-      await FirebaseMessaging.addListener("tokenReceived", async (event) => {
-        console.log("[FCM] Push token refreshed");
-        const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
-        try {
-          if (lastKnownSession) {
-            await ApiService.registerPushToken(
-              lastKnownSession.userId,
-              event.token,
-              platform,
-              lastKnownSession.idToken
-            );
-            console.log("[FCM] Refreshed token re-registered with backend");
+      listeners.push(
+        await FirebaseMessaging.addListener("tokenReceived", async (event) => {
+          console.log("[FCM] Push token refreshed");
+          const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
+          try {
+            if (lastKnownSession) {
+              await ApiService.registerPushToken(
+                lastKnownSession.userId,
+                event.token,
+                platform,
+                lastKnownSession.idToken
+              );
+              console.log("[FCM] Refreshed token re-registered with backend");
+            }
+          } catch (err) {
+            console.warn("[FCM] Token refresh re-registration failed:", err);
           }
-        } catch (err) {
-          console.warn("[FCM] Token refresh re-registration failed:", err);
-        }
-      });
+        }),
+      );
 
       console.log("[FCM] Native listeners configured");
+      nativeListenersConfigured = true;
     } catch (error) {
-      console.warn("[FCM] Native listener setup skipped:", error);
+      console.warn("[FCM] Native listener setup failed:", error);
+      await Promise.allSettled(listeners.map((listener) => listener.remove()));
+      throw error;
+    } finally {
+      if (!nativeListenersConfigured) {
+        nativeListenersPromise = null;
+      }
     }
   })();
+  nativeListenersPromise = request;
+  return request;
 }
 
 function buildNativeConsentActionTarget(
