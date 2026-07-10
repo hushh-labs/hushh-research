@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/runtime_profile_lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/env/bootstrap.sh [--mode <local|uat|prod>] [--profile <local|uat|prod>]
+  scripts/env/bootstrap.sh [--mode <local|uat|dev|prod>] [--profile <local|uat|dev|prod>]
 
 Description:
   Canonical contributor bootstrap for the monorepo.
@@ -106,7 +106,6 @@ warn_legacy_envs() {
     "$REPO_ROOT/consent-protocol/.env.local-uatdb.local" \
     "$REPO_ROOT/consent-protocol/.env.uat-remote.local" \
     "$REPO_ROOT/consent-protocol/.env.prod-remote.local" \
-    "$REPO_ROOT/hushh-webapp/.env.dev.local" \
     "$REPO_ROOT/hushh-webapp/.env.local-uatdb.local" \
     "$REPO_ROOT/hushh-webapp/.env.uat-remote.local" \
     "$REPO_ROOT/hushh-webapp/.env.prod-remote.local"

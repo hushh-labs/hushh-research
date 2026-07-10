@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/runtime_profile_lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/env/doctor.sh <local|uat|prod> [--json]
+  scripts/env/doctor.sh <local|uat|dev|prod> [--json]
 
 Description:
   Verify that a runtime mode is coherent and runnable.
@@ -352,6 +352,14 @@ case "$PROFILE" in
       add_check "backend_target_shape" "pass" "uat points at a remote backend"
     fi
     ;;
+  dev)
+    if [[ "$FRONTEND_BACKEND_TARGET" == http://localhost:* || "$FRONTEND_BACKEND_TARGET" == http://127.0.0.1:* ]]; then
+      add_check "backend_target_shape" "fail" "dev must not point at localhost"
+      SOURCE_READY=false
+    else
+      add_check "backend_target_shape" "pass" "dev points at a remote backend"
+    fi
+    ;;
   prod)
     if [[ "$FRONTEND_BACKEND_TARGET" == http://localhost:* || "$FRONTEND_BACKEND_TARGET" == http://127.0.0.1:* ]]; then
       add_check "backend_target_shape" "fail" "prod must not point at localhost"
@@ -370,7 +378,6 @@ for path in \
   "$REPO_ROOT/consent-protocol/.env.local-uatdb.local" \
   "$REPO_ROOT/consent-protocol/.env.uat-remote.local" \
   "$REPO_ROOT/consent-protocol/.env.prod-remote.local" \
-  "$REPO_ROOT/hushh-webapp/.env.dev.local" \
   "$REPO_ROOT/hushh-webapp/.env.local-uatdb.local" \
   "$REPO_ROOT/hushh-webapp/.env.uat-remote.local" \
   "$REPO_ROOT/hushh-webapp/.env.prod-remote.local"

@@ -15,7 +15,6 @@
     "allow_auto_merge": true
   },
   "main": {
-
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
     "require_last_push_approval": true,
@@ -86,6 +85,19 @@
     "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",
     "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_bypass_users": [
+      "kushaltrivedi5",
+      "RGlodAkshat",
+      "ankitkumarsingh1702",
+      "azfx",
+      "Jhumma-hushh",
+      "DamriaNeelesh",
+      "ahujagautam024",
+      "rohansharma4050"
+    ]
+  },
+  "dev": {
+    "environment": "dev",
+    "manual_dispatch_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
       "ankitkumarsingh1702",

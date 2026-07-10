@@ -101,7 +101,7 @@ def main() -> int:
     parser.add_argument(
         "--environment",
         required=True,
-        choices=("uat", "production"),
+        choices=("dev", "uat", "production"),
         help="Deploy environment used to resolve legacy measurement/GTM secret names.",
     )
     args = parser.parse_args()

@@ -51,7 +51,8 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 |---|---|---|
 | `integration/pr-train` | Community / contributor / agent PR intake and async train landing | Effective landing base for every non-maintainer feature/fix/docs PR |
 | `main` | Promotion branch for deployable history | Governed maintainers open PRs **directly into `main`** from a branch cut off `origin/main`; the train also opens normal promotion PRs. CI gate + merge queue + post-merge smoke always required. |
-| UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
+| Dev | Agentic proving ground (fast lane) | Manual governed dispatch of a **CI-green SHA from `integration/pr-train` (default) or any ref** — never gated on `main`. See [dev-fast-lane.md](./dev-fast-lane.md). |
+| UAT | Hosted signoff environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
@@ -100,6 +101,17 @@ Before deleting a local backup branch, classify its unique commits as:
 3. still valuable and worth promoting onto a fresh salvage branch from current `integration/pr-train`
 
 ## Deployment Lanes
+
+### Dev (fast lane)
+
+1. Dev deploys through `Deploy to Dev` (manual dispatch from `main`, governed actor
+   cohort identical to UAT).
+2. The deployed content is `integration/pr-train` by default, or any requested ref;
+   the exact SHA must be reachable from that ref and carry a green `CI Status Gate`.
+3. Dev never requires `main` ancestry or `Main Post-Merge Smoke` — `main` stays the
+   UAT → production signoff lane, and dev proves the train BEFORE promotion.
+4. Dev has no promotion authority: nothing deploys to UAT or production from dev.
+5. Full contract: [dev-fast-lane.md](./dev-fast-lane.md).
 
 ### UAT
 
