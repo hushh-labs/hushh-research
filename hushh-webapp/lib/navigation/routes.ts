@@ -44,6 +44,7 @@ export const ROUTES = {
   CONNECTED_SYSTEMS: "/one/connected-systems",
   CONSENTS: "/consents",
   AGENT: "/agent",
+  CONNECT: "/connect",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
