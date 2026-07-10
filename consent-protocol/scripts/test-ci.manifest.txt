@@ -3,6 +3,13 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_scoped_export_download.py
+tests/test_partner_developer_apps.py
+tests/test_export_projection.py
+tests/test_local_mcp_keypair_service.py
+tests/test_mcp_encrypted_scoped_export_tool.py
+tests/test_request_consent_local_keypair.py
+tests/test_mcp_remote_endpoint.py
 tests/quality/test_kai_route_auth_compliance.py
 tests/test_kai_auth_matrix.py
 tests/test_kai_consent_grant_dynamic_scopes.py

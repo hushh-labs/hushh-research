@@ -60,7 +60,7 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
       />
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="CRM systems / Connected CRM"
+          eyebrow="CRM systems"
           title="Macy's"
           icon={Building2}
           accent="neutral"

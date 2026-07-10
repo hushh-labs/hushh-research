@@ -4,6 +4,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ConnectedSystemsService } from "@/lib/services/connected-systems-service";
 
+const routerPushMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: routerPushMock,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  }),
+}));
+
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: {
+    getIdToken: vi.fn().mockResolvedValue("firebase-id-token"),
+  },
+}));
+
 vi.mock("@/lib/services/connected-systems-service", () => ({
   SALESFORCE_CRM_SYSTEM_ID: "salesforce-fsc-customer0",
   ConnectedSystemsService: {
@@ -97,24 +114,49 @@ describe("ConnectedSystemsPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders a list-first CRM entrypoint for the connected systems route", async () => {
+  it("renders the CRM overview as a compact table with name, type, and status", async () => {
     render(<ConnectedSystemsPanel vaultOwnerToken="HCT:test" mode="list" />);
 
     await waitFor(() => {
       expect(screen.getByText("Macy's")).toBeTruthy();
     });
 
-    const crmLink = screen.getByRole("link", { name: /Macy's/i });
-    expect(crmLink.getAttribute("href")).toBe(
+    // Table contract: Name / Type / Status columns, one row per system.
+    // (Sortable headers render role="button", so match by text.)
+    expect(screen.getByText("Name")).toBeTruthy();
+    expect(screen.getByText("Type")).toBeTruthy();
+    expect(screen.getByText("Status")).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByText("Salesforce FSC")).toBeTruthy();
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.getByAltText("Macy's logo")).toBeTruthy();
+    // No redundant chrome: no explainer copy, no Connected CRM badge, no
+    // per-row transport subheader.
+    expect(screen.queryByText(/Open a connected system to inspect/i)).toBeNull();
+    expect(screen.queryByText("Connected CRM")).toBeNull();
+    expect(screen.queryByText(/Macy's \/ Contact \/ External CRM MCP/)).toBeNull();
+    expect(screen.queryByAltText("CRM platform logo")).toBeNull();
+  });
+
+  it("navigates to the system workspace when a table row is clicked", async () => {
+    render(<ConnectedSystemsPanel vaultOwnerToken="HCT:test" mode="list" />);
+
+    const nameCell = await screen.findByText("Macy's");
+    fireEvent.click(nameCell);
+
+    expect(routerPushMock).toHaveBeenCalledWith(
       "/one/connected-systems/salesforce-fsc-customer0",
     );
-    expect(screen.getByRole("searchbox", { name: /Search CRM systems/i })).toBeTruthy();
-    expect(screen.getByText(/Macy's \/ Contact \/ External CRM MCP/)).toBeTruthy();
-    expect(screen.queryByText(/MCP tools/i)).toBeNull();
-    expect(screen.getByAltText("Macy's logo")).toBeTruthy();
-    expect(screen.getByAltText("CRM platform logo")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Refresh from Macy's/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Suggest a sample change/i })).toBeNull();
+  });
+
+  it("lists CRM systems without requiring vault unlock", async () => {
+    render(<ConnectedSystemsPanel vaultOwnerToken={null} mode="list" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Macy's")).toBeTruthy();
+    });
+    expect(ConnectedSystemsService.listSystems).toHaveBeenCalledWith("firebase-id-token");
+    expect(screen.queryByText(/Unlock your vault/i)).toBeNull();
   });
 
   it("renders Macy's as a connected CRM system with a first-time create lifecycle", async () => {
@@ -130,13 +172,12 @@ describe("ConnectedSystemsPanel", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Connected CRM \/ Contact\./)).toBeTruthy();
+      expect(screen.getByText(/Salesforce FSC \/ Contact\./)).toBeTruthy();
     });
 
     expect(screen.getByRole("heading", { name: "Macy's" })).toBeTruthy();
-    expect(screen.getByText(/Connected CRM \/ Contact/)).toBeTruthy();
     expect(screen.getByAltText("Macy's logo")).toBeTruthy();
-    expect(screen.getByAltText("CRM platform logo")).toBeTruthy();
+    expect(screen.queryByAltText("CRM platform logo")).toBeNull();
     expect(screen.getByText(/Connected through External CRM MCP/)).toBeTruthy();
     expect(screen.queryByText(/MCP tools/i)).toBeNull();
     expect(screen.queryByText("Registry backed")).toBeNull();

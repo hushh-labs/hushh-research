@@ -168,10 +168,16 @@ function systemPath(systemId?: string): string {
 }
 
 export class ConnectedSystemsService {
-  static async listSystems(vaultOwnerToken: string): Promise<ConnectedSystemSummary[]> {
+  /**
+   * List connected CRM systems (registry metadata only; no user records).
+   *
+   * Signed-in is enough: pass a vault owner token when one is available (agent
+   * lanes), otherwise the caller's Firebase ID token. The backend accepts both.
+   */
+  static async listSystems(authToken: string): Promise<ConnectedSystemSummary[]> {
     const response = await ApiService.apiFetch("/api/connected-systems", {
       method: "GET",
-      headers: authHeaders(vaultOwnerToken),
+      headers: authHeaders(authToken),
     });
     const payload = await readJsonOrThrow<{ systems?: ConnectedSystemSummary[] }>(response);
     return Array.isArray(payload.systems) ? payload.systems : [];

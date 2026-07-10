@@ -325,7 +325,26 @@ reload_mode="$(printf '%s' "$BACKEND_RELOAD" | tr '[:upper:]' '[:lower:]')"
 case "$reload_mode" in
   1|true|yes|on)
     uvicorn_args+=(--reload)
-    echo "Uvicorn autoreload enabled (dev watch mode)."
+    # Defense in depth: uvicorn's file watcher defaults to scanning the
+    # entire reload dir. Excludes only take effect when `watchfiles` is
+    # installed (the dev dependency group pulls it in) -- if it's ever
+    # missing, uvicorn falls back to a pure-Python stat-polling loop that
+    # IGNORES these excludes entirely and re-globs everything below,
+    # including .venv, every reload_delay (default 0.25s). That has been
+    # observed to pin a full CPU core for the entire process lifetime
+    # (~12 CPU-hours over one ~19h local session). Run
+    # `uv sync --frozen --group dev` if you see a
+    # "--reload-exclude has no effect unless watchfiles is installed"
+    # warning at startup.
+    uvicorn_args+=(--reload-exclude ".venv/*")
+    uvicorn_args+=(--reload-exclude "__pycache__/*")
+    uvicorn_args+=(--reload-exclude ".pytest_cache/*")
+    uvicorn_args+=(--reload-exclude ".mypy_cache/*")
+    uvicorn_args+=(--reload-exclude ".ruff_cache/*")
+    uvicorn_args+=(--reload-exclude "artifacts/*")
+    uvicorn_args+=(--reload-exclude "data/*")
+    uvicorn_args+=(--reload-exclude "tmp/*")
+    echo "Uvicorn autoreload enabled (dev watch mode, .venv/caches excluded)."
     ;;
   *)
     echo "Uvicorn autoreload disabled (faster local runtime). Use --reload to enable watch mode."
