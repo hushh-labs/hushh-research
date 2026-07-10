@@ -19,6 +19,13 @@ type VaultUnlockDialogProps = {
   description: string;
   enableGeneratedDefault?: boolean;
   dismissible?: boolean;
+  /**
+   * When provided, VaultFlow shows a subtle "Sign out" escape on the unlock /
+   * recovery steps. Passed only by the HARD vault gate (VaultLockGuard), where a
+   * user who forgot their vault password would otherwise be trapped. Omitted by
+   * the dismissible top-bar unlock (the user can just close that sheet).
+   */
+  onSignOut?: () => void;
 };
 
 export function VaultUnlockDialog({
@@ -30,6 +37,7 @@ export function VaultUnlockDialog({
   description,
   enableGeneratedDefault = false,
   dismissible = true,
+  onSignOut,
 }: VaultUnlockDialogProps) {
   // Presented as a native iOS bottom sheet (vaul Drawer): anchored to the
   // bottom, rounded top, grabber handle, slide-up, with a modal blur scrim that
@@ -66,6 +74,7 @@ export function VaultUnlockDialog({
           user={user}
           enableGeneratedDefault={enableGeneratedDefault}
           onSuccess={onSuccess}
+          onSignOut={onSignOut}
         />
       </DrawerContent>
     </Drawer>

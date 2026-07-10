@@ -29,6 +29,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { User } from "firebase/auth";
 
@@ -72,6 +82,12 @@ interface VaultFlowProps {
   // Callback to inform parent about current step (e.g. to hide headers)
   onStepChange?: (step: VaultStep) => void;
   enableGeneratedDefault?: boolean;
+  /**
+   * When provided, renders a subtle "Sign out" escape on the unlock / recovery
+   * steps. Passed only by the HARD vault gate (VaultLockGuard) so a user who
+   * forgot their vault password is not trapped with no way out of the app.
+   */
+  onSignOut?: () => void;
 }
 
 export function VaultFlow({
@@ -79,9 +95,11 @@ export function VaultFlow({
   onSuccess,
   onStepChange,
   enableGeneratedDefault = false,
+  onSignOut,
 }: VaultFlowProps) {
   const ACTION_BUTTON_SIZE = "lg" as const;
   const [step, setStep] = useState<VaultStep>("checking");
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
@@ -718,6 +736,26 @@ export function VaultFlow({
     webPrfAutoPromptBlocked,
   ]);
 
+  // Last-resort escape for a user who can't unlock (forgot the vault key AND
+  // recovery key). Only rendered on the HARD gate (VaultLockGuard passes
+  // onSignOut); it sits below the unlock methods so it's a deliberate last
+  // choice, and confirms before signing out to avoid an accidental tap.
+  const signOutEscape = onSignOut ? (
+    <div className="pt-2 text-center">
+      <span className="type-footnote text-muted-foreground">
+        Can&apos;t get in?{" "}
+      </span>
+      <button
+        type="button"
+        onClick={() => setShowSignOutConfirm(true)}
+        disabled={isUnlocking}
+        className="type-footnote font-semibold text-[#9C7434] underline-offset-2 hover:underline disabled:opacity-50 dark:text-[#D4AF6A]"
+      >
+        Sign out
+      </button>
+    </div>
+  ) : null;
+
   if (step === "checking") {
     if (error) {
       return (
@@ -1095,6 +1133,7 @@ export function VaultFlow({
                   </div>
                 ) : null}
               </div>
+              {signOutEscape}
             </div>
           )}
 
@@ -1190,6 +1229,7 @@ export function VaultFlow({
                   </div>
                 </div>
               </div>
+              {signOutEscape}
             </div>
           )}
 
@@ -1393,6 +1433,37 @@ export function VaultFlow({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Sign-out confirmation for the hard vault-gate escape hatch. Rendered at
+          z-[730] so it sits above the vaul Drawer (z-[712]); Radix portals it to
+          <body>, so the higher z wins and it stays tappable. */}
+      {onSignOut ? (
+        <AlertDialog
+          open={showSignOutConfirm}
+          onOpenChange={setShowSignOutConfirm}
+        >
+          <AlertDialogContent className="z-[730] max-w-[calc(100%-2rem)] sm:max-w-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sign out?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You&apos;ll need to sign in again. Your vault data stays safe and
+                encrypted — you can unlock it after you sign back in.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setShowSignOutConfirm(false);
+                  onSignOut();
+                }}
+              >
+                Sign out
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </>
   );
 }
