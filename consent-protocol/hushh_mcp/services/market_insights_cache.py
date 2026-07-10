@@ -45,17 +45,21 @@ def _log_cache_resource_resolved(
     result: str,
     started_at: float,
 ) -> None:
+    # These are fixed, non-secret enum values (cache tier/freshness/result
+    # labels), never user data. They are formatted directly into the message
+    # string rather than passed as separate %-style logging args, because the
+    # global SensitiveLogFilter's UID-like heuristic (installed by mcp_server/
+    # mcp_remote on import) redacts any standalone logging *argument* that
+    # looks like "word-word" or "word_word" with 8+ chars, e.g. "locked_hit",
+    # even though it is not sensitive. That heuristic only inspects
+    # `record.args`, not substrings already baked into `record.msg`.
     logger.debug(
         "cache_resource_resolved "
         "resource_class=market_data "
-        "cache_tier=%s "
-        "freshness=%s "
-        "result=%s "
-        "duration_ms_bucket=%s",
-        cache_tier,
-        freshness,
-        result,
-        _duration_ms_bucket(_elapsed_ms(started_at)),
+        f"cache_tier={cache_tier} "
+        f"freshness={freshness} "
+        f"result={result} "
+        f"duration_ms_bucket={_duration_ms_bucket(_elapsed_ms(started_at))}"
     )
 
 
