@@ -26,7 +26,7 @@ from typing import Any, Optional
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.tools import google_search
+from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.adk_bridge.contract import A2ATask
@@ -358,11 +358,25 @@ def _one_roster_tools() -> list:
     consult them as tools; the dispatch-backed specialists (email, location,
     connections, marketplace, connected systems, consent) are plain function
     tools that call the existing governed adk_bridge handlers.
+
+    Uses GoogleSearchTool(bypass_multi_tools_limit=True) rather than the bare
+    google_search function-tool. Binding Gemini's native google_search
+    directly alongside this many custom function/agent tools in the SAME
+    LlmAgent.tools=[...] list is unstable on google-adk 2.4.0 (verified in
+    hushh-search-console's adk_runtime.py via 15+ live trials: redundant
+    tool calls, intermittent TaskGroup errors, occasional full timeouts).
+    bypass_multi_tools_limit=True makes LlmAgent's own tool conversion wrap
+    google_search as an isolated per-call sub-agent turn (a
+    GoogleSearchAgentTool with propagate_grounding_metadata=True), which ADK
+    itself maintains and which still propagates real grounding metadata
+    (search queries + grounding chunks with real URLs) back onto One's own
+    event stream - so voice/chat answers keep real citations, not just a
+    plain summarized string.
     """
     from google.adk.tools.agent_tool import AgentTool
 
     return [
-        google_search,
+        GoogleSearchTool(bypass_multi_tools_limit=True),
         open_screen,
         run_app_action,
         list_app_actions,
