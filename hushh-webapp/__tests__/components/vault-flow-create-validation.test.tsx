@@ -9,10 +9,11 @@ const getPrimaryWrapperMock = vi.fn();
 const getWrapperByMethodMock = vi.fn();
 const unlockGeneratedDefaultVaultMock = vi.fn();
 const unlockVaultMock = vi.fn();
+let isNativePlatformMock = false;
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: () => false,
+    isNativePlatform: () => isNativePlatformMock,
   },
 }));
 
@@ -84,6 +85,15 @@ const passkeyWrapper: TestVaultWrapper = {
   passkeyPrfSalt: "passkey-salt",
 };
 
+const nativePasskeyWrapper: TestVaultWrapper = {
+  method: "generated_default_native_passkey_prf",
+  encryptedVaultKey: "encrypted-native-passkey",
+  salt: "salt-native-passkey",
+  iv: "iv-native-passkey",
+  passkeyCredentialId: "native-credential-1",
+  passkeyPrfSalt: "native-passkey-salt",
+};
+
 function vaultState(primaryMethod: string, wrappers: TestVaultWrapper[]): TestVaultState {
   return {
     primaryMethod,
@@ -97,6 +107,7 @@ describe("VaultFlow create validation", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    isNativePlatformMock = false;
     checkVaultMock.mockResolvedValue(false);
     getVaultStateMock.mockResolvedValue(
       vaultState("passphrase", [passphraseWrapper, passkeyWrapper]),
@@ -192,5 +203,36 @@ describe("VaultFlow create validation", () => {
     expect(screen.getByText("Other methods")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Passkey" })).toBeNull();
     expect(screen.getByRole("button", { name: "Recovery Key" })).toBeTruthy();
+  });
+
+  it("keeps the hard-gate Sign out escape tappable while passkey unlock is pending", async () => {
+    isNativePlatformMock = true;
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(
+      vaultState("generated_default_native_passkey_prf", [
+        passphraseWrapper,
+        nativePasskeyWrapper,
+      ]),
+    );
+    unlockGeneratedDefaultVaultMock.mockImplementation(() => new Promise(() => {}));
+    const onSignOut = vi.fn().mockResolvedValue(undefined);
+
+    render(<VaultFlow user={user} onSuccess={vi.fn()} onSignOut={onSignOut} />);
+
+    expect(await screen.findByText(/Prompting passkey/i)).toBeTruthy();
+    const signOutEscape = screen.getByRole("button", {
+      name: /can't get in\? sign out/i,
+    }) as HTMLButtonElement;
+    expect(signOutEscape.disabled).toBe(false);
+
+    fireEvent.click(signOutEscape);
+
+    expect(await screen.findByText("Sign out of this app?")).toBeTruthy();
+    const signOutButtons = screen.getAllByRole("button", { name: "Sign out" });
+    const confirmSignOut = signOutButtons[signOutButtons.length - 1];
+    fireEvent.pointerUp(confirmSignOut);
+    fireEvent.click(confirmSignOut);
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 });

@@ -25,7 +25,7 @@ type VaultUnlockDialogProps = {
    * user who forgot their vault password would otherwise be trapped. Omitted by
    * the dismissible top-bar unlock (the user can just close that sheet).
    */
-  onSignOut?: () => void;
+  onSignOut?: () => void | Promise<void>;
 };
 
 export function VaultUnlockDialog({
