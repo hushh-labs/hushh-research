@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
@@ -368,6 +368,31 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     expect(await screen.findByText("Unlock vault to review")).toBeTruthy();
     expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+  });
+
+  it("clears the search query when switching tabs instead of carrying it over", async () => {
+    // Bug: switching tabs reset page/requestId/bundleId but left `q` in the
+    // URL and in local searchValue state. Searching "macy" on Requests, then
+    // clicking Active Access, silently kept filtering Active Access by
+    // "macy" too - the list looked wrong/empty with no visible cause.
+    mocks.search = "tab=pending&q=macy";
+    mocks.listEntries.mockResolvedValue(emptyListResponse());
+
+    render(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.listEntries).toHaveBeenCalled());
+
+    const activeTabButton = screen.getByRole("button", { name: /Active Access/i });
+    await act(async () => {
+      fireEvent.click(activeTabButton);
+    });
+
+    await waitFor(() => {
+      const lastCall = mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
+      expect(lastCall?.[0]).toContain("tab=active");
+    });
+    const [calledPath] = mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
+    expect(calledPath).not.toContain("q=macy");
+    expect(calledPath).not.toContain("q=");
   });
 
   it("keeps stale actor=ria links on the One lane unless the URL is the advisor outgoing route", async () => {

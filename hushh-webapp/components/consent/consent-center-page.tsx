@@ -2112,9 +2112,22 @@ export function ConsentCenterPage() {
           <section className="space-y-4" data-testid="consent-manager-primary">
             <SettingsSegmentedTabs
               value={tab}
-              onValueChange={(value) =>
-                setParam({ tab: value, page: "1", requestId: null, bundleId: null })
-              }
+              onValueChange={(value) => {
+                // Each tab has its own search placeholder ("Search requests
+                // by...", "Search connections by...") implying independent
+                // scope, but the query string carried over silently: search
+                // "macy" on Requests, click Active Access, and the list
+                // stays filtered by "macy" with no visible reason why it
+                // looks empty. Clear the search on every tab switch.
+                setSearchValue("");
+                setParam({
+                  tab: value,
+                  page: "1",
+                  requestId: null,
+                  bundleId: null,
+                  q: null,
+                });
+              }}
               options={[
                 {
                   value: "requests",
