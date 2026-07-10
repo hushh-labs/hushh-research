@@ -154,3 +154,23 @@ def test_cancel_rejected_when_not_requester():
         with pytest.raises(ConnectionsError) as exc:
             svc.cancel_request("user-b", "req-1")
     assert exc.value.status_code == 403
+
+
+def test_reject_rejected_when_not_addressee():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ]
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        with pytest.raises(ConnectionsError) as exc:
+            svc.reject_request("user-c", "req-1")
+    assert exc.value.status_code == 403

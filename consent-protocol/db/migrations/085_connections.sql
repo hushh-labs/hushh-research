@@ -61,4 +61,11 @@ COMMENT ON TABLE connection_requests IS
 COMMENT ON TABLE connections IS
   'Accepted mutual connections, canonicalized user_a_id < user_b_id.';
 
+-- Allow accepted connections to mirror trusted_connections edges (source='connection').
+ALTER TABLE trusted_connections
+  DROP CONSTRAINT IF EXISTS trusted_connections_source_check;
+ALTER TABLE trusted_connections
+  ADD CONSTRAINT trusted_connections_source_check
+  CHECK (source IN ('agent_one', 'seed', 'import', 'circle_invite', 'connection'));
+
 COMMIT;
