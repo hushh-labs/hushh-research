@@ -27,10 +27,7 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  # TEMPORARY: deterministic Cloud Run URL until dev.kai.hushh.ai DNS exists.
-  # Flip to https://dev.kai.hushh.ai once the domain mapping + DNS record land,
-  # then redeploy (secret sync propagates origin/CORS automatically).
-  APP_FRONTEND_ORIGIN: https://hushh-webapp-621416509462.us-central1.run.app
+  APP_FRONTEND_ORIGIN: https://dev.kai.hushh.ai
   DEV_CLOUDSQL_INSTANCE: hushh-pda-dev:us-central1:hushh-dev-pg
   DEV_DB_UNIX_SOCKET: /cloudsql/hushh-pda-dev:us-central1:hushh-dev-pg
   # One Email KYC runs in dev via topic fanout: dev consumes the SAME UAT
