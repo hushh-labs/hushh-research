@@ -247,6 +247,51 @@ def check_runtime_sa_iam(dev: str, uat: str, dev_number: str | None) -> None:
             record(f"iam-{kind}-sa", "pass", f"role set covers UAT parity ({len(dev_roles)} roles)")
 
 
+RUNTIME_SPEC_FIELDS = (
+    ("min instances", ("spec", "template", "metadata", "annotations", "autoscaling.knative.dev/minScale")),
+    ("max instances", ("spec", "template", "metadata", "annotations", "autoscaling.knative.dev/maxScale")),
+    ("memory", ("spec", "template", "spec", "containers", 0, "resources", "limits", "memory")),
+    ("cpu", ("spec", "template", "spec", "containers", 0, "resources", "limits", "cpu")),
+    ("timeout", ("spec", "template", "spec", "timeoutSeconds")),
+    ("concurrency", ("spec", "template", "spec", "containerConcurrency")),
+    ("session affinity", ("spec", "template", "metadata", "annotations", "run.googleapis.com/sessionAffinity")),
+)
+
+
+def _dig(obj: Any, path: tuple) -> Any:
+    for key in path:
+        try:
+            obj = obj[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return obj
+
+
+def check_runtime_spec_parity(dev: str, uat: str, region: str) -> None:
+    for service in (BACKEND_SERVICE, FRONTEND_SERVICE):
+        dev_info = gcloud_json(["run", "services", "describe", service,
+                                f"--project={dev}", f"--region={region}"])
+        uat_info = gcloud_json(["run", "services", "describe", service,
+                                f"--project={uat}", f"--region={region}"])
+        if not dev_info or not uat_info:
+            continue  # deployment presence handled by check_cloud_run
+        drift = []
+        for label, path in RUNTIME_SPEC_FIELDS:
+            dev_val, uat_val = _dig(dev_info, path), _dig(uat_info, path)
+            if str(dev_val) != str(uat_val):
+                drift.append(f"{label}: dev={dev_val} uat={uat_val}")
+        min_scale = _dig(dev_info, RUNTIME_SPEC_FIELDS[0][1])
+        if str(min_scale) != "1":
+            drift.append(f"min instances must be 1 to avoid cold boots (found {min_scale})")
+        if drift:
+            record(f"runtime-spec:{service}", "fail", "; ".join(drift),
+                   f"gcloud run services update {service} --project={dev} --region={region} "
+                   "--min-instances=1 <plus the drifted flags>")
+        else:
+            record(f"runtime-spec:{service}", "pass",
+                   "matches UAT (min=1 warm, max/memory/cpu/timeout/concurrency/affinity)")
+
+
 def check_cloud_run(dev: str, region: str) -> dict[str, str]:
     urls: dict[str, str] = {}
     for service in (BACKEND_SERVICE, FRONTEND_SERVICE):
@@ -366,6 +411,7 @@ def main() -> int:
     check_sql(args.dev_project, args.uat_project)
     check_runtime_sa_iam(args.dev_project, args.uat_project, dev_number)
     urls = check_cloud_run(args.dev_project, args.region)
+    check_runtime_spec_parity(args.dev_project, args.uat_project, args.region)
     check_health(urls)
     check_pubsub_fanout(dev_number)
     check_domain_mapping(args.dev_project, args.region)
