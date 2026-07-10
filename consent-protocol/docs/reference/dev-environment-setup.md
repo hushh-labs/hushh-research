@@ -34,12 +34,19 @@ labels and provenance verification.
 
 ## Intentional divergences from UAT
 
-1. **One Email KYC intake is disabled in dev.** `one@hushh.ai` is a single real
-   Workspace mailbox; per [env-and-secrets.md](../../../docs/reference/operations/env-and-secrets.md),
-   two environments must not independently renew Gmail watches for the same mailbox.
-   The dev deploy omits all `ONE_EMAIL_*` wiring and the parity gate runs without
-   `--require-one-email`. If dev ever needs email intake, it needs its own mailbox and
-   Pub/Sub topic first.
+1. **One Email KYC runs in dev through topic fanout (founder-approved 2026-07).**
+   `one@hushh.ai` is a single real Workspace mailbox, and two environments must never
+   independently renew Gmail watches for it. The approved pattern:
+   - **One watch, owned by UAT.** The existing UAT scheduler remains the only caller of
+     `POST /api/one/email/watch/renew`. Never point a scheduler at the dev renewal
+     endpoint.
+   - **One topic, two subscriptions.** The watch keeps publishing to
+     `projects/hushh-pda/topics/one-email-kyc-uat`; dev gets its own push subscription
+     on that topic targeting the dev backend webhook (setup in Phase 6b below).
+   - **Caveat:** both environments see every inbound email, so the same message can
+     open a pending KYC workflow in UAT and dev. Sends stay user-approval-gated per
+     environment, but approvers should expect duplicates and treat dev as the testing
+     lane.
 2. Everything else (voice, Plaid, market data, Gmail receipts OAuth, Maps, reviewer
    smoke, phone test numbers) replicates UAT, using secret values copied into the dev
    project.
@@ -141,8 +148,8 @@ python3 scripts/ops/verify-env-secrets-parity.py \
   --region us-central1 \
   --backend-service consent-protocol \
   --frontend-service hushh-webapp \
-  --require-plaid --require-market-data --require-gmail --require-voice \
-  --require-reviewer-smoke
+  --require-plaid --require-market-data --require-gmail --require-one-email \
+  --require-voice --require-reviewer-smoke
 ```
 
 ## Phase 4 — Deploy service account + GitHub wiring
@@ -200,12 +207,38 @@ domain lands.
    `hushh-pda-dev` to the backend Cloud Run URL so frontend builds and contributor
    profile bootstrap resolve it.
 
+### Phase 6b — One Email fanout subscription (after first backend deploy)
+
+With the dev backend Cloud Run URL in hand:
+
+1. Update `DEV_ONE_EMAIL_WEBHOOK_AUDIENCE` in `.github/workflows/deploy-dev.yml` to
+   `https://<dev-backend-run-url>/api/one/email/webhook` and redeploy the backend so
+   the runtime audience matches.
+2. Create the dev push subscription on the shared UAT topic (topic lives in the
+   `hushh-pda` project):
+
+```bash
+gcloud pubsub subscriptions create one-email-kyc-dev-push \
+  --project=hushh-pda \
+  --topic=one-email-kyc-uat \
+  --push-endpoint="https://<dev-backend-run-url>/api/one/email/webhook" \
+  --push-auth-service-account=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com \
+  --push-auth-token-audience="https://<dev-backend-run-url>/api/one/email/webhook"
+```
+
+3. KYC retention purge for dev: schedule
+   `POST /api/one/kyc/retention/purge?older_than_days=30` with
+   `X-Hushh-Maintenance-Token: $ONE_EMAIL_WATCH_RENEW_TOKEN`
+   (`deploy/one-email/setup_kyc_retention_scheduler.sh` shows the UAT shape).
+
 Ongoing schedulers to replicate (after first deploy):
 
 - One Location retention purge: `POST /api/one/location/retention/purge?older_than_hours=12`
   with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN` (Cloud Scheduler,
   same cadence as UAT).
-- Do NOT schedule One Email watch renewal in dev (see divergences above).
+- One KYC retention purge (Phase 6b above).
+- Do NOT schedule One Email watch renewal in dev — watch ownership stays with UAT
+  (see divergences above).
 
 ## Contributor usage once dev is live
 
