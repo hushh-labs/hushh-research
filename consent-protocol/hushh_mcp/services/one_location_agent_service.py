@@ -2556,6 +2556,22 @@ class OneLocationAgentService:
                 status_code=403,
             )
 
+    def _is_active_connection(self, *, owner_user_id: str, other_user_id: str) -> bool:
+        row = self._execute_one(
+            """
+            SELECT 1
+            FROM connections
+            WHERE status = 'active'
+              AND (
+                (user_a_id = :a AND user_b_id = :b)
+                OR (user_a_id = :b AND user_b_id = :a)
+              )
+            LIMIT 1
+            """,
+            {"a": owner_user_id, "b": other_user_id},
+        )
+        return row is not None
+
     def create_grant(
         self,
         *,
@@ -2565,12 +2581,21 @@ class OneLocationAgentService:
         duration_hours: float,
         reason: str | None = None,
         require_recipient_phone_verified: bool = True,
+        enforce_connection: bool = False,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_SELF",
                 "Choose a different verified recipient.",
                 status_code=422,
+            )
+        if enforce_connection and not self._is_active_connection(
+            owner_user_id=owner_user_id, other_user_id=recipient_user_id
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                "You can only share your live location with your connections.",
+                status_code=403,
             )
         try:
             duration = normalize_duration_hours(duration_hours)

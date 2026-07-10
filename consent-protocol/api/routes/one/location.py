@@ -422,6 +422,7 @@ async def create_location_grant(
                 recipient_key_id=payload.recipient_key_id,
                 duration_hours=payload.duration_hours,
                 reason=payload.reason,
+                enforce_connection=True,
             )
         }
     except Exception as exc:

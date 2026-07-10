@@ -528,6 +528,16 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "SELECT 1" in sql and "FROM connections" in sql and "status = 'active'" in sql:
+            a = params.get("a")
+            b = params.get("b")
+            for conn in self.connections.values():
+                if conn.get("status") != "active":
+                    continue
+                pair = {conn["user_a_id"], conn["user_b_id"]}
+                if pair == {a, b}:
+                    return {"exists": 1}
+            return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
             hours = float(params.get("hours") or 12)
             user_id = params.get("user_id")
@@ -2271,3 +2281,60 @@ def test_register_recipient_key_propagates_unrelated_db_error() -> None:
             key_id="recipient-key-id-1234",
         )
     assert service.ensure_column_calls == 0
+
+
+def test_create_grant_enforce_connection_rejects_non_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert err.value.status_code == 403
+
+
+def test_create_grant_enforce_connection_allows_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+    )
+    assert grant["recipientUserId"] == "user_b"
+
+
+def test_create_grant_without_enforce_allows_non_connection() -> None:
+    # The request-approval / public-invite path must keep working.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    assert grant["recipientUserId"] == "user_b"
