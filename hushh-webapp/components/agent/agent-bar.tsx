@@ -20,7 +20,7 @@ import React, {
   type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, X } from "lucide-react";
+import { AudioLines, MessageSquare, X } from "lucide-react";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
@@ -543,24 +543,48 @@ export function AgentBar() {
   //
   // The agent bar rides most surfaces, degrading gracefully by auth/vault level
   // (locked-vault users get an in-place unlock prompt; unlocked users get the
-  // full agent). EXCEPTION — the LOGGED-OUT welcome ("/"): an agent input has no
-  // meaning before sign-in and read as a confusing "backdoor" pinned under the
-  // CTA, so we unmount it there (signed-in users are redirected off "/", so the
-  // bar still shows on /one and every authed surface). We also unmount where an
-  // agent launcher genuinely must not exist (legacy dedicated agent route, phone
-  // mandate, appearance lab, developers) or on transient auth transitions
-  // (login, logout) where the app shell is not the host.
+  // full agent). We also unmount where an agent launcher genuinely must not
+  // exist (legacy dedicated agent route, phone mandate, appearance lab,
+  // developers) or on transient auth transitions (login, logout) where the
+  // app shell is not the host.
   const path = pathname ?? "";
   // The waveform action circle is white only on the 2c dark dashboard (where a
   // white circle pops); on every other surface (welcome, profile, kai, …) it is
   // the indigo accent, per design.md §5.5.
   const onDashboard = path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
+  // The logged-out welcome ("/") now hosts the dogfooding onboarding voice
+  // greeter instead of unmounting the bar outright: it doubles as the
+  // pre-auth conversation starter and stays route-aware for whatever the
+  // signed-out flow visits next.
+  const onboardingGreeterMode = isHomeRoute && runtime?.tier === "anon_onboarding";
+
+  // Signed-out dogfooding: greet the person the moment the onboarding welcome
+  // ("/") loads, instead of waiting for a tap. This reuses the exact same
+  // startConversation() path as the manual mic button - same relay ticket,
+  // same ADK live session, same server-composed proactive greeting already
+  // documented in docs/reference/one/one-voice-runtime-architecture.md - so
+  // there is no new greeting mechanism, just an earlier call site. Guarded to
+  // fire once per mount and only for the anon_onboarding welcome tier. Must
+  // run before the unmountBar early return below (hooks cannot follow a
+  // conditional return).
+  const autoGreetedRef = useRef(false);
+  useEffect(() => {
+    if (!onboardingGreeterMode) {
+      autoGreetedRef.current = false;
+      return;
+    }
+    if (autoGreetedRef.current) return;
+    if (conversationActive || liveClientRef.current || erroredRef.current) return;
+    autoGreetedRef.current = true;
+    startConversation();
+    // Intentionally excludes startConversation/conversationActive from deps:
+    // this must fire exactly once per onboarding mount, not re-run whenever
+    // those identities change (they change on every voice status transition).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingGreeterMode]);
+
   const unmountBar =
     !agentPopover ||
-    // Logged-out welcome ("/"): no agent before sign-in. On "/" an anonymous
-    // user is always the `anon_onboarding` tier; signed-in users are redirected
-    // off "/", so the bar still shows on /one and every authed surface.
-    (isHomeRoute && runtime?.tier === "anon_onboarding") ||
     // The One setup surface is a focused onboarding flow (like Apple's "Finish
     // Setting Up" in Settings): a centered translucent agent launcher reads
     // over the wide grouped-list rows on scroll (they show through it / beside
@@ -703,6 +727,52 @@ export function AgentBar() {
               )}
             >
               <X className="h-4 w-4" />
+            </button>
+          </>
+        ) : onboardingGreeterMode ? (
+          // Signed-out welcome ("/"): the bar itself IS the conversation
+          // starter (not a text hint that opens chat). Left = mic icon
+          // marker, whole body is the tap target, right = chat toggle that
+          // stays visually present but disabled - chat needs a signed-in,
+          // vault-capable session, which does not exist pre-auth.
+          <>
+            <button
+              type="button"
+              data-native-voice-control-id="one_voice_agent_bar_start"
+              data-testid="one-voice-agent-bar-start-icon"
+              onClick={handleVoiceStartClick}
+              aria-label="Start conversation with One"
+              title="Start conversation"
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2.5 rounded-full pl-1 text-left",
+                "transition-colors duration-200 active:scale-[0.99]",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                  "bg-black/[0.05] text-accent-strong ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
+                )}
+              >
+                <AudioLines className="h-[16px] w-[16px]" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-muted-foreground">
+                Talk to One
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              aria-label="Chat is available after you sign in"
+              title="Chat is available after you sign in"
+              className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                "bg-black/[0.05] text-muted-foreground/50 ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
+                "cursor-not-allowed opacity-60",
+              )}
+            >
+              <MessageSquare className="h-[18px] w-[18px]" />
             </button>
           </>
         ) : (
