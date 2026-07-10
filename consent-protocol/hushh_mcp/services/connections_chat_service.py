@@ -150,7 +150,14 @@ class ConnectionsChatService:
             client_prompt=prompt,
         )
 
-    def _complete_selection(
+    _SUCCESS_TEXT = {
+        "send_request": "Sent a connection request to {label}.",
+        "accept": "You're now connected with {label}.",
+        "reject": "Declined the request from {label}.",
+        "remove": "Removed {label} from your connections.",
+    }
+
+    def _complete_action(
         self, user_id: str, selection_result: dict[str, Any], conv: str
     ) -> dict[str, Any]:
         if str(selection_result.get("status")) == "cancelled":
@@ -158,24 +165,51 @@ class ConnectionsChatService:
 
         selected = selection_result.get("selected") or []
         chosen = selected[0] if selected and isinstance(selected[0], dict) else {}
-        trusted_user_id = str(chosen.get("trustedUserId") or "")
-        op = str(chosen.get("op") or "add")
+        op = str(chosen.get("op") or "")
         label = str(chosen.get("label") or selection_result.get("display") or "them")
 
-        if not trusted_user_id:
-            return self._reply(
-                "I didn't catch who you picked -- try again?", conv, state_changed=False
-            )
-
-        if op == "remove":
-            return self._reply(
-                "You can manage connections from the Connect page now.", conv, state_changed=False
-            )
         try:
-            self._service.create_request(user_id, addressee_user_id=trusted_user_id)
+            if op == "send_request":
+                addressee = str(chosen.get("addresseeUserId") or "")
+                if not addressee:
+                    return self._reply(
+                        "I didn't catch who to connect with — try again?", conv, state_changed=False
+                    )
+                self._service.create_request(user_id, addressee_user_id=addressee)
+            elif op == "accept":
+                rid = str(chosen.get("requestId") or "")
+                if not rid:
+                    return self._reply(
+                        "I didn't catch which request — try again?", conv, state_changed=False
+                    )
+                self._service.accept_request(user_id, rid)
+            elif op == "reject":
+                rid = str(chosen.get("requestId") or "")
+                if not rid:
+                    return self._reply(
+                        "I didn't catch which request — try again?", conv, state_changed=False
+                    )
+                self._service.reject_request(user_id, rid)
+            elif op == "remove":
+                cid = str(chosen.get("connectionId") or "")
+                if not cid:
+                    return self._reply(
+                        "I didn't catch which connection — try again?", conv, state_changed=False
+                    )
+                self._service.remove_connection(user_id, cid)
+            else:
+                return self._reply(
+                    "I didn't catch what to do — try again?", conv, state_changed=False
+                )
         except ConnectionsError as exc:
             return self._reply(exc.message, conv, state_changed=False)
-        return self._reply(f"Sent a connection request to {label}.", conv, state_changed=True)
+
+        return self._reply(self._SUCCESS_TEXT[op].format(label=label), conv, state_changed=True)
+
+    def _complete_selection(
+        self, user_id: str, selection_result: dict[str, Any], conv: str
+    ) -> dict[str, Any]:
+        return self._complete_action(user_id, selection_result, conv)
 
     @staticmethod
     def _reply(
