@@ -255,6 +255,23 @@ async def test_propose_accept_emits_confirm_prompt():
     assert ref == {"op": "accept", "requestId": "r1", "label": "Sam Lee"}
 
 
+async def test_propose_reject_emits_confirm_prompt():
+    fake = MagicMock()
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("propose_reject_request", {"request_id": "r5", "label": "Bob Smith"}),
+            _text_response("Decline Bob Smith?"),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="decline Bob's request", consent_token=_TOKEN)
+    fake.reject_request.assert_not_called()  # confirm-before-write
+    assert out["isComplete"] is False
+    ref = out["clientPrompt"]["options"][0]["ref"]
+    assert ref == {"op": "reject", "requestId": "r5", "label": "Bob Smith"}
+
+
 async def test_confirm_roundtrip_executes_send(monkeypatch):
     # The prompt from turn 1 round-trips as a selection_result → _complete_action writes.
     fake = MagicMock()

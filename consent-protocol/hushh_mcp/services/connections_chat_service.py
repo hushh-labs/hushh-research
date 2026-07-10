@@ -33,10 +33,10 @@ _LLM_TIMEOUT_S = 30.0
 _HISTORY_CHARS = 2000
 _UNAVAILABLE_MESSAGE = "The connections assistant is temporarily unavailable. Please try again."
 _GAVE_UP_MESSAGE = "I couldn't finish that — please try rephrasing."
-_QUERY_TOOL_NAMES = {"list_my_connections", "list_pending_requests", "find_people"}
 
 ModelCall = Callable[[Any, Any], Awaitable[Any]]
 
+# Authoritative system prompt for this specialist. agents/connections/agent.yaml carries a declarative copy (not loaded in v1); keep them in sync.
 _SYSTEM_PROMPT = (
     "You are the user's Connections assistant inside hushh One. You manage the "
     "account holder's two-way connection graph. Tools: `list_my_connections` "
