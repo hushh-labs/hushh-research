@@ -23,6 +23,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvite } from "@/lib/one-location/types";
 import { ApiError } from "@/lib/services/api-client";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 function formatDateTime(value?: string | null): string {
@@ -168,11 +169,26 @@ export default function OneLocationCircleInvitePageClient() {
         vaultOwnerToken,
         vaultKey,
       });
-      await OneLocationService.claimCircleInvite({
+      const claimResult = await OneLocationService.claimCircleInvite({
         vaultOwnerToken,
         inviteToken,
         message: "Joined from an Invite to One link.",
       });
+      // Best-effort: materialize a connection so the inviter and claimant become
+      // One Location recipients of each other. Backend endpoint is dormant and
+      // only runs because of this call — remove this block to disable the link.
+      const peerUserId = claimResult?.connection?.inviterUserId;
+      if (peerUserId && auth.user) {
+        try {
+          const idToken = await auth.user.getIdToken();
+          await ConnectionsService.linkCircleInvite({ idToken, peerUserId });
+        } catch (linkError) {
+          console.warn(
+            "[OneLocationInvite] Failed to link circle invite into a connection:",
+            linkError,
+          );
+        }
+      }
       setClaimed(true);
       toast.success("You're connected on One.");
       router.push("/one/location?section=circle");
