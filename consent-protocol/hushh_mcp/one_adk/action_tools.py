@@ -149,7 +149,20 @@ async def run_app_action(
         "kind": "action",
         "payload": directive_payload,
     }
-    return {"status": "ok", "message": f"Running {label}.", "action_id": clean_id}
+    return {
+        "status": "ok",
+        "message": f"Running {label}.",
+        "action_id": clean_id,
+        # Proactive-prompting: like open_screen, this text is the tool
+        # RESULT the model reads on its next turn - there is no separate
+        # server-injected system turn after a tool call. Nudging here means
+        # One offers a next step after every governed action it runs, not
+        # only after an onboarding screen change.
+        "next_step": (
+            f"After {label} completes, briefly confirm what happened and, if "
+            "there's an obvious next step, offer it before waiting to be asked."
+        ),
+    }
 
 
 async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:

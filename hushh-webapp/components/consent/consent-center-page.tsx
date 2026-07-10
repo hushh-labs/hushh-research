@@ -1174,8 +1174,13 @@ function ConsentEntryDetail({
         </SettingsGroup>
       ) : null}
 
-      {/* Consent handshake timeline (Issue #122) */}
+      {/* Consent handshake timeline (Issue #122). Active Access entries cover
+          a single live grant, so the full historical trail (grants, denials,
+          revocations across time) belongs on the History tab, not here -
+          showing it in Active Access read as a duplicate/unrelated "history
+          trail" attached to a currently active item. */}
       {!hasGroupedHistory &&
+      entry.kind !== "active_grant" &&
       entry.counterpart_id &&
       entry.counterpart_type !== "self" ? (
         <SettingsGroup
@@ -1673,6 +1678,22 @@ export function ConsentCenterPage() {
       const detail =
         (event as CustomEvent<Partial<ConsentMutationDetail>>).detail || {};
       applyConfirmedConsentMutation(detail);
+      // CONSENT_STATE_CHANGED_EVENT is also dispatched for non-mutation
+      // bookkeeping (e.g. "fcm_opened" when a request is merely opened/
+      // acknowledged, "queued_pending"/"cached_pending"/"hydrated_pending"
+      // on vault unlock). Those carry no `action`, but selecting any pending
+      // or active row calls acknowledgePendingConsent() -> POST /pending/
+      // opened -> the backend inserts a NOTIFICATION_OPENED audit event,
+      // which echoes back over this same user's SSE/FCM channel as an
+      // "fcm_opened" state-changed event. Forcing a full list+summary
+      // refresh on that self-echo made every row click on Requests/Active
+      // (both surfaces list still-pending/live rows) visibly re-render with
+      // a "Refreshing..." flash. History rows are already resolved
+      // (status != REQUESTED) so the backend never inserts that event and
+      // never echoes back, which is why History never flickered. Only force
+      // a refresh for detail.action-bearing events (approve/deny/revoke/
+      // cancel), which are real state mutations.
+      if (!detail.action) return;
       setMutationTick((value) => value + 1);
     };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, handleAction);

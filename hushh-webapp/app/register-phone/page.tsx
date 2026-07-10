@@ -25,6 +25,7 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function requiresVaultUnlockForRedirect(path?: string | null): boolean {
   const normalizedPath = String(path ?? "").trim();
@@ -119,6 +120,24 @@ function PhoneMandatePageContent() {
     }
     void continueToNextRoute(user);
   }, [continueToNextRoute, shouldBypassLocalPhoneMandate, user]);
+
+  usePublishVoiceSurfaceMetadata(
+    !loading && user && !shouldBypassLocalPhoneMandate
+      ? {
+          screenId: "phone_mandate",
+          title: "Verify your phone",
+          purpose:
+            "Adding a phone number keeps your account recoverable and secure before setup continues.",
+          actions: [
+            {
+              id: "phone_mandate.submit_number",
+              label: "Submit phone number",
+              purpose: "Send a verification code to the phone number you say.",
+            },
+          ],
+        }
+      : null
+  );
 
   if (loading || !user) {
     return <HushhLoader label="Loading phone verification..." variant="fullscreen" />;

@@ -56,6 +56,15 @@ function projectExecutionHint(action: InvestorKaiActionDefinition) {
     };
   }
 
+  if (binding.kind === "local_handler") {
+    return {
+      status: "wired" as const,
+      path: "local_handler" as const,
+      target: binding.actionId,
+      ...(binding.params ? { params: binding.params } : {}),
+    };
+  }
+
   return {
     status: "wired" as const,
     path: "route" as const,
