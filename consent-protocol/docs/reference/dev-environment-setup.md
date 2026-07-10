@@ -1,8 +1,10 @@
 # Dev Environment Setup (UAT Replica)
 
 > Operator runbook for standing up and operating the hosted `dev` environment: a full
-> infrastructure replica of the UAT GCP project, deployed from green `main` SHAs through
-> `.github/workflows/deploy-dev.yml` — the same pipeline shape as UAT.
+> infrastructure replica of the UAT GCP project, deployed through
+> `.github/workflows/deploy-dev.yml` under the
+> [dev fast lane](../../../docs/reference/operations/dev-fast-lane.md): CI-green SHAs
+> from `integration/pr-train` (default) or any governed ref — never gated on `main`.
 
 ## Visual Context
 
@@ -144,9 +146,10 @@ Seed the schema, choosing one of:
   dev DB (the deploy workflow does this anyway) and recreate the reviewer smoke
   fixture manually.
 
-The schema contract for dev is the UAT contract by definition:
-`consent-protocol/db/contracts/uat_integrated_schema.json` (dev replicates UAT; do not
-fork a dev contract file unless dev is allowed to drift, which it is not).
+The schema contract for dev is `consent-protocol/db/contracts/dev_minimum_schema.json`:
+the UAT integrated schema as a **minimum floor** (`migration_version_policy: minimum`).
+Dev may run AHEAD of UAT (train migrations land in dev first under the
+[dev fast lane](../../../docs/reference/operations/dev-fast-lane.md)) but never behind it.
 
 ## Phase 3 — Secret Manager population
 
