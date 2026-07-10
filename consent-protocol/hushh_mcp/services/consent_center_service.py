@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -1416,6 +1417,31 @@ class ConsentCenterService:
             ],
         }
 
+    async def _incoming_connection_request_count(self, user_id: str) -> int:
+        rows = await run_in_threadpool(
+            ConnectionsService().list_requests, user_id, direction="incoming"
+        )
+        return len(rows or [])
+
+    async def _incoming_connection_request_entries(self, user_id: str) -> list[dict]:
+        rows = await run_in_threadpool(
+            ConnectionsService().list_requests, user_id, direction="incoming"
+        )
+        return [
+            {
+                "id": r.get("id"),
+                "request_id": r.get("id"),
+                "kind": "connection_request",
+                "status": "pending",
+                "action": "connection_request",
+                "counterpart_type": "self",
+                "counterpart_id": r.get("counterpartUserId"),
+                "counterpart_label": r.get("counterpartDisplayName") or "Someone",
+                "reason": r.get("message") or "wants to connect with you",
+            }
+            for r in (rows or [])
+        ]
+
     async def _get_surface_count(
         self,
         user_id: str,
@@ -1468,6 +1494,7 @@ class ConsentCenterService:
                 else:
                     location_count += len(marketplace_buckets["history"])
             if surface == "pending":
+                connection_count = await self._incoming_connection_request_count(user_id)
                 return (
                     len(
                         self._collapse_consent_chains(
@@ -1479,6 +1506,7 @@ class ConsentCenterService:
                         )
                     )
                     + location_count
+                    + connection_count
                 )
             if surface == "active":
                 return (
@@ -1871,6 +1899,9 @@ class ConsentCenterService:
                     entries = [*entries, *marketplace_buckets["active_grants"]]
                 else:
                     entries = [*entries, *marketplace_buckets["history"]]
+            if normalized_mode == "consents" and normalized_surface == "pending":
+                connection_entries = await self._incoming_connection_request_entries(user_id)
+                entries = [*entries, *connection_entries]
             paged = self._paginate_entries(
                 entries,
                 page=safe_page,
