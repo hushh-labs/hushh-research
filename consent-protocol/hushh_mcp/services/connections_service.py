@@ -146,6 +146,121 @@ class ConnectionsService:
             "message": message,
         }
 
+    # ---- Helpers ----
+    @staticmethod
+    def _canonical_pair(x: str, y: str) -> tuple[str, str]:
+        return (x, y) if x < y else (y, x)
+
+    def _load_request(self, request_id: str) -> dict[str, Any]:
+        row = self._execute_one(
+            """
+            SELECT id, requester_user_id, addressee_user_id, status
+            FROM connection_requests
+            WHERE id = :id
+            LIMIT 1
+            """,
+            {"id": (request_id or "").strip()},
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_REQUEST_NOT_FOUND", "Request not found.", status_code=404
+            )
+        return row
+
+    def _mirror_trusted_edge(self, owner: str, trusted: str) -> None:
+        self._execute_one(
+            """
+            INSERT INTO trusted_connections (
+              owner_user_id, trusted_user_id, status, source, created_at, updated_at
+            )
+            VALUES (:owner, :trusted, 'active', 'connection', NOW(), NOW())
+            ON CONFLICT (owner_user_id, trusted_user_id) DO UPDATE SET
+              status = 'active', revoked_at = NULL, updated_at = NOW(), source = 'connection'
+            RETURNING id
+            """,
+            {"owner": owner, "trusted": trusted},
+        )
+
+    def accept_request(self, user_id: str, request_id: str) -> dict[str, Any]:
+        user_id = (user_id or "").strip()
+        req = self._load_request(request_id)
+        if str(req.get("addressee_user_id")) != user_id:
+            raise ConnectionsError(
+                "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
+            )
+        if str(req.get("status")) == "accepted":
+            return {"status": "accepted", "requestId": req.get("id"), "connectionId": None}
+        if str(req.get("status")) != "pending":
+            raise ConnectionsError(
+                "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
+            )
+
+        requester = str(req.get("requester_user_id"))
+        user_a, user_b = self._canonical_pair(requester, user_id)
+        conn = self._execute_one(
+            """
+            INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
+            VALUES (:a, :b, 'active', 'request', NOW(), NOW())
+            ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+              status = 'active', revoked_at = NULL, updated_at = NOW()
+            RETURNING id
+            """,
+            {"a": user_a, "b": user_b},
+        )
+        # Mirror both directional trusted edges so location/SOS readers keep working.
+        self._mirror_trusted_edge(requester, user_id)
+        self._mirror_trusted_edge(user_id, requester)
+        self._execute_one(
+            """
+            UPDATE connection_requests
+            SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
+            WHERE id = :id
+            RETURNING id
+            """,
+            {"id": req.get("id")},
+        )
+        return {
+            "status": "accepted",
+            "requestId": req.get("id"),
+            "connectionId": (conn or {}).get("id"),
+        }
+
+    def reject_request(self, user_id: str, request_id: str) -> dict[str, Any]:
+        user_id = (user_id or "").strip()
+        req = self._load_request(request_id)
+        if str(req.get("addressee_user_id")) != user_id:
+            raise ConnectionsError(
+                "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
+            )
+        self._execute_one(
+            """
+            UPDATE connection_requests
+            SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
+            WHERE id = :id AND status = 'pending'
+            RETURNING id
+            """,
+            {"id": req.get("id")},
+        )
+        return {"status": "rejected", "requestId": req.get("id")}
+
+    def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
+        user_id = (user_id or "").strip()
+        req = self._load_request(request_id)
+        if str(req.get("requester_user_id")) != user_id:
+            raise ConnectionsError(
+                "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
+            )
+        self._execute_one(
+            """
+            UPDATE connection_requests
+            SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
+            WHERE id = :id AND status = 'pending'
+            RETURNING id
+            """,
+            {"id": req.get("id")},
+        )
+        return {"status": "cancelled", "requestId": req.get("id")}
+
     # ---- Reads ----
     def list_requests(self, user_id: str, *, direction: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
