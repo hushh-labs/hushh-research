@@ -6,8 +6,8 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](README.md). Companion contracts:
-[branch-governance.md](branch-governance.md) (lanes),
+Canonical visual owner: [Operations Index](./README.md). Companion contracts:
+[branch-governance.md](./branch-governance.md) (lanes),
 [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md)
 (environment).
 
