@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { OnboardingCapabilityStep } from "@/components/onboarding/setup/onboarding-capability-step";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { getOneCapability } from "@/lib/onboarding/one-capabilities";
@@ -96,16 +97,7 @@ export function OneOnboardingCapabilityClient({
     }
   }, [capability, router]);
 
-  if (!capability) {
-    return <HushhLoader label="Opening…" />;
-  }
-
-  const handleBack = () => {
-    router.replace(ROUTES.ONE_SETUP);
-  };
-
-  const handlePrimary = () => {
-    if (busy) return;
+  const runPrimary = async () => {
     const userId = user?.uid ?? null;
 
     // Auth/lock guards own the unauthenticated path; if we somehow have no user,
@@ -117,40 +109,65 @@ export function OneOnboardingCapabilityClient({
 
     setBusy(true);
 
-    void (async () => {
-      try {
-        // Mark this visit as "seen" so the hub no longer treats it as a fresh,
-        // never-opened tile, and record the explore signal for explore-only
-        // capabilities.
-        OneSetupGateService.markSeen(userId);
+    try {
+      // Mark this visit as "seen" so the hub no longer treats it as a fresh,
+      // never-opened tile, and record the explore signal for explore-only
+      // capabilities.
+      OneSetupGateService.markSeen(userId);
 
-        if (capability?.isExploreOnly === true) {
-          await CapabilityTourService.markExplored(userId, capabilityId).catch(
-            () => undefined,
-          );
-          const explored = await CapabilityTourService.loadExploredIds(userId);
-          void PreVaultUserStateService.syncSetupCapabilities(userId, [
-            ...explored,
-          ]).catch(() => undefined);
-        }
-
-        // NOTE: we intentionally do NOT resolve the account-wide master setup
-        // gate here. Forwarding into a hard-gated `/one/*` surface is handled by
-        // the `?from=setup` marker on `target` (which `OneOnboardingGuard`
-        // allows through) — see the component doc comment. Marking
-        // `setupCompleted = true` on capability entry was the cause of the
-        // dashboard "Finish setup" bar clearing prematurely.
-      } catch (resolveError) {
-        console.warn(
-          "[OneOnboardingCapabilityClient] Failed to record capability signal:",
-          resolveError,
+      if (capability?.isExploreOnly === true) {
+        await CapabilityTourService.markExplored(userId, capabilityId).catch(
+          () => undefined,
         );
-        // Fail-open: still forward so the user is never stranded.
-      } finally {
-        router.replace(target);
-
+        const explored = await CapabilityTourService.loadExploredIds(userId);
+        void PreVaultUserStateService.syncSetupCapabilities(userId, [
+          ...explored,
+        ]).catch(() => undefined);
       }
-    })();
+
+      // NOTE: we intentionally do NOT resolve the account-wide master setup
+      // gate here. Forwarding into a hard-gated `/one/*` surface is handled by
+      // the `?from=setup` marker on `target` (which `OneOnboardingGuard`
+      // allows through) — see the component doc comment. Marking
+      // `setupCompleted = true` on capability entry was the cause of the
+      // dashboard "Finish setup" bar clearing prematurely.
+    } catch (resolveError) {
+      console.warn(
+        "[OneOnboardingCapabilityClient] Failed to record capability signal:",
+        resolveError,
+      );
+      // Fail-open: still forward so the user is never stranded.
+    } finally {
+      router.replace(target);
+    }
+  };
+
+  // Voice parity: "continue" / "got it" on this step drives the exact same
+  // forwarding logic as tapping the Continue/Unlock/Got it button. Registered
+  // before the `!capability` early return below to satisfy Rules of Hooks
+  // (this hook must run unconditionally on every render of this component).
+  useLocalOnboardingActionHandler("setup.capability_continue", async () => {
+    if (!capability) {
+      return { status: "blocked", summary: "This setup step isn't open yet." };
+    }
+    if (busy) {
+      return { status: "blocked", summary: "Already continuing, one moment." };
+    }
+    await runPrimary();
+    return { status: "succeeded", summary: `Continuing from ${capability.title} setup.` };
+  });
+
+  if (!capability) {
+    return <HushhLoader label="Opening…" />;
+  }
+
+  const handleBack = () => {
+    router.replace(ROUTES.ONE_SETUP);
+  };
+
+  const handlePrimary = () => {
+    if (busy) return;
+    void runPrimary();
   };
 
   return (

@@ -55,6 +55,15 @@ type PrewarmedGeminiRelay = {
   accessTier: string;
 };
 
+// Precaution: if a live voice session sits idle (no user speech, no agent
+// speech, no tool/navigation activity) this long, close it automatically
+// instead of leaving an open mic/session hanging indefinitely. Mirrors the
+// idle-timeout pattern already used for the streamed voice turn watchdog in
+// `agent-chat-workspace.tsx` (`VOICE_AGENT_IDLE_TIMEOUT_MS`), but scoped to
+// the full ambient session rather than a single streamed turn since Gemini
+// Live has no per-turn stream to watch.
+const AGENT_BAR_VOICE_IDLE_TIMEOUT_MS = 90_000;
+
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
 const AGENT_BAR_HINTS: ReadonlyArray<{ prefix: string; hint: string }> = [
@@ -115,6 +124,11 @@ export function AgentBar() {
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+  // Idle-close precaution: any live-session activity (speech, thinking, tool
+  // results, navigation) reschedules this timer; if it ever fires, the
+  // session has been silent for AGENT_BAR_VOICE_IDLE_TIMEOUT_MS and is closed
+  // automatically so an ambient/onboarding session never lingers open.
+  const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Last SCREEN pushed into the live session. Deduping on snapshot_id was a
   // bug: snapshot_id churns with every voice state transition (voiceRevision
   // = transitionSeq), so each listening/speaking flip re-pushed app_context,
@@ -124,8 +138,42 @@ export function AgentBar() {
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
+  // Ref indirection lets the idle-timer callback always call the CURRENT
+  // stopConversation without needing it in handleTransportEvent's deps
+  // (stopConversation is declared further down, after handleTransportEvent).
+  const stopConversationRef = useRef<() => void>(() => {});
+
+  const clearVoiceIdleTimer = useCallback(() => {
+    if (idleTimeoutRef.current) {
+      clearTimeout(idleTimeoutRef.current);
+      idleTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Precaution: reschedule on every real activity signal (state transition,
+  // final transcript, directive, handoff, error); if none arrive for
+  // AGENT_BAR_VOICE_IDLE_TIMEOUT_MS the session closes itself. input_level /
+  // output_level are intentionally excluded - they poll continuously on a
+  // fixed interval regardless of actual sound, so treating them as activity
+  // would make the idle timeout never fire.
+  const scheduleVoiceIdleTimer = useCallback(() => {
+    clearVoiceIdleTimer();
+    idleTimeoutRef.current = setTimeout(() => {
+      idleTimeoutRef.current = null;
+      stopConversationRef.current();
+    }, AGENT_BAR_VOICE_IDLE_TIMEOUT_MS);
+  }, [clearVoiceIdleTimer]);
 
   const handleTransportEvent = useCallback((event: OneVoiceSessionEvent) => {
+    if (
+      event.type === "state" ||
+      event.type === "transcript_final" ||
+      event.type === "assistant_text" ||
+      event.type === "client_directive" ||
+      event.type === "handoff"
+    ) {
+      scheduleVoiceIdleTimer();
+    }
     const eventOptions: AgentVoiceEventOptions = {
       sessionId: "sessionId" in event ? event.sessionId ?? null : null,
       sourceId: "sourceId" in event ? event.sourceId ?? null : event.provider,
@@ -313,6 +361,7 @@ export function AgentBar() {
       return;
     }
     if (event.type === "closed") {
+      clearVoiceIdleTimer();
       liveClientRef.current = null;
       if (erroredRef.current) return;
       setConversationActive(false);
@@ -321,9 +370,11 @@ export function AgentBar() {
     agentPopover,
     appendMirrorEvent,
     busyOperations,
+    clearVoiceIdleTimer,
     createHandoff,
     router,
     runtime,
+    scheduleVoiceIdleTimer,
     setAnalysisParams,
     setVoiceLevel,
     setVoiceStatus,
@@ -332,13 +383,18 @@ export function AgentBar() {
   ]);
 
   const stopConversation = useCallback(() => {
+    clearVoiceIdleTimer();
     erroredRef.current = false;
     liveClientRef.current?.stop();
     liveClientRef.current = null;
     prewarmedRelayRef.current = null;
     setConversationActive(false);
     resetVoice();
-  }, [resetVoice]);
+  }, [clearVoiceIdleTimer, resetVoice]);
+
+  useEffect(() => {
+    stopConversationRef.current = stopConversation;
+  }, [stopConversation]);
 
   const openAgentChat = useCallback(() => {
     if (conversationActive) return;
@@ -353,6 +409,7 @@ export function AgentBar() {
     }
     erroredRef.current = false;
     setConversationActive(true);
+    scheduleVoiceIdleTimer();
     const context = runtime?.oneVoiceContextSnapshot ?? null;
     const prewarmedRelay = prewarmedRelayRef.current;
     // The prewarmed ticket is context-free (context rides in app_context
@@ -384,6 +441,7 @@ export function AgentBar() {
     runtime?.tier,
     mirrorSessionId,
     handleTransportEvent,
+    scheduleVoiceIdleTimer,
     stopConversation,
     vaultOwnerToken,
   ]);
@@ -502,6 +560,10 @@ export function AgentBar() {
   // "listening") does not leak to other consumers after the bar is gone.
   useEffect(() => {
     return () => {
+      if (idleTimeoutRef.current) {
+        clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
+      }
       liveClientRef.current?.stop();
       liveClientRef.current = null;
       prewarmedRelayRef.current = null;

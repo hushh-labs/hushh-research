@@ -2402,6 +2402,426 @@
       ]
     },
     {
+      "id": "setup.capability_continue",
+      "label": "Continue Capability Setup",
+      "meaning": "Advances past the current capability setup step to its next destination (workspace, wizard, or explore acknowledgement). Applies to whichever capability route is currently open.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "continue",
+        "unlock and continue",
+        "got it",
+        "next"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup/finance",
+          "/one/setup/gmail",
+          "/one/setup/email",
+          "/one/setup/location",
+          "/one/setup/pkm",
+          "/one/setup/consent",
+          "/one/setup/connected-systems"
+        ],
+        "screens": [
+          "one_setup_finance",
+          "one_setup_gmail",
+          "one_setup_email",
+          "one_setup_location",
+          "one_setup_pkm",
+          "one_setup_consent",
+          "one_setup_connected-systems"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.capability_continue"
+      },
+      "goal": {
+        "goal_id": "goal.setup.capability_continue",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.capability_continue",
+            "label": "Continue Capability Setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/finance",
+              "screen": "one_setup_finance"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/app/one/setup/[capability]/one-onboarding-capability-client.tsx"
+      ]
+    },
+    {
+      "id": "kai.setup.answer_horizon",
+      "label": "Answer Investment Horizon",
+      "meaning": "Answers the investment horizon question in the Kai preferences wizard.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "less than 3 years",
+        "3 to 7 years",
+        "more than 7 years"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup/kai"
+        ],
+        "screens": [
+          "kai_setup_wizard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "kai.setup.answer_horizon"
+      },
+      "goal": {
+        "goal_id": "goal.kai.setup.answer_horizon",
+        "required_inputs": [
+          {
+            "name": "investment_horizon",
+            "prompt": "How long do you expect to keep this money invested: less than 3 years, 3 to 7 years, or more than 7 years?",
+            "required": true,
+            "slot": "answer",
+            "options": [
+              "short_term",
+              "medium_term",
+              "long_term"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kai.setup.answer_horizon",
+            "label": "Answer Investment Horizon",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/kai",
+              "screen": "kai_setup_wizard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
+      ]
+    },
+    {
+      "id": "kai.setup.answer_drawdown",
+      "label": "Answer Drawdown Response",
+      "meaning": "Answers the portfolio-drawdown-reaction question in the Kai preferences wizard.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "reduce investments",
+        "stay invested",
+        "buy more"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup/kai"
+        ],
+        "screens": [
+          "kai_setup_wizard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Investment horizon must already be answered."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "kai.setup.answer_drawdown"
+      },
+      "goal": {
+        "goal_id": "goal.kai.setup.answer_drawdown",
+        "required_inputs": [
+          {
+            "name": "drawdown_response",
+            "prompt": "If your portfolio drops 20 percent, would you reduce investments, stay invested, or buy more?",
+            "required": true,
+            "slot": "answer",
+            "options": [
+              "reduce",
+              "stay",
+              "buy_more"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kai.setup.answer_drawdown",
+            "label": "Answer Drawdown Response",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/kai",
+              "screen": "kai_setup_wizard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
+      ]
+    },
+    {
+      "id": "kai.setup.answer_volatility",
+      "label": "Answer Volatility Preference",
+      "meaning": "Answers the volatility-comfort question in the Kai preferences wizard.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "smaller steadier returns",
+        "moderate ups and downs",
+        "larger swings"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup/kai"
+        ],
+        "screens": [
+          "kai_setup_wizard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Drawdown response must already be answered."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "kai.setup.answer_volatility"
+      },
+      "goal": {
+        "goal_id": "goal.kai.setup.answer_volatility",
+        "required_inputs": [
+          {
+            "name": "volatility_preference",
+            "prompt": "Which feels more comfortable: smaller steadier returns, moderate ups and downs, or larger swings for higher potential returns?",
+            "required": true,
+            "slot": "answer",
+            "options": [
+              "small",
+              "moderate",
+              "large"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kai.setup.answer_volatility",
+            "label": "Answer Volatility Preference",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/kai",
+              "screen": "kai_setup_wizard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
+      ]
+    },
+    {
+      "id": "kai.setup.launch_dashboard",
+      "label": "Launch Kai Dashboard",
+      "meaning": "Confirms the computed investor persona and completes Kai setup, opening portfolio import.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "aliases": [
+        "launch my dashboard",
+        "looks good, continue",
+        "finish kai setup"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup/kai"
+        ],
+        "screens": [
+          "kai_setup_wizard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "All three preference questions must be answered."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "kai.setup.launch_dashboard"
+      },
+      "goal": {
+        "goal_id": "goal.kai.setup.launch_dashboard",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "kai.setup.launch_dashboard",
+            "label": "Launch Kai Dashboard",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/kai",
+              "screen": "kai_setup_wizard"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/app/one/setup/kai/page.tsx"
+      ]
+    },
+    {
       "id": "route.profile",
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",
@@ -3271,6 +3691,164 @@
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "app/profile/pkm-agent-lab/page-client.tsx"
+      ]
+    },
+    {
+      "id": "phone_mandate.submit_number",
+      "label": "Submit Phone Number",
+      "meaning": "Sends a verification code to the phone number the user says.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "verify my phone",
+        "send me a code",
+        "my phone number is",
+        "add my phone number"
+      ],
+      "scope": {
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.submit_number"
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.submit_number",
+        "required_inputs": [
+          {
+            "name": "phone_number",
+            "prompt": "What's your phone number, including country code?",
+            "required": true,
+            "slot": "phoneNumber"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.submit_number",
+            "label": "Submit Phone Number",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/register-phone",
+              "screen": "phone_mandate"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "id": "phone_mandate.submit_code",
+      "label": "Submit Verification Code",
+      "meaning": "Confirms the verification code sent by SMS and completes phone verification. Stays user-triggered because it settles account security state.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "the code is",
+        "verify my code",
+        "confirm my phone",
+        "submit the verification code"
+      ],
+      "scope": {
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A verification code must already be sent."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Completing phone verification changes account security state and must stay user-triggered from the visible code field.",
+        "intended_handler": "local_handler"
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.submit_code",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.submit_code",
+            "label": "Submit Verification Code",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/register-phone",
+              "screen": "phone_mandate"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ]
     },
     {
@@ -6511,6 +7089,584 @@
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+      ]
+    },
+    {
+      "id": "setup.open_finance",
+      "label": "Set Up Finance",
+      "meaning": "Opens the Finance capability setup step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up finance",
+        "open finance setup",
+        "set up investing"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/finance"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_finance",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_finance",
+            "label": "Set Up Finance",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/finance",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_gmail",
+      "label": "Set Up Gmail",
+      "meaning": "Opens the Gmail capability setup step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up gmail",
+        "open gmail setup",
+        "connect gmail"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/gmail"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_gmail",
+            "label": "Set Up Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/gmail",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_email",
+      "label": "Set Up Email",
+      "meaning": "Opens the Email capability setup step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up email",
+        "open email setup"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/email"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_email",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_email",
+            "label": "Set Up Email",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/email",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_location",
+      "label": "Set Up Location",
+      "meaning": "Opens the Location capability setup step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up location",
+        "open location setup",
+        "set up live sharing"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/location"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_location",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_location",
+            "label": "Set Up Location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/location",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_personal_data",
+      "label": "Set Up Memory",
+      "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up memory",
+        "open memory setup",
+        "set up personal data"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/pkm"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_personal_data",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_personal_data",
+            "label": "Set Up Memory",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/pkm",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_consent",
+      "label": "Explore Consent",
+      "meaning": "Opens the Consent explore-only step from the setup hub.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up consent",
+        "open consent setup",
+        "explore consent"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/consent"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_consent",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_consent",
+            "label": "Explore Consent",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/consent",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_connected_systems",
+      "label": "Set Up Connected Systems",
+      "meaning": "Opens the Connected Systems capability setup step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "set up connected systems",
+        "open connected systems setup",
+        "connect crm"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/connected-systems"
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_connected_systems",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_connected_systems",
+            "label": "Set Up Connected Systems",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/connected-systems",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.hub_master_ack",
+      "label": "Finish Setup For Now",
+      "meaning": "Resolves the master setup gate: Skip when nothing is set up yet, or Continue once at least one capability is ready, then opens One's home.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "skip setup",
+        "i'm done setting up",
+        "continue to home",
+        "finish setup",
+        "that's all for now"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.hub_master_ack"
+      },
+      "goal": {
+        "goal_id": "goal.setup.hub_master_ack",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.hub_master_ack",
+            "label": "Finish Setup For Now",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
       ]
     },
     {

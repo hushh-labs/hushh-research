@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/field";
 import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import { Button } from "@/lib/morphy-ux/button";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import {
   Combobox,
   ComboboxCollection,
@@ -251,8 +252,8 @@ export function PhoneVerificationFlow({
   }, []);
 
   const handleStartVerification = useCallback(
-    async (resendCode = false) => {
-      const normalizedPhone = normalizedPhoneInput.trim();
+    async (resendCode = false, phoneNumberOverride?: string) => {
+      const normalizedPhone = (phoneNumberOverride ?? normalizedPhoneInput).trim();
       if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
         morphyToast.error("Enter a valid country code and phone number.");
         return;
@@ -307,6 +308,34 @@ export function PhoneVerificationFlow({
     },
     [currentPhoneNumber, mode, normalizedPhoneInput, onCompleted, startVerification]
   );
+
+  // Voice parity: "my phone number is +1 555 010 1234" fills the same fields
+  // a typed entry would, then runs the exact same start-verification flow as
+  // tapping the Send code button. The phone number is passed directly to
+  // `handleStartVerification` (not read back from `normalizedPhoneInput`)
+  // because the field-state updates below are async and would not be visible
+  // yet on this same tick. The confirmation-code step
+  // (`phone_mandate.submit_code`) stays `manual_only`/unwired by contract
+  // (see `app/register-phone/page.voice-action-contract.json`), so no
+  // handler is registered for it here.
+  useLocalOnboardingActionHandler("phone_mandate.submit_number", async (slots) => {
+    const rawPhoneNumber = String(slots.phoneNumber ?? "").trim();
+    if (!rawPhoneNumber) {
+      return { status: "blocked", summary: "What's your phone number, including country code?" };
+    }
+    const candidate = rawPhoneNumber.startsWith("+") ? rawPhoneNumber : `+${rawPhoneNumber}`;
+    if (!E164_PHONE_PATTERN.test(candidate)) {
+      return {
+        status: "blocked",
+        summary: "That doesn't look like a valid phone number with country code.",
+      };
+    }
+    const fields = derivePhoneFields(candidate);
+    setSelectedCountry(fields.countryValue);
+    setLocalPhoneNumber(fields.localPhoneNumber);
+    await handleStartVerification(false, candidate);
+    return { status: "succeeded", summary: "Verification code sent." };
+  });
 
   const handleConfirmVerification = useCallback(async () => {
     const normalizedCode = verificationCode.trim();

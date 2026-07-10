@@ -1,0 +1,189 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_setup_hub",
+  "surface_title": "One Setup Hub",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/reference/quality/one-onboarding-architecture.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": ["investor", "ria"]
+    },
+    "speaker_persona": "one",
+    "guard_ids": ["auth_signed_in"]
+  },
+  "actions": [
+    {
+      "action_id": "setup.open_finance",
+      "label": "Set Up Finance",
+      "meaning": "Opens the Finance capability setup step from the setup hub.",
+      "aliases": ["set up finance", "open finance setup", "set up investing"],
+      "search_keywords": ["finance", "setup", "investing", "kai"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/finance" },
+      "control_ids": ["one_setup_tile_finance"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_gmail",
+      "label": "Set Up Gmail",
+      "meaning": "Opens the Gmail capability setup step from the setup hub.",
+      "aliases": ["set up gmail", "open gmail setup", "connect gmail"],
+      "search_keywords": ["gmail", "setup", "receipts"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/gmail" },
+      "control_ids": ["one_setup_tile_gmail"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_email",
+      "label": "Set Up Email",
+      "meaning": "Opens the Email capability setup step from the setup hub.",
+      "aliases": ["set up email", "open email setup"],
+      "search_keywords": ["email", "setup", "approvals"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/email" },
+      "control_ids": ["one_setup_tile_email"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_location",
+      "label": "Set Up Location",
+      "meaning": "Opens the Location capability setup step from the setup hub.",
+      "aliases": ["set up location", "open location setup", "set up live sharing"],
+      "search_keywords": ["location", "setup", "sharing"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/location" },
+      "control_ids": ["one_setup_tile_location"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_personal_data",
+      "label": "Set Up Memory",
+      "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
+      "aliases": ["set up memory", "open memory setup", "set up personal data"],
+      "search_keywords": ["memory", "pkm", "setup", "personal data"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/pkm" },
+      "control_ids": ["one_setup_tile_pkm"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_consent",
+      "label": "Explore Consent",
+      "meaning": "Opens the Consent explore-only step from the setup hub.",
+      "aliases": ["set up consent", "open consent setup", "explore consent"],
+      "search_keywords": ["consent", "setup", "approvals"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/consent" },
+      "control_ids": ["one_setup_tile_consent"],
+      "state_exposure": [],
+      "docs_references": [],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "setup.open_connected_systems",
+      "label": "Set Up Connected Systems",
+      "meaning": "Opens the Connected Systems capability setup step from the setup hub.",
+      "aliases": ["set up connected systems", "open connected systems setup", "connect crm"],
+      "search_keywords": ["connected systems", "crm", "setup"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/connected-systems"
+      },
+      "control_ids": ["one_setup_tile_connected-systems"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.hub_master_ack",
+      "label": "Finish Setup For Now",
+      "meaning": "Resolves the master setup gate: Skip when nothing is set up yet, or Continue once at least one capability is ready, then opens One's home.",
+      "aliases": [
+        "skip setup",
+        "i'm done setting up",
+        "continue to home",
+        "finish setup",
+        "that's all for now"
+      ],
+      "search_keywords": ["skip", "continue", "done", "finish setup", "home"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.hub_master_ack" },
+      "control_ids": ["one-setup-master-ack"],
+      "state_exposure": ["capabilities completed count"],
+      "docs_references": ["hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"]
+    }
+  ]
+}
