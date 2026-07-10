@@ -1418,15 +1418,31 @@ class ConsentCenterService:
         }
 
     async def _incoming_connection_request_count(self, user_id: str) -> int:
-        rows = await run_in_threadpool(
-            ConnectionsService().list_requests, user_id, direction="incoming"
-        )
+        try:
+            rows = await run_in_threadpool(
+                ConnectionsService().list_requests, user_id, direction="incoming"
+            )
+        except Exception as exc:  # never block the consent surface
+            logger.warning(
+                "consent_center.connection_request_count_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+            return 0
         return len(rows or [])
 
     async def _incoming_connection_request_entries(self, user_id: str) -> list[dict]:
-        rows = await run_in_threadpool(
-            ConnectionsService().list_requests, user_id, direction="incoming"
-        )
+        try:
+            rows = await run_in_threadpool(
+                ConnectionsService().list_requests, user_id, direction="incoming"
+            )
+        except Exception as exc:  # never block the consent surface
+            logger.warning(
+                "consent_center.connection_request_entries_failed user=%s error=%s",
+                user_id,
+                exc,
+            )
+            return []
         return [
             {
                 "id": r.get("id"),
