@@ -15,7 +15,8 @@
 - **No per-tool consent scopes in v1.** The One route already validates `AGENT_ONE_ORCHESTRATE` before dispatch; that plus confirm-before-write is the safety boundary. Fine-grained `cap.connections.*` scopes are explicitly out of scope.
 - **Model unready → degrade like the reference specialists:** when Gemini types are absent or `ready()` is false, return the unavailable message (do NOT keep a second regex code path).
 - **All writes go through `ConnectionsService`** (`consent-protocol/hushh_mcp/services/connections_service.py`) — the chat service never touches the DB directly.
-- **Commit messages:** conventional style, no `Co-Authored-By: Claude` trailer.
+- **Test runner:** all pytest commands run from `consent-protocol/` as `./.venv/bin/python -m pytest ...` (the project venv — the bare `python` on PATH lacks `yaml`/`google.genai`). Every `python -m pytest` in the steps below means `./.venv/bin/python -m pytest`.
+- **Commit messages:** conventional style, DCO sign-off required — commit with `git commit -s` so a `Signed-off-by: Gautam Ahuja <ahujagautam024@gmail.com>` trailer is added. **No** `Co-Authored-By: Claude` trailer. Every `git commit -m "..."` step below means `git commit -s -m "..."`.
 - **Ref schema (used by every propose tool and by `_complete_action`):**
   ```
   {"op": "send_request"|"accept"|"reject"|"remove",
