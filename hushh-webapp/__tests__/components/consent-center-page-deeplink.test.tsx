@@ -395,6 +395,105 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(calledPath).not.toContain("q=");
   });
 
+  it("does not auto-select the first row or open the detail panel after switching tabs", async () => {
+    // Regression: selectedEntryFromList fell back to items[0] whenever no
+    // requestId/bundleId was in the URL. With no selection open, every tab's
+    // FIRST row rendered with the "selected" accent border/surface on mount,
+    // and switching tabs (which loads a different items array) made a
+    // different, never-clicked row appear highlighted every time - the
+    // reported "acting funny" going from History to Active.
+    mocks.search = "tab=history";
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 1, previous: 1 },
+    });
+    mocks.listEntries.mockResolvedValue(groupedHistoryListResponse());
+
+    const { rerender } = render(<ConsentCenterPage />);
+    expect(await screen.findByText("Macy's CRM")).toBeTruthy();
+
+    // No consent detail panel should be open on a bare tab visit (no
+    // requestId/bundleId in the URL). The unrelated CapabilityExploreCard
+    // onboarding dialog ("Here's your access center") also uses role
+    // "dialog", so this scopes to a panel actually describing an entry.
+    expect(screen.queryByRole("dialog", { name: "Macy's CRM" })).toBeNull();
+
+    // Simulate the URL after switching to Active Access - exactly what a
+    // real router.replace + Next.js re-render would produce (the mocked
+    // router.replace is a no-op recorder, not a real navigation, so the URL
+    // must be advanced explicitly, matching the "closing the detail panel"
+    // test's pattern above).
+    mocks.search = "tab=active";
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      surface: "active",
+      total: 1,
+      items: [
+        {
+          id: "grant_active_1",
+          kind: "active_grant",
+          status: "active",
+          action: "CONSENT_GRANTED",
+          counterpart_type: "developer",
+          counterpart_label: "Kushal Trivedi",
+          counterpart_email: "kushaltrivedi1711@gmail.com",
+          scope: "attr.financial.*",
+          issued_at: "2026-07-09T19:26:29.000Z",
+          expires_at: "2026-07-10T19:26:29.000Z",
+        },
+      ],
+    });
+    rerender(<ConsentCenterPage />);
+
+    expect(await screen.findByText("kushaltrivedi1711@gmail.com")).toBeTruthy();
+
+    // Switching tabs must not open the consent detail panel by itself.
+    expect(screen.queryByRole("dialog", { name: "Kushal Trivedi" })).toBeNull();
+  });
+
+  it("does not falsely highlight a row that lacks its own request_id when nothing is selected", async () => {
+    // Regression: the row-selected check was
+    //   selectedEntry?.id === entry.id || selectedEntry?.request_id === entry.request_id
+    // With nothing selected, selectedEntry is null, so both sides of the
+    // second comparison are `undefined`, and `undefined === undefined` is
+    // true. Any entry that has no request_id of its own (e.g. a
+    // one_location_grant active-access row) then rendered as visually
+    // "selected" (accent border/surface) even though nothing was clicked -
+    // exactly the randomly-jumping-highlight symptom reported when
+    // switching tabs, since different tabs surface different entries
+    // without a request_id.
+    mocks.search = "tab=active";
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 1, previous: 0 },
+    });
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      surface: "active",
+      total: 1,
+      items: [
+        {
+          id: "one_location_grant:5fa0cbdf-1303-40a9-b467-d98f432395a4",
+          kind: "active_grant",
+          status: "active",
+          action: "CONSENT_GRANTED",
+          counterpart_type: "investor",
+          counterpart_label: "Gautam Ahuja",
+          counterpart_secondary_label: "Hussh connection",
+          scope: "location.share",
+          issued_at: "2026-07-09T11:19:48.000Z",
+          expires_at: "2026-07-10T11:19:48.000Z",
+          // No request_id - matches the real one_location_grant shape.
+        },
+      ],
+    });
+
+    render(<ConsentCenterPage />);
+
+    const row = await screen.findByRole("button", { name: /Gautam Ahuja/ });
+    expect(row.className).not.toContain("border-accent-border");
+  });
+
   it("keeps stale actor=ria links on the One lane unless the URL is the advisor outgoing route", async () => {
     mocks.search = "tab=pending&actor=ria";
 

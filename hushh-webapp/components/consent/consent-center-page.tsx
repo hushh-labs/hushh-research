@@ -1708,7 +1708,15 @@ export function ConsentCenterPage() {
         ) ?? null
       );
     }
-    return items[0] ?? null;
+    // No selectedId/selectedBundleId in the URL means no entry is actually
+    // selected (the detail panel is closed - see isPanelOpen). Falling back
+    // to items[0] here made the FIRST row of every tab render as visually
+    // "selected" (accent border/surface) on every render, including right
+    // after switching tabs, with no click and no open panel. Because items
+    // differ per tab, the highlighted row appeared to jump/flicker to a
+    // different, unclicked entry every time the tab changed - the reported
+    // "acting funny" when switching from History to Active.
+    return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
     user?.uid &&
@@ -2271,8 +2279,23 @@ export function ConsentCenterPage() {
                       key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
                       entry={entry}
                       selected={
-                        selectedEntry?.id === entry.id ||
-                        selectedEntry?.request_id === entry.request_id ||
+                        // Bug: when nothing is selected, selectedEntry is null,
+                        // so selectedEntry?.id and selectedEntry?.request_id are
+                        // both undefined. Entries without their own request_id
+                        // (e.g. one_location_grant rows) also have
+                        // entry.request_id === undefined, so
+                        // "undefined === undefined" was true and falsely
+                        // highlighted that row as selected on every render -
+                        // this is the row that appeared to randomly "jump" to
+                        // a different entry on every tab switch. Require a
+                        // real selectedEntry (or a matching selectedId) before
+                        // comparing ids at all.
+                        Boolean(
+                          selectedEntry &&
+                            (selectedEntry.id === entry.id ||
+                              (selectedEntry.request_id &&
+                                selectedEntry.request_id === entry.request_id)),
+                        ) ||
                         Boolean(
                           selectedId &&
                             consentEntryMatchesSelectedId(entry, selectedId),
