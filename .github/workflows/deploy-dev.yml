@@ -253,9 +253,18 @@ jobs:
             --plaid-tx-history-days "730" \
             > /tmp/dev-runtime-secret-sync.json
 
+          # Same main-workflow vs train-tree skew guard as the backend sync:
+          # newer trees accept --environment dev; older train SHAs only know
+          # uat|production. Probe --help and fall back to uat (dev's runtime
+          # identity IS uat — see dev-environment-setup.md Identity Model).
+          FE_HELP="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py --help 2>/dev/null || true)"
+          FE_ENV="uat"
+          if grep -q "'dev'" <<<"$FE_HELP" || grep -q 'dev,' <<<"$FE_HELP" || grep -qE '\bdev\b.*production' <<<"$FE_HELP"; then
+            FE_ENV="dev"
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment dev \
+            --environment "$FE_ENV" \
             > /tmp/dev-frontend-runtime-secret-sync.json
 
       - name: Install Cloud SQL Auth Proxy
