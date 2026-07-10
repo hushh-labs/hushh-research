@@ -131,6 +131,12 @@ vi.mock("@/lib/services/consent-center-service", () => ({
     getSummary: mocks.getSummary,
     listEntries: mocks.listEntries,
     lookupPendingRequests: mocks.lookupPendingRequests,
+    // Only ever called by HandshakeTimeline, which must NOT render for
+    // active_grant entries (see the "does not render a Consent timeline"
+    // regression test below). Left unmocked-but-present so an accidental
+    // regression that renders it fails loudly instead of throwing on an
+    // undefined method.
+    getHandshakeHistory: vi.fn().mockResolvedValue({ timeline: [] }),
   },
 }));
 
@@ -494,6 +500,48 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(row.className).not.toContain("border-accent-border");
   });
 
+  it("does not render a duplicate Consent timeline / history trail for an active_grant entry", async () => {
+    // Bug: Active Access shows a single live grant, but its detail panel
+    // also rendered the full HandshakeTimeline ("Consent timeline") with
+    // every historical grant/request/revoke event for that counterpart -
+    // an unrelated, duplicate history trail attached to a currently active
+    // item. That trail belongs on the History tab only.
+    mocks.search = "tab=active&requestId=req_active_1";
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 1, previous: 0 },
+    });
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      surface: "active",
+      total: 1,
+      items: [
+        {
+          id: "grant_active_1",
+          request_id: "req_active_1",
+          kind: "active_grant",
+          status: "active",
+          action: "CONSENT_GRANTED",
+          counterpart_type: "developer",
+          counterpart_id: "developer:app_kushaltrivedi",
+          counterpart_label: "Kushal Trivedi",
+          counterpart_email: "kushaltrivedi1711@gmail.com",
+          scope: "attr.financial.*",
+          issued_at: "2026-07-09T19:26:29.000Z",
+          expires_at: "2026-07-10T19:26:29.000Z",
+        },
+      ],
+    });
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByRole("dialog", { name: "Kushal Trivedi" })).toBeTruthy();
+    expect(screen.queryByText("Consent timeline")).toBeNull();
+    expect(
+      screen.queryByText("Full history of consent changes with this connection."),
+    ).toBeNull();
+  });
+
   it("keeps stale actor=ria links on the One lane unless the URL is the advisor outgoing route", async () => {
     mocks.search = "tab=pending&actor=ria";
 
@@ -550,6 +598,51 @@ describe("ConsentCenterPage requestId deep links", () => {
         expect.objectContaining({ force: true }),
       );
     });
+  });
+
+  it("does not force-refresh (and flicker) the list on a non-mutation consent-state-changed event", async () => {
+    // Regression: selecting any Requests/Active row calls
+    // acknowledgePendingConsent() (notification-provider.tsx), which POSTs
+    // /api/consent/pending/opened. The backend inserts a NOTIFICATION_OPENED
+    // audit event for still-pending rows, which echoes back to the same
+    // client as an "fcm_opened" consent-state-changed event carrying no
+    // `action`. The list-refresh listener used to force-refresh on ANY
+    // consent-state-changed event regardless of payload, so merely opening a
+    // request's detail panel made the whole list visibly flash "Refreshing
+    // consent state...". History rows are already resolved and never
+    // trigger that backend echo, which is why only Requests/Active flickered.
+    // Non-action bookkeeping events (fcm_opened, queued_pending,
+    // cached_pending, hydrated_pending, etc.) must NOT force a refresh.
+    // Counts must match the (empty) list so the unrelated list/count
+    // mismatch auto-retry effect does not also fire a background refresh
+    // and pollute this assertion.
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 0, previous: 0 },
+    });
+    render(<ConsentCenterPage />);
+
+    await waitFor(() => {
+      expect(mocks.listEntries).toHaveBeenCalled();
+    });
+
+    const listCallsBefore = mocks.listEntries.mock.calls.length;
+    const summaryCallsBefore = mocks.getSummary.mock.calls.length;
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("consent-state-changed", {
+          detail: { source: "fcm_opened", requestId: "req_deep" },
+        }),
+      );
+    });
+
+    // Give any (incorrect) async refresh a chance to fire before asserting
+    // it did not.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mocks.listEntries.mock.calls.length).toBe(listCallsBefore);
+    expect(mocks.getSummary.mock.calls.length).toBe(summaryCallsBefore);
   });
 
   it("keeps grouped history lifecycles out of the history list row", async () => {
