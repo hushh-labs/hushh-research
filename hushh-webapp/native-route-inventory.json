@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 79,
-  "native_required_routes": 76,
+  "total_routes": 80,
+  "native_required_routes": 77,
   "excluded_routes": 3,
   "routes": [
     {
@@ -750,6 +750,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
       "expectedMarker": "native-route-connected-systems",
       "expectedRoute": "/one/connected-systems",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/connect",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fconnect",
+      "expectedMarker": "native-route-connect",
+      "expectedRoute": "/connect",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
