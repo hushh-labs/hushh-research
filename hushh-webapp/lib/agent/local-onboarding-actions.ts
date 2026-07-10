@@ -65,7 +65,13 @@ export function useLocalOnboardingActionHandler(
   handler: LocalOnboardingActionHandler
 ) {
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  // Refs must not be written during render (react-hooks/refs); keep the ref
+  // fresh in an effect instead so the registered handler below never closes
+  // over a stale `handler` without needing `handler` itself in the
+  // registration effect's dependency array.
+  useEffect(() => {
+    handlerRef.current = handler;
+  });
 
   useEffect(() => {
     const stableHandler: LocalOnboardingActionHandler = (slots) =>
