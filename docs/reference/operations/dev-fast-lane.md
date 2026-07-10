@@ -51,7 +51,7 @@ flowchart LR
 
 | Gate | Where it runs | What it guarantees |
 | --- | --- | --- |
-| `CI Status Gate` on the exact SHA | before every dev deploy | code is test-, type-, secret-, DCO-, and governance-clean — the same bar required to merge anywhere |
+| Authoritative full-CI check on the exact SHA (`CI Status Gate` for PR heads, `Queue Validation` for train heads, `Main Post-Merge Smoke Gate` for main merges — any-of) | before every dev deploy | code is test-, type-, secret-, DCO-, and governance-clean — the same bar required to merge anywhere |
 | Governed-actor dispatch (`assert-governed-actor.py --surface dev`) | dispatch time | only the maintainer cohort can deploy |
 | Workflow definition pinned to `main` | dispatch time | the pipeline itself cannot be mutated from a feature branch; only the deployed *content* comes from the requested ref |
 | Secret sync + runtime identity assertions | every deploy | dev cannot silently drift to wrong DB/CORS/identity |
