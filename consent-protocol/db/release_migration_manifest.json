@@ -64,7 +64,7 @@
     "083_one_location_recipient_key_encrypted_private.sql",
     "084_relay_ticket_nonces.sql",
     "085_developer_partner_apps.sql",
-    "085_connections.sql"
+    "086_connections.sql"
   ],
   "groups": {
     "iam": [

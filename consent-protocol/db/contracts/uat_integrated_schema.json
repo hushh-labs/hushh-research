@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 85,
+  "expected_migration_version": 86,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -687,6 +687,27 @@
     "relay_ticket_nonces": [
       "nonce",
       "expires_at"
+    ],
+    "connection_requests": [
+      "id",
+      "requester_user_id",
+      "addressee_user_id",
+      "status",
+      "message",
+      "created_at",
+      "updated_at",
+      "responded_at",
+      "metadata"
+    ],
+    "connections": [
+      "id",
+      "user_a_id",
+      "user_b_id",
+      "status",
+      "source",
+      "created_at",
+      "updated_at",
+      "revoked_at"
     ]
   }
 }
