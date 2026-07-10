@@ -174,3 +174,49 @@ def test_reject_rejected_when_not_addressee():
         with pytest.raises(ConnectionsError) as exc:
             svc.reject_request("user-c", "req-1")
     assert exc.value.status_code == 403
+
+
+def test_search_directory_annotates_relationship_and_excludes_self():
+    svc = _svc()
+    rows = [
+        {
+            "user_id": "user-b",
+            "display_name": "Bob",
+            "photo_url": None,
+            "email": None,
+            "rel_out": 1,
+            "rel_in": 0,
+            "connected": 0,
+        },
+        {
+            "user_id": "user-c",
+            "display_name": "Cara",
+            "photo_url": None,
+            "email": None,
+            "rel_out": 0,
+            "rel_in": 0,
+            "connected": 1,
+        },
+    ]
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning(rows)):
+        out = svc.search_directory("user-a", query="", page=1, limit=20)
+    by_id = {i["userId"]: i for i in out["items"]}
+    assert by_id["user-b"]["relationship"] == "pending_outgoing"
+    assert by_id["user-c"]["relationship"] == "connected"
+
+
+def test_list_connections_maps_rows():
+    svc = _svc()
+    rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-b",
+            "display_name": "Bob",
+            "photo_url": None,
+            "created_at": "2026-07-09T00:00:00Z",
+        }
+    ]
+    with patch("hushh_mcp.services.connections_service.get_db", _db_returning(rows)):
+        out = svc.list_connections("user-a")
+    assert out[0]["userId"] == "user-b"
+    assert out[0]["connectionId"] == "conn-1"

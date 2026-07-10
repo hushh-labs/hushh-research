@@ -296,3 +296,121 @@ class ConnectionsService:
             }
             for r in rows
         ]
+
+    def search_directory(
+        self, user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
+    ) -> dict[str, Any]:
+        user_id = (user_id or "").strip()
+        page = max(1, int(page or 1))
+        limit = max(1, min(int(limit or 20), 50))
+        offset = (page - 1) * limit
+        needle = (query or "").strip()
+        rows = self._execute_many(
+            """
+            SELECT
+              a.user_id, a.display_name, a.photo_url, a.email,
+              EXISTS (
+                SELECT 1 FROM connection_requests cr
+                WHERE cr.status = 'pending'
+                  AND cr.requester_user_id = :user_id AND cr.addressee_user_id = a.user_id
+              ) AS rel_out,
+              EXISTS (
+                SELECT 1 FROM connection_requests cr
+                WHERE cr.status = 'pending'
+                  AND cr.requester_user_id = a.user_id AND cr.addressee_user_id = :user_id
+              ) AS rel_in,
+              EXISTS (
+                SELECT 1 FROM connections c
+                WHERE c.status = 'active'
+                  AND ((c.user_a_id = LEAST(:user_id, a.user_id) AND c.user_b_id = GREATEST(:user_id, a.user_id)))
+              ) AS connected
+            FROM actor_identity_cache a
+            WHERE a.user_id <> :user_id
+              AND (:needle = '' OR a.display_name ILIKE '%' || :needle || '%'
+                   OR a.email ILIKE '%' || :needle || '%')
+            ORDER BY COALESCE(a.display_name, a.email, a.user_id), a.user_id
+            LIMIT :limit OFFSET :offset
+            """,
+            {"user_id": user_id, "needle": needle, "limit": limit + 1, "offset": offset},
+        )
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+
+        def relationship(r: dict[str, Any]) -> str:
+            if r.get("connected"):
+                return "connected"
+            if r.get("rel_out"):
+                return "pending_outgoing"
+            if r.get("rel_in"):
+                return "pending_incoming"
+            return "none"
+
+        return {
+            "items": [
+                {
+                    "userId": str(r.get("user_id") or ""),
+                    "displayName": r.get("display_name"),
+                    "photoUrl": r.get("photo_url"),
+                    "email": r.get("email"),
+                    "relationship": relationship(r),
+                }
+                for r in rows
+            ],
+            "page": page,
+            "hasMore": has_more,
+        }
+
+    def list_connections(self, user_id: str) -> list[dict[str, Any]]:
+        user_id = (user_id or "").strip()
+        rows = self._execute_many(
+            """
+            SELECT c.id AS connection_id,
+                   CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
+                   a.display_name, a.photo_url, c.created_at
+            FROM connections c
+            LEFT JOIN actor_identity_cache a
+              ON a.user_id = CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END
+            WHERE c.status = 'active'
+              AND (c.user_a_id = :user_id OR c.user_b_id = :user_id)
+            ORDER BY c.created_at DESC
+            """,
+            {"user_id": user_id},
+        )
+        return [
+            {
+                "connectionId": str(r.get("connection_id") or ""),
+                "userId": str(r.get("user_id") or ""),
+                "displayName": r.get("display_name"),
+                "photoUrl": r.get("photo_url"),
+                "createdAt": r.get("created_at"),
+            }
+            for r in rows
+        ]
+
+    def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
+        user_id = (user_id or "").strip()
+        row = self._execute_one(
+            """
+            UPDATE connections
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE id = :id AND status = 'active'
+              AND (user_a_id = :user_id OR user_b_id = :user_id)
+            RETURNING user_a_id, user_b_id
+            """,
+            {"id": (connection_id or "").strip(), "user_id": user_id},
+        )
+        if not row:
+            return {"removed": 0}
+        # Revoke the two mirrored trusted edges as well.
+        self._execute_one(
+            """
+            UPDATE trusted_connections
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE status = 'active'
+              AND ((owner_user_id = :a AND trusted_user_id = :b)
+                   OR (owner_user_id = :b AND trusted_user_id = :a))
+            RETURNING id
+            """,
+            {"a": row.get("user_a_id"), "b": row.get("user_b_id")},
+        )
+        return {"removed": 1}
