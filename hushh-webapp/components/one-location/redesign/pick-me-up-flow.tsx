@@ -19,7 +19,7 @@
  *   you until they arrive.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Clock, Hand, MapPin, Navigation, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -196,19 +196,8 @@ export function PickMeUpFlow({
   const [untilPickedUp, setUntilPickedUp] = useState(true);
   const [urgency, setUrgency] = useState<UrgencyValue>("soon");
   const [note, setNote] = useState("");
-  const [seeded, setSeeded] = useState(false);
 
-  // Pre-select the first ready contact so a single tap can send help.
-  useEffect(() => {
-    if (seeded) return;
-    const firstReady = contacts.find((r) => vm.isRecipientShareReady(r));
-    if (firstReady) {
-      setCheckedIds([firstReady.userId]);
-      setSeeded(true);
-    } else if (contacts.length > 0) {
-      setSeeded(true);
-    }
-  }, [contacts, seeded, vm]);
+  // No default selection: the user explicitly chooses who can come get them.
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
