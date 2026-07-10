@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import {
@@ -38,6 +39,22 @@ const ICON_SIZE_CLASS = {
 } as const;
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
+
+// One color guidelines - soft premium palette. This inline style is what
+// actually paints the dashboard/launcher tiles (it overrides the class), so it
+// is the source of truth for the Agents grid colors.
+const CAPABILITY_ICON_STYLE_BY_TONE: Partial<
+  Record<OneCapabilityTone, CSSProperties>
+> = {
+  finance: { backgroundColor: "#B85CF6", color: "#ffffff" }, // Lavender Mist
+  ria: { backgroundColor: "#60A5FA", color: "#ffffff" }, // Sky Blue
+  gmail: { backgroundColor: "#ffffff" }, // Cloud White (multicolor logo)
+  email: { backgroundColor: "#14B8A6", color: "#ffffff" }, // Mint Teal
+  location: { backgroundColor: "#A7D7A1", color: "#ffffff" }, // Sage Green
+  pkm: { backgroundColor: "#B85CF6", color: "#ffffff" }, // Lavender Mist (Memory + Information)
+  consent: { backgroundColor: "#C8923A", color: "#ffffff" }, // Warm Gold
+  connected: { backgroundColor: "#94A3B8", color: "#ffffff" }, // Slate Blue-Gray
+};
 
 function GmailBrandIcon({ className }: { className?: string }) {
   return (
@@ -88,6 +105,7 @@ export function AgentSectionIcon({
   const toneClassName = tone
     ? ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone]
     : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME;
+  const toneStyle = tone ? CAPABILITY_ICON_STYLE_BY_TONE[tone] : undefined;
 
   return (
     <span
@@ -97,6 +115,7 @@ export function AgentSectionIcon({
         toneClassName,
         className,
       )}
+      style={toneStyle}
       aria-hidden
     >
       {id === "gmail" ? (
