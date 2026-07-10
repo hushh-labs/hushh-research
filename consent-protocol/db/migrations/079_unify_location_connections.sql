@@ -12,12 +12,18 @@ BEGIN;
 -- once all code stops referencing it. Idempotent: ON CONFLICT DO NOTHING + IF
 -- EXISTS guards.
 
--- 1. Widen the source CHECK to include circle_invite.
+-- 1. Widen the source CHECK to include circle_invite (and 'connection').
+-- NOTE: the release manifest re-applies EVERY migration file on every deploy
+-- (db/migrate.py apply_migration_files runs in explicit mode, no skip). Once
+-- 086 shipped, the live app writes trusted_connections rows with
+-- source='connection'; if this ADD CONSTRAINT omitted 'connection' it would
+-- re-narrow the set mid-deploy and fail validation on those rows before 086
+-- re-widens it. Keep this superset in sync with 086_connections.sql.
 ALTER TABLE trusted_connections
   DROP CONSTRAINT IF EXISTS trusted_connections_source_check;
 ALTER TABLE trusted_connections
   ADD CONSTRAINT trusted_connections_source_check
-  CHECK (source IN ('agent_one', 'seed', 'import', 'circle_invite'));
+  CHECK (source IN ('agent_one', 'seed', 'import', 'circle_invite', 'connection'));
 
 -- 2a. Copy a -> b for every real active pair.
 INSERT INTO trusted_connections (
