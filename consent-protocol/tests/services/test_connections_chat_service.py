@@ -203,3 +203,66 @@ def test_complete_action_service_error_is_surfaced():
     out = svc._complete_action("u1", sel, "c1")
     assert out["response"] == "Request is no longer pending."
     assert out["stateChanged"] is False
+
+
+async def test_propose_send_request_emits_confirm_prompt_no_write():
+    fake = MagicMock()
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("propose_send_request", {"addressee_user_id": "u2", "label": "Priya Rao"}),
+            _text_response("Want me to send Priya Rao a connection request?"),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="connect me with Priya", consent_token=_TOKEN)
+    fake.create_request.assert_not_called()  # confirm-before-write
+    assert out["isComplete"] is False
+    prompt = out["clientPrompt"]
+    assert prompt["kind"] == "select"
+    assert len(prompt["options"]) == 1
+    ref = prompt["options"][0]["ref"]
+    assert ref == {"op": "send_request", "addresseeUserId": "u2", "label": "Priya Rao"}
+
+
+async def test_propose_remove_emits_confirm_prompt():
+    fake = MagicMock()
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("propose_remove_connection", {"connection_id": "cx", "label": "Alex T"}),
+            _text_response("Remove Alex T?"),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="remove Alex", consent_token=_TOKEN)
+    fake.remove_connection.assert_not_called()
+    ref = out["clientPrompt"]["options"][0]["ref"]
+    assert ref == {"op": "remove", "connectionId": "cx", "label": "Alex T"}
+
+
+async def test_propose_accept_emits_confirm_prompt():
+    svc = _loop_service(
+        service=MagicMock(),
+        store=_FakeStore(),
+        responses=[
+            _fc_response("propose_accept_request", {"request_id": "r1", "label": "Sam Lee"}),
+            _text_response("Accept Sam Lee?"),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="accept Sam's request", consent_token=_TOKEN)
+    ref = out["clientPrompt"]["options"][0]["ref"]
+    assert ref == {"op": "accept", "requestId": "r1", "label": "Sam Lee"}
+
+
+async def test_confirm_roundtrip_executes_send(monkeypatch):
+    # The prompt from turn 1 round-trips as a selection_result → _complete_action writes.
+    fake = MagicMock()
+    svc = ConnectionsChatService(service=fake)
+    sel = {
+        "status": "answered",
+        "selected": [{"op": "send_request", "addresseeUserId": "u2", "label": "Priya Rao"}],
+    }
+    out = await svc.handle_turn(user_id="u1", message="", selection_result=sel)
+    fake.create_request.assert_called_once_with("u1", addressee_user_id="u2")
+    assert out["stateChanged"] is True

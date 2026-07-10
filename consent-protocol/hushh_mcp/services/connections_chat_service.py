@@ -103,6 +103,56 @@ def _function_declarations(types: Any) -> list:
                 required=["query"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="propose_send_request",
+            description="Propose sending a connection request to a resolved userId. Asks the user to confirm before sending. Call after find_people resolves exactly one person.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "addressee_user_id": schema(
+                        type=kind.STRING, description="Target userId from find_people"
+                    ),
+                    "label": schema(type=kind.STRING, description="Their display name"),
+                },
+                required=["addressee_user_id"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="propose_accept_request",
+            description="Propose accepting a pending incoming request by its id (from list_pending_requests). Asks the user to confirm.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "request_id": schema(type=kind.STRING, description="Request id"),
+                    "label": schema(type=kind.STRING, description="Requester display name"),
+                },
+                required=["request_id"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="propose_reject_request",
+            description="Propose declining a pending incoming request by its id (from list_pending_requests). Asks the user to confirm.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "request_id": schema(type=kind.STRING, description="Request id"),
+                    "label": schema(type=kind.STRING, description="Requester display name"),
+                },
+                required=["request_id"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="propose_remove_connection",
+            description="Propose removing an active connection by its connectionId (from list_my_connections). Asks the user to confirm.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "connection_id": schema(type=kind.STRING, description="connectionId"),
+                    "label": schema(type=kind.STRING, description="Their display name"),
+                },
+                required=["connection_id"],
+            ),
+        ),
     ]
 
 
@@ -248,15 +298,79 @@ class ConnectionsChatService:
         def find_people(query: str) -> dict:
             return service.search_directory(user_id, query=query)
 
+        def propose_send_request(addressee_user_id: str, label: str = "them") -> dict:
+            return {
+                "proposal": {
+                    "op": "send_request",
+                    "addresseeUserId": str(addressee_user_id),
+                    "label": str(label),
+                    "verb": "send a request to",
+                    "summary": f"Send a connection request to {label}?",
+                }
+            }
+
+        def propose_accept_request(request_id: str, label: str = "them") -> dict:
+            return {
+                "proposal": {
+                    "op": "accept",
+                    "requestId": str(request_id),
+                    "label": str(label),
+                    "verb": "accept the request from",
+                    "summary": f"Accept the connection request from {label}?",
+                }
+            }
+
+        def propose_reject_request(request_id: str, label: str = "them") -> dict:
+            return {
+                "proposal": {
+                    "op": "reject",
+                    "requestId": str(request_id),
+                    "label": str(label),
+                    "verb": "decline the request from",
+                    "summary": f"Decline the connection request from {label}?",
+                }
+            }
+
+        def propose_remove_connection(connection_id: str, label: str = "them") -> dict:
+            return {
+                "proposal": {
+                    "op": "remove",
+                    "connectionId": str(connection_id),
+                    "label": str(label),
+                    "verb": "remove",
+                    "summary": f"Remove {label} from your connections?",
+                }
+            }
+
         return {
             "list_my_connections": list_my_connections,
             "list_pending_requests": list_pending_requests,
             "find_people": find_people,
+            "propose_send_request": propose_send_request,
+            "propose_accept_request": propose_accept_request,
+            "propose_reject_request": propose_reject_request,
+            "propose_remove_connection": propose_remove_connection,
         }
 
     def _prompt_from_tool(self, name: str, result: dict) -> dict | None:
-        # Propose/choice tools attach their prompt payload in Task 3/4. Reads never prompt.
-        return None
+        if not isinstance(result, dict) or result.get("error"):
+            return None
+        proposal = result.get("proposal")
+        if not (name.startswith("propose_") and isinstance(proposal, dict)):
+            return None
+        ref = {k: v for k, v in proposal.items() if k not in ("verb", "summary")}
+        label = str(proposal.get("label") or "them")
+        verb = str(proposal.get("verb") or "do this with")
+        return {
+            "id": "prm-" + uuid4().hex[:12],
+            "kind": "select",
+            "purpose": f"confirm_{proposal.get('op')}",
+            "question": str(proposal.get("summary") or "Confirm?"),
+            "options": [{"label": f"Yes, {verb} {label}", "ref": ref, "hint": None}],
+            "minSelections": 1,
+            "maxSelections": 1,
+            "allowFreeText": False,
+        }
 
     async def _finish(
         self, turn: Any, reply: str, user_id: str, *, errored: bool, prompt: dict | None
