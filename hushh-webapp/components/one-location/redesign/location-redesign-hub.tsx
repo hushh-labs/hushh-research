@@ -20,6 +20,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 
 import {
@@ -782,7 +783,7 @@ function PeopleHub({
     <div className="space-y-5">
       <SectionCard
         title="Trusted Circle"
-        description="Only approved, ready people can receive private live location."
+        description="Only your connections can receive private live location."
       >
         <div className="grid grid-cols-1 gap-2">
           <Button
@@ -839,11 +840,21 @@ function PeopleHub({
         ) : (
           <div className="mt-3">
             <EmptyState
-              title={hasSearchQuery ? "No matching people" : "No ready people yet"}
+              title={hasSearchQuery ? "No matching people" : "Build your trusted circle"}
               description={
                 hasSearchQuery
                   ? "Try a different name."
-                  : "Invite someone to your Circle to start private sharing."
+                  : "Add connections so the people you trust can receive your live location."
+              }
+              action={
+                hasSearchQuery ? undefined : (
+                  <Link
+                    href="/connect"
+                    className="inline-flex h-9 items-center rounded-full bg-[#d4a574] px-4 text-sm font-semibold text-white hover:bg-[#d4a574]/90"
+                  >
+                    Add connections
+                  </Link>
+                )
               }
             />
           </div>

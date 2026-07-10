@@ -27,6 +27,7 @@ export default function ConnectPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
 
   const loadConnections = useCallback(async (): Promise<ConnectionSummaryEntry[]> => {
     if (!user) return [];
@@ -99,6 +100,40 @@ export default function ConnectPageClient() {
     [router, user],
   );
 
+  const handleRemove = useCallback(
+    async (connection: ConnectionSummaryEntry) => {
+      if (!user) return;
+      try {
+        setBusyId(connection.connectionId);
+        const idToken = await user.getIdToken();
+        await ConnectionsService.removeConnection({
+          idToken,
+          connectionId: connection.connectionId,
+        });
+        setConnections((prev) =>
+          prev.filter((c) => c.connectionId !== connection.connectionId),
+        );
+        // Let the directory offer "Connect" again for this person.
+        setPeople((prev) =>
+          prev.map((p) =>
+            p.userId === connection.userId ? { ...p, relationship: "none" } : p,
+          ),
+        );
+        toast.success("Connection removed");
+      } catch (removeError) {
+        toast.error(
+          removeError instanceof Error
+            ? removeError.message
+            : "Failed to remove connection",
+        );
+      } finally {
+        setBusyId(null);
+        setPendingRemoveId(null);
+      }
+    },
+    [user],
+  );
+
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
       <NativeTestBeacon
@@ -131,8 +166,37 @@ export default function ConnectPageClient() {
         ) : (
           <ul className="flex flex-col gap-2">
             {connections.map((c) => (
-              <li key={c.connectionId} className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2">
-                <span className="text-sm font-medium text-foreground">{c.displayName || c.userId}</span>
+              <li key={c.connectionId} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/60 px-3 py-2">
+                <span className="min-w-0 truncate text-sm font-medium text-foreground">{c.displayName || c.userId}</span>
+                {pendingRemoveId === c.connectionId ? (
+                  <span className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId === c.connectionId}
+                      onClick={() => void handleRemove(c)}
+                      className="inline-flex min-h-9 items-center justify-center rounded-full bg-red-600 px-4 text-xs font-medium text-white disabled:opacity-50"
+                    >
+                      {busyId === c.connectionId ? "Removing…" : "Confirm"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === c.connectionId}
+                      onClick={() => setPendingRemoveId(null)}
+                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-border px-4 text-xs font-medium text-muted-foreground disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPendingRemoveId(c.connectionId)}
+                    aria-label={`Remove connection with ${c.displayName || c.userId}`}
+                    className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-full border border-border px-4 text-xs font-medium text-muted-foreground transition-colors hover:border-red-500/60 hover:text-red-600"
+                  >
+                    Remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>
