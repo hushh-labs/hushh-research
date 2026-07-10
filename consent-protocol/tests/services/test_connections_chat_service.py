@@ -1,21 +1,136 @@
-import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+from google.genai import types
 
 from hushh_mcp.services.connections_chat_service import ConnectionsChatService
 
+_TOKEN = "tok"  # noqa: S105
 
-def test_add_intent_sends_request():
-    fake = MagicMock()
-    fake.create_request.return_value = {"status": "pending"}
-    svc = ConnectionsChatService(service=fake)
-    out = asyncio.run(
-        svc.handle_turn(user_id="user-a", message="add Priya to my trusted connections")
+
+class _Turn:
+    def __init__(self, conversation_id, history):
+        self.conversation_id = conversation_id
+        self.history = history
+
+
+class _FakeStore:
+    def __init__(self, history=None):
+        self.history = history or []
+        self.added = []
+
+    async def prepare_turn(self, *, user_id, message, conversation_id=None):
+        return _Turn(conversation_id or "conv-new", self.history)
+
+    async def add_message(self, *, conversation_id, user_id, role, content, status, model=None):
+        self.added.append({"role": role, "content": content, "status": status})
+
+
+def _fc_response(name, args):
+    return SimpleNamespace(
+        function_calls=[SimpleNamespace(name=name, args=args)],
+        text="",
+        candidates=[
+            SimpleNamespace(content=types.Content(role="model", parts=[types.Part(text="")]))
+        ],
     )
-    fake.create_request.assert_called_once()
-    _, kwargs = fake.create_request.call_args
-    assert kwargs.get("query") == "Priya"
-    assert "request" in out["response"].lower()
-    assert out["stateChanged"] is True
+
+
+def _text_response(text):
+    return SimpleNamespace(function_calls=[], text=text, candidates=[])
+
+
+def _scripted_model_call(responses):
+    seq = iter(responses)
+
+    async def _call(contents, config):
+        return next(seq)
+
+    return _call
+
+
+def _loop_service(*, service, store, responses, ready=True):
+    return ConnectionsChatService(
+        service=service,
+        chat_store=store,
+        model_call=_scripted_model_call(responses),
+        genai_types=types,
+        ready=lambda: ready,
+    )
+
+
+async def test_list_my_connections_tool_flow():
+    fake = MagicMock()
+    fake.list_connections.return_value = [
+        {"connectionId": "cx", "userId": "u2", "displayName": "Priya Rao"}
+    ]
+    store = _FakeStore()
+    svc = _loop_service(
+        service=fake,
+        store=store,
+        responses=[
+            _fc_response("list_my_connections", {}),
+            _text_response("You're connected with Priya Rao."),
+        ],
+    )
+    out = await svc.handle_turn(
+        user_id="u1", message="who are my connections", consent_token=_TOKEN
+    )
+    fake.list_connections.assert_called_once_with("u1")
+    assert out["response"] == "You're connected with Priya Rao."
+    assert out["stateChanged"] is False
+    assert out["isComplete"] is True
+
+
+async def test_find_people_tool_flow():
+    fake = MagicMock()
+    fake.search_directory.return_value = {
+        "items": [{"userId": "u9", "displayName": "Sam Lee", "relationship": "none"}],
+        "hasMore": False,
+    }
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("find_people", {"query": "Sam"}),
+            _text_response("I found Sam Lee."),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="find people named Sam", consent_token=_TOKEN)
+    fake.search_directory.assert_called_once_with("u1", query="Sam")
+    assert out["response"] == "I found Sam Lee."
+
+
+async def test_list_pending_requests_tool_flow():
+    fake = MagicMock()
+    fake.list_requests.return_value = [
+        {
+            "id": "r1",
+            "counterpartUserId": "u2",
+            "counterpartDisplayName": "Sam Lee",
+            "status": "pending",
+        }
+    ]
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("list_pending_requests", {"direction": "incoming"}),
+            _text_response("Sam Lee asked to connect."),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="any pending requests", consent_token=_TOKEN)
+    fake.list_requests.assert_called_once_with("u1", direction="incoming")
+    assert "Sam Lee" in out["response"]
+
+
+async def test_unready_model_returns_unavailable():
+    svc = _loop_service(service=MagicMock(), store=_FakeStore(), responses=[], ready=False)
+    out = await svc.handle_turn(
+        user_id="u1", message="who are my connections", consent_token=_TOKEN
+    )
+    assert "unavailable" in out["response"].lower()
+    assert out["isComplete"] is False
 
 
 def _svc_with_mock():

@@ -1,9 +1,8 @@
-"""Deterministic intent handler for the connections specialist.
+"""Gemini function-calling chat specialist for the connections graph.
 
-One delegates "add/remove/list trusted connections" turns here. The parsing is
-deterministic (regex), matching the repo's existing deterministic-planner style --
-no LLM call is needed for these three intents. All writes go through
-ConnectionsService, so this is the single write surface for the graph.
+Routes message turns through a Gemini tool-loop (read tools now; write/propose
+tools added in Task 3). Selection-result turns (from the frontend pick-card
+confirmation flow) bypass the loop and run _complete_action directly.
 
 Disambiguation reuses the SAME selection round-trip the Location specialist uses:
 when a name matches more than one directory person, we return a coordinate-free
@@ -17,40 +16,124 @@ classifier) and completes the add/remove.
 from __future__ import annotations
 
 import logging
-import re
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
+from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 from hushh_mcp.services.connections_service import (
     ConnectionsError,
     ConnectionsService,
-    IdentityUnresolvedError,
 )
 
 logger = logging.getLogger(__name__)
 
-_ADD_RE = re.compile(
-    r"\badd\s+(?P<name>.+?)\s+(?:to|into)\s+(?:my\s+)?trusted\s+connections?\b",
-    re.IGNORECASE,
-)
-_REMOVE_RE = re.compile(
-    r"\b(?:remove|delete|drop)\s+(?P<name>.+?)\s+(?:from\s+)?(?:my\s+)?trusted\s+connections?\b",
-    re.IGNORECASE,
-)
-_LIST_RE = re.compile(
-    r"\b(?:who\s+do\s+i\s+trust|people\s+i\s+trust|list\s+(?:my\s+)?trusted\s+connections?|my\s+trusted\s+connections?|show\s+(?:my\s+)?trusted\s+connections?)\b",
-    re.IGNORECASE,
+_MAX_HISTORY = 12
+_MAX_TOOL_STEPS = 4
+_LLM_TIMEOUT_S = 30.0
+_HISTORY_CHARS = 2000
+_UNAVAILABLE_MESSAGE = "The connections assistant is temporarily unavailable. Please try again."
+_GAVE_UP_MESSAGE = "I couldn't finish that — please try rephrasing."
+_QUERY_TOOL_NAMES = {"list_my_connections", "list_pending_requests", "find_people"}
+
+ModelCall = Callable[[Any, Any], Awaitable[Any]]
+
+_SYSTEM_PROMPT = (
+    "You are the user's Connections assistant inside hushh One. You manage the "
+    "account holder's two-way connection graph. Tools: `list_my_connections` "
+    "lists active connections; `list_pending_requests` lists pending requests "
+    "(direction 'incoming' or 'outgoing'); `find_people` searches the user's "
+    "directory by name (returns userId, displayName, relationship). To CONNECT "
+    "with someone, first `find_people` to resolve them, then call "
+    "`propose_send_request` with their userId. If a name matches more than one "
+    "person, call `request_person_choice` so the USER picks — never guess. To "
+    "ACCEPT or REJECT a request, first `list_pending_requests` to get its id, "
+    "then `propose_accept_request` / `propose_reject_request`. To REMOVE a "
+    "connection, first `list_my_connections` to get its connectionId, then "
+    "`propose_remove_connection`. You NEVER change the graph directly: every "
+    "add/accept/reject/remove goes through a propose_* tool, which asks the user "
+    "to confirm before anything happens. Be concise and reference the real names "
+    "you saw in tool results. Never invent people."
 )
 
-_HELP = (
-    "I manage your trusted connections. Try: “add Alice to my trusted "
-    "connections”, “remove Bob from my trusted connections”, or “who do I trust”."
-)
+
+def _history_contents(history: list[Any], types: Any) -> list:
+    contents: list = []
+    for message in history[-_MAX_HISTORY:]:
+        role = getattr(message, "role", "")
+        if role not in ("user", "assistant"):
+            continue
+        genai_role = "user" if role == "user" else "model"
+        text = (getattr(message, "content", "") or "")[:_HISTORY_CHARS]
+        contents.append(types.Content(role=genai_role, parts=[types.Part(text=text)]))
+    return contents
+
+
+def _as_response_dict(result: Any) -> dict:
+    return result if isinstance(result, dict) else {"result": result}
+
+
+def _function_declarations(types: Any) -> list:
+    schema = types.Schema
+    kind = types.Type
+    return [
+        types.FunctionDeclaration(
+            name="list_my_connections",
+            description="List the user's active connections (connectionId, userId, displayName). Read-only.",
+            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+        ),
+        types.FunctionDeclaration(
+            name="list_pending_requests",
+            description="List pending connection requests. direction='incoming' (received) or 'outgoing' (sent). Read-only.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "direction": schema(type=kind.STRING, description="'incoming' or 'outgoing'")
+                },
+                required=[],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="find_people",
+            description="Search the user's directory by display-name fragment. Returns userId, displayName, relationship. Read-only.",
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "query": schema(type=kind.STRING, description="Name fragment to search")
+                },
+                required=["query"],
+            ),
+        ),
+    ]
 
 
 class ConnectionsChatService:
-    def __init__(self, service: ConnectionsService | None = None) -> None:
+    def __init__(
+        self,
+        service: ConnectionsService | None = None,
+        *,
+        chat_store: Any = None,
+        model_call: ModelCall | None = None,
+        genai_types: Any = None,
+        ready: Callable[[], bool] | None = None,
+    ) -> None:
         self._service = service or ConnectionsService()
+        self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
+        if model_call is not None:
+            self._model_call = model_call
+            self._types = genai_types
+            self._ready = ready or (lambda: True)
+        else:
+            from hushh_mcp.operons.kai import llm as _llm
+
+            self._types = genai_types or _llm.types
+            self._ready = ready or _llm._require_gemini_ready
+
+            async def _default_call(contents: Any, config: Any) -> Any:
+                return await _llm.agent_chat_model_call(
+                    contents, config, total_timeout_s=_LLM_TIMEOUT_S
+                )
+
+            self._model_call = _default_call
 
     async def handle_turn(
         self,
@@ -63,52 +146,138 @@ class ConnectionsChatService:
     ) -> dict[str, Any]:
         conv = conversation_id or ""
 
-        # A disambiguation pick coming back from the frontend.
         if selection_result is not None:
-            return self._complete_selection(user_id, selection_result, conv)
+            return self._complete_action(user_id, selection_result, conv)
 
-        text = (message or "").strip()
-
-        add = _ADD_RE.search(text)
-        if add:
-            return self._add(user_id, add.group("name").strip(), conv)
-
-        remove = _REMOVE_RE.search(text)
-        if remove:
-            return self._remove(user_id, remove.group("name").strip(), conv)
-
-        if _LIST_RE.search(text):
-            return self._list(user_id, conv)
-
-        return self._reply(_HELP, conv, state_changed=False)
-
-    # ---- intents ----
-    def _add(self, user_id: str, name: str, conv: str) -> dict[str, Any]:
-        try:
-            self._service.create_request(user_id, query=name)
-        except IdentityUnresolvedError as exc:
-            if len(exc.candidates) > 1:
-                return self._selection_prompt(name, exc.candidates, op="add", conv=conv)
+        if not (message or "").strip():
             return self._reply(
-                f"I couldn't find “{name}” in your directory yet, so I didn't send a request.",
+                "Tell me who you'd like to connect with, or ask who your connections are.",
                 conv,
                 state_changed=False,
             )
-        except ConnectionsError as exc:
-            return self._reply(exc.message, conv, state_changed=False)
-        return self._reply(f"Sent a connection request to {name}.", conv, state_changed=True)
 
-    def _remove(self, user_id: str, name: str, conv: str) -> dict[str, Any]:
-        return self._reply(
-            "You can manage connections from the Connect page now.", conv, state_changed=False
+        turn = await self._chat_store.prepare_turn(
+            user_id=user_id, message=message, conversation_id=conversation_id
         )
 
-    def _list(self, user_id: str, conv: str) -> dict[str, Any]:
-        rows = self._service.list_connections(user_id)
-        if not rows:
-            return self._reply("You don't have any connections yet.", conv, state_changed=False)
-        names = [str(r.get("displayName") or r.get("userId") or "someone") for r in rows]
-        return self._reply("Your connections: " + ", ".join(names) + ".", conv, state_changed=False)
+        if self._types is None or not self._ready():
+            return await self._finish(
+                turn, _UNAVAILABLE_MESSAGE, user_id, errored=True, prompt=None
+            )
+
+        types = self._types
+        contents = _history_contents(turn.history, types)
+        contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
+
+        try:
+            reply, errored, prompt = await self._run_tool_loop(user_id=user_id, contents=contents)
+        except Exception:
+            logger.exception("Connections chat turn failed")
+            return await self._finish(
+                turn, _UNAVAILABLE_MESSAGE, user_id, errored=True, prompt=None
+            )
+
+        return await self._finish(turn, reply or "Done.", user_id, errored=errored, prompt=prompt)
+
+    async def _run_tool_loop(
+        self, *, user_id: str, contents: list
+    ) -> tuple[str, bool, dict | None]:
+        types = self._types
+        config = types.GenerateContentConfig(
+            system_instruction=_SYSTEM_PROMPT,
+            tools=[types.Tool(function_declarations=_function_declarations(types))],
+            temperature=0.2,
+        )
+        tools = self._build_tools(user_id)
+        reply = ""
+        errored = False
+        prompt: dict | None = None
+        for _ in range(_MAX_TOOL_STEPS):
+            response = await self._model_call(contents, config)
+            calls = list(getattr(response, "function_calls", None) or [])
+            if not calls:
+                reply = (getattr(response, "text", "") or "").strip()
+                break
+            contents.append(response.candidates[0].content)
+            tool_parts = []
+            for call in calls:
+                result, call_prompt = await self._run_tool(tools, call.name, dict(call.args or {}))
+                if call_prompt is not None and prompt is None:
+                    prompt = call_prompt
+                tool_parts.append(
+                    types.Part.from_function_response(name=call.name, response=result)
+                )
+            contents.append(types.Content(role="tool", parts=tool_parts))
+            if prompt is not None:
+                # A confirmation/disambiguation was requested; stop and surface it.
+                reply = ""
+                break
+        else:
+            reply = _GAVE_UP_MESSAGE
+            errored = True
+        return reply, errored, prompt
+
+    async def _run_tool(
+        self, tools: dict[str, Callable], name: str, args: dict
+    ) -> tuple[dict, dict | None]:
+        tool = tools.get(name)
+        if tool is None:
+            logger.warning("connections_chat.tool_dispatch_miss name=%s", name)
+            return {"error": "unknown_tool"}, None
+        try:
+            result = tool(**args)
+        except ConnectionsError as exc:
+            return {"error": "tool_failed", "message": exc.message}, None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections_chat.tool_failed name=%s err=%s", name, exc, exc_info=True)
+            return {"error": "tool_failed"}, None
+        result_dict = _as_response_dict(result)
+        prompt = self._prompt_from_tool(name, result_dict)
+        return result_dict, prompt
+
+    def _build_tools(self, user_id: str) -> dict[str, Callable]:
+        service = self._service
+
+        def list_my_connections() -> dict:
+            return {"items": service.list_connections(user_id)}
+
+        def list_pending_requests(direction: str = "incoming") -> dict:
+            direction = "outgoing" if str(direction).lower() == "outgoing" else "incoming"
+            return {"items": service.list_requests(user_id, direction=direction)}
+
+        def find_people(query: str) -> dict:
+            return service.search_directory(user_id, query=query)
+
+        return {
+            "list_my_connections": list_my_connections,
+            "list_pending_requests": list_pending_requests,
+            "find_people": find_people,
+        }
+
+    def _prompt_from_tool(self, name: str, result: dict) -> dict | None:
+        # Propose/choice tools attach their prompt payload in Task 3/4. Reads never prompt.
+        return None
+
+    async def _finish(
+        self, turn: Any, reply: str, user_id: str, *, errored: bool, prompt: dict | None
+    ) -> dict[str, Any]:
+        await self._chat_store.add_message(
+            conversation_id=turn.conversation_id,
+            user_id=user_id,
+            role="assistant",
+            content=reply,
+            status="error" if errored else "complete",
+        )
+        out: dict[str, Any] = {
+            "conversationId": turn.conversation_id,
+            "response": reply,
+            "isComplete": not errored,
+            "stateChanged": False,
+        }
+        if prompt is not None:
+            out["clientPrompt"] = prompt
+            out["isComplete"] = False
+        return out
 
     # ---- selection round-trip ----
     def _selection_prompt(
@@ -137,14 +306,14 @@ class ConnectionsChatService:
             "id": "prm-" + uuid4().hex[:12],
             "kind": "select",
             "purpose": f"{op}_trusted_connection",
-            "question": f"Which “{name}” should I {verb}?",
+            "question": f'Which "{name}" should I {verb}?',
             "options": options,
             "minSelections": 1,
             "maxSelections": 1,
             "allowFreeText": False,
         }
         return self._reply(
-            f"I found more than one match for “{name}”. Which one?",
+            f'I found more than one match for "{name}". Which one?',
             conv,
             state_changed=False,
             client_prompt=prompt,
@@ -205,11 +374,6 @@ class ConnectionsChatService:
             return self._reply(exc.message, conv, state_changed=False)
 
         return self._reply(self._SUCCESS_TEXT[op].format(label=label), conv, state_changed=True)
-
-    def _complete_selection(
-        self, user_id: str, selection_result: dict[str, Any], conv: str
-    ) -> dict[str, Any]:
-        return self._complete_action(user_id, selection_result, conv)
 
     @staticmethod
     def _reply(
