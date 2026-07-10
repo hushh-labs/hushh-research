@@ -320,8 +320,16 @@ jobs:
             cd consent-protocol
             "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release
           )
+          # Skew guard (same class as the secret-sync probes): the dev
+          # contract file may not exist on older train SHAs. Fall back to the
+          # UAT contract, which dev replicates by design.
+          CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [ ! -f "$CONTRACT_FILE" ]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
+            echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/contracts/dev_minimum_schema.json \
+            --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-predeploy.json
 
       - name: Deploy backend using Cloud Build
@@ -547,8 +555,16 @@ jobs:
           export DB_USER
           export DB_PASSWORD
 
+          # Skew guard (same class as the secret-sync probes): the dev
+          # contract file may not exist on older train SHAs. Fall back to the
+          # UAT contract, which dev replicates by design.
+          CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [ ! -f "$CONTRACT_FILE" ]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
+            echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
-            --contract-file consent-protocol/db/contracts/dev_minimum_schema.json \
+            --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-postdeploy.json
 
       - name: Bootstrap dev runtime files for semantic verification
