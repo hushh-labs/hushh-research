@@ -270,6 +270,8 @@ class ConnectionsService:
         else:
             where = "cr.requester_user_id = :user_id"
             counterpart_col = "cr.addressee_user_id"
+        # nosec B608 - counterpart_col/where are hardcoded literals selected by
+        # `direction` above (never user input); user_id is always parameterized.
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
@@ -280,7 +282,7 @@ class ConnectionsService:
             LEFT JOIN actor_identity_cache a ON a.user_id = {counterpart_col}
             WHERE {where} AND cr.status = 'pending'
             ORDER BY cr.created_at DESC
-            """,
+            """,  # nosec B608
             {"user_id": user_id},
         )
         return [
