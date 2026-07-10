@@ -40,12 +40,24 @@ the governed operator service account. Current live facts:
 | Frontend URL (deterministic) | `https://hushh-webapp-621416509462.us-central1.run.app` |
 | One Email fanout | subscription `one-email-kyc-dev-push` in `hushh-pda` on topic `one-email-kyc-uat`, OIDC audience = dev backend webhook |
 | Runtime SAs | compute + cloudbuild SAs granted UAT-parity roles |
+| APIs | full UAT parity (92 enabled; doctor-audited) |
+| **Deployed services** | `consent-protocol` + `hushh-webapp` live and healthy (first deploy 2026-07-10, `deploy-env=dev`, public invoker enabled — note: org-fresh projects drop the `--allow-unauthenticated` binding silently; re-add `allUsers` → `roles/run.invoker` if a new service 403s) |
+| Schedulers | `one-email-kyc-retention-purge-dev` daily 09:37 PT |
+| Database | full UAT data replica (102 tables, parity-verified) |
+| Doctor status | 0 failures, 2 warnings (domain mapping, Cloud Run job schedulers) |
 
-Still pending: `dev.kai.hushh.ai` DNS + domain mapping (origin temporarily set to the
-deterministic frontend Cloud Run URL in `deploy-dev.yml`; passkey unlock is unavailable
-on the temporary origin because the RP id is `kai.hushh.ai` — passphrase unlock works),
-GitHub environment `dev` + `GCP_SA_KEY_DEV`, first deploy, and the post-deploy
-schedulers below.
+Still pending (human-gated):
+
+1. **Domain**: `dev.kai.hushh.ai` — (a) a verified Search Console owner of
+   `kai.hushh.ai` either adds the operator SA as an additional owner or runs
+   `gcloud beta run domain-mappings create --service hushh-webapp --domain dev.kai.hushh.ai --region us-central1 --project hushh-pda-dev`,
+   and (b) add `dev.kai.hushh.ai CNAME ghs.googlehosted.com.` at the external DNS host
+   (same pattern as `uat.kai.hushh.ai`; no Cloud DNS zone exists in the org). Then flip
+   `APP_FRONTEND_ORIGIN` in `deploy-dev.yml` to `https://dev.kai.hushh.ai` and redeploy.
+2. **GitHub**: environment `dev` + secret `GCP_SA_KEY_DEV` so the governed
+   `Deploy to Dev` workflow can take over from manual bootstrap deploys.
+3. Cloud Run job schedulers (`marketplace-investor-replenisher`,
+   `obs-supabase-data-health`) if those lanes are wanted in dev.
 
 ## Identity Model (read this first)
 
