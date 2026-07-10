@@ -126,6 +126,13 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY_DEV }}
+          # Pin the SDK project explicitly. Without this, the auth action
+          # exports CLOUDSDK_CORE_PROJECT/GOOGLE_CLOUD_PROJECT from the key's
+          # HOME project (the SA lives in hussh-developer-platform), which
+          # silently overrides `gcloud config set project` and trips the
+          # project-scope assertion below.
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          export_environment_variables: true
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
