@@ -608,6 +608,29 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
   });
 
+  it("scrolls Active shares only when more than three shares are present", async () => {
+    const baseGrant = locationState().ownerGrants[0]!;
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: Array.from({ length: 4 }, (_, index) => ({
+        ...baseGrant,
+        id: `grant_${index + 1}`,
+        recipientUserId: `user_${index + 1}`,
+        recipientDisplayName: `Trusted ${index + 1}`,
+      })),
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    const activeShares = await screen.findByRole("list", {
+      name: "Active shares",
+    });
+    expect(activeShares.className).toContain("max-h-[470px]");
+    expect(activeShares.className).toContain("overflow-y-auto");
+    expect(activeShares.querySelectorAll('[role="listitem"]')).toHaveLength(4);
+  });
+
   it("does not render the removed onboarding tour", async () => {
     render(<OneLocationAgentPage />);
 
@@ -931,6 +954,31 @@ describe("OneLocationAgentPage", () => {
     expect(directionsLink.getAttribute("href")).toContain(
       "https://www.google.com/maps/dir/?api=1&destination=28.613900%2C77.209000&travelmode=driving",
     );
+
+    const openMapLink = screen.getByRole("link", {
+      name: "Open shared location in Google Maps",
+    });
+    expect(openMapLink.getAttribute("target")).toBe("_blank");
+    expect(openMapLink.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(openMapLink.getAttribute("href")).toContain(
+      "https://www.google.com/maps/search/?api=1&query=28.613900%2C77.209000",
+    );
+
+    const viewCallsBeforeCollapse = mockViewEnvelope.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(screen.queryByTitle("Live location map preview")).toBeNull();
+    expect(screen.getByText("Trusted A is sharing with you")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "View location" }),
+    ).toBeTruthy();
+    expect(
+      window.localStorage.getItem("one_location_unwatched_grants_v1:user_b"),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View location" }));
+    expect(await screen.findByTitle("Live location map preview")).toBeTruthy();
+    expect(mockViewEnvelope).toHaveBeenCalledTimes(viewCallsBeforeCollapse);
 
     // The duplicate "Start" navigation button was removed from location
     // previews (it opened the same Google Maps navigation as "Directions").

@@ -832,6 +832,11 @@ function locationCoordinateQuery(point: PlainLocationPoint): string {
   ].join(",");
 }
 
+function googleMapsLocationUrl(point: PlainLocationPoint): string {
+  const query = encodeURIComponent(locationCoordinateQuery(point));
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
+}
+
 function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
   const destination = encodeURIComponent(locationCoordinateQuery(point));
   return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
@@ -1973,15 +1978,20 @@ function OneLocationAgentPageContent() {
   // convenience deep-link, NOT a requirement. Shares the recipient explicitly
   // "unwatched" are hidden. Terminal (revoked/expired) grants are never listed
   // here (the backend keeps them for ~12h for history only).
+  const activeReceivedGrants = useMemo(
+    () =>
+      (state?.receivedGrants ?? []).filter(
+        (grant) => grant.status === "active",
+      ),
+    [state?.receivedGrants],
+  );
   const visibleReceivedGrants = useMemo(() => {
     void openedGrantTick;
     void unwatchedTick;
-    return (state?.receivedGrants ?? []).filter(
-      (grant) =>
-        grant.status === "active" &&
-        !isOneLocationGrantUnwatched(auth.userId, grant.id),
+    return activeReceivedGrants.filter(
+      (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
-  }, [auth.userId, openedGrantTick, unwatchedTick, state?.receivedGrants]);
+  }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
   const activeOwnerGrants = useMemo(
     () =>
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
@@ -2036,7 +2046,12 @@ function OneLocationAgentPageContent() {
     }
   }, [state, activeOwnerGrants]);
 
-  const activeVisibleReceivedGrants = visibleReceivedGrants;
+  // The redesigned Inbox keeps every active share live-refreshing even when a
+  // legacy build previously persisted an "unwatched" id. In the redesigned
+  // UX, Dismiss owns preview presentation only and never changes grant reachability.
+  const activeVisibleReceivedGrants = USE_LOCATION_REDESIGN
+    ? activeReceivedGrants
+    : visibleReceivedGrants;
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
   const unwatchedActiveReceivedGrantCount = useMemo(() => {
@@ -5097,7 +5112,10 @@ function OneLocationAgentPageContent() {
     recipients: rankedRecipients,
     visibleRecipients,
     activeOwnerGrants,
-    receivedGrants: visibleReceivedGrants,
+    // The redesigned Inbox always keeps active received grants reachable.
+    // Its Dismiss action collapses only the decrypted map preview; legacy
+    // recipient-side "unwatch" state must not remove the durable row.
+    receivedGrants: activeReceivedGrants,
     pendingOwnerRequests,
     requestedByMe,
     latestActivePublicInvite,
@@ -5133,7 +5151,6 @@ function OneLocationAgentPageContent() {
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
-    onUnwatchGrant: (grant) => handleUnwatch(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
@@ -5157,6 +5174,7 @@ function OneLocationAgentPageContent() {
     renderMapPreview: (point, showNavigation) => (
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
+    mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
     sosRecipients: sosActionRecipients,
     sosActive: Boolean(sosIncident?.grantIds.length),
