@@ -196,6 +196,10 @@ export function VaultFlow({
   const showRecoveryAlternative = true;
   const showUnlockOtherMethods =
     showVaultKeyAlternative || showPasskeyAlternative || showRecoveryAlternative;
+  const generatedUnlockError =
+    hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && error
+      ? error
+      : null;
 
   const finalizeUnlock = useCallback(async (decryptedKey: string): Promise<boolean> => {
     try {
@@ -975,6 +979,21 @@ export function VaultFlow({
                   </p>
                 ) : null}
               </div>
+              {error ? (
+                <Alert
+                  role="alert"
+                  className="rounded-[18px] border-[rgba(156,116,52,0.24)] bg-[rgba(156,116,52,0.07)] px-3.5 py-3 text-left"
+                >
+                  <Icon
+                    icon={AlertCircle}
+                    size="sm"
+                    className="mt-0.5 text-[#9C7434] dark:text-[#D4AF6A]"
+                  />
+                  <AlertDescription className="type-footnote leading-snug text-foreground">
+                    {error}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               {shouldShowPassphraseUnlock && (
                 <div className="space-y-1.5">
                   <Label
@@ -1031,7 +1050,7 @@ export function VaultFlow({
                   </Button>
                 )}
 
-                {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && (
+                {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && !generatedUnlockError && (
                   // This branch only renders while the passkey path is viable
                   // (supported and available, or still being checked). When the
                   // browser has no authenticator we force the passphrase
@@ -1051,7 +1070,7 @@ export function VaultFlow({
                         Checking your device...
                       </span>
                     ) : (
-                      `Prompting ${generatedUnlockLabel.toLowerCase()}...`
+                      `Ready for ${generatedUnlockLabel.toLowerCase()} confirmation.`
                     )}
                   </div>
                 )}
@@ -1066,7 +1085,7 @@ export function VaultFlow({
                     onClick={() => void handleUnlockGeneratedDefault()}
                     disabled={isUnlocking}
                   >
-                    Try again
+                    Try passkey again
                   </Button>
                 )}
 

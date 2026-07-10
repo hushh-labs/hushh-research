@@ -129,7 +129,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             )
         )
 
-        let statusLabel = NativeTestStatusLabel(frame: .zero)
+        let statusLabel = NativeTestStatusLabel(
+            frame: .zero,
+            showOverlay: nativeTestConfig.showStatusOverlay
+        )
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(statusLabel)
         NSLayoutConstraint.activate([

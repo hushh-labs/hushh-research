@@ -13,6 +13,7 @@ struct NativeTestConfiguration {
     let expectedUserId: String?
     let resetAppState: Bool
     let runUiFlows: Bool
+    let showStatusOverlay: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         enabled = arguments.contains("-UITestMode")
@@ -30,6 +31,7 @@ struct NativeTestConfiguration {
             defaultValue: true
         )
         runUiFlows = NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
+        showStatusOverlay = NativeTestConfiguration.boolValue(for: "-UITestShowStatusOverlay", in: arguments)
     }
 
     var injectedScript: String {
@@ -497,7 +499,7 @@ enum NativeTestResetter {
 }
 
 final class NativeTestStatusLabel: UIButton {
-    override init(frame: CGRect) {
+    init(frame: CGRect, showOverlay: Bool) {
         super.init(frame: frame)
         isAccessibilityElement = true
         accessibilityIdentifier = "native-test-status"
@@ -505,9 +507,9 @@ final class NativeTestStatusLabel: UIButton {
         accessibilityLabel = initialStatus
         accessibilityValue = initialStatus
         setTitle(initialStatus, for: .normal)
-        setTitleColor(.systemGreen, for: .normal)
-        backgroundColor = UIColor.black.withAlphaComponent(0.72)
-        alpha = 0.95
+        setTitleColor(showOverlay ? .systemGreen : .clear, for: .normal)
+        backgroundColor = showOverlay ? UIColor.black.withAlphaComponent(0.72) : .clear
+        alpha = showOverlay ? 0.95 : 0.01
         titleLabel?.font = UIFont.monospacedSystemFont(ofSize: 10, weight: .regular)
         titleLabel?.numberOfLines = 1
         isUserInteractionEnabled = false
