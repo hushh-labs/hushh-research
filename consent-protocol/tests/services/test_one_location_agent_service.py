@@ -109,7 +109,9 @@ def test_verified_recipient_directory_filters_self_and_allows_explicit_network_c
     service = RecipientDirectoryProbe()
 
     assert service.list_verified_recipients(owner_user_id="owner") == []
-    assert "a.phone_verified = TRUE" in service.sql
+    # phone_verified blanket clause was removed by Task 5; eligibility is now
+    # trusted_connections OR approved marketplace relationship only.
+    assert "a.phone_verified = TRUE" not in service.sql
     assert "trusted_connections" in service.sql
     assert "one_location_network_connections" not in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
