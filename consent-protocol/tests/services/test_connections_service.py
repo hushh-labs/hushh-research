@@ -348,3 +348,54 @@ def test_remove_connection_self_heals_when_already_revoked():
     assert len(trusted_updates) >= 1, (
         "Trusted-edge revoke must run even when connection is already revoked"
     )
+
+
+def test_create_request_notifies_addressee_on_new_insert():
+    """A brand-new pending request nudges the addressee's client (best-effort)."""
+    svc = _svc()
+    calls = []
+    svc._notifier = lambda **kw: calls.append(kw)
+    responses = iter(
+        [
+            SimpleNamespace(data=[]),  # idempotency SELECT -> none
+            SimpleNamespace(data=[{"id": "req-1"}]),  # INSERT ... RETURNING id
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.create_request("user-a", addressee_user_id="user-b")
+    assert calls == [{"addressee_user_id": "user-b", "requester_user_id": "user-a"}]
+
+
+def test_create_request_does_not_notify_on_idempotent_existing():
+    """Re-sending an already-pending request must NOT fire a duplicate nudge."""
+    svc = _svc()
+    calls = []
+    svc._notifier = lambda **kw: calls.append(kw)
+    existing = {
+        "id": "req-9",
+        "requester_user_id": "user-b",
+        "addressee_user_id": "user-a",
+        "status": "pending",
+        "message": None,
+    }
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: SimpleNamespace(data=[existing]))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.create_request("user-a", addressee_user_id="user-b")
+    assert calls == []
+
+
+def test_create_request_notify_failure_does_not_break_write():
+    """A failing notifier is swallowed; the request is still created."""
+    svc = _svc()
+
+    def _boom(**_kw):
+        raise RuntimeError("fcm down")
+
+    svc._notifier = _boom
+    responses = iter([SimpleNamespace(data=[]), SimpleNamespace(data=[{"id": "req-2"}])])
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.create_request("user-a", addressee_user_id="user-b")
+    assert out["id"] == "req-2"
+    assert out["status"] == "pending"

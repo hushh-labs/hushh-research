@@ -622,7 +622,7 @@ git commit -m "feat(trusted-connections): TrustedConnectionsService with directo
 
 **Files:**
 - Create: `consent-protocol/hushh_mcp/services/connections_chat_service.py`
-- Test: `consent-protocol/tests/test_connections_chat_service.py`
+- Test: `consent-protocol/tests/services/test_connections_chat_service.py`
 
 **Interfaces:**
 - Consumes: `TrustedConnectionsService` (`add_connection`, `remove_connection`, `list_connections`; `IdentityUnresolvedError`).
@@ -633,7 +633,7 @@ git commit -m "feat(trusted-connections): TrustedConnectionsService with directo
 
 - [ ] **Step 1: Write the failing test**
 
-Create `consent-protocol/tests/test_connections_chat_service.py`:
+Create `consent-protocol/tests/services/test_connections_chat_service.py`:
 
 ```python
 import pytest
@@ -873,7 +873,7 @@ Expected: PASS (all tests).
 
 ```bash
 git add consent-protocol/hushh_mcp/services/connections_chat_service.py \
-        consent-protocol/tests/test_connections_chat_service.py
+        consent-protocol/tests/services/test_connections_chat_service.py
 git commit -m "feat(trusted-connections): deterministic ConnectionsChatService"
 ```
 

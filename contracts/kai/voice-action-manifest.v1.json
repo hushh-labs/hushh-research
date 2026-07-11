@@ -5994,7 +5994,15 @@
         "add a trusted connection",
         "remove from my trusted connections",
         "who do i trust",
-        "show trusted connections"
+        "show trusted connections",
+        "connect me with someone",
+        "who are my connections",
+        "list my connections",
+        "show my pending connection requests",
+        "accept a connection request",
+        "reject a connection request",
+        "remove someone from my connections",
+        "find people i can connect with"
       ],
       "scope": {
         "routes": [
