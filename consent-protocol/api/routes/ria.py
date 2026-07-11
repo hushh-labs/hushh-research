@@ -379,6 +379,22 @@ async def update_profile(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.post("/profile/delete")
+async def delete_profile(firebase_uid: str = Depends(require_firebase_auth)):
+    """Self-service deletion of the caller's RIA sub-agent profile.
+
+    Auto-disconnects active clients (revokes consent), deletes the RIA profile and
+    its data, and drops the 'ria' persona (the investor/One account survives).
+    POST (not DELETE) to match the client authFetch GET/POST contract."""
+    service = RIAIAMService()
+    try:
+        return await service.delete_ria_self_profile(firebase_uid)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.get("/home")
 async def ria_home(firebase_uid: str = Depends(require_firebase_auth)):
     service = RIAIAMService()

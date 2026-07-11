@@ -4653,6 +4653,196 @@ class RIAIAMService:
 
         return await self.get_ria_onboarding_status(user_id)
 
+    async def delete_ria_self_profile(self, user_id: str) -> dict[str, Any]:
+        """Self-service deletion of the caller's RIA sub-agent profile.
+
+        Removes ONLY the RIA persona/profile — the investor/One account survives.
+        Active client relationships are AUTO-DISCONNECTED first (their consent
+        scopes are revoked in consent_audit and the pick share-grant is revoked),
+        then the ria_profiles row is deleted (cascading its children) and the
+        'ria' persona is dropped from actor_profiles, falling back to investor.
+        Does NOT re-run or require live verification. Returns remaining personas.
+        """
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_actor_profile_row(conn, user_id)
+
+                profile_row = await conn.fetchrow(
+                    "SELECT id FROM ria_profiles WHERE user_id = $1", user_id
+                )
+                if profile_row is None:
+                    raise RIAIAMPolicyError("RIA profile not found.", status_code=404)
+                ria_profile_id = str(profile_row["id"])
+
+                # (1) Auto-disconnect active clients: revoke their consent scopes +
+                # the pick share-grant so investors lose access cleanly. The
+                # relationship rows themselves are removed by the cascade in (4).
+                active_relationships = await conn.fetch(
+                    """
+                    SELECT id, investor_user_id, last_request_id
+                    FROM advisor_investor_relationships
+                    WHERE ria_profile_id = $1::uuid
+                      AND status IN ('approved', 'request_pending')
+                    """,
+                    ria_profile_id,
+                )
+                agent_id = f"ria:{ria_profile_id}"
+                for rel in active_relationships:
+                    investor_user_id = rel["investor_user_id"]
+                    consent_rows = await conn.fetch(
+                        """
+                        SELECT scope, action, expires_at, issued_at
+                        FROM consent_audit
+                        WHERE user_id = $1
+                          AND agent_id = $2
+                          AND action IN ('CONSENT_GRANTED', 'REVOKED')
+                        ORDER BY issued_at DESC
+                        """,
+                        investor_user_id,
+                        agent_id,
+                    )
+                    latest_by_scope: dict[str, asyncpg.Record] = {}
+                    for row in consent_rows:
+                        scope_key = str(row["scope"] or "").strip()
+                        if not scope_key or scope_key in latest_by_scope:
+                            continue
+                        latest_by_scope[scope_key] = row
+                    active_scopes = [
+                        scope
+                        for scope, row in latest_by_scope.items()
+                        if row["action"] == "CONSENT_GRANTED"
+                        and (row["expires_at"] is None or int(row["expires_at"]) > self._now_ms())
+                    ]
+                    issued_at = self._now_ms()
+                    for scope in active_scopes:
+                        await conn.execute(
+                            """
+                            INSERT INTO consent_audit (
+                              token_id,
+                              user_id,
+                              agent_id,
+                              scope,
+                              action,
+                              request_id,
+                              scope_description,
+                              issued_at,
+                              metadata
+                            )
+                            VALUES ($1, $2, $3, $4, 'REVOKED', $5, $6, $7, $8::jsonb)
+                            """,
+                            f"evt_ria_delete_{issued_at}_{scope}",
+                            investor_user_id,
+                            agent_id,
+                            scope,
+                            rel["last_request_id"],
+                            get_scope_description(scope),
+                            issued_at,
+                            json.dumps(
+                                {
+                                    "disconnect_origin": "ria",
+                                    "ria_profile_delete": True,
+                                }
+                            ),
+                        )
+                    await self._revoke_relationship_share_grant(
+                        conn,
+                        relationship_id=str(rel["id"]),
+                        grant_key=_RELATIONSHIP_SHARE_ACTIVE_PICKS,
+                        status="revoked",
+                        reason="ria_profile_delete",
+                    )
+
+                opt_in = await conn.fetchval(
+                    "SELECT investor_marketplace_opt_in FROM actor_profiles WHERE user_id = $1",
+                    user_id,
+                )
+
+                # (2) Explicit cleanup of rows the ria_profiles cascade does NOT
+                # cover (keyed on user_id, or ON DELETE SET NULL). Guarded so a
+                # missing optional table never fails the delete.
+                for stmt, label in (
+                    (
+                        "DELETE FROM marketplace_investor_actions WHERE actor_user_id = $1",
+                        "marketplace_investor_actions",
+                    ),
+                    (
+                        "DELETE FROM ria_business_contacts WHERE user_id = $1",
+                        "ria_business_contacts",
+                    ),
+                    (
+                        "DELETE FROM ria_license_verifications WHERE user_id = $1",
+                        "ria_license_verifications",
+                    ),
+                    (
+                        "DELETE FROM actor_identity_cache WHERE user_id = $1",
+                        "actor_identity_cache",
+                    ),
+                ):
+                    try:
+                        await conn.execute(stmt, user_id)
+                    except asyncpg.exceptions.UndefinedTableError:
+                        logger.warning("%s unavailable during RIA delete; skipping", label)
+
+                # (3) Marketplace public projection: keep as an investor listing if
+                # the user opted in, else remove so the deleted RIA disappears from
+                # the (unauthenticated) public directory.
+                try:
+                    if opt_in:
+                        await conn.execute(
+                            """
+                            UPDATE marketplace_public_profiles
+                            SET profile_type = 'investor',
+                                verification_badge = NULL,
+                                strategy_summary = NULL,
+                                updated_at = NOW()
+                            WHERE user_id = $1
+                            """,
+                            user_id,
+                        )
+                    else:
+                        await conn.execute(
+                            "DELETE FROM marketplace_public_profiles WHERE user_id = $1",
+                            user_id,
+                        )
+                except asyncpg.exceptions.UndefinedTableError:
+                    logger.warning(
+                        "marketplace_public_profiles unavailable during RIA delete; skipping"
+                    )
+
+                # (4) Delete the RIA profile — cascades ria_firm_memberships,
+                # ria_verification_events, advisor_investor_relationships (→ share
+                # grants/events, pick share artifacts), ria_client_invites,
+                # ria_pick_uploads(→rows). The shared ria_firms row survives.
+                await conn.execute("DELETE FROM ria_profiles WHERE user_id = $1", user_id)
+
+                # (5) Drop the 'ria' persona and fall back to investor. Both fields
+                # must change together to satisfy actor_profiles_last_in_personas_check.
+                await conn.execute(
+                    """
+                    UPDATE actor_profiles
+                    SET personas = array_remove(personas, 'ria'),
+                        last_active_persona = 'investor',
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+
+                # (6) Reset the runtime persona pointer.
+                await self._set_runtime_last_persona(conn, user_id, "investor")
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        # (7) Bust the in-process persona cache so the next read reflects removal.
+        self._invalidate_cached_persona_state(user_id)
+
+        return {"deleted": True, "remaining_personas": ["investor"]}
+
     async def list_ria_firms(self, user_id: str) -> list[dict[str, Any]]:
         conn = await self._conn()
         try:

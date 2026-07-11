@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, RotateCcw, Trash2 } from "lucide-react";
 
 import {
   RiaCompatibilityState,
@@ -10,7 +10,21 @@ import {
 } from "@/components/ria/ria-page-shell";
 import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-step-services";
-import { SettingsDetailPanel } from "@/components/app-ui/settings-ui";
+import {
+  SettingsDetailPanel,
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/app-ui/settings-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { RiaService } from "@/lib/services/ria-service";
@@ -37,11 +51,14 @@ export default function RiaProfilePage() {
     loading: personaLoading,
     refreshing: personaRefreshing,
     refresh,
+    switchPersona,
   } = usePersonaState();
 
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<RiaOnboardingDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Setup advisors have no built profile yet — the profile is authored in the
   // wizard, so send them there. (Established "switch" advisors stay here.)
@@ -146,6 +163,36 @@ export default function RiaProfilePage() {
     }
   }, [draft, refresh, saving, user]);
 
+  const handleReinitiate = useCallback(() => {
+    // Re-run the whole wizard from step 1 (bypasses the switch→profile guard).
+    router.push(`${ROUTES.RIA_ONBOARDING}?reinitiate=1`);
+  }, [router]);
+
+  const handleDeleteProfile = useCallback(async () => {
+    if (!user || deleting) return;
+    setDeleting(true);
+    try {
+      const idToken = await user.getIdToken();
+      await RiaService.deleteProfile(idToken);
+      // Drop back to the investor persona (also busts the server persona cache),
+      // re-pull state, then leave the RIA sub-agent for One home.
+      await switchPersona("investor").catch(() => null);
+      await refresh({ force: true });
+      setShowDeleteConfirm(false);
+      toast.success("RIA profile deleted", {
+        description: "Your One account is unchanged.",
+      });
+      router.replace(ROUTES.ONE_HOME);
+    } catch (error) {
+      toast.error("Could not delete profile", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleting, refresh, router, switchPersona, user]);
+
   const isBooting =
     (personaLoading || personaRefreshing) && !riaOnboardingStatus;
   const dataState = isBooting
@@ -200,6 +247,32 @@ export default function RiaProfilePage() {
           onAskKaiUpdateAnything={handleAskKai}
         />
       )}
+
+      {!isBooting && riaCapability !== "disabled" ? (
+        <SettingsGroup
+          eyebrow="Manage"
+          title="RIA profile"
+          testId="ria-profile-manage"
+        >
+          <SettingsRow
+            icon={RotateCcw}
+            title="Re-initiate onboarding"
+            description="Run the 5-step setup wizard again. Your profile goes to pending until re-verified; clients stay connected."
+            onClick={handleReinitiate}
+            chevron
+            testId="ria-profile-reinitiate"
+          />
+          <SettingsRow
+            icon={Trash2}
+            tone="destructive"
+            title="Delete RIA profile"
+            description="Remove your RIA profile and disconnect any clients. Your One account stays."
+            onClick={() => setShowDeleteConfirm(true)}
+            disabled={deleting}
+            testId="ria-profile-delete"
+          />
+        </SettingsGroup>
+      ) : null}
 
       <SettingsDetailPanel
         open={editOpen}
@@ -261,6 +334,37 @@ export default function RiaProfilePage() {
           </div>
         ) : null}
       </SettingsDetailPanel>
+
+      <AlertDialog
+        open={showDeleteConfirm}
+        onOpenChange={(open) => {
+          if (!deleting) setShowDeleteConfirm(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete your RIA profile?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes your RIA advisor profile and automatically disconnects
+              any active clients (their consent is revoked). Your One account and
+              investor data are not affected. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!deleting) void handleDeleteProfile();
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete profile"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </RiaPageShell>
   );
 }

@@ -1070,6 +1070,34 @@ describe("RiaOnboardingPage", () => {
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
+  it("keeps a switch advisor in the wizard at welcome via ?reinitiate=1", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("reinitiate=1"));
+    mocks.usePersonaState.mockReturnValue({
+      refresh: mocks.refreshPersonaState,
+      riaCapability: "switch",
+      loading: false,
+      refreshing: false,
+      riaOnboardingStatus: null,
+    });
+    mocks.riaService.getOnboardingStatus.mockResolvedValue({
+      exists: true,
+      advisory_status: "verified",
+      verification_status: "verified",
+      individual_crd: "7413463",
+      display_name: "Andrew Kirkland",
+      services_offered: ["Portfolio Management"],
+      fee_structure: ["Hourly"],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    // Re-initiate bypasses the switch→profile guard and starts at step 1.
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
+    });
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+
   it("keeps the user on the services step when Continue is pressed with empty required fields", async () => {
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
