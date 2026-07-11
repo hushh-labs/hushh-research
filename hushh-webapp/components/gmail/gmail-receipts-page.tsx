@@ -938,6 +938,11 @@ export default function ProfileReceiptsPage() {
         domain: "shopping",
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "gmail_receipt_memory_save_button",
+        },
         build: async (context) => {
           const prepared = buildShoppingReceiptMemoryPreparedDomain({
             currentDomainData: context.currentDomainData,

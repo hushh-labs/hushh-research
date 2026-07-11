@@ -77,6 +77,14 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "minimum": 24,
                         "maximum": 2160,
                     },
+                    "refresh_policy": {
+                        "type": "string",
+                        "enum": ["snapshot", "continuous_until_expiry"],
+                        "description": (
+                            "snapshot shares only the approved revision. continuous_until_expiry "
+                            "creates fresh encrypted revisions for confirmed same-scope PKM changes."
+                        ),
+                    },
                     "poll_seconds": {
                         "type": "integer",
                         "description": "Bounded polling window after a pending request is created or reused. Default: 90; maximum: 90.",
@@ -146,12 +154,10 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "scope": {
                         "type": "string",
                         "description": (
-                            "Data scope to access. Use pkm.read for the full PKM, "
-                            "or one of the dynamic attr scopes discovered for this user. "
+                            "Exact dynamic attr scope discovered for this user. "
                             "Domains per user come from discover_user_domains(user_id). Each scope requires separate consent."
                         ),
                         "examples": [
-                            "pkm.read",
                             "attr.{domain}.*",
                             "attr.{domain}.{subintent}.*",
                             "attr.{domain}.{path}",
@@ -178,6 +184,14 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         ),
                         "minimum": 24,
                         "maximum": 2160,
+                    },
+                    "refresh_policy": {
+                        "type": "string",
+                        "enum": ["snapshot", "continuous_until_expiry"],
+                        "description": (
+                            "snapshot (default) is immutable. continuous_until_expiry refreshes "
+                            "only confirmed changes with unchanged scope meaning and connector key."
+                        ),
                     },
                     "connector_public_key": {
                         "type": "string",
@@ -286,22 +300,11 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             name="get_encrypted_scoped_export",
             description=(
                 "📦 Retrieve data for any valid consent token. This is the recommended dynamic "
-                "data-access tool for all new integrations. "
-                "On the local stdio server: decrypts and narrows the export locally using the server's own "
-                "persisted connector keypair, returning a small plaintext `data` object directly - no ciphertext, "
-                "no download step, no risk of overflowing model context on large exports. If the decrypted "
-                "result for a whole domain (e.g. attr.financial.*) is still too large, retry with a narrower "
-                "expected_scope/sub-path (e.g. attr.financial.profile.* or attr.financial.analytics.*) rather "
-                "than falling back to raw ciphertext, since raw delivery requires reaching a download URL that "
-                "sandboxed hosts often cannot route to. "
-                "On the remote/hosted MCP endpoint (no local trusted process to hold a key): returns ciphertext "
-                "plus wrapped key metadata only; the external connector decrypts client-side. Small exports "
-                "include the base64 ciphertext inline (encrypted_data); larger exports set delivery=download - "
-                "fetch the raw bytes with the returned download instructions (an authenticated POST your script "
-                "runs directly). Never retype or reconstruct ciphertext through the model context. If your script "
-                "environment cannot reach the download URL (sandboxes, egress allowlists, localhost servers), "
-                "retry with delivery='inline'. Pass raw=true on the local stdio server to opt out of automatic "
-                "decryption and receive the same raw ciphertext contract as the remote endpoint."
+                "data-access tool for all new integrations. Local stdio fetches the authenticated "
+                "binary resource, validates envelope v2, decrypts, and narrows inside the connector "
+                "process. Hosted MCP returns structured envelope metadata plus a standard ResourceLink; "
+                "the host connector fetches and decrypts it outside model context. Ciphertext is never "
+                "returned inline. Oversized plaintext requires a narrower discovered child scope."
             ),
             inputSchema={
                 "type": "object",
@@ -336,89 +339,11 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                             "and echoes expected_scope so the connector can narrow after decrypting."
                         ),
                     },
-                    "delivery": {
-                        "type": "string",
-                        "enum": ["auto", "inline", "raw"],
-                        "description": (
-                            "auto (default): on the local stdio server, decrypt and narrow locally and return "
-                            "`data` directly; on the remote/hosted endpoint, small exports inline, large exports "
-                            "via the download endpoint. inline: force the full base64 ciphertext into the tool "
-                            "result - use ONLY when your script environment cannot reach the download URL, and "
-                            "write it to a file in one step without retyping it. raw: on the local stdio server, "
-                            "opt out of automatic decryption and receive the raw ciphertext contract instead "
-                            "(same as the remote endpoint's default behavior)."
-                        ),
-                    },
-                    "raw": {
-                        "type": "boolean",
-                        "description": (
-                            "Local stdio server only: set true to opt out of automatic local decryption and "
-                            "receive the raw ciphertext contract (encrypted_data/iv/tag/wrapped_key_bundle) "
-                            "instead of a decrypted `data` object. Equivalent to delivery='raw'. No effect on "
-                            "the remote/hosted endpoint, which always returns raw ciphertext."
-                        ),
-                    },
                 },
                 "required": ["user_id", "consent_token"],
             },
         ),
-        # Tool 4: Delegate to Agent (TrustLink)
-        Tool(
-            name="delegate_to_agent",
-            description=(
-                "🔗 Create a TrustLink to delegate a task to another agent (A2A). "
-                "This enables agent-to-agent communication with cryptographic proof "
-                "that the delegation was authorized by the user."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "from_agent": {
-                        "type": "string",
-                        "description": "Agent ID making the delegation (e.g., 'orchestrator')",
-                    },
-                    "to_agent": {
-                        "type": "string",
-                        "description": "Target agent ID (current ontology specialists)",
-                        "enum": [
-                            "agent_kai",
-                            "agent_nav",
-                            "agent_kyc",
-                            "agent_personal_information",
-                        ],
-                    },
-                    "scope": {"type": "string", "description": "Scope being delegated"},
-                    "user_id": {
-                        "type": "string",
-                        "description": "User authorizing the delegation (Firebase UID, registered email, or registered E.164 phone number)",
-                    },
-                    "session_id": {
-                        "type": "string",
-                        "description": (
-                            "Optional session identifier for the current connection. "
-                            "When provided, the TrustLink HMAC is bound to this session, "
-                            "preventing replay across different streams."
-                        ),
-                    },
-                    "country_iso2": {
-                        "type": "string",
-                        "description": (
-                            "Optional ISO country hint for national phone numbers. "
-                            "Examples: US, GB, IN."
-                        ),
-                    },
-                    "country": {
-                        "type": "string",
-                        "description": (
-                            "Optional country name or shortform for national phone numbers. "
-                            "Examples: United States, USA, UK."
-                        ),
-                    },
-                },
-                "required": ["from_agent", "to_agent", "scope", "user_id"],
-            },
-        ),
-        # Tool 5: List Available Scopes
+        # List Available Scopes
         Tool(
             name="list_scopes",
             description=(

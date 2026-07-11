@@ -92,7 +92,7 @@ Repo references:
 Codex remote setup:
 
 ```bash
-codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/?token=<developer-token>"
+codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/" --bearer-token-env-var HUSHH_DEVELOPER_TOKEN
 ```
 
 Codex stdio config:
@@ -204,7 +204,7 @@ npx -y @hushh/mcp --help
 ```
 
 2. Confirm the host can discover Hussh tools/resources after attaching it.
-3. For hosted UAT, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
+3. For hosted UAT, use the slash-safe mount URL `/mcp/` and send the developer token only through the configured bearer-header environment variable. Query tokens are rejected.
 4. `@hushh/mcp` is the default stdio install surface.
 5. If you are working contributor-local instead, use the repo-local fallback:
 

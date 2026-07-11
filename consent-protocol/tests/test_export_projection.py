@@ -89,16 +89,28 @@ def test_decrypt_scoped_export_package_round_trip_raw_bytes():
     assert decrypted == payload
 
 
-def test_project_domain_data_for_scope_wildcard_returns_full_domain():
-    domain_data = {"net_worth": 100, "accounts": [{"id": 1}]}
-    result = project_domain_data_for_scope("financial", "attr.financial.*", domain_data)
-    assert result == {"financial": domain_data}
+def test_project_domain_data_for_scope_wildcard_prunes_to_approved_paths():
+    domain_data = {
+        "net_worth": 100,
+        "accounts": [{"id": 1, "debug": "blocked"}],
+        "metadata": {"hash": "blocked"},
+    }
+    result = project_domain_data_for_scope(
+        "financial",
+        "attr.financial.*",
+        domain_data,
+        approved_paths=["net_worth", "accounts._items.id"],
+    )
+    assert result == {"financial": {"net_worth": 100, "accounts": [{"id": 1}]}}
 
 
 def test_project_domain_data_for_scope_narrows_to_path():
     domain_data = {"analytics": {"quality_metrics": {"score": 92}}, "other": "ignored"}
     result = project_domain_data_for_scope(
-        "financial", "attr.financial.analytics.quality_metrics", domain_data
+        "financial",
+        "attr.financial.analytics.quality_metrics",
+        domain_data,
+        approved_paths=["analytics.quality_metrics.score"],
     )
     assert result == {"financial": {"analytics": {"quality_metrics": {"score": 92}}}}
 
@@ -121,7 +133,12 @@ def test_extract_path_value_items_traversal_over_lists():
 
 def test_project_domain_data_for_scope_missing_path_returns_empty_domain():
     domain_data = {"net_worth": 100}
-    result = project_domain_data_for_scope("financial", "attr.financial.nonexistent", domain_data)
+    result = project_domain_data_for_scope(
+        "financial",
+        "attr.financial.nonexistent",
+        domain_data,
+        approved_paths=["net_worth"],
+    )
     assert result == {"financial": {}}
 
 
@@ -133,16 +150,22 @@ def test_narrow_decrypted_export_passthrough_without_expected_scope():
 def test_narrow_decrypted_export_narrows_using_source_domain_metadata():
     payload = {
         "financial": {"net_worth": 100, "accounts": []},
-        "__export_metadata": {"source_domain": "financial"},
+        "__export_metadata": {
+            "source_domain": "financial",
+            "approved_paths": ["net_worth"],
+        },
     }
     result = narrow_decrypted_export(payload, "attr.financial.net_worth")
     assert result == {
         "financial": {"net_worth": 100},
-        "__export_metadata": {"source_domain": "financial"},
+        "__export_metadata": {
+            "source_domain": "financial",
+            "approved_paths": ["net_worth"],
+        },
     }
 
 
-def test_narrow_decrypted_export_derives_domain_from_scope_when_no_metadata():
+def test_narrow_decrypted_export_fails_closed_without_approved_paths():
     payload = {"financial": {"net_worth": 100}}
     result = narrow_decrypted_export(payload, "attr.financial.*")
-    assert result == {"financial": {"net_worth": 100}}
+    assert result == {"financial": {}}

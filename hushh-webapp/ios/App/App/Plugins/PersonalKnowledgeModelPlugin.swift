@@ -357,6 +357,9 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         if let structureDecision = call.getObject("structureDecision") {
             body["structure_decision"] = structureDecision
         }
+        if let mutationPlan = call.getObject("mutationPlan") {
+            body["mutation_plan"] = mutationPlan
+        }
         if let manifest = call.getObject("manifest") {
             body["manifest"] = manifest
         }

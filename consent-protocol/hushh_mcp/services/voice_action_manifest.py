@@ -189,7 +189,29 @@ def select_voice_manifest_actions_for_prompt(
     normalized_transcript = str(transcript or "").strip().lower()
     ranked: list[tuple[int, dict[str, Any]]] = []
 
+    def _reachable_on_screen(action: dict[str, Any]) -> bool:
+        """Exclude actions whose declared screens do not include the current one.
+
+        An action with an EMPTY ``scope.screens`` is screen-agnostic (e.g.
+        global navigation) and stays eligible everywhere. But an action that
+        DOES declare screens (e.g. ``phone_mandate.submit_number`` scoped to
+        ``phone_mandate``/``register_phone``) must NOT surface on an unrelated
+        screen like ``one_setup``. Without a known current screen we cannot
+        exclude, so everything stays eligible.
+        """
+        if not normalized_screen:
+            return True
+        raw_scope = action.get("scope")
+        scope: dict[str, Any] = raw_scope if isinstance(raw_scope, dict) else {}
+        raw_screens = scope.get("screens") or []
+        screens = {str(s).strip() for s in raw_screens if str(s).strip()}
+        if not screens:
+            return True
+        return normalized_screen in screens
+
     for action in list_voice_manifest_actions():
+        if not _reachable_on_screen(action):
+            continue
         score = 0
         if action.get("action_id") in normalized_available:
             score += 6
@@ -212,4 +234,8 @@ def select_voice_manifest_actions_for_prompt(
     selected = [action for _, action in ranked[:limit]]
     if selected:
         return selected
-    return list_voice_manifest_actions()[: max(0, limit)]
+    # Fallback keeps the same screen-reachability guard so off-screen actions
+    # (e.g. phone verification while on the setup hub) never leak in.
+    return [action for action in list_voice_manifest_actions() if _reachable_on_screen(action)][
+        : max(0, limit)
+    ]

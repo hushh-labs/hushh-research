@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.consent.export_envelope import normalize_refresh_policy
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.consent_request_links import build_consent_request_url
@@ -224,7 +225,14 @@ class ConsentDBService:
     @staticmethod
     def _normalize_refresh_status(value: Any) -> str:
         normalized = str(value or "").strip().lower()
-        if normalized in {"current", "refresh_pending", "stale"}:
+        if normalized in {
+            "current",
+            "refresh_pending",
+            "refresh_failed",
+            "stale",
+            "scope_retired",
+            "key_rebind_required",
+        }:
             return normalized
         return "current"
 
@@ -279,6 +287,20 @@ class ConsentDBService:
             "source_content_revision": row.get("source_content_revision"),
             "source_manifest_revision": row.get("source_manifest_revision"),
             "refresh_status": self._normalize_refresh_status(row.get("refresh_status")),
+            "refresh_policy": normalize_refresh_policy(row.get("refresh_policy")),
+            "export_id": str(row.get("export_id") or "").strip() or None,
+            "envelope_version": int(row.get("envelope_version") or 1),
+            "grant_id": str(row.get("grant_id") or "").strip() or None,
+            "app_id": str(row.get("app_id") or "").strip() or None,
+            "scope_handle": str(row.get("scope_handle") or "").strip() or None,
+            "recipient_key_fingerprint": str(row.get("recipient_key_fingerprint") or "").strip()
+            or None,
+            "payload_algorithm": str(row.get("payload_algorithm") or "AES-256-GCM").strip()
+            or "AES-256-GCM",
+            "envelope_aad": self._parse_metadata(row.get("envelope_aad")) or None,
+            "envelope_aad_sha256": str(row.get("envelope_aad_sha256") or "").strip() or None,
+            "ciphertext_sha256": str(row.get("ciphertext_sha256") or "").strip() or None,
+            "ciphertext_bytes": int(row.get("ciphertext_bytes") or 0) or None,
             "is_strict_zero_knowledge": is_strict_zero_knowledge,
             "legacy_export_key_present": legacy_export_key_present,
         }
@@ -929,9 +951,19 @@ class ConsentDBService:
         return results
 
     async def is_token_active(
-        self, user_id: str, scope: str, agent_id: Optional[str] = None
+        self,
+        user_id: str,
+        scope: str,
+        agent_id: Optional[str] = None,
+        *,
+        token_id: Optional[str] = None,
     ) -> bool:
-        """Check if there's an active token for user+scope (+agent_id when provided)."""
+        """Check that the presented token is the latest active grant.
+
+        ``token_id`` remains optional for callers asking whether any grant
+        exists. Critical validation supplies it so a prior same-app/same-scope
+        token cannot become valid again after reapproval or key rebinding.
+        """
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         normalized_scope = str(scope or "").strip()
         normalized_agent_id = agent_id or None
@@ -948,7 +980,7 @@ class ConsentDBService:
                 supabase = self._get_supabase()
                 query = (
                     supabase.table("internal_access_events")
-                    .select("action,expires_at,issued_at")
+                    .select("action,expires_at,issued_at,token_id")
                     .eq("user_id", user_id)
                     .eq("scope", normalized_scope)
                     .in_("action", ["CONSENT_GRANTED", "REVOKED"])
@@ -973,7 +1005,7 @@ class ConsentDBService:
             supabase = self._get_supabase()
             query = (
                 supabase.table("consent_audit")
-                .select("action,expires_at,issued_at")
+                .select("action,expires_at,issued_at,token_id")
                 .eq("user_id", user_id)
                 .eq("scope", normalized_scope)
                 .in_("action", ["CONSENT_GRANTED", "REVOKED"])
@@ -987,6 +1019,8 @@ class ConsentDBService:
 
         row = rows[0]
         if row.get("action") != "CONSENT_GRANTED":
+            return False
+        if token_id is not None and str(row.get("token_id") or "") != token_id:
             return False
 
         expires_at = row.get("expires_at")
@@ -1743,6 +1777,18 @@ class ConsentDBService:
         source_content_revision: int | None = None,
         source_manifest_revision: int | None = None,
         refresh_status: str = "current",
+        refresh_policy: str = "snapshot",
+        export_id: str | None = None,
+        envelope_version: int = 1,
+        grant_id: str | None = None,
+        app_id: str | None = None,
+        scope_handle: str | None = None,
+        recipient_key_fingerprint: str | None = None,
+        payload_algorithm: str = "AES-256-GCM",
+        envelope_aad: Dict | None = None,
+        envelope_aad_sha256: str | None = None,
+        ciphertext_sha256: str | None = None,
+        ciphertext_bytes: int | None = None,
     ) -> bool:
         """
         Store encrypted export data for strict wrapped-key zero-knowledge flow.
@@ -1777,29 +1823,62 @@ class ConsentDBService:
                 _token_fingerprint(consent_token),
             )
             return False
+        normalized_envelope_version = int(envelope_version or 1)
+        if normalized_envelope_version == 2 and not all(
+            (
+                export_id,
+                grant_id,
+                app_id,
+                scope_handle,
+                recipient_key_fingerprint,
+                envelope_aad,
+                envelope_aad_sha256,
+                ciphertext_sha256,
+                ciphertext_bytes,
+            )
+        ):
+            logger.error(
+                "Refusing incomplete consent export envelope v2 token_fp=%s",
+                _token_fingerprint(consent_token),
+            )
+            return False
 
         try:
             # Upsert to handle re-approvals
+            export_row = {
+                "consent_token": consent_token,
+                "user_id": user_id,
+                "encrypted_data": encrypted_data,
+                "iv": iv,
+                "tag": tag,
+                "export_key": None,
+                "wrapped_key_bundle": normalized_bundle,
+                "connector_key_id": normalized_bundle.get("connector_key_id"),
+                "connector_wrapping_alg": normalized_bundle.get("wrapping_alg"),
+                "export_revision": max(1, int(export_revision or 1)),
+                "export_generated_at": export_generated_at
+                or datetime.now(timezone.utc).isoformat(),
+                "source_content_revision": source_content_revision,
+                "source_manifest_revision": source_manifest_revision,
+                "refresh_status": self._normalize_refresh_status(refresh_status),
+                "refresh_policy": normalize_refresh_policy(refresh_policy),
+                "envelope_version": normalized_envelope_version,
+                "grant_id": grant_id,
+                "app_id": app_id,
+                "scope_handle": scope_handle,
+                "recipient_key_fingerprint": recipient_key_fingerprint,
+                "payload_algorithm": payload_algorithm,
+                "envelope_aad": envelope_aad,
+                "envelope_aad_sha256": envelope_aad_sha256,
+                "ciphertext_sha256": ciphertext_sha256,
+                "ciphertext_bytes": ciphertext_bytes,
+                "scope": scope,
+                "expires_at": expires_at,
+            }
+            if export_id:
+                export_row["export_id"] = export_id
             supabase.table("consent_exports").upsert(
-                {
-                    "consent_token": consent_token,
-                    "user_id": user_id,
-                    "encrypted_data": encrypted_data,
-                    "iv": iv,
-                    "tag": tag,
-                    "export_key": None,
-                    "wrapped_key_bundle": normalized_bundle,
-                    "connector_key_id": normalized_bundle.get("connector_key_id"),
-                    "connector_wrapping_alg": normalized_bundle.get("wrapping_alg"),
-                    "export_revision": max(1, int(export_revision or 1)),
-                    "export_generated_at": export_generated_at
-                    or datetime.now(timezone.utc).isoformat(),
-                    "source_content_revision": source_content_revision,
-                    "source_manifest_revision": source_manifest_revision,
-                    "refresh_status": self._normalize_refresh_status(refresh_status),
-                    "scope": scope,
-                    "expires_at": expires_at,
-                },
+                export_row,
                 on_conflict="consent_token",
             ).execute()
 
@@ -1850,12 +1929,44 @@ class ConsentDBService:
             "export_revision": export.get("export_revision"),
             "export_generated_at": export.get("export_generated_at"),
             "refresh_status": export.get("refresh_status"),
+            "refresh_policy": export.get("refresh_policy"),
+            "export_id": export.get("export_id"),
+            "envelope_version": export.get("envelope_version"),
+            "grant_id": export.get("grant_id"),
+            "app_id": export.get("app_id"),
+            "scope_handle": export.get("scope_handle"),
+            "recipient_key_fingerprint": export.get("recipient_key_fingerprint"),
+            "payload_algorithm": export.get("payload_algorithm"),
+            "envelope_aad": export.get("envelope_aad"),
+            "envelope_aad_sha256": export.get("envelope_aad_sha256"),
+            "ciphertext_sha256": export.get("ciphertext_sha256"),
+            "ciphertext_bytes": export.get("ciphertext_bytes"),
+            "source_content_revision": export.get("source_content_revision"),
+            "source_manifest_revision": export.get("source_manifest_revision"),
             "wrapped_key_bundle": export.get("wrapped_key_bundle"),
             "connector_key_id": export.get("connector_key_id"),
             "connector_wrapping_alg": export.get("connector_wrapping_alg"),
             "is_strict_zero_knowledge": export.get("is_strict_zero_knowledge"),
             "legacy_export_key_present": export.get("legacy_export_key_present"),
         }
+
+    async def get_consent_export_by_id(self, export_id: str) -> Optional[Dict[str, Any]]:
+        """Load one non-expired resource by its unguessable export id."""
+
+        supabase = self._get_supabase()
+        try:
+            response = (
+                supabase.table("consent_exports")
+                .select("*")
+                .eq("export_id", export_id)
+                .gt("expires_at", datetime.now(timezone.utc).isoformat())
+                .limit(1)
+                .execute()
+            )
+            return self._normalize_export_row(response.data[0]) if response.data else None
+        except Exception as exc:
+            logger.error("Failed to get consent export resource: %s", exc)
+            return None
 
     async def mark_export_refresh_status(self, consent_token: str, refresh_status: str) -> bool:
         supabase = self._get_supabase()
@@ -1947,6 +2058,11 @@ class ConsentDBService:
             {str(path).strip() for path in (trigger_paths or []) if str(path).strip()}
         )
         try:
+            export_metadata = await self.get_consent_export_metadata(consent_token)
+            if not export_metadata or export_metadata.get("refresh_policy") != (
+                "continuous_until_expiry"
+            ):
+                return False
             existing_rows = (
                 supabase.table("consent_export_refresh_jobs")
                 .select("*")
@@ -1980,6 +2096,10 @@ class ConsentDBService:
                     "requested_at": now_iso,
                     "last_error": None,
                     "attempt_count": attempt_count,
+                    "claim_id": None,
+                    "claimed_at": None,
+                    "claim_expires_at": None,
+                    "expected_export_revision": int(export_metadata.get("export_revision") or 1),
                 },
                 on_conflict="consent_token",
             ).execute()
@@ -2030,6 +2150,93 @@ class ConsentDBService:
             logger.error("Failed to list consent export refresh jobs: %s", exc)
             return []
 
+    async def claim_consent_export_refresh_jobs(
+        self,
+        user_id: str,
+        *,
+        limit: int = 50,
+        lease_seconds: int = 300,
+    ) -> List[Dict[str, Any]]:
+        """Atomically lease continuous-refresh jobs across tabs and devices."""
+
+        supabase = self._get_supabase()
+        response = supabase.rpc(
+            "claim_consent_export_refresh_jobs_v2",
+            {
+                "p_user_id": user_id,
+                "p_limit": max(1, min(int(limit), 100)),
+                "p_lease_seconds": max(30, min(int(lease_seconds), 900)),
+            },
+        ).execute()
+        return [row for row in (response.data or []) if isinstance(row, dict)]
+
+    async def get_claimed_consent_export_refresh_job(
+        self,
+        *,
+        user_id: str,
+        claim_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        supabase = self._get_supabase()
+        response = (
+            supabase.table("consent_export_refresh_jobs")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("claim_id", claim_id)
+            .eq("status", "processing")
+            .gt("claim_expires_at", datetime.now(timezone.utc).isoformat())
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    async def complete_claimed_consent_export_refresh(
+        self,
+        *,
+        user_id: str,
+        claim_id: str,
+        expected_export_revision: int,
+        encrypted_data: str,
+        iv: str,
+        tag: str,
+        wrapped_key_bundle: Dict[str, Any],
+        connector_key_id: str | None,
+        connector_wrapping_alg: str,
+        envelope_aad: Dict[str, Any],
+        envelope_aad_sha256: str,
+        ciphertext_sha256: str,
+        ciphertext_bytes: int,
+        source_content_revision: int | None,
+        source_manifest_revision: int | None,
+    ) -> bool:
+        """Commit one revision with a DB-side lease and revision CAS."""
+
+        supabase = self._get_supabase()
+        response = supabase.rpc(
+            "complete_consent_export_refresh_v2",
+            {
+                "p_user_id": user_id,
+                "p_claim_id": claim_id,
+                "p_expected_export_revision": expected_export_revision,
+                "p_encrypted_data": encrypted_data,
+                "p_iv": iv,
+                "p_tag": tag,
+                "p_wrapped_key_bundle": wrapped_key_bundle,
+                "p_connector_key_id": connector_key_id,
+                "p_connector_wrapping_alg": connector_wrapping_alg,
+                "p_envelope_aad": envelope_aad,
+                "p_envelope_aad_sha256": envelope_aad_sha256,
+                "p_ciphertext_sha256": ciphertext_sha256,
+                "p_ciphertext_bytes": ciphertext_bytes,
+                "p_source_content_revision": source_content_revision,
+                "p_source_manifest_revision": source_manifest_revision,
+            },
+        ).execute()
+        if isinstance(response.data, bool):
+            return response.data
+        if isinstance(response.data, list) and response.data:
+            return response.data[0] is True
+        return False
+
     async def complete_consent_export_refresh_job(self, consent_token: str) -> bool:
         supabase = self._get_supabase()
         try:
@@ -2052,16 +2259,19 @@ class ConsentDBService:
 
     async def fail_consent_export_refresh_job(
         self,
-        consent_token: str,
         *,
+        user_id: str,
+        claim_id: str,
         last_error: str | None = None,
     ) -> bool:
         supabase = self._get_supabase()
         try:
             existing_rows = (
                 supabase.table("consent_export_refresh_jobs")
-                .select("attempt_count")
-                .eq("consent_token", consent_token)
+                .select("attempt_count,consent_token")
+                .eq("user_id", user_id)
+                .eq("claim_id", claim_id)
+                .eq("status", "processing")
                 .limit(1)
                 .execute()
                 .data
@@ -2073,19 +2283,29 @@ class ConsentDBService:
                     attempt_count = int(existing_rows[0].get("attempt_count") or 0) + 1
                 except Exception:
                     attempt_count = 1
-            (
+            if not existing_rows:
+                return False
+            consent_token = str(existing_rows[0].get("consent_token") or "").strip()
+            if not consent_token:
+                return False
+            response = (
                 supabase.table("consent_export_refresh_jobs")
                 .update(
                     {
                         "status": "failed",
                         "last_error": str(last_error or "").strip() or None,
                         "attempt_count": attempt_count,
+                        "claim_expires_at": None,
                     }
                 )
-                .eq("consent_token", consent_token)
+                .eq("user_id", user_id)
+                .eq("claim_id", claim_id)
+                .eq("status", "processing")
                 .execute()
             )
-            await self.mark_export_refresh_status(consent_token, "stale")
+            if not response.data:
+                return False
+            await self.mark_export_refresh_status(consent_token, "refresh_failed")
             return True
         except Exception as exc:
             logger.error("Failed to fail consent export refresh job: %s", exc)

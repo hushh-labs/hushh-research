@@ -1569,9 +1569,9 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Trusted Circle");
-    expect(screen.getByText("No ready people yet")).toBeTruthy();
+    expect(screen.getByText("Build your trusted circle")).toBeTruthy();
     expect(
-      screen.getByText("Invite someone to your Circle to start private sharing."),
+      screen.getByText("Add connections so the people you trust can receive your live location."),
     ).toBeTruthy();
     expect(screen.queryByText(/No approvals waiting/)).toBeNull();
     expect(screen.queryByText(/No trusted matches yet/)).toBeNull();

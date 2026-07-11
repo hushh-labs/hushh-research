@@ -81,7 +81,7 @@ Legacy cutover and ongoing PKM evolution are different:
   2. decrypt one encrypted domain locally
   3. transform it through the generic dynamic PKM capability pipeline
   4. rebuild manifests, scope registry, readable metadata, consumer visibility, and semantic counts
-  5. preserve the section visibility posture as a protocol field: `private`, `consent_required`, or `default_available`
+  5. preserve the section visibility posture as a protocol field: `private` or `consent_required`; owner-public profiles are separate resources
   6. re-encrypt and store with optimistic concurrency
 - If the app is interrupted, resume is allowed only after local vault re-auth. There is no silent server-side decrypt or key recovery.
 
@@ -172,19 +172,19 @@ python3 scripts/eval_pkm_structure_agent.py --phase fresh_chain_60 --env-file .e
 
 The eval uses `REVIEWER_UID` as its first shadow user when present. This keeps daily prompt-chain checks aligned to the real reviewer-shaped domain/scope surface while still avoiding plaintext PKM in model prompts.
 
-## Default-available projection rehearsal
+## Public-profile projection rehearsal
 
-When changing the third visibility posture, test it as the env-wired reviewer vault owner:
+When changing owner-published public profiles, test it as the env-wired reviewer vault owner:
 
 1. unlock locally with the reviewer passphrase overlay
 2. choose one low-risk consumer-visible section
 3. publish only the safe client-generated projection
-4. verify developer discovery marks it `visibility_posture=default_available` and `default_projection_ready=true`
-5. read it through `/api/v1/default-available-export`
+4. verify the owner status endpoint returns an opaque `public_profile_handle`
+5. read it through `/api/v1/public-profile-export` with that handle
 6. confirm an audit event is recorded
-7. reset to `consent_required` unless the test is intentionally persistent
+7. unpublish it with the exact handle unless the test is intentionally persistent
 
-Do not use raw PKM blobs, `pkm.read`, workflow artifacts, hashes, provenance, or internal manifest paths as a default-available payload.
+Do not use raw PKM blobs, `pkm.read`, workflow artifacts, hashes, provenance, or internal manifest paths as a public-profile payload.
 
 ## Wrapper selection rule
 

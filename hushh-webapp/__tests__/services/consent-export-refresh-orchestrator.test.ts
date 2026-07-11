@@ -83,6 +83,35 @@ vi.mock("@/lib/vault/export-encrypt", () => ({
   ),
 }));
 
+vi.mock("@/lib/consent/export-envelope-v2", () => ({
+  buildConsentExportAadV2: vi.fn((params: Record<string, unknown>) =>
+    Promise.resolve({
+      version: 2,
+      app_id: params.appId,
+      grant_id: params.grantId,
+      export_id: params.exportId,
+      revision: params.revision,
+      machine_scope: params.machineScope,
+      scope_handle: params.scopeHandle,
+      recipient_key_fingerprint: "sha256:fingerprint",
+      payload_algorithm: "AES-256-GCM",
+      expires_at_ms: params.expiresAtMs,
+    })
+  ),
+  buildConsentExportEnvelopeSubmissionV2: vi.fn(({ aad }) =>
+    Promise.resolve({
+      version: 2,
+      export_id: aad.export_id,
+      aad,
+      aad_sha256: "sha256:aad",
+      ciphertext_sha256: "sha256:ciphertext",
+      ciphertext_bytes: 8,
+    })
+  ),
+  canonicalConsentExportAad: vi.fn(() => "aad"),
+  canonicalConsentExportJson: vi.fn(() => "envelope"),
+}));
+
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
 
 /* ---------- helpers ---------- */
@@ -96,8 +125,8 @@ const BASE_PARAMS = {
 
 function makeJob(overrides?: Partial<Record<string, unknown>>) {
   return {
-    consentToken: overrides?.consentToken ?? "ct-1",
-    grantedScope: overrides?.grantedScope ?? "pkm.read",
+    jobClaimId: overrides?.jobClaimId ?? "claim-1",
+    grantedScope: overrides?.grantedScope ?? "attr.food.profile.*",
     connectorPublicKey: overrides?.connectorPublicKey ?? "pk-1",
     connectorKeyId: overrides?.connectorKeyId ?? "ck-1",
     connectorWrappingAlg:
@@ -108,8 +137,16 @@ function makeJob(overrides?: Partial<Record<string, unknown>>) {
     requestedAt: overrides?.requestedAt ?? "2026-03-29T10:00:00Z",
     attemptCount: overrides?.attemptCount ?? 0,
     lastError: overrides?.lastError ?? null,
-    exportRevision: overrides?.exportRevision ?? null,
-    exportRefreshStatus: overrides?.exportRefreshStatus ?? null,
+    exportRevision: overrides?.exportRevision ?? 1,
+    exportRefreshStatus: overrides?.exportRefreshStatus ?? "refresh_pending",
+    exportId: overrides?.exportId ?? "export-1",
+    grantId: overrides?.grantId ?? "grant-1",
+    appId: overrides?.appId ?? "app-1",
+    scopeHandle: overrides?.scopeHandle ?? "s_food_profile",
+    recipientKeyFingerprint:
+      overrides?.recipientKeyFingerprint ?? "sha256:fingerprint",
+    expiresAtMs: overrides?.expiresAtMs ?? 1_800_000_000_000,
+    refreshPolicy: "continuous_until_expiry",
   };
 }
 
@@ -156,7 +193,7 @@ describe("ConsentExportRefreshOrchestrator", () => {
 
   describe("pauseForLocalAuthResume", () => {
     it("causes in-progress run to pause", async () => {
-      const jobs = [makeJob(), makeJob({ consentToken: "ct-2" })];
+      const jobs = [makeJob(), makeJob({ jobClaimId: "claim-2" })];
       listJobsMock.mockResolvedValue(jobs);
       uploadRefreshedExportMock.mockImplementation(async () => {
         // Simulate pause being requested during job processing
@@ -209,6 +246,7 @@ describe("ConsentExportRefreshOrchestrator", () => {
           runningStaleAfterMs: 90_000,
         }),
       );
+      expect(JSON.stringify(updateTaskMock.mock.calls)).not.toContain("consentToken");
     });
 
     it("cleans wildcard scope labels in running descriptions", async () => {

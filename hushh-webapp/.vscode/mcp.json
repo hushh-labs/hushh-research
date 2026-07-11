@@ -1,4 +1,12 @@
 {
+  "inputs": [
+    {
+      "id": "hushh-wiki-token",
+      "type": "promptString",
+      "description": "Hushh Wiki MCP bearer token (HCT:...)",
+      "password": true
+    }
+  ],
   "servers": {
     "shadcn": {
       "command": "npx",
@@ -6,6 +14,13 @@
         "shadcn@latest",
         "mcp"
       ]
+    },
+    "hushh-wiki": {
+      "type": "http",
+      "url": "https://mcp.hushh.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:hushh-wiki-token}"
+      }
     }
   }
 }

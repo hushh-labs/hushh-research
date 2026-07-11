@@ -52,10 +52,19 @@ CONSENT_TIMEOUT_SECONDS = int(os.environ.get("CONSENT_TIMEOUT_SECONDS", "120"))
 
 SERVER_INFO = {
     "name": "Hushh Consent MCP Server",
-    "version": "1.0.0",
+    "version": "0.2.0",
     "protocol": "HushhMCP",
     "transport": "stdio",
     "description": "Consent-first personal data access for AI agents; no data without explicit user approval. Scopes are dynamic from the Personal Knowledge Model registry; use discover_user_domains to get per-user scope strings.",
+    "connector_capabilities": {
+        "crypto_modes": ["local", "host"],
+        "envelope_versions": [2],
+        "wrapping_algorithms": ["X25519-AES256-GCM"],
+        "resource_fetch": True,
+        "inline_ciphertext": False,
+        "maximum_resource_bytes_env": "HUSHH_CONSENT_EXPORT_MAX_RAW_BYTES",
+        "maximum_model_result_chars_env": "HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS",
+    },
     "tools_count": 7,
     "tools": [
         {
@@ -97,18 +106,14 @@ SERVER_INFO = {
 # SCOPE MAPPINGS
 # ============================================================================
 
-# Canonical PKM scopes.
-SCOPE_API_MAP = {
-    "pkm.read": "pkm.read",
-    "pkm.write": "pkm.write",
-}
+# No external alias exists for internal vault/PKM authorities.
+SCOPE_API_MAP: dict[str, str] = {"cap.one.invoke": "cap.one.invoke"}
 
 
 def resolve_scope_api(scope: str) -> str | None:
     """Resolve scope input to canonical dot notation.
 
     Accepts:
-    - canonical static scopes (pkm.read/write)
     - canonical dynamic scopes (attr.{domain}.*, attr.{domain}.{subintent}.*,
       or specific paths like attr.{domain}.{attribute})
 

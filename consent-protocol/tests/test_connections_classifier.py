@@ -31,7 +31,7 @@ def test_general_chitchat_stays_general():
     assert classify_specialist_domain("what's the weather") is None
 
 
-def test_resolve_delegate_target_picks_connections():
+def test_resolve_delegate_target_blocks_unwired_connections():
     from api.routes.kai.agent_chat import resolve_delegate_target
 
-    assert resolve_delegate_target("add Alice to my trusted connections") == "agent_connections"
+    assert resolve_delegate_target("add Alice to my trusted connections") is None

@@ -454,6 +454,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         let sourceContentRevision = call.getInt("sourceContentRevision")
         let sourceManifestRevision = call.getInt("sourceManifestRevision")
         let durationHours = call.getInt("durationHours")
+        let exportEnvelope = call.getObject("exportEnvelope")
         let userId = call.getString("userId")
         
         guard let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty else {
@@ -476,6 +477,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         if let v = sourceContentRevision { body["sourceContentRevision"] = v }
         if let v = sourceManifestRevision { body["sourceManifestRevision"] = v }
         if let v = durationHours { body["durationHours"] = v }
+        if let v = exportEnvelope { body["exportEnvelope"] = v }
         
         performRequest(url: "\(backendUrl)/api/consent/pending/approve", body: body, authToken: vaultOwnerToken) { result, error in
             if let error = error {

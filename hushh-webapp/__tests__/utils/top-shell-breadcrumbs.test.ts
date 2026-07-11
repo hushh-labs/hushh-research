@@ -70,6 +70,45 @@ describe("top shell breadcrumbs", () => {
     );
   });
 
+  it("retraces the Kai finance workspace back to the setup hub (?from=/one/setup)", () => {
+    // Finishing finance setup can land the user in the Kai dashboard. When the
+    // origin is the setup hub, back must return there so they can continue
+    // onboarding the other capabilities instead of being dropped at One home.
+    const fromSetup = new URLSearchParams();
+    fromSetup.set("from", "/one/setup");
+    expect(resolveTopShellBreadcrumb("/one/kai", fromSetup)).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "Set up", href: "/one/setup" },
+        { label: "Kai" },
+      ],
+    });
+
+    // No origin → Kai home still falls back to One home (unchanged behavior).
+    expect(resolveTopShellBreadcrumb("/one/kai")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Kai" },
+      ],
+    });
+
+    // A Kai subroute opened during onboarding preserves the setup origin on the
+    // Kai-home hop so the retrace can still reach the hub.
+    expect(resolveTopShellBreadcrumb("/one/kai/portfolio", fromSetup)?.backHref).toBe(
+      "/one/kai?from=/one/setup",
+    );
+
+    // Unsafe origins are rejected → One home fallback.
+    const unsafe = new URLSearchParams();
+    unsafe.set("from", "//evil.example/path");
+    expect(resolveTopShellBreadcrumb("/one/kai", unsafe)?.backHref).toBe("/one");
+  });
+
   it("gives the setup hub a back affordance to One home", () => {
     expect(resolveTopShellBreadcrumb("/one/setup")).toEqual({
       backHref: "/one",

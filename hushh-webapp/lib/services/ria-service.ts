@@ -1990,6 +1990,11 @@ export class RiaService {
       domain: RIA_PICKS_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "ria_picks_package_owner_save",
+      },
       build: () => ({
         domainData: buildRiaPicksDomainData({
           pkg: nextPackage,

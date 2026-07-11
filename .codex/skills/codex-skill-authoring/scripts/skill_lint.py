@@ -88,6 +88,7 @@ EXPECTED_WORKFLOW_IDS = [
     "future-roadmap-plan",
     "kai-voice-governance",
     "mcp-surface-change",
+    "product-agent-development",
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",

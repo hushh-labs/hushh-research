@@ -5597,8 +5597,7 @@
         "path": "voice_tool",
         "target": "capture_pkm_memory",
         "params": {
-          "mode": "preview",
-          "direct_save": false
+          "mode": "preview"
         }
       },
       "control_ids": [
@@ -5696,18 +5695,14 @@
       },
       "guard_ids": [
         "vault_unlocked",
-        "manual_user_execution"
+        "manual_user_execution",
+        "explicit_user_confirmation"
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "capture_pkm_memory",
-        "params": {
-          "mode": "direct_save",
-          "direct_save": true
-        }
+        "status": "unwired",
+        "reason": "Voice may prepare the preview only. PKM persistence requires the visible review card and an owner-confirmed PkmMutationPlanV2."
       },
       "control_ids": [
         "save_pkm_capture"

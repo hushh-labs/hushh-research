@@ -250,14 +250,8 @@ function applyManifestExposureChange(
         ...entry,
         exposure_enabled: visibilityPosture !== "private",
         visibility_posture: visibilityPosture,
-        default_projection_ready:
-          visibilityPosture === "default_available"
-            ? entry.default_projection_ready === true
-            : false,
-        default_projection_updated_at:
-          visibilityPosture === "default_available"
-            ? entry.default_projection_updated_at || null
-            : null,
+        default_projection_ready: false,
+        default_projection_updated_at: null,
       };
     });
   }
@@ -2756,11 +2750,6 @@ function ProfilePageContent() {
       requestVaultUnlock("profile_data");
       return;
     }
-    if (nextPosture === "default_available" && !vaultKey) {
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
     const permissionKey = permission.key;
     const previousManifest = cloneManifest(domainManifests[domainKey] ?? null);
     if (!previousManifest) {
@@ -2788,8 +2777,6 @@ function ProfilePageContent() {
     setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
 
     try {
-      // Shared consent-first publish flow — same helper the One → Marketplace
-      // owner surface uses, so the sensitive vault-write path is not forked.
       const { manifest: updatedManifest } = await applySlicePosture({
         userId: user.uid,
         domain: domainKey,
@@ -2802,9 +2789,7 @@ function ProfilePageContent() {
         },
         nextPosture,
         previousManifest,
-        vaultKey: vaultKey ?? undefined,
         vaultOwnerToken,
-        source: "profile_visibility_posture",
       });
 
       setDomainManifests((current) => ({
@@ -2815,9 +2800,7 @@ function ProfilePageContent() {
       toast.success(
         nextPosture === "private"
           ? "This section is private."
-          : nextPosture === "default_available"
-            ? "This section is available by default."
-            : "One will ask before sharing this section.",
+          : "One will ask before sharing this section.",
       );
     } catch (error) {
       const message =
@@ -2874,6 +2857,11 @@ function ProfilePageContent() {
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "profile_financial_context_save",
+        },
         build: (context) => {
           const current = context.currentDomainData || {};
           const existingContext =
@@ -2987,6 +2975,11 @@ function ProfilePageContent() {
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "profile_financial_context_delete",
+        },
         build: (context) => {
           const current = context.currentDomainData || {};
           const existingContext =

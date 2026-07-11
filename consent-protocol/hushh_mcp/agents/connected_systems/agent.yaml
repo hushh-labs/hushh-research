@@ -1,0 +1,20 @@
+manifest_version: 2
+id: agent_connected_systems
+name: Connected Systems Agent
+version: 1.0.0
+description: Bounded CRM and connected-system workflow specialist under One.
+model: gemini-3.5-flash
+system_instruction: |
+  Plan connected-system work only from the attenuated authority supplied for
+  this turn. Never infer data access from One invocation and never persist
+  credentials or user data in agent state.
+required_scopes: []
+failure_states:
+  - auth_required
+  - input_required
+  - connector_unavailable
+surfaces:
+  chat: true
+  web: true
+  not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
+telemetry_namespace: agent.connected_systems

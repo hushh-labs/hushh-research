@@ -13,7 +13,12 @@ from dataclasses import replace
 from typing import Any, cast
 from uuid import uuid4
 
-from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
+from hushh_mcp.adk_bridge.contract import (
+    A2ADirective,
+    A2ATask,
+    SpecialistTurnResult,
+    require_attenuated_authority,
+)
 from hushh_mcp.services.agent_chat_service import (
     AgentActionExecution,
     AgentChatActionPlan,
@@ -39,6 +44,7 @@ class ConnectedSystemsAgentA2A:
         self._chat_service = chat_service or AgentChatService()
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
+        require_attenuated_authority(task, information=True, action=True)
         if task.delegate_result is not None:
             return _delegate_result(task)
 

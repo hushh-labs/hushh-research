@@ -11,6 +11,7 @@ import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
+import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 
 export type AgentPkmDomainChoice = {
@@ -50,6 +51,14 @@ export type AgentPkmPreviewCard = {
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  sharing_impact?: {
+    active_recipient_count: number;
+    recipient_labels: string[];
+    enters_next_export_revision: boolean;
+    summary: string;
+    affected_grant_ids: string[];
+    affected_export_ids: string[];
+  };
 };
 
 export type AgentPkmPreviewResponse = {
@@ -152,14 +161,12 @@ function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPrevi
   ];
 }
 
-export function getAutoSavePkmCards(cards: readonly AgentPkmPreviewCard[]): AgentPkmPreviewCard[] {
-  return cards.filter((card) => card.write_mode === "can_save");
-}
-
-export function getReviewRequiredPkmCards(
+export function getPkmConfirmationCards(
   cards: readonly AgentPkmPreviewCard[]
 ): AgentPkmPreviewCard[] {
-  return cards.filter((card) => card.write_mode === "confirm_first");
+  return cards.filter(
+    (card) => card.write_mode === "can_save" || card.write_mode === "confirm_first"
+  );
 }
 
 export function getIgnoredPkmCards(cards: readonly AgentPkmPreviewCard[]): AgentPkmPreviewCard[] {
@@ -220,10 +227,34 @@ export async function addToPKM(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   source?: string;
+  confirmation: PkmUserConfirmation;
 }): Promise<AgentPkmSaveResult> {
   const results: AgentPkmSaveResult["results"] = [];
+  if (!params.confirmation || params.confirmation.confirmedByUser !== true) {
+    return {
+      attempted: params.cards.length,
+      saved: 0,
+      failed: params.cards.length,
+      domains: [],
+      results: params.cards.map((card) => ({
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        success: false,
+        message: "Explicit owner confirmation is required before saving to PKM.",
+      })),
+    };
+  }
 
   for (const card of params.cards) {
+    if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
+      results.push({
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        success: false,
+        message: "This PKM preview is not eligible for confirmation and saving.",
+      });
+      continue;
+    }
     const candidatePayload = toRecord(card.candidate_payload);
     const structureDecision = toRecord(card.structure_decision);
     const manifestDraft =
@@ -281,11 +312,29 @@ export async function addToPKM(params: {
         : null;
 
     try {
+      const sharingImpact = card.sharing_impact;
       const result = await PkmWriteCoordinator.savePreparedDomain({
         userId: params.userId,
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        confirmation: {
+          ...params.confirmation,
+          sharingImpactAcknowledged:
+            (sharingImpact?.active_recipient_count || 0) > 0
+              ? params.confirmation.sharingImpactAcknowledged === true
+              : false,
+          sharingImpact: sharingImpact
+            ? {
+                activeRecipientCount: sharingImpact.active_recipient_count,
+                recipientLabels: sharingImpact.recipient_labels,
+                entersNextExportRevision: sharingImpact.enters_next_export_revision,
+                summary: sharingImpact.summary,
+                affectedGrantIds: sharingImpact.affected_grant_ids,
+                affectedExportIds: sharingImpact.affected_export_ids,
+              }
+            : undefined,
+        },
         build: async () => ({
           domainData: candidatePayload,
           summary: {

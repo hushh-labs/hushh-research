@@ -18,8 +18,16 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
-from hushh_mcp.services.domain_contracts import canonical_top_level_domain, domain_registry_payload
+from hushh_mcp.services.domain_contracts import (
+    canonical_top_level_domain,
+    domain_registry_payload,
+    validate_dynamic_top_level_domain,
+)
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.pkm_mutation_contracts import (
+    PkmMutationPlanV2,
+    validate_mutation_plan_for_write,
+)
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
 
 logger = logging.getLogger(__name__)
@@ -434,6 +442,10 @@ class StoreDomainRequest(BaseModel):
         max_length=100,
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
+    mutation_plan: Optional[PkmMutationPlanV2] = Field(
+        default=None,
+        description="Mandatory owner-confirmed PKM mutation plan for non-upgrade writes",
+    )
 
 
 class StoreDomainResponse(BaseModel):
@@ -485,7 +497,33 @@ async def validate_store_domain(
             detail="Token user_id does not match request user_id",
         )
 
-    canonical_domain = canonical_top_level_domain(request.domain)
+    try:
+        canonical_domain = validate_dynamic_top_level_domain(request.domain, allow_internal=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PKM_DOMAIN_INVALID",
+                "message": "The proposed PKM domain is not a valid top-level domain.",
+                "reason": str(exc),
+            },
+        ) from exc
+    if request.mutation_plan is not None:
+        try:
+            validate_mutation_plan_for_write(
+                plan=request.mutation_plan,
+                authenticated_user_id=request.user_id,
+                domain=canonical_domain,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "PKM_MUTATION_PLAN_INVALID",
+                    "message": "The PKM mutation plan does not match this write.",
+                    "reason": str(exc),
+                },
+            ) from exc
     return StoreDomainResponse(
         success=True,
         message=f"Validated {canonical_domain} domain payload without saving it",
@@ -516,10 +554,75 @@ async def store_domain(
             detail="Token user_id does not match request user_id",
         )
 
+    try:
+        canonical_domain = validate_dynamic_top_level_domain(request.domain, allow_internal=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PKM_DOMAIN_INVALID",
+                "message": "The proposed PKM domain is not a valid top-level domain.",
+                "reason": str(exc),
+            },
+        ) from exc
+
+    if request.upgrade_context is None and request.mutation_plan is None:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail={
+                "code": "PKM_CONFIRMATION_REQUIRED",
+                "message": "Review and confirm the PKM mutation plan before saving.",
+            },
+        )
     pkm_service = get_pkm_service()
+    if request.mutation_plan is not None:
+        try:
+            validate_mutation_plan_for_write(
+                plan=request.mutation_plan,
+                authenticated_user_id=request.user_id,
+                domain=canonical_domain,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "PKM_MUTATION_PLAN_INVALID",
+                    "message": "The PKM mutation plan does not match this write.",
+                    "reason": str(exc),
+                },
+            ) from exc
+        server_impact = await pkm_service.get_mutation_sharing_impact(
+            user_id=request.user_id,
+            domain=canonical_domain,
+            scope_path=request.mutation_plan.proposed_scope,
+        )
+        client_impact = request.mutation_plan.sharing_impact
+        impact_changed = (
+            client_impact.active_recipient_count
+            != int(server_impact.get("active_recipient_count") or 0)
+            or sorted(client_impact.recipient_labels)
+            != sorted(server_impact.get("recipient_labels") or [])
+            or client_impact.enters_next_export_revision
+            != bool(server_impact.get("enters_next_export_revision"))
+            or sorted(request.mutation_plan.affected_grant_ids)
+            != sorted(server_impact.get("affected_grant_ids") or [])
+            or sorted(request.mutation_plan.affected_export_ids)
+            != sorted(server_impact.get("affected_export_ids") or [])
+        )
+        if impact_changed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PKM_SHARING_IMPACT_CHANGED",
+                    "message": (
+                        "Sharing changed while this mutation was being reviewed. "
+                        "Review the current recipients and confirm again."
+                    ),
+                    "sharing_impact": server_impact,
+                },
+            )
 
     # Store encrypted blob + metadata
-    canonical_domain = canonical_top_level_domain(request.domain)
     store_result = await pkm_service.store_domain_data(
         user_id=request.user_id,
         domain=canonical_domain,
@@ -547,6 +650,9 @@ async def store_domain(
         expected_data_version=request.expected_data_version,
         upgrade_context=request.upgrade_context.model_dump() if request.upgrade_context else None,
         write_projections=[projection.model_dump() for projection in request.write_projections],
+        mutation_plan=request.mutation_plan.model_dump(mode="json")
+        if request.mutation_plan
+        else None,
         return_result=True,
     )
 
@@ -736,9 +842,8 @@ class ScopeExposureChangePayload(BaseModel):
     top_level_scope_path: Optional[str] = Field(default=None, max_length=1024)
     exposure_enabled: Optional[bool] = Field(default=None)
     visibility_posture: Optional[str] = Field(default=None, max_length=128)
-    # Explicit owner consent to publish a safe projection of their own
-    # restricted-tier data as `default_available` (marketplace override). Only
-    # lifts the restricted-tier block; structural blocked keys stay blocked.
+    # Retained only while old clients migrate. It has no effect on private PKM
+    # scope posture; public publication is a separate owner-controlled API.
     owner_consent_override: Optional[bool] = Field(default=None)
 
 
@@ -758,9 +863,8 @@ class ScopeExposureResponse(BaseModel):
     manifest: dict = Field(default_factory=dict)
 
 
-class DefaultAvailableProjectionRequest(BaseModel):
+class PublicProfileProjectionRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
-    scope: str = Field(..., min_length=1, max_length=256)
     scope_handle: Optional[str] = Field(default=None, max_length=256)
     top_level_scope_path: str = Field(..., min_length=1, max_length=1024)
     projection_payload: dict = Field(default_factory=dict)
@@ -772,12 +876,22 @@ class DefaultAvailableProjectionRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
-class DefaultAvailableProjectionResponse(BaseModel):
+class PublicProfileProjectionResponse(BaseModel):
     success: bool
     message: Optional[str] = Field(default=None, max_length=512)
     projection_hash: Optional[str] = Field(default=None, max_length=256)
     projection_updated_at: Optional[str] = Field(default=None, max_length=64)
+    public_profile_handle: Optional[str] = Field(default=None, max_length=64)
     manifest: dict = Field(default_factory=dict)
+
+
+class PublicProfileProjectionStatusResponse(BaseModel):
+    projections: List[dict] = Field(default_factory=list, max_length=200)
+
+
+class PublicProfileProjectionDeleteRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256)
+    public_profile_handle: str = Field(..., min_length=1, max_length=64)
 
 
 @router.post("/domains/{domain}/scope-exposure", response_model=ScopeExposureResponse)
@@ -840,12 +954,12 @@ async def update_scope_exposure(
 
 
 @router.post(
-    "/domains/{domain}/default-available-projection",
-    response_model=DefaultAvailableProjectionResponse,
+    "/domains/{domain}/public-profile-projection",
+    response_model=PublicProfileProjectionResponse,
 )
-async def publish_default_available_projection(
+async def publish_public_profile_projection(
     domain: str,
-    request: DefaultAvailableProjectionRequest,
+    request: PublicProfileProjectionRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -860,10 +974,9 @@ async def publish_default_available_projection(
         )
 
     pkm_service = get_pkm_service()
-    result = await pkm_service.store_default_available_projection(
+    result = await pkm_service.store_public_profile_projection(
         user_id=request.user_id,
         domain=canonical_top_level_domain(domain),
-        scope=request.scope,
         scope_handle=request.scope_handle,
         top_level_scope_path=request.top_level_scope_path,
         projection_payload=request.projection_payload,
@@ -877,9 +990,53 @@ async def publish_default_available_projection(
     if not result.get("success"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message") or "Default-available projection could not be saved.",
+            detail=result.get("message") or "Public profile projection could not be saved.",
         )
-    return DefaultAvailableProjectionResponse(**result)
+    return PublicProfileProjectionResponse(**result)
+
+
+@router.get(
+    "/domains/{domain}/public-profile-projections",
+    response_model=PublicProfileProjectionStatusResponse,
+)
+async def list_public_profile_projections(
+    domain: str,
+    user_id: Annotated[str, Query(min_length=1, max_length=128)],
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    projections = await get_pkm_service().list_public_profile_projections(
+        user_id=user_id,
+        domain=canonical_top_level_domain(domain),
+    )
+    return PublicProfileProjectionStatusResponse(projections=projections)
+
+
+@router.delete("/domains/{domain}/public-profile-projection")
+async def unpublish_public_profile_projection(
+    domain: str,
+    request: PublicProfileProjectionDeleteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    deleted = await get_pkm_service().revoke_public_profile_projection_handle(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        public_profile_handle=request.public_profile_handle,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Public profile projection was not found."
+        )
+    return {"success": True}
 
 
 class DeleteDomainResponse(BaseModel):

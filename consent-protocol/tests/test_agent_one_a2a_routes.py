@@ -1,4 +1,4 @@
-"""Agent One A2A route contract tests."""
+"""Contained Agent One invocation-preview route contract tests."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _client() -> TestClient:
 
 
 def _token(
-    scope: ConsentScope = ConsentScope.AGENT_ONE_ORCHESTRATE,
+    scope: ConsentScope = ConsentScope.CAP_ONE_INVOKE,
     user_id: str = "user-one",
     agent_id: str = "developer:brand-agent",
 ) -> str:
@@ -33,6 +33,7 @@ def _principal(agent_id: str = "developer:brand-agent") -> SimpleNamespace:
         agent_id=agent_id,
         display_name="Brand Agent",
         allowed_tool_groups=("core_consent",),
+        allowed_capabilities=("cap.one.invoke",),
         brand_image_url=None,
         website_url=None,
     )
@@ -56,17 +57,13 @@ def test_agent_card_is_manifest_backed():
     payload = response.json()
     assert payload["agentId"] == "agent_one"
     assert payload["name"] == "Agent One"
-    assert payload["supportedInterfaces"] == [
-        {
-            "url": "http://testserver/api/one/a2a/message",
-            "protocolBinding": "HTTP+JSON",
-            "protocolVersion": "1.0.0",
-        }
-    ]
-    assert payload["protocolVersion"] == "1.0.0"
-    assert payload["url"] == "http://testserver/api/one/a2a/message"
-    assert payload["preferredTransport"] == "HTTP+JSON"
-    assert payload["requiredScopes"] == ["agent.one.orchestrate"]
+    assert payload["contract"] == "hussh.one.invocation-preview.v1"
+    assert payload["officialA2A"] is False
+    assert payload["endpoint"] == "http://testserver/api/one/a2a/message"
+    assert "supportedInterfaces" not in payload
+    assert "protocolVersion" not in payload
+    assert "preferredTransport" not in payload
+    assert payload["requiredScopes"] == ["cap.one.invoke"]
     assert payload["securitySchemes"]["developerBearer"] == {
         "type": "http",
         "scheme": "bearer",
@@ -78,7 +75,7 @@ def test_agent_card_is_manifest_backed():
         "in": "header",
         "name": "X-Consent-Token",
         "description": (
-            "User-approved consent token scoped to agent.one.orchestrate. "
+            "User-approved invocation token scoped to cap.one.invoke. "
             "Required when executing an approved user request."
         ),
     }
@@ -120,13 +117,14 @@ def test_agent_card_is_manifest_backed():
     assert "agent_location" not in str(payload)
 
 
-def test_standard_well_known_agent_card_matches_manifest_card():
+def test_official_well_known_agent_card_is_not_advertised_before_conformance():
     client = _client()
     standard = client.get("/.well-known/agent-card.json")
     compat = client.get("/api/one/a2a/card")
 
-    assert standard.status_code == 200
-    assert standard.json() == compat.json()
+    assert standard.status_code == 404
+    assert compat.status_code == 200
+    assert compat.json()["officialA2A"] is False
 
 
 def test_message_requires_consent_token_or_developer_auth():
@@ -153,7 +151,7 @@ def test_message_without_consent_token_creates_pending_consent_request(monkeypat
         ):
             assert user_id == "user-one"
             assert agent_id == "developer:brand-agent"
-            assert requested_scope == "agent.one.orchestrate"
+            assert requested_scope == "cap.one.invoke"
             return []
 
         async def get_pending_request_for_scope(
@@ -165,7 +163,7 @@ def test_message_without_consent_token_creates_pending_consent_request(monkeypat
         ):
             assert user_id == "user-one"
             assert agent_id == "developer:brand-agent"
-            assert scope == "agent.one.orchestrate"
+            assert scope == "cap.one.invoke"
             return None
 
         async def insert_event(self, **kwargs):
@@ -202,12 +200,12 @@ def test_message_without_consent_token_creates_pending_consent_request(monkeypat
     assert payload["isComplete"] is False
     assert payload["userId"] == "user-one"
     assert payload["consent"]["status"] == "pending"
-    assert payload["consent"]["requiredScope"] == "agent.one.orchestrate"
+    assert payload["consent"]["requiredScope"] == "cap.one.invoke"
     assert payload["consent"]["tokenRequired"] is True
     assert inserted["action"] == "REQUESTED"
-    assert inserted["scope"] == "agent.one.orchestrate"
+    assert inserted["scope"] == "cap.one.invoke"
     assert inserted["agent_id"] == "developer:brand-agent"
-    assert inserted["metadata"]["request_source"] == "agent_one_a2a_consent_v1"
+    assert inserted["metadata"]["request_source"] == "one_invocation_preview_v1"
     assert inserted["metadata"]["requester_actor_type"] == "a2a_agent"
     assert "connector_public_key" not in inserted["metadata"]
     assert orchestrator_called is False
@@ -358,7 +356,6 @@ def test_message_rejects_email_target_mismatch(monkeypatch):
 def test_message_routes_general_turn_to_one(monkeypatch):
     _patch_developer_auth(monkeypatch)
     _patch_db_token_validation(monkeypatch)
-    monkeypatch.setenv("AGENT_ONE_A2A_RUNTIME", "legacy")
 
     response = _client().post(
         "/api/one/a2a/message",
@@ -378,10 +375,9 @@ def test_message_routes_general_turn_to_one(monkeypatch):
     assert "One" in payload["response"]
 
 
-def test_message_masks_internal_delegation(monkeypatch):
+def test_message_requires_exact_authority_before_specialist_dispatch(monkeypatch):
     _patch_developer_auth(monkeypatch)
     _patch_db_token_validation(monkeypatch)
-    monkeypatch.setenv("AGENT_ONE_A2A_RUNTIME", "legacy")
 
     response = _client().post(
         "/api/one/a2a/message",
@@ -397,7 +393,13 @@ def test_message_masks_internal_delegation(monkeypatch):
     assert payload["userId"] == "user-one"
     assert payload["delegation"] == {
         "delegated": True,
-        "status": "routed_internally",
+        "status": "auth_required",
+        "errorCode": "EXACT_AUTHORITY_REQUIRED",
+        "message": (
+            "One may identify the next consent step, but cap.one.invoke does not "
+            "authorize specialist data access or actions."
+        ),
     }
+    assert payload["isComplete"] is False
     assert "target_agent" not in str(payload)
     assert "agent_kai" not in str(payload)

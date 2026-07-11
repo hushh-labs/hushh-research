@@ -13,6 +13,7 @@ import logging
 from typing import Optional
 
 from db.db_client import get_db
+from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,9 @@ class DynamicScopeGenerator:
         "kyc_connector",
         "kyc_workflow",
     }
-    _VISIBILITY_POSTURES = {"private", "consent_required", "default_available"}
+    # Public profiles are not dynamic consent scopes and must never appear in
+    # external scope discovery.
+    _VISIBILITY_POSTURES = {"private", "consent_required"}
 
     def __init__(self):
         self._supabase = None
@@ -221,12 +224,8 @@ class DynamicScopeGenerator:
                 or ("consumer_shareable" if consumer_visible else "structural_top_level_path")
             ).strip(),
             "visibility_posture": requested_posture,
-            "default_projection_ready": bool(
-                requested_posture == "default_available" and default_projection_ready
-            ),
-            "default_projection_updated_at": default_projection_updated_at
-            if requested_posture == "default_available" and default_projection_ready
-            else None,
+            "default_projection_ready": False,
+            "default_projection_updated_at": None,
         }
 
     async def _get_legacy_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
@@ -824,7 +823,7 @@ class DynamicScopeGenerator:
             List of exact and wildcard scope strings
         """
         try:
-            scopes: set[str] = {"pkm.read"}
+            scopes: set[str] = {"pkm.read"} if include_internal else set()
             for entry in await self.get_available_scope_entries(user_id):
                 if not include_internal and (
                     entry.get("internal_only") is True or entry.get("consumer_visible") is False
@@ -835,7 +834,9 @@ class DynamicScopeGenerator:
                 if not include_exact_paths and entry.get("wildcard") is not True:
                     continue
                 scope = str(entry.get("scope") or "").strip()
-                if scope:
+                if scope and (
+                    include_internal or ConsentScope.is_external_requestable_scope(scope)
+                ):
                     scopes.add(scope)
             return sorted(scopes)
         except Exception as e:

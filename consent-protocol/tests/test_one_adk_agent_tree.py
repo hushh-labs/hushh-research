@@ -85,7 +85,7 @@ def _tool_context(state: dict) -> SimpleNamespace:
 class TestSpecialistTurn:
     @pytest.mark.asyncio
     async def test_fails_closed_without_auth_state(self):
-        result = await _specialist_turn("agent_email", "what needs a reply", _tool_context({}))
+        result = await _specialist_turn("agent_location", "what needs a reply", _tool_context({}))
         assert result["status"] == "needs_auth"
 
     @pytest.mark.asyncio
@@ -112,7 +112,7 @@ class TestSpecialistTurn:
         ) as mock_dispatch:
             state = {STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}
             result = await _specialist_turn(
-                "agent_email", "what needs a reply", _tool_context(state)
+                "agent_location", "what needs a reply", _tool_context(state)
             )
         assert result["status"] == "ok"
         assert result["text"] == "Two threads need replies."
@@ -154,7 +154,7 @@ class TestSpecialistTurn:
             new=AsyncMock(side_effect=RuntimeError("boom")),
         ):
             result = await _specialist_turn(
-                "agent_email",
+                "agent_location",
                 "hello",
                 _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}),
             )

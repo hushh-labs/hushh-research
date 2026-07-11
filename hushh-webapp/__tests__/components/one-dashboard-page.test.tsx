@@ -49,11 +49,8 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("page-header")).toBeTruthy();
     expect(screen.getByText("Good to see you, Kushal.")).toBeTruthy();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-grid").className).toContain(
-      "grid-cols-[repeat(auto-fill,minmax(5.75rem,5.75rem))]",
-    );
-    expect(screen.getByTestId("one-agents-grid").className).toContain(
-      "justify-start",
+    expect(screen.getByTestId("one-agents-grid").getAttribute("style")).toContain(
+      "grid-template-columns: repeat(3, minmax(0, 1fr))",
     );
     expect(screen.getByText("Agents")).toBeTruthy();
 
@@ -66,13 +63,13 @@ describe("OneDashboardPage", () => {
     expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
-      "w-[5.75rem]",
+      "items-center",
     );
     // Each tile's icon chip carries its own brand tone (bug fix: the icon
     // component previously ignored the tone prop entirely and rendered every
     // tile with the same neutral chip).
     const financeIcon = financeLink.querySelector("span[aria-hidden]");
-    expect(financeIcon?.className).toContain("bg-[#5B7FDE]");
+    expect(financeIcon?.className).toContain("bg-[#B85CF6]");
     expect(financeIcon?.className).toContain("text-white");
     expect(financeIcon?.className).toContain("dark:text-[#1d1d1f]");
     // The /one grid mirrors the top-bar agent switcher roster: RIA sits

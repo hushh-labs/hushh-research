@@ -14,7 +14,9 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain("min-h-[100svh]");
     expect(source).toContain("overflow-hidden");
     expect(source).toContain("justify-center");
-    expect(source).toContain("bottom-[calc(20px+var(--app-screen-footer-pad))]");
+    expect(source).toContain(
+      "bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))]",
+    );
     expect(source).not.toContain("mt-auto flex-none pt-8");
     expect(source).not.toContain("min-h-[100dvh]");
   });

@@ -58,6 +58,7 @@ async def test_internal_vault_owner_tokens_use_internal_ledger(monkeypatch):
                     "action": "CONSENT_GRANTED",
                     "expires_at": future_ms,
                     "issued_at": future_ms - 1_000,
+                    "token_id": "internal_token",
                 }
             ]
         }
@@ -70,6 +71,7 @@ async def test_internal_vault_owner_tokens_use_internal_ledger(monkeypatch):
         "user_test",
         ConsentScope.VAULT_OWNER.value,
         agent_id="self",
+        token_id="internal_token",  # noqa: S106 - synthetic token identity
     )
 
     assert is_active is True
@@ -79,6 +81,11 @@ async def test_internal_vault_owner_tokens_use_internal_ledger(monkeypatch):
 @pytest.mark.asyncio
 async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(monkeypatch):
     future_ms = int(time.time() * 1000) + 60_000
+    token = issue_token(
+        user_id="user_test",
+        agent_id="self",
+        scope=ConsentScope.VAULT_OWNER,
+    ).token
     fake_supabase = _FakeSupabase(
         {
             "internal_access_events": [
@@ -86,18 +93,13 @@ async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(
                     "action": "CONSENT_GRANTED",
                     "expires_at": future_ms,
                     "issued_at": future_ms - 1_000,
+                    "token_id": token,
                 }
             ]
         }
     )
 
     monkeypatch.setattr(ConsentDBService, "_get_supabase", lambda self: fake_supabase)
-
-    token = issue_token(
-        user_id="user_test",
-        agent_id="self",
-        scope=ConsentScope.VAULT_OWNER,
-    ).token
 
     valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
 
@@ -118,6 +120,7 @@ async def test_external_tokens_still_use_consent_audit(monkeypatch):
                     "action": "CONSENT_GRANTED",
                     "expires_at": future_ms,
                     "issued_at": future_ms - 1_000,
+                    "token_id": "external_token",
                 }
             ]
         }
@@ -134,3 +137,47 @@ async def test_external_tokens_still_use_consent_audit(monkeypatch):
 
     assert is_active is True
     assert fake_supabase.requested_tables == ["consent_audit"]
+
+
+@pytest.mark.asyncio
+async def test_prior_same_scope_token_is_not_active_after_reapproval(monkeypatch):
+    future_ms = int(time.time() * 1000) + 60_000
+    fake_supabase = _FakeSupabase(
+        {
+            "consent_audit": [
+                {
+                    "action": "CONSENT_GRANTED",
+                    "expires_at": future_ms,
+                    "issued_at": future_ms - 100,
+                    "token_id": "new_token",
+                },
+                {
+                    "action": "CONSENT_GRANTED",
+                    "expires_at": future_ms,
+                    "issued_at": future_ms - 1_000,
+                    "token_id": "old_token",
+                },
+            ]
+        }
+    )
+    service = ConsentDBService()
+    monkeypatch.setattr(service, "_get_supabase", lambda: fake_supabase)
+
+    assert (
+        await service.is_token_active(
+            "user_test",
+            ConsentScope.PKM_READ.value,
+            agent_id="agent_alpha",
+            token_id="old_token",  # noqa: S106 - synthetic token identity
+        )
+        is False
+    )
+    assert (
+        await service.is_token_active(
+            "user_test",
+            ConsentScope.PKM_READ.value,
+            agent_id="agent_alpha",
+            token_id="new_token",  # noqa: S106 - synthetic token identity
+        )
+        is True
+    )

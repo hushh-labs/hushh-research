@@ -36,6 +36,13 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from hushh_mcp.consent.export_envelope import (
+    ConsentExportEnvelopeSubmissionV2,
+    canonical_aad_bytes,
+    canonical_envelope_submission_bytes,
+    digest_bytes,
+)
+
 
 def _b64decode(value: str) -> bytes:
     normalized = str(value or "").strip().replace("-", "+").replace("_", "/")
@@ -51,6 +58,7 @@ def decrypt_scoped_export_package(
     tag_b64: str,
     ciphertext: str | bytes,
     connector_private_key: X25519PrivateKey,
+    export_envelope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Decrypt a zero-knowledge scoped-export package.
 
@@ -65,17 +73,28 @@ def decrypt_scoped_export_package(
     digest = hashes.Hash(hashes.SHA256())
     digest.update(shared_secret)
     wrapping_key = digest.finalize()
+    envelope = (
+        ConsentExportEnvelopeSubmissionV2.model_validate(export_envelope)
+        if export_envelope
+        else None
+    )
+    key_wrap_aad = canonical_envelope_submission_bytes(envelope) if envelope else None
     export_key = AESGCM(wrapping_key).decrypt(
         _b64decode(str(wrapped_key_bundle["wrapped_key_iv"])),
         _b64decode(str(wrapped_key_bundle["wrapped_export_key"]))
         + _b64decode(str(wrapped_key_bundle["wrapped_key_tag"])),
-        None,
+        key_wrap_aad,
     )
     ciphertext_bytes = ciphertext if isinstance(ciphertext, bytes) else _b64decode(str(ciphertext))
+    if envelope is not None:
+        if len(ciphertext_bytes) != envelope.ciphertext_bytes:
+            raise ValueError("export_ciphertext_size_mismatch")
+        if digest_bytes(ciphertext_bytes) != envelope.ciphertext_sha256:
+            raise ValueError("export_ciphertext_digest_mismatch")
     plaintext = AESGCM(export_key).decrypt(
         _b64decode(str(iv_b64)),
         ciphertext_bytes + _b64decode(str(tag_b64)),
-        None,
+        canonical_aad_bytes(envelope.aad) if envelope else None,
     )
     return json.loads(plaintext)
 
@@ -108,10 +127,49 @@ def _rebuild_projected_value(segments: list[str], value: Any) -> Any:
     return {segment: _rebuild_projected_value(rest, value)}
 
 
+def _merge_projected_values(current: Any, incoming: Any) -> Any:
+    if isinstance(current, dict) and isinstance(incoming, dict):
+        merged = copy.deepcopy(current)
+        for key, value in incoming.items():
+            merged[key] = (
+                _merge_projected_values(merged[key], value)
+                if key in merged
+                else copy.deepcopy(value)
+            )
+        return merged
+    if isinstance(current, list) and isinstance(incoming, list):
+        merged: list[Any] = []
+        for index in range(max(len(current), len(incoming))):
+            if index >= len(current):
+                merged.append(copy.deepcopy(incoming[index]))
+            elif index >= len(incoming):
+                merged.append(copy.deepcopy(current[index]))
+            else:
+                merged.append(_merge_projected_values(current[index], incoming[index]))
+        return merged
+    return copy.deepcopy(incoming)
+
+
+def _normalize_projection_path(path: str) -> str:
+    segments: list[str] = []
+    for raw in str(path or "").split("."):
+        if raw.strip().lower() == "_items":
+            segments.append("_items")
+            continue
+        segment = "".join(ch.lower() if ch.isalnum() or ch == "_" else "_" for ch in raw).strip("_")
+        if segment:
+            segments.append(segment)
+    return ".".join(segments)
+
+
 def project_domain_data_for_scope(
-    domain: str, scope: str, domain_data: dict[str, Any]
+    domain: str,
+    scope: str,
+    domain_data: dict[str, Any],
+    *,
+    approved_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    if scope in {"pkm.read", f"attr.{domain}.*"}:
+    if scope == "pkm.read":
         return {domain: copy.deepcopy(domain_data)}
 
     prefix = f"attr.{domain}."
@@ -119,18 +177,29 @@ def project_domain_data_for_scope(
         return {domain: {}}
 
     raw_path = scope[len(prefix) :].removesuffix(".*")
-    normalized_segments = [
-        "".join(ch.lower() if ch.isalnum() or ch == "_" else "_" for ch in segment).strip("_")
-        for segment in raw_path.split(".")
+    normalized_path = _normalize_projection_path(raw_path)
+    eligible_paths = [
+        path
+        for path in (_normalize_projection_path(path) for path in (approved_paths or []))
+        if path
+        and (
+            not normalized_path or path == normalized_path or path.startswith(f"{normalized_path}.")
+        )
     ]
-    normalized_segments = [segment for segment in normalized_segments if segment]
-    if not normalized_segments:
-        return {domain: copy.deepcopy(domain_data)}
-
-    extracted = _extract_path_value(domain_data, normalized_segments)
-    if extracted is None:
+    if not eligible_paths:
         return {domain: {}}
-    return {domain: _rebuild_projected_value(normalized_segments, extracted)}
+
+    projected: Any = {}
+    for eligible_path in eligible_paths:
+        segments = eligible_path.split(".")
+        extracted = _extract_path_value(domain_data, segments)
+        if extracted is None:
+            continue
+        projected = _merge_projected_values(
+            projected,
+            _rebuild_projected_value(segments, extracted),
+        )
+    return {domain: projected}
 
 
 def narrow_decrypted_export(payload: dict[str, Any], expected_scope: str | None) -> dict[str, Any]:
@@ -138,8 +207,12 @@ def narrow_decrypted_export(payload: dict[str, Any], expected_scope: str | None)
         return copy.deepcopy(payload)
     export_metadata = payload.get("__export_metadata")
     source_domain = None
+    approved_paths: list[str] = []
     if isinstance(export_metadata, dict):
         source_domain = str(export_metadata.get("source_domain") or "").strip() or None
+        raw_approved_paths = export_metadata.get("approved_paths")
+        if isinstance(raw_approved_paths, list):
+            approved_paths = [str(path).strip() for path in raw_approved_paths if str(path).strip()]
     if not source_domain and expected_scope.startswith("attr."):
         parts = expected_scope.split(".")
         if len(parts) >= 2:
@@ -149,7 +222,12 @@ def narrow_decrypted_export(payload: dict[str, Any], expected_scope: str | None)
     domain_data = payload.get(source_domain)
     if not isinstance(domain_data, dict):
         return copy.deepcopy(payload)
-    narrowed = project_domain_data_for_scope(source_domain, expected_scope, domain_data)
+    narrowed = project_domain_data_for_scope(
+        source_domain,
+        expected_scope,
+        domain_data,
+        approved_paths=approved_paths,
+    )
     if "__export_metadata" in payload:
         narrowed["__export_metadata"] = copy.deepcopy(payload["__export_metadata"])
     return narrowed

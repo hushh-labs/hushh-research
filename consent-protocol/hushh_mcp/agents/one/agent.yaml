@@ -1,9 +1,13 @@
+manifest_version: 2
 id: agent_one
 legacy_ids:
   - agent_orchestrator
 name: Agent One
 version: 0.1.0
 description: Top personal agent that frames user intent and delegates specialist work.
+status: active
+owner: backend
+parent: null
 model:
   provider: gemini
   name: gemini-3.5-flash
@@ -21,5 +25,4 @@ system_instruction: |
   the Location Agent and require consent, scoped duration, recipient encryption,
   revocation, and metadata-only audit.
 required_scopes:
-  - agent.one.orchestrate
-
+  - cap.one.invoke

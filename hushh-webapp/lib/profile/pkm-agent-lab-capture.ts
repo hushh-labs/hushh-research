@@ -11,6 +11,7 @@ import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
+import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 
 export type PkmAgentLabDomainChoice = {
   domain_key: string;
@@ -89,42 +90,12 @@ function toRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function normalizeMode(value: unknown): string {
-  return String(value || "").trim().toLowerCase();
-}
-
 export function getPkmAgentLabPersistableCards(
   response: PkmAgentLabResponse | null | undefined
 ): PkmAgentLabPreviewCard[] {
-  return (response?.preview_cards || []).filter((card) => card.write_mode !== "do_not_save");
-}
-
-export function getDirectPkmVoiceSaveBlockReason(
-  response: PkmAgentLabResponse | null | undefined
-): string | null {
-  const cards = getPkmAgentLabPersistableCards(response);
-  if (cards.length === 0) return "No durable memory was detected.";
-  if (cards.length > 1) return "Multiple memories need review before saving.";
-  const card = cards[0]!;
-  if (card.write_mode !== "can_save") return "This memory needs review before saving.";
-  if (card.requires_confirmation || card.intent_frame?.requires_confirmation) {
-    return "This memory needs confirmation before saving.";
-  }
-  const mutationIntent = normalizeMode(card.mutation_intent || card.intent_frame?.mutation_intent);
-  const mergeMode = normalizeMode(card.merge_mode || card.merge_decision?.merge_mode);
-  if (
-    mutationIntent === "correct" ||
-    mutationIntent === "delete" ||
-    mergeMode === "correct_entity" ||
-    mergeMode === "delete_entity"
-  ) {
-    return "Corrections and deletions need review before saving.";
-  }
-  const confidence = Number(card.intent_frame?.confidence ?? 0.9);
-  if (Number.isFinite(confidence) && confidence < 0.82) {
-    return "One is not confident enough to save this without review.";
-  }
-  return null;
+  return (response?.preview_cards || []).filter(
+    (card) => card.write_mode === "can_save" || card.write_mode === "confirm_first"
+  );
 }
 
 export async function loadPkmAgentLabContext(params: {
@@ -190,6 +161,7 @@ export async function savePkmAgentLabResponse(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   response: PkmAgentLabResponse;
+  confirmation: PkmUserConfirmation;
 }): Promise<PkmWriteCoordinatorResult[]> {
   const results: PkmWriteCoordinatorResult[] = [];
   for (const card of getPkmAgentLabPersistableCards(params.response)) {
@@ -261,6 +233,7 @@ export async function savePkmAgentLabResponse(params: {
       domain: targetDomain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: params.confirmation,
       build: async () => ({
         domainData: candidatePayload,
         summary: {

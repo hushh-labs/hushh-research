@@ -80,8 +80,9 @@ The intent ontology is fixed:
 
 Current live eval mode:
 
-- model: `gemini-3.1-flash-lite-preview`
+- model: `gemini-3.5-flash`
 - posture: minimal-thinking / strict-small-model
+- Vertex endpoint: validate model availability in the configured project and region before promotion; no unavailable model may be retained as a fallback-only default.
 
 Promotion discipline:
 

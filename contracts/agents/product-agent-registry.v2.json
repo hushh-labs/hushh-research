@@ -1,0 +1,1806 @@
+{
+  "agents": [
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Bounded CRM and connected-system workflow specialist under One.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "input_required",
+        "connector_unavailable"
+      ],
+      "icon": null,
+      "id": "agent_connected_systems",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/connected_systems/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.5-flash",
+      "name": "Connected Systems Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "8982b41700947b09df4ba522788bcef02c92f6a6c883b10d40509d25f9da9149",
+      "telemetry_namespace": "agent.connected_systems",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Approval-draft and client-request workflow specialist under One.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "input_required",
+        "confirmation_required"
+      ],
+      "icon": null,
+      "id": "agent_email",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/email/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.5-flash",
+      "name": "Email Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "propose_mutation",
+        "mutation_contract": "PkmMutationPlanV2"
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "1d169d936a81f8595655177069c54c1f9fa7ff0c6ad9e94ba71d26706446d76c",
+      "telemetry_namespace": "agent.email",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Protects Kai's mature financial domain by deciding whether freeform requests belong in governed financial memory.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_financial_guard",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "message",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Financial Guard Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "decision",
+          "type": "object"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "attr.financial.*"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "ce6442e5716f92360c059e6261761d21b3ffba210fb0d475493dc1fc65e38a92",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Read-only receipt-sync and purchase-memory specialist under One.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "input_required",
+        "connector_unavailable"
+      ],
+      "icon": null,
+      "id": "agent_gmail",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/gmail/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.5-flash",
+      "name": "Gmail Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "read",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "82ec6930679ce038959b4c0be5b3121545c227bc0423fe8a5f1f50ea41f7bbc2",
+      "telemetry_namespace": "agent.gmail",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex",
+          "byok"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_kai",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "consent_token",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/kai/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": "pkm:runtime_secrets.llm.gemini_api_key",
+        "mode": "byok",
+        "name": "gemini-3.5-flash",
+        "provider": "gemini"
+      },
+      "name": "Kai Financial Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "response",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "recommendation",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.kai.analyze"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "aa6ccc1582cbb5bcce347c19513ad06a574ad4a3543259d891ee68f4be993ef6",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [
+        {
+          "description": "Analyze business fundamentals (SEC filings, Moat, Resilience).",
+          "name": "perform_fundamental_analysis",
+          "py_func": "hushh_mcp.agents.kai.tools.perform_fundamental_analysis",
+          "required_scope": "agent.kai.analyze"
+        },
+        {
+          "description": "Analyze market sentiment (News, Social, Analyst Ratings).",
+          "name": "perform_sentiment_analysis",
+          "py_func": "hushh_mcp.agents.kai.tools.perform_sentiment_analysis",
+          "required_scope": "agent.kai.analyze"
+        },
+        {
+          "description": "quantitative valuation models (DCF, Comps).",
+          "name": "perform_valuation_analysis",
+          "py_func": "hushh_mcp.agents.kai.tools.perform_valuation_analysis",
+          "required_scope": "agent.kai.analyze"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "2.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {
+        "approved_disclosure_formatter": {
+          "backend_plaintext_allowed": false,
+          "client_executor": "hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts",
+          "contract_id": "agent_kyc.approved_disclosure_formatter.v1",
+          "contract_version": "1.0.0",
+          "input_schema": "ApprovedDisclosureRenderInput",
+          "output_schema": "ApprovedDisclosureRenderModel",
+          "strict_client_zk": true
+        },
+        "drafting_contract_owned_by_adk": true,
+        "strict_client_zk_draft_rendering": true
+      },
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Identity/KYC workflow specialist for requirements, missing-document state, approval-gated drafts, and structured PKM writeback.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_kyc",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/kyc/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Agent KYC",
+      "native_requirements": [],
+      "optional_scopes": [
+        "agent.kyc.redraft.llm",
+        "pkm.write"
+      ],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.kyc.process"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "3744d9c5316ad67e17755760a97d185e92d13cad908d014e92aa7ed5876ab3d9",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Trusted-people live location workflow under One, consent, recipient encryption, revocation, and audit.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_location",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/location/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Location Agent",
+      "native_requirements": [],
+      "optional_scopes": [
+        "cap.location.live.view",
+        "cap.location.live.request",
+        "cap.location.live.revoke",
+        "cap.location.live.refer_request"
+      ],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "cap.location.live.share"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "f2e78483e77eb1cc699cebf011420de1e9ce32d01d28a93561d86050b0e33b99",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [
+        {
+          "description": "List verified recipients eligible for recipient-encrypted location sharing.",
+          "name": "list_location_recipients",
+          "py_func": "hushh_mcp.agents.location.tools.list_location_recipients",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Create a recipient-bound live-location grant with bounded duration.",
+          "name": "create_location_share",
+          "py_func": "hushh_mcp.agents.location.tools.create_location_share",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "List the owner's active coordinate-free location grant metadata.",
+          "name": "list_active_location_shares",
+          "py_func": "hushh_mcp.agents.location.tools.list_active_location_shares",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Revoke an active live-location grant owned by the current user.",
+          "name": "revoke_location_share",
+          "py_func": "hushh_mcp.agents.location.tools.revoke_location_share",
+          "required_scope": "cap.location.live.revoke"
+        },
+        {
+          "description": "Ask an owner for live-location access without granting access.",
+          "name": "request_location_access",
+          "py_func": "hushh_mcp.agents.location.tools.request_location_access",
+          "required_scope": "cap.location.live.request"
+        },
+        {
+          "description": "Approve a pending request and create a new recipient-scoped grant.",
+          "name": "approve_location_request",
+          "py_func": "hushh_mcp.agents.location.tools.approve_location_request",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Deny a pending request without creating access.",
+          "name": "deny_location_request",
+          "py_func": "hushh_mcp.agents.location.tools.deny_location_request",
+          "required_scope": "cap.location.live.request"
+        },
+        {
+          "description": "Refer a verified user into an owner approval request, never direct access.",
+          "name": "refer_location_recipient",
+          "py_func": "hushh_mcp.agents.location.tools.refer_location_recipient",
+          "required_scope": "cap.location.live.refer_request"
+        },
+        {
+          "description": "List active shares where the user is the recipient (grant ids, coordinate-free).",
+          "name": "list_incoming_location_shares",
+          "py_func": "hushh_mcp.agents.location.tools.list_incoming_location_shares",
+          "required_scope": "cap.location.live.view"
+        },
+        {
+          "description": "List the user's active public location links (ids + expiry).",
+          "name": "list_public_links",
+          "py_func": "hushh_mcp.agents.location.tools.list_public_links",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Propose an owner-confirmed public link; the browser creates it after confirmation.",
+          "name": "propose_public_link",
+          "py_func": "hushh_mcp.agents.location.tools.propose_public_link",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Propose viewing an incoming share; the browser fetches and decrypts the ciphertext.",
+          "name": "propose_location_view",
+          "py_func": "hushh_mcp.agents.location.tools.propose_location_view",
+          "required_scope": "cap.location.live.view"
+        },
+        {
+          "description": "Revoke an active public location link owned by the user.",
+          "name": "revoke_public_link",
+          "py_func": "hushh_mcp.agents.location.tools.revoke_public_link",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Propose an emergency SOS broadcast to all ready trusted contacts; the browser creates grants, encrypts, and publishes.",
+          "name": "propose_sos_panic",
+          "py_func": "hushh_mcp.agents.location.tools.propose_sos_panic",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Propose a bounded check-in share to the user's ready trusted contacts (browser encrypts/publishes).",
+          "name": "propose_check_in",
+          "py_func": "hushh_mcp.agents.location.tools.propose_check_in",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Ask the client to request device location permission.",
+          "name": "request_device_location_permission",
+          "py_func": "hushh_mcp.agents.location.tools.request_device_location_permission",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Ask the user to choose an exact matching recipient.",
+          "name": "request_recipient_choice",
+          "py_func": "hushh_mcp.agents.location.tools.request_recipient_choice",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Ask the user to choose an active share before revocation.",
+          "name": "request_active_share_choice",
+          "py_func": "hushh_mcp.agents.location.tools.request_active_share_choice",
+          "required_scope": "cap.location.live.revoke"
+        },
+        {
+          "description": "Ask the user to choose a bounded share duration.",
+          "name": "request_duration_choice",
+          "py_func": "hushh_mcp.agents.location.tools.request_duration_choice",
+          "required_scope": "cap.location.live.share"
+        },
+        {
+          "description": "Ask the owner to choose a pending location request.",
+          "name": "request_request_choice",
+          "py_func": "hushh_mcp.agents.location.tools.request_request_choice",
+          "required_scope": "cap.location.live.request"
+        },
+        {
+          "description": "Ask the recipient to choose an incoming location share.",
+          "name": "request_incoming_choice",
+          "py_func": "hushh_mcp.agents.location.tools.request_incoming_choice",
+          "required_scope": "cap.location.live.view"
+        },
+        {
+          "description": "Require explicit confirmation for a sensitive or bulk action.",
+          "name": "request_confirmation",
+          "py_func": "hushh_mcp.agents.location.tools.request_confirmation",
+          "required_scope": "cap.location.live.share"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Determines whether a user message should become PKM, what kind of memory it represents, and whether confirmation is required before save.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_memory_intent",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "message",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "current_domains",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "soft_ontology_choices",
+          "type": "array"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.1-flash-lite-preview",
+      "name": "Memory Intent Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "save_class",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "intent_class",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "mutation_intent",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "requires_confirmation",
+          "type": "boolean"
+        },
+        {
+          "description": null,
+          "name": "confirmation_reason",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "candidate_domain_choices",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "confidence",
+          "type": "number"
+        },
+        {
+          "description": null,
+          "name": "source_agent",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "contract_version",
+          "type": "integer"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "84aa4b5d345cd6751e02e97d16d76d0bc7a18edf2a778c8031b3949d02319f0e",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Determines whether a new message creates, extends, corrects, deletes, or skips a durable PKM entity.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_memory_merge",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "message",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "intent_frame",
+          "type": "object"
+        },
+        {
+          "description": null,
+          "name": "current_domains",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "simulated_state_summary",
+          "type": "object"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/memory_merge/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.1-flash-lite-preview",
+      "name": "Memory Merge Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "merge_mode",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "target_domain",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "target_entity_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "target_entity_path",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "match_confidence",
+          "type": "number"
+        },
+        {
+          "description": null,
+          "name": "match_reason",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "source_agent",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "contract_version",
+          "type": "integer"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "0afeb56bcdff9db4918aec19420274215b75ea668a368e730202ac9d278b58af",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Splits one natural-language prompt into up to four PKM memory candidates before downstream intent and structure planning.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_memory_segmentation",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "message",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.1-flash-lite-preview",
+      "name": "Memory Segmentation Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "segments",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "source_agent",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "contract_version",
+          "type": "integer"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "97e8fe79e0debed39f15f21533937a912fc87a607f5b0d3e6a7ce95c861ae0e1",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Privacy and consent guardian for scope review, vault friction, deletion, and revocation.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_nav",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/nav/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Agent Nav",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.nav.review"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "ff2ace6f7c798e777969f6c6a6e44e6dac552b29621f176f6477c8fa9420ee63",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex",
+          "byok"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Top personal agent that frames user intent and delegates specialist work.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_one",
+      "inputs": [],
+      "legacy_ids": [
+        "agent_orchestrator"
+      ],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/one/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": "pkm:runtime_secrets.llm.gemini_api_key",
+        "mode": "byok",
+        "name": "gemini-3.5-flash",
+        "provider": "gemini"
+      },
+      "name": "Agent One",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": null,
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "active",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "544aeb9590140ea4571a512a4b06a2c564933ca233aa7a6942f07afa3135d6b9",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Marketplace chatbot under One. Lets the owner query, publish, and manage their own PKM data slices with consent, and answers what is published and what it is worth. Delegatable by Agent One over A2A.\n",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_personal_information",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/personal_information/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Information Marketplace",
+      "native_requirements": [],
+      "optional_scopes": [
+        "cap.pkm.marketplace.manage"
+      ],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "cap.pkm.marketplace.view"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "058a07661e791adf53f93ebf3eced30634360def61eafe1b00abe82382d07ebf",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [
+        {
+          "description": "List the data slices the user has published (set to Available) to the marketplace. Read-only; safe metadata only.",
+          "name": "list_published_slices",
+          "py_func": "hushh_mcp.agents.personal_information.tools.list_published_slices",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "Summarize real buyer demand (pending/approved/interested counts) + POTENTIAL monthly earnings across published slices, with per-slice show-math factors and the pricing formula. Payments coming soon; payouts disabled and nothing accrued.",
+          "name": "get_earnings_summary",
+          "py_func": "hushh_mcp.agents.personal_information.tools.get_earnings_summary",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "Propose unpublished, offer-worthy slices as a publish card, optionally tailored to a topic (e.g. financial). Read-only; the owner taps Publish.",
+          "name": "propose_publish",
+          "py_func": "hushh_mcp.agents.personal_information.tools.propose_publish",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "List the owner's pending marketplace access requests (durable, server-side). Call first to get a real request id.",
+          "name": "list_access_requests",
+          "py_func": "hushh_mcp.agents.personal_information.tools.list_access_requests",
+          "required_scope": "cap.pkm.marketplace.manage"
+        },
+        {
+          "description": "Approve a pending marketplace access request server-side on the owner's explicit instruction. request_id from list_access_requests.",
+          "name": "approve_access_request",
+          "py_func": "hushh_mcp.agents.personal_information.tools.approve_access_request",
+          "required_scope": "cap.pkm.marketplace.manage"
+        },
+        {
+          "description": "Deny a pending marketplace access request server-side on the owner's explicit instruction. request_id from list_access_requests.",
+          "name": "deny_access_request",
+          "py_func": "hushh_mcp.agents.personal_information.tools.deny_access_request",
+          "required_scope": "cap.pkm.marketplace.manage"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Determines canonical PKM domain structure, scope boundaries, and summary projection for memory writes.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_pkm_structure",
+      "inputs": [
+        {
+          "description": null,
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "message",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "intent_frame",
+          "type": "object"
+        },
+        {
+          "description": null,
+          "name": "current_domains",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "soft_ontology_choices",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "merge_decision",
+          "type": "object"
+        },
+        {
+          "description": null,
+          "name": "simulated_state_summary",
+          "type": "object"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/pkm_structure/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.1-flash-lite-preview",
+      "name": "PKM Structure Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "candidate_payload",
+          "type": "object"
+        },
+        {
+          "description": null,
+          "name": "structure_decision",
+          "type": "object"
+        },
+        {
+          "description": null,
+          "name": "write_mode",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "target_entity_scope",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "validation_hints",
+          "type": "array"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "9d43b53fc3df003f8ba7382c9775f7c747ee70193dc126f6cf766bf1090cf7cb",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Intelligent portfolio document parser that extracts financial data from \nCSV files, PDF statements, and images. Supports Fidelity, JPMorgan, \nSchwab, Vanguard, and generic formats.\n",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": "chart-line",
+      "id": "agent_portfolio_import",
+      "inputs": [
+        {
+          "description": "User's unique identifier",
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "description": "VAULT_OWNER or portfolio.import consent token",
+          "name": "consent_token",
+          "type": "string"
+        },
+        {
+          "description": "Raw file content",
+          "name": "file_content",
+          "type": "bytes"
+        },
+        {
+          "description": "Original filename for type detection",
+          "name": "filename",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Portfolio Import Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": "List of extracted holdings with full details",
+          "name": "holdings",
+          "type": "array"
+        },
+        {
+          "description": "Account number, type, statement period",
+          "name": "account_metadata",
+          "type": "object"
+        },
+        {
+          "description": "Derived financial KPIs for PKM",
+          "name": "kpis",
+          "type": "object"
+        },
+        {
+          "description": "Detected brokerage source",
+          "name": "source",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "portfolio.import",
+        "attr.financial.*"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "0b88a13eed13adffa1ab6a3c2b1aea73b35b92d753c082d148925bb1abc2c86f",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [
+        {
+          "description": "Parse CSV portfolio export files from brokerages",
+          "name": "parse_csv",
+          "py_func": "hushh_mcp.agents.portfolio_import.tools.parse_csv",
+          "required_scope": "portfolio.import"
+        },
+        {
+          "description": "Parse PDF brokerage statements using pdfplumber",
+          "name": "parse_pdf",
+          "py_func": "hushh_mcp.agents.portfolio_import.tools.parse_pdf",
+          "required_scope": "portfolio.import"
+        },
+        {
+          "description": "Parse portfolio images/screenshots using Tesseract OCR",
+          "name": "parse_image",
+          "py_func": "hushh_mcp.agents.portfolio_import.tools.parse_image",
+          "required_scope": "portfolio.import"
+        },
+        {
+          "description": "Use Gemini LLM to extract holdings from complex/unstructured text",
+          "name": "extract_with_llm",
+          "py_func": "hushh_mcp.agents.portfolio_import.tools.extract_with_llm",
+          "required_scope": "portfolio.import"
+        }
+      ],
+      "ui_type": "upload",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Produces minimal discovery-safe PKM summaries without leaking semantic private state.",
+      "evaluations": [],
+      "failure_states": [],
+      "icon": null,
+      "id": "agent_summary_reducer",
+      "inputs": [
+        {
+          "description": null,
+          "name": "domain",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "candidate_data",
+          "type": "object"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/summary_reducer/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "PKM Summary Reducer",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "summary_projection",
+          "type": "object"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": false
+      },
+      "system_instruction_sha256": "f26e3f760cd855eedd8966c5c89352e844cf1493edf7f5eed9aecf27b80cb769",
+      "telemetry_namespace": "agent.unclassified",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    }
+  ],
+  "schema_version": "2.0.0",
+  "source": "consent-protocol/hushh_mcp/agents/*/agent.yaml"
+}

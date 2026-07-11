@@ -74,10 +74,10 @@ Client surfaces
 | GET | `/api/v1` | Developer API root summary (`410` when developer API disabled) |
 | GET | `/api/v1/list-scopes` | Generic dynamic scope catalog (`410` when developer API disabled) |
 | GET | `/api/v1/tool-catalog` | Public-beta or app-filtered tool visibility |
-| GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
+| GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `Authorization: Bearer <developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
-| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved static scope such as `agent.one.orchestrate` (requires `?token=<developer-token>`) |
-| POST | `/api/v1/default-available-export` | Read a user-published safe projection for a `default_available` scope; records audit metadata and never returns raw PKM |
+| POST | `/api/v1/request-consent` | Create or reuse consent for one discovered `attr.*` scope or approved capability such as `cap.one.invoke` (requires `Authorization: Bearer <developer-token>`) |
+| POST | `/api/v1/public-profile-export` | Read an owner-published public-profile resource by opaque handle; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
 ### Developer Portal (Firebase Sign-In / Self-Serve)
@@ -191,35 +191,34 @@ not the product owner for live location.
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, and related events after the retention window |
 
-### Agent One A2A
+### Agent One invocation preview (not official A2A v1)
 
-Agent One exposes a scoped A2A coordination surface. The standard A2A discovery
-endpoint is `/.well-known/agent-card.json`; `/api/one/a2a/card` remains a Hussh
-compatibility alias. Both return public discovery metadata. The public Agent
-Card exposes A2A/publisher-compatible fields including `protocolVersion`,
-`preferredTransport`, `supportedInterfaces`, `capabilities`,
-`securitySchemes`, `security`, `securityRequirements`, default modes, and
-public `skills`. It must not expose internal routing targets such as specialist
-agent ids. The message endpoint has two paths:
+Agent One currently exposes a contained Hussh invocation-preview contract at
+`/api/one/a2a/card` and `/api/one/a2a/message`. It intentionally does not publish
+`/.well-known/agent-card.json`, `supportedInterfaces`, a protocol version, or
+official Task semantics. Official A2A v1 remains release-blocked because the
+pinned ADK 2.4 dependency range is incompatible with `a2a-sdk` 1.x. The preview
+must not expose internal routing targets. It has two paths:
 
 1. With `X-Consent-Token`, the caller must also authenticate as the developer
    app with `Authorization: Bearer <developer-token>`; the consent token is
-   DB-validated for `agent.one.orchestrate`, must belong to that same app, and
+   DB-validated for `cap.one.invoke`, must belong to that same app, and
    the route derives `userId` from the signed token. Any mismatched body
    `userId`, `email`, or `phoneNumber` is rejected before Agent One runs.
 2. Without `X-Consent-Token`, an authenticated developer caller can create or
-   check a pending `agent.one.orchestrate` consent request for a resolved
+   check a pending `cap.one.invoke` consent request for a resolved
    `userId`, `email`, or `phoneNumber`. This path does not execute Agent One
    and does not return a consent token.
 
-Downstream work still validates consent at its own boundary.
+`cap.one.invoke` can only create or resume the relationship. Downstream private
+data and actions require exact attenuated authority and otherwise return an
+auth-required response.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| GET | `/.well-known/agent-card.json` | Public metadata | Standard A2A Agent Card discovery endpoint for Agent One |
-| GET | `/api/one/a2a/card` | Public metadata | Return Agent One A2A discovery metadata, supported interface, public skills, required scope, and endpoint metadata |
-| POST | `/api/one/a2a/message` | Developer bearer token plus `X-Consent-Token` scoped `agent.one.orchestrate` | Invoke Agent One as the coordinator for a user request; returns the user-approved workflow response |
-| POST | `/api/one/a2a/message` | Developer `Authorization: Bearer <token>` or legacy `?token=` | Create or report pending Agent One orchestration consent for a resolved user; returns consent request metadata only |
+| GET | `/api/one/a2a/card` | Public metadata | Return the contained Hussh invocation-preview metadata and its release blocker |
+| POST | `/api/one/a2a/message` | Developer bearer token plus `X-Consent-Token` scoped `cap.one.invoke` | Frame or resume an Agent One request; exact downstream authority remains mandatory |
+| POST | `/api/one/a2a/message` | Developer `Authorization: Bearer <token>` | Create or report pending invocation consent for a resolved user; returns consent request metadata only |
 
 ### VAULT_OWNER (Consent-Gated)
 
@@ -260,8 +259,10 @@ RIA relationship bundle note:
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
 | DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
-| POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private, ask-first consent, or default-available projection |
-| POST | `/api/pkm/domains/{domain}/default-available-projection` | Vault-owner publishes a client-generated safe projection for one default-available section |
+| POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private or consent-required |
+| POST | `/api/pkm/domains/{domain}/public-profile-projection` | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture |
+| GET | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads |
+| DELETE | `/api/pkm/domains/{domain}/public-profile-projection` | Vault-owner revokes one exact public-profile handle |
 | GET | `/api/pkm/upgrade/status/{user_id}` | Get generic PKM upgrade status + resumable run metadata |
 | POST | `/api/pkm/upgrade/start-or-resume` | Start or resume a client-side PKM upgrade run |
 | POST | `/api/pkm/upgrade/runs/{run_id}/status` | Update run-level PKM upgrade status |
@@ -590,22 +591,19 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 ```
 1. GET /api/v1/user-scopes/{user_id}
-   Query: ?token=<developer-token>
+   Header: Authorization: Bearer <developer-token>
    → Returns: { user_id, available_domains, scopes, scope_entries }
 
-2. If the selected scope entry is `visibility_posture=default_available`
-   and `default_projection_ready=true`, POST /api/v1/default-available-export
-   Query: ?token=<developer-token>
-   Body: { user_id, scope }
+2. For an owner-provided public-profile handle, POST /api/v1/public-profile-export
+   Header: Authorization: Bearer <developer-token>
+   Body: { user_id, public_profile_handle }
    → Returns: { projection_payload, projection_hash, projection_version }
-   → No consent request is created; an audit event is recorded.
+   → This resource is independent of PKM discovery and encrypted consent; an audit event is recorded.
 
 3. POST /api/v1/request-consent
-   Query: ?token=<developer-token>
    Body: { user_id, scope, reason, approval_timeout_minutes, connector_public_key, connector_key_id, connector_wrapping_alg }
    → Returns: { request_id, status: "pending" } or an immediate reuse payload with
      { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }.
-   → If the scope is already default-available, returns { status: "already_available", coverage_kind: "default_available_projection" }.
 
 4. Optional realtime wait: GET /api/v1/consent-events
    Header: Authorization: Bearer <developer-token>
@@ -615,20 +613,20 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
      - `consent_update`: request state change, including `consent_token` only when `status="granted"`
      - `heartbeat`: keepalive while waiting
    → The stream is bound to the authenticated developer app and closes on terminal consent states.
-   → Query-token auth remains legacy-compatible, but bearer auth is preferred
-     because URLs are commonly logged by proxies and developer tools.
+   → Query-string authentication is rejected.
 
 5. User receives FCM notification → approves in app
 
 6. Poll fallback: GET /api/v1/consent-status
-   Query: ?token=<developer-token>&user_id=<user_id>&request_id=<request_id>
+   Query: ?user_id=<user_id>&request_id=<request_id>
    → Returns pending/granted/denied/expired status. `consent_token` is null until granted.
 
 7. POST /api/validate-token
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 
-6. POST /api/v1/scoped-export?token=<developer-token>
+6. POST /api/v1/scoped-export
+   Header: Authorization: Bearer <developer-token>
    Body: { consent_token, expected_scope, connector_id, connector_public_key, connector_key_id }
    → Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
    → Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
@@ -636,11 +634,10 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `read_default_available_projection_when_ready` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
+`discover_user_domains` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
 
 Coverage rules:
 
-- `default_available` + ready projection → read safe projection through `/api/v1/default-available-export`; no consent request
 - broader active grant → narrower ask: reuse immediately
 - narrower active grant → broader ask: requires fresh approval
 - exact duplicate pending request → reuse the existing request_id

@@ -88,7 +88,7 @@ describe("pkm profile presentation", () => {
     expect(permissions).toHaveLength(1);
   });
 
-  it("presents default-available posture as a plain-language sharing state", () => {
+  it("fails closed when a legacy default-available posture is encountered", () => {
     const permissions = buildPkmDomainPermissionPresentation({
       domain,
       manifest: {
@@ -124,10 +124,10 @@ describe("pkm profile presentation", () => {
       expect.objectContaining({
         label: "Portfolio",
         exposureEnabled: true,
-        visibilityPosture: "default_available",
+        visibilityPosture: "consent_required",
         defaultProjectionReady: true,
         defaultProjectionUpdatedAt: "2026-05-21T10:00:00Z",
-        stateLabel: "Available by default",
+        stateLabel: "Ask first",
       }),
     ]);
     expect(permissions[0]?.stateDescription).not.toMatch(/scope|manifest|registry|PKM/i);

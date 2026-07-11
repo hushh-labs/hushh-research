@@ -504,14 +504,6 @@ export function PkmExplorerPanel() {
                                   This is the public scope handle. Raw internal JSON paths stay
                                   private to first-party tooling after vault unlock.
                                 </p>
-                                {scope.visibility_posture === "default_available" ? (
-                                  <SlicePriceBadge
-                                    sensitivityTier={scope.sensitivity_tier}
-                                    scopeKind={scope.scope_kind}
-                                    attributeCount={(scope.segment_ids || []).length || 1}
-                                    vaultOwnerToken={vaultOwnerToken ?? undefined}
-                                  />
-                                ) : null}
                               </AccordionContent>
                             </AccordionItem>
                           ))}

@@ -194,26 +194,65 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
     await websocket.send_text(json.dumps({"setupComplete": {}}))
 
-    # Proactive greeting: the session should never open in silence. This
-    # kickoff is app-composed (not user speech) and runs through the same
-    # single ordered event stream, so a user who starts talking immediately
-    # simply barges in over it.
-    queue.send_content(
-        genai_types.Content(
-            role="user",
-            parts=[
-                genai_types.Part(
-                    text=(
-                        "[Session start - not user speech] Greet the user right "
-                        "now in one short, warm sentence as One. Vary your "
-                        "greeting naturally between sessions; do not repeat a "
-                        "stock phrase, do not list capabilities, and do not "
-                        "ask more than one light question."
-                    )
-                )
-            ],
+    # A signed-in uid means a known/returning person; no uid is a fresh,
+    # not-yet-authenticated visitor who is (or is about to be) in onboarding.
+    is_fresh_visitor = not uid
+
+    # Proactive greeting: the session should never open in silence, but the
+    # greeting must be SCREEN-AWARE (a fresh visitor on the onboarding root
+    # should be welcomed in and guided into setup, never greeted as if they
+    # were "back again"). The browser sends the current screen in its first
+    # app_context frame right after setupComplete, so the greeting is DEFERRED
+    # until that frame arrives and then composed with the screen. A short
+    # fallback timer still greets if no app_context ever lands, so the session
+    # never opens silently. This kickoff is app-composed (not user speech) and
+    # rides the same single ordered event stream, so a user who starts talking
+    # immediately simply barges in over it.
+    greeting_sent = False
+
+    def _compose_greeting_prompt(screen: str) -> str:
+        onboarding = (screen in _ONBOARDING_SCREENS) or is_fresh_visitor
+        if onboarding:
+            return (
+                "[Session start - not user speech] This is a NEW visitor who is "
+                "just arriving to get set up. You are One, their personal agent: "
+                "the relationship layer where they own their context, grant "
+                "consent, and summon specialists (like Kai for finance) to get "
+                "things done. Greet them warmly in one short sentence, welcome "
+                "them in for the first time, and gently invite them to begin "
+                "getting set up. Do NOT greet them as if they were returning (no "
+                "'welcome back', no 'back again'). If a screen is known, call "
+                "list_app_actions for the current screen first and name the one "
+                "next thing they can do here; ask for what you need in the same "
+                "breath. Do not list capabilities and do not ask more than one "
+                "light question."
+            )
+        return (
+            "[Session start - not user speech] Greet the user right now in one "
+            "short, warm sentence as One. Vary your greeting naturally between "
+            "sessions; do not repeat a stock phrase, do not list capabilities, "
+            "and do not ask more than one light question."
         )
-    )
+
+    def _send_greeting(screen: str) -> None:
+        nonlocal greeting_sent
+        if greeting_sent:
+            return
+        greeting_sent = True
+        queue.send_content(
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=_compose_greeting_prompt(screen))],
+            )
+        )
+
+    async def _greet_if_no_context() -> None:
+        # Fallback: the browser always sends an app_context frame, but if one
+        # never arrives the session must still open with a spoken greeting.
+        await asyncio.sleep(1.5)
+        _send_greeting("")
+
+    greeting_fallback_task = asyncio.create_task(_greet_if_no_context())
 
     # Last screen injected as model-visible context. Screen changes arrive as
     # app_context frames; sending content mid-generation PREEMPTS the model's
@@ -267,8 +306,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                 screen = context_payload.get("screen")
                 clean_screen = screen.strip()[:64] if isinstance(screen, str) else ""
+                is_first = not first_app_context_seen
+                if is_first and not greeting_sent:
+                    # First context frame carries the entry screen: cancel the
+                    # silent-open fallback and greet with the screen in hand so
+                    # a fresh visitor is welcomed in and guided into setup.
+                    greeting_fallback_task.cancel()
+                    _send_greeting(clean_screen)
                 if clean_screen:
-                    is_first = not first_app_context_seen
                     changed = clean_screen != last_injected_screen
                     last_injected_screen = clean_screen
                     if changed and not is_first:
@@ -276,10 +321,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             note_text = (
                                 "[App state update - not user speech] The user is "
                                 f"now on the '{clean_screen}' screen while finishing "
-                                "account setup. Briefly name the one next thing they "
-                                "can do here, and if it needs an answer from them "
-                                "(a question, a phone number), ask for it directly "
-                                "in the same breath."
+                                "account setup. Only offer what is actually "
+                                "available ON THIS screen: call list_app_actions "
+                                "for the current screen first, then briefly name "
+                                "the one next thing they can do here. If that step "
+                                "needs an answer from them, ask for it directly in "
+                                "the same breath. Do not bring up steps that belong "
+                                "to other screens."
                             )
                         else:
                             note_text = (
@@ -383,7 +431,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        for task in (up, down):
+        for task in (up, down, greeting_fallback_task):
             task.cancel()
         queue.close()
         try:
