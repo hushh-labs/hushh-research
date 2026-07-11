@@ -155,18 +155,9 @@ export function SafeArrivalFlow({
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [durationValue, setDurationValue] = useState("1");
   const [note, setNote] = useState("");
-  const [seeded, setSeeded] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Pre-select the whole ready trusted circle (narrowable).
-  useEffect(() => {
-    if (seeded) return;
-    const ready = contacts.filter((r) => vm.isRecipientShareReady(r));
-    if (contacts.length > 0) {
-      setCheckedIds(ready.map((r) => r.userId));
-      setSeeded(true);
-    }
-  }, [contacts, seeded, vm]);
+  // No default selection: the user explicitly chooses who should know.
 
   // Debounced Places autocomplete via the backend proxy (same as Drive To).
   useEffect(() => {

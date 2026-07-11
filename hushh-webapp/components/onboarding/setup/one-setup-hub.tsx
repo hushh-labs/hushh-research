@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type LucideIcon } from "lucide-react";
 
 import {
@@ -16,7 +16,7 @@ import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
   CAPABILITY_SETUP_COPY,
@@ -27,6 +27,7 @@ import {
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
 import {
   isCapabilitySetupActionable,
@@ -53,6 +54,7 @@ import { cn } from "@/lib/utils";
  */
 export function OneSetupHub() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { byId, isLoading } = useCapabilitySetupStates({
@@ -60,6 +62,11 @@ export function OneSetupHub() {
     enrichOauth: true,
   });
   const [dismissing, setDismissing] = useState(false);
+  const returnTo = useMemo(
+    () => normalizeInternalRouteHref(searchParams.get("return_to")),
+    [searchParams],
+  );
+  const completionTarget = returnTo || ROUTES.ONE_HOME;
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
 
@@ -71,6 +78,13 @@ export function OneSetupHub() {
   const done = items.filter((item) => isCapabilitySetupComplete(item.status)).length;
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
+  // The MASTER setup acknowledgement is owned by this single hub control:
+  //   - 0 capabilities done  -> "Skip"     (master skip-resolved)
+  //   - 1..n capabilities done -> "Continue" (master completed, not skipped)
+  // Computed here (ahead of the voice metadata publish below, which needs the
+  // label) rather than only near `handleMasterAck`.
+  const masterSkipped = done === 0;
+  const masterActionLabel = masterSkipped ? "Skip" : "Continue";
 
   // Publish screen context so the onboarding guide can describe the hub and
   // navigate the person to any capability they ask for.
@@ -79,30 +93,36 @@ export function OneSetupHub() {
     title: "Set up One",
     purpose:
       "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
-    actions: CAPABILITY_SETUP_COPY.map((cap) => ({
-      id: cap.id,
-      label: cap.title,
-      purpose: cap.setupBlurb,
-    })),
+    actions: [
+      ...CAPABILITY_SETUP_COPY.map((cap) => ({
+        id: cap.id,
+        actionId: `setup.open_${cap.id.replace(/-/g, "_")}`,
+        label: cap.title,
+        purpose: cap.setupBlurb,
+      })),
+      {
+        id: "master_ack",
+        actionId: "setup.hub_master_ack",
+        label: masterActionLabel,
+        purpose: masterSkipped
+          ? "Skip setup for now and go home."
+          : "Finish for now and go home.",
+      },
+    ],
   });
 
-  // The MASTER setup acknowledgement is owned by this single hub control:
-  //   - 0 capabilities done  -> "Skip"     (master skip-resolved)
-  //   - 1..n capabilities done -> "Continue" (master completed, not skipped)
-  // Either way it SATISFIES the root setup gate so the hard gate on /one/* does
-  // not bounce the user back here. Per-capability tiles never touch this gate;
-  // they only record their own signal. We mark the server pre-vault gate
-  // (authoritative for the gate and PostAuthRouteService); when the vault is
-  // unlocked we also flip the vault profile so the unlocked path agrees. Both
-  // are awaited before navigating so the gate is consistent on the very next
-  // route resolve. Failures stay fail-open (we still navigate home).
-  const masterSkipped = done === 0;
-  const masterActionLabel = masterSkipped ? "Skip" : "Continue";
-
+  // Either way, resolving the master ack SATISFIES the root setup gate so the
+  // hard gate on /one/* does not bounce the user back here. Per-capability
+  // tiles never touch this gate; they only record their own signal. We mark
+  // the server pre-vault gate (authoritative for the gate and
+  // PostAuthRouteService); when the vault is unlocked we also flip the vault
+  // profile so the unlocked path agrees. Both are awaited before navigating
+  // so the gate is consistent on the very next route resolve. Failures stay
+  // fail-open (we still navigate home).
   const handleMasterAck = async () => {
     if (dismissing) return;
     if (!user?.uid) {
-      router.push(ROUTES.ONE_HOME);
+      router.push(completionTarget);
       return;
     }
     setDismissing(true);
@@ -118,9 +138,19 @@ export function OneSetupHub() {
       console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
     } finally {
       setDismissing(false);
-      router.push(ROUTES.ONE_HOME);
+      router.push(completionTarget);
     }
   };
+
+  // Voice parity: "skip setup" / "continue to home" drive the same master
+  // acknowledgement as tapping the hub's Skip/Continue button.
+  useLocalOnboardingActionHandler("setup.hub_master_ack", async () => {
+    await handleMasterAck();
+    return {
+      status: "succeeded",
+      summary: masterSkipped ? "Skipped setup for now." : "Setup acknowledged. Opening home.",
+    };
+  });
 
   const summary = isLoading
     ? "Checking what's set up…"

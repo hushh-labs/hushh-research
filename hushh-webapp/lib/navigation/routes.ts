@@ -211,10 +211,12 @@ export function isCapabilityHandoffTarget(pathname: string): boolean {
 export function buildOneSetupRoute(entries?: {
   feature?: string | null;
   from?: string | null;
+  returnTo?: string | null;
 }) {
   return withQuery(ROUTES.ONE_SETUP, {
     feature: entries?.feature,
     from: normalizeInternalRouteHref(entries?.from),
+    return_to: normalizeInternalRouteHref(entries?.returnTo),
   });
 }
 

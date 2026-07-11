@@ -235,13 +235,7 @@ export function buildProfileRoute(params?: {
   }
 
   if (panel === "gmail") {
-    if (detail === "gmail-connection") {
-      return appendQuery(ROUTES.PROFILE_GMAIL_CONNECTION, {}, params?.searchParams);
-    }
-    if (detail === "gmail-actions") {
-      return appendQuery(ROUTES.PROFILE_GMAIL_ACTIONS, {}, params?.searchParams);
-    }
-    return appendQuery(ROUTES.PROFILE_GMAIL, {}, params?.searchParams);
+    return appendQuery(ROUTES.GMAIL, {}, params?.searchParams);
   }
 
   if (panel === "support") {

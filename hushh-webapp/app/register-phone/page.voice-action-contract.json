@@ -1,0 +1,86 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "phone_mandate",
+  "surface_title": "Phone Verification",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/reference/quality/one-onboarding-architecture.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": ["investor", "ria"]
+    },
+    "speaker_persona": "one",
+    "guard_ids": ["auth_signed_in"]
+  },
+  "actions": [
+    {
+      "action_id": "phone_mandate.submit_number",
+      "label": "Submit Phone Number",
+      "meaning": "Sends a verification code to the phone number the user says.",
+      "aliases": [
+        "verify my phone",
+        "send me a code",
+        "my phone number is",
+        "add my phone number"
+      ],
+      "search_keywords": ["phone", "verify", "code", "sms"],
+      "reachability": {
+        "routes": ["/register-phone"],
+        "screens": ["phone_mandate", "register_phone"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.submit_number"
+      },
+      "control_ids": ["phone-flow-number"],
+      "state_exposure": ["masked phone number"],
+      "docs_references": ["hushh-webapp/components/auth/phone-verification-flow.tsx"],
+      "goal": {
+        "required_inputs": [
+          {
+            "name": "phone_number",
+            "prompt": "What's your phone number, including country code?",
+            "required": true,
+            "slot": "phoneNumber"
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.submit_code",
+      "label": "Submit Verification Code",
+      "meaning": "Confirms the verification code sent by SMS and completes phone verification. Stays user-triggered because it settles account security state.",
+      "aliases": [
+        "the code is",
+        "verify my code",
+        "confirm my phone",
+        "submit the verification code"
+      ],
+      "search_keywords": ["code", "otp", "verify", "confirm"],
+      "reachability": {
+        "routes": ["/register-phone"],
+        "screens": ["phone_mandate", "register_phone"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["A verification code must already be sent."]
+      },
+      "guard_ids": ["auth_signed_in", "manual_user_execution"],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Completing phone verification changes account security state and must stay user-triggered from the visible code field.",
+        "intended_handler": "local_handler"
+      },
+      "control_ids": ["phone-flow-code"],
+      "state_exposure": ["verification step"],
+      "docs_references": ["hushh-webapp/components/auth/phone-verification-flow.tsx"]
+    }
+  ]
+}

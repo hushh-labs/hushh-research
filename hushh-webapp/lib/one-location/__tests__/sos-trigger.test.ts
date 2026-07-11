@@ -30,6 +30,7 @@ import type {
 import {
   isSosShareReadyRecipient,
   runSosPanic,
+  selectShareReadyRecipients,
   selectSosConnectedRecipients,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
@@ -201,6 +202,23 @@ describe("selectSosConnectedRecipients", () => {
   it("returns empty array when networkConnections is empty", () => {
     const result = selectSosConnectedRecipients([rA, rB], [], me);
     expect(result).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: selectShareReadyRecipients
+// ---------------------------------------------------------------------------
+
+describe("selectShareReadyRecipients", () => {
+  it("returns only share-ready recipients", () => {
+    const ready = { userId: "a", canReceiveLocation: true } as never;
+    const notReady = { userId: "b", canReceiveLocation: false } as never;
+    const result = selectShareReadyRecipients([ready, notReady]);
+    expect(result.map((r) => r.userId)).toEqual(["a"]);
+  });
+
+  it("returns empty for an empty list", () => {
+    expect(selectShareReadyRecipients([])).toEqual([]);
   });
 });
 

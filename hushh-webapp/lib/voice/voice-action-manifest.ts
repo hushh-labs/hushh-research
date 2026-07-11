@@ -2,7 +2,11 @@ import manifestJson from "@/contracts/kai/voice-action-manifest.v1.json";
 
 export type VoiceActionManifestRiskLevel = "low" | "medium" | "high";
 export type VoiceActionManifestExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
-export type VoiceActionManifestExecutionPath = "kai_command" | "voice_tool" | "route";
+export type VoiceActionManifestExecutionPath =
+  | "kai_command"
+  | "voice_tool"
+  | "route"
+  | "local_handler";
 export type VoiceActionManifestSpeakerPersona = "one" | "kai" | "nav" | "kyc";
 export type VoiceActionManifestDelegateAgentId =
   | "one"
@@ -108,7 +112,8 @@ function validateExecutionHint(input: unknown): VoiceActionManifestExecutionHint
     if (
       path !== "kai_command" &&
       path !== "voice_tool" &&
-      path !== "route"
+      path !== "route" &&
+      path !== "local_handler"
     ) {
       return null;
     }

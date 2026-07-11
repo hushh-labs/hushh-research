@@ -1,0 +1,374 @@
+import { act, render, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => {
+  const toast = Object.assign(vi.fn(), { dismiss: vi.fn() });
+  const user = {
+    uid: "recipient-user",
+    getIdToken: vi.fn().mockResolvedValue("firebase-token"),
+  };
+  return {
+    toast,
+    user,
+    auth: { user: user as typeof user | null },
+    routerPush: vi.fn(),
+    initializeFCM: vi.fn(),
+    prepareFCMListeners: vi.fn(),
+    getState: vi.fn(),
+    startTask: vi.fn(),
+    completeTask: vi.fn(),
+  };
+});
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/settings",
+  useRouter: () => ({ push: mocks.routerPush, replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("sonner", () => ({ toast: mocks.toast }));
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => false,
+    getPlatform: () => "web",
+  },
+}));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: mocks.auth.user,
+  }),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    isVaultUnlocked: true,
+    getVaultOwnerToken: () => "vault-owner-token",
+  }),
+}));
+
+vi.mock("@/lib/consent", () => ({
+  useConsentActions: () => ({ handleDeny: vi.fn() }),
+}));
+
+vi.mock("@/lib/notifications", () => ({
+  initializeFCM: mocks.initializeFCM,
+  prepareFCMListeners: mocks.prepareFCMListeners,
+  clearDeliveredConsentNotifications: vi.fn(),
+  FCM_MESSAGE_EVENT: "fcm-message",
+}));
+
+vi.mock("@/lib/one-location/service", () => ({
+  OneLocationService: {
+    getState: mocks.getState,
+  },
+}));
+
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: {
+    getPendingConsents: vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ pending: [] }),
+    }),
+    markPendingConsentOpened: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+vi.mock("@/lib/services/app-background-task-service", () => ({
+  AppBackgroundTaskService: {
+    startTask: mocks.startTask,
+    completeTask: mocks.completeTask,
+    dismissTask: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/morphy-ux/ui", () => ({
+  Icon: () => null,
+}));
+
+import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+import { markOneLocationGrantUnwatched } from "@/lib/one-location/notifications";
+
+const EMPTY_LOCATION_STATE = {
+  recipients: [],
+  ownerGrants: [],
+  receivedGrants: [],
+  requests: [],
+  referrals: [],
+  publicInvites: [],
+  networkConnections: [],
+  publicInviteSubmissions: [],
+  capabilityScopes: [],
+};
+
+function renderProvider(children: ReactNode = <div>Settings page</div>) {
+  return render(
+    <ConsentNotificationProvider>{children}</ConsentNotificationProvider>,
+  );
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+  vi.clearAllMocks();
+  mocks.auth.user = mocks.user;
+  mocks.prepareFCMListeners.mockResolvedValue(undefined);
+  mocks.initializeFCM.mockResolvedValue({ status: "push_active" });
+  mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
+});
+
+describe("global One Location notification provider", () => {
+  it("shows one popup and records one bell item for duplicate live pushes on a non-Location route", async () => {
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    const detail = {
+      data: {
+        type: "location_share_created",
+        grant_id: "grant-live-1",
+        owner_display_label: "Alex",
+        share_kind: "check_in",
+        share_message: "Reached safely",
+      },
+    };
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "one_location_share:grant-live-1",
+        routeHref: expect.stringContaining("section=shared"),
+      }),
+    );
+  });
+
+  it("queues a foreground push received during auth hydration and drains it once for the matching user", async () => {
+    mocks.auth.user = null;
+    const view = renderProvider();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_share_created",
+              user_id: "recipient-user",
+              grant_id: "grant-auth-race-1",
+              owner_display_label: "Alex",
+            },
+          },
+        }),
+      );
+    });
+    expect(mocks.toast).not.toHaveBeenCalled();
+
+    mocks.auth.user = mocks.user;
+    view.rerender(
+      <ConsentNotificationProvider>
+        <div>Settings page</div>
+      </ConsentNotificationProvider>,
+    );
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers globally and still presents only once when push registration is blocked", async () => {
+    mocks.initializeFCM.mockResolvedValue({
+      status: "push_blocked",
+      detail: "permission_denied",
+    });
+    mocks.getState.mockResolvedValue({
+      ...EMPTY_LOCATION_STATE,
+      receivedGrants: [
+        {
+          id: "grant-catch-up-1",
+          ownerUserId: "owner-user",
+          recipientUserId: "recipient-user",
+          ownerDisplayName: "Jordan",
+          recipientKeyId: "key-1",
+          status: "active",
+          consentScope: "one.location",
+          capabilityScopes: [],
+          durationHours: 2,
+          shareKind: "share",
+        },
+      ],
+    });
+
+    renderProvider();
+
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_share_created",
+              grant_id: "grant-catch-up-1",
+              owner_display_label: "Jordan",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("presents a push-active reconciliation once and deduplicates a later live push", async () => {
+    mocks.getState.mockResolvedValue({
+      ...EMPTY_LOCATION_STATE,
+      requests: [
+        {
+          id: "request-race-1",
+          ownerUserId: "recipient-user",
+          requesterUserId: "requester-user",
+          requesterDisplayName: "Alex",
+          status: "pending",
+        },
+      ],
+    });
+
+    renderProvider();
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_access_request",
+              request_id: "request-race-1",
+              requester_display_label: "Alex",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("presents a reconciliation once after a fetch finishes while the page is hidden", async () => {
+    const locationState = {
+      ...EMPTY_LOCATION_STATE,
+      requests: [
+        {
+          id: "request-visibility-race-1",
+          ownerUserId: "recipient-user",
+          requesterUserId: "requester-user",
+          requesterDisplayName: "Alex",
+          status: "pending",
+        },
+      ],
+    };
+    let resolveFirstState!: (state: typeof locationState) => void;
+    mocks.getState
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstState = resolve;
+          }),
+      )
+      .mockResolvedValue(locationState);
+    const visibilityState = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+
+    renderProvider();
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(1));
+
+    visibilityState.mockReturnValue("hidden");
+    await act(async () => {
+      resolveFirstState(locationState);
+    });
+    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+    expect(mocks.toast).not.toHaveBeenCalled();
+
+    visibilityState.mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+
+    visibilityState.mockRestore();
+  });
+
+  it("keeps approval copy and the backend deep link without creating a second share entry", async () => {
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    const detail = {
+      notification: {
+        title: "Location request approved",
+        body: "Alex approved your location request.",
+      },
+      data: {
+        type: "location_access_approved",
+        request_id: "request-approved-1",
+        grant_id: "grant-approved-1",
+        owner_display_label: "Alex",
+        request_url:
+          "/one/location?requestId=request-approved-1&grantId=grant-approved-1&locationNotification=opened&section=shared",
+      },
+    };
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId:
+          "one_location_workflow:location_access_approved:grant-approved-1",
+        title: "Location request approved",
+        description: "Alex approved your location request.",
+        routeHref: detail.data.request_url,
+      }),
+    );
+  });
+
+  it("does not surface live terminal notifications for an explicitly unwatched grant", async () => {
+    markOneLocationGrantUnwatched("recipient-user", "grant-unwatched-1");
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_share_expired",
+              grant_id: "grant-unwatched-1",
+              owner_display_label: "Alex",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).not.toHaveBeenCalled();
+  });
+});

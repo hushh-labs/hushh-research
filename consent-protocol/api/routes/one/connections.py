@@ -27,6 +27,10 @@ class CreateRequestBody(BaseModel):
     message: str | None = None
 
 
+class LinkCircleInviteBody(BaseModel):
+    peer_user_id: str
+
+
 @router.get("/connections/directory")
 async def connections_directory(
     query: str = Query(default=""),
@@ -72,6 +76,19 @@ async def create_connection_request(
                 query=body.query,
                 message=body.message,
             )
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.post("/connections/link-circle-invite")
+async def link_circle_invite(
+    body: LinkCircleInviteBody,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return {
+            "result": _service().link_circle_invite(firebase_uid, peer_user_id=body.peer_user_id)
         }
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

@@ -105,19 +105,20 @@ class RecipientDirectoryProbe(OneLocationAgentService):
         return []
 
 
-def test_verified_recipient_directory_filters_self_and_allows_explicit_network_connection() -> None:
+def test_verified_recipient_directory_sources_from_connections() -> None:
     service = RecipientDirectoryProbe()
 
     assert service.list_verified_recipients(owner_user_id="owner") == []
-    assert "a.phone_verified = TRUE" in service.sql
-    assert "trusted_connections" in service.sql
-    assert "one_location_network_connections" not in service.sql
+    assert "FROM connections c" in service.sql
+    assert "c.status = 'active'" in service.sql
+    assert "c.user_a_id = :owner_user_id OR c.user_b_id = :owner_user_id" in service.sql
+    assert "one_location_recipient_keys" in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
     assert "ORDER BY COALESCE" in service.sql
     assert service.params["owner_user_id"] == "owner"
 
 
-def test_list_verified_recipients_rule1_uses_trusted_connections(
+def test_list_verified_recipients_sources_from_connections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     svc = OneLocationAgentService()
@@ -142,8 +143,8 @@ def test_list_verified_recipients_rule1_uses_trusted_connections(
     monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
     monkeypatch.setattr(svc, "_apply_kai_circle_recommendations", lambda **kw: kw["recipients"])
     out = svc.list_verified_recipients(owner_user_id="owner")
-    assert "trusted_connections" in captured["sql"]
-    assert "one_location_network_connections" not in captured["sql"]
+    assert "FROM connections c" in captured["sql"]
+    assert "a.phone_verified = TRUE" not in captured["sql"]
     assert out and out[0]["userId"] == "friend"
 
 
@@ -236,6 +237,7 @@ class FourUserMemoryService(OneLocationAgentService):
         self.circle_invites: dict[str, dict] = {}
         self.network_connections: dict[str, dict] = {}
         self.trusted_connections: dict[str, dict] = {}
+        self.connections: dict[str, dict] = {}
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
@@ -243,6 +245,15 @@ class FourUserMemoryService(OneLocationAgentService):
         self.consent_audit_rows: list[dict] = []
         self.marketplace_profiles: dict[str, dict] = {}
         self.persona_states: dict[str, dict] = {}
+
+    def _seed_connection(self, owner: str, other: str, *, status: str = "active") -> None:
+        a, b = sorted((owner, other))
+        self.connections[f"{a}:{b}"] = {
+            "id": f"conn-{a}-{b}",
+            "user_a_id": a,
+            "user_b_id": b,
+            "status": status,
+        }
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
@@ -314,9 +325,6 @@ class FourUserMemoryService(OneLocationAgentService):
                 for tc in self.trusted_connections.values()
                 if tc.get("status") == "active" and tc.get("owner_user_id") == owner
             }
-            # Mirror the real SQL: a user connected to the owner through an
-            # approved marketplace (advisor<->investor) relationship is eligible
-            # even if not phone-verified.
             marketplace_connected_ids = set()
             for relationship in self.professional_relationships:
                 if str(relationship.get("status") or "") != "approved":
@@ -331,17 +339,37 @@ class FourUserMemoryService(OneLocationAgentService):
                 if user_id == owner:
                     continue
                 network_connected = user_id in connected_ids
-                # Explicit One Network connections always win, even over a
-                # marketplace visibility opt-out.
                 if not network_connected:
                     eligible = identity["phone_verified"] or user_id in marketplace_connected_ids
                     if not eligible:
                         continue
-                    # Privacy gate: a user who turned marketplace visibility OFF
-                    # (is_discoverable = FALSE) disappears from the directory too.
                     profile = self.marketplace_profiles.get(user_id)
                     if profile is not None and profile.get("is_discoverable") is False:
                         continue
+                key = self._active_key(user_id)
+                rows.append(
+                    {
+                        **identity,
+                        "key_id": key["key_id"] if key else None,
+                        "public_key_jwk": key["public_key_jwk"] if key else None,
+                        "algorithm": key["algorithm"] if key else None,
+                        "key_created_at": key["created_at"] if key else None,
+                    }
+                )
+            return rows
+        if "FROM connections c" in sql and "one_location_recipient_keys" in sql:
+            owner = params["owner_user_id"]
+            connected_ids = {
+                (conn["user_b_id"] if conn["user_a_id"] == owner else conn["user_a_id"])
+                for conn in self.connections.values()
+                if conn.get("status") == "active"
+                and owner in {conn["user_a_id"], conn["user_b_id"]}
+            }
+            rows = []
+            for user_id in sorted(connected_ids):
+                identity = self.identities.get(user_id)
+                if not identity:
+                    continue
                 key = self._active_key(user_id)
                 rows.append(
                     {
@@ -547,6 +575,16 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "SELECT 1" in sql and "FROM connections" in sql and "status = 'active'" in sql:
+            a = params.get("a")
+            b = params.get("b")
+            for conn in self.connections.values():
+                if conn.get("status") != "active":
+                    continue
+                pair = {conn["user_a_id"], conn["user_b_id"]}
+                if pair == {a, b}:
+                    return {"exists": 1}
+            return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
             hours = float(params.get("hours") or 12)
             user_id = params.get("user_id")
@@ -1201,6 +1239,9 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
             public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
         )
 
+    for peer in (user_b, user_c, user_d, user_f, user_g):
+        service._seed_connection(user_a, peer)
+
     service.create_grant(
         owner_user_id=user_a,
         recipient_user_id=user_b,
@@ -1335,8 +1376,9 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         reason["code"] == "mutual_kai_relationship"
         for reason in by_id[user_g]["recommendationReasons"]
     )
-    assert by_id[user_e]["recommendationCategory"] == "needs_setup"
-    assert by_id[user_e]["canReceiveLocation"] is False
+    # user_e has no active connection with user_a, so does not appear in the
+    # connections-only directory.
+    assert user_e not in by_id
 
     ranks = [recipient["recommendationRank"] for recipient in recipients]
     assert ranks == sorted(ranks)
@@ -1347,6 +1389,36 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
     assert "Can you share your location?" not in encoded
     assert "attr.financial" not in encoded
     assert "private" not in encoded
+
+
+def test_directory_candidates_includes_phone_verified_without_connection() -> None:
+    # Discovery is broad: a phone-verified user with NO connection is a candidate
+    # (this is what /connect search relies on to find new people).
+    service = FourUserMemoryService()
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert "user_b" in candidate_ids
+    assert "user_c" in candidate_ids
+
+
+def test_directory_candidates_excludes_marketplace_hidden() -> None:
+    service = FourUserMemoryService()
+    service.marketplace_profiles["user_b"] = {
+        "user_id": "user_b",
+        "profile_type": "investor",
+        "is_discoverable": False,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert "user_b" not in candidate_ids
+    assert "user_c" in candidate_ids
+
+
+def test_directory_candidates_query_targets_actor_identity_cache() -> None:
+    service = RecipientDirectoryProbe()
+    assert service.list_directory_candidates(owner_user_id="owner") == []
+    assert "FROM actor_identity_cache a" in service.sql
+    assert "a.phone_verified = TRUE" in service.sql
+    assert "a.user_id <> :owner_user_id" in service.sql
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
@@ -1572,6 +1644,14 @@ def test_four_user_location_workflow_contract() -> None:
     )
     grant_c = approved_c["grant"]
     assert grant_c["recipientUserId"] == user_c
+    grant_c_notifications = [
+        item
+        for item in service.notifications
+        if str((item.get("data") or {}).get("grant_id") or "") == grant_c["id"]
+    ]
+    assert [item["notification_type"] for item in grant_c_notifications] == [
+        "location_access_approved"
+    ]
     service.store_encrypted_envelope(
         owner_user_id=user_a,
         grant_id=grant_c["id"],
@@ -1983,20 +2063,22 @@ def test_invite_to_one_claim_creates_network_connection_without_location_access(
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_one_network_joined"
     }
+    network_notifications = [
+        item
+        for item in service.notifications
+        if item["notification_type"] == "location_one_network_joined"
+    ]
+    assert network_notifications
+    assert all("section=people" in item["request_url"] for item in network_notifications)
     assert any(
         event["event_type"] == "location_one_network_joined" for event in service.events.values()
     )
 
-    # Claimer (user_b) sees the inviter (user_a) as a trusted_circle recipient.
+    # Claiming alone no longer confers location-recipient eligibility: that now
+    # requires an explicit `connections` row (created by a separate, frontend-
+    # gated path), not just the circle-invite trusted edge.
     recipients_for_claimer = service.list_verified_recipients(owner_user_id="user_b")
-    user_a = next(
-        recipient for recipient in recipients_for_claimer if recipient["userId"] == "user_a"
-    )
-    assert user_a["recommendationCategory"] == "trusted_circle"
-    assert user_a["relationshipType"] == "One Network"
-    assert any(
-        reason["code"] == "one_network_connection" for reason in user_a["recommendationReasons"]
-    )
+    assert all(recipient["userId"] != "user_a" for recipient in recipients_for_claimer)
 
     with pytest.raises(OneLocationAgentError) as duplicate:
         service.claim_circle_invite(invite_token=token, claimant_user_id="user_c")
@@ -2021,12 +2103,10 @@ def test_invite_to_one_claim_requires_phone_verified_identity() -> None:
     assert next(iter(service.circle_invites.values()))["status"] == "active"
 
 
-def test_marketplace_connection_makes_user_a_location_recipient() -> None:
-    # An approved marketplace (advisor<->investor) connection should surface the
-    # other party as a One Location recipient even if they are NOT phone-verified
-    # -- the marketplace handshake already established mutual consent.
+def test_marketplace_connection_alone_is_not_a_location_recipient() -> None:
+    # A marketplace (advisor<->investor) relationship no longer grants location
+    # visibility on its own -- only an accepted connection does.
     service = FourUserMemoryService()
-    service.identities["user_b"]["phone_verified"] = False
     service.professional_relationships.append(
         {
             "investor_user_id": "user_a",
@@ -2043,58 +2123,31 @@ def test_marketplace_connection_makes_user_a_location_recipient() -> None:
         for recipient in service.list_verified_recipients(owner_user_id="user_a")
     }
 
-    assert "user_b" in recipient_ids
-
-
-def test_marketplace_visibility_off_hides_user_from_location_directory() -> None:
-    # Turning marketplace visibility OFF (is_discoverable = FALSE) must hide the
-    # user from the One Location directory too -- the same flag the Connect tab
-    # filters on -- even though they remain phone-verified.
-    service = FourUserMemoryService()
-    service.marketplace_profiles["user_b"] = {
-        "user_id": "user_b",
-        "profile_type": "investor",
-        "is_discoverable": False,
-        "updated_at": datetime.now(timezone.utc),
-    }
-
-    recipient_ids = {
-        recipient["userId"]
-        for recipient in service.list_verified_recipients(owner_user_id="user_a")
-    }
-
     assert "user_b" not in recipient_ids
-    # A user with no marketplace profile (user_c) is unaffected.
-    assert "user_c" in recipient_ids
 
 
-def test_explicit_network_connection_overrides_marketplace_visibility_off() -> None:
-    # Explicit One Network connections (Circle-invite claim) are explicit mutual
-    # consent and must win even when the user opted out of marketplace
-    # discoverability.
+def test_phone_verified_user_without_connection_is_not_a_recipient() -> None:
+    # The broad phone-verified directory no longer seeds recipients.
     service = FourUserMemoryService()
-    service.marketplace_profiles["user_b"] = {
-        "user_id": "user_b",
-        "profile_type": "investor",
-        "is_discoverable": False,
-        "updated_at": datetime.now(timezone.utc),
-    }
-    service.network_connections["conn-1"] = {
-        "id": "conn-1",
-        "user_a_id": "user_a",
-        "user_b_id": "user_b",
-        "inviter_user_id": "user_a",
-        "invitee_user_id": "user_b",
-        "status": "active",
-        "connected_at": datetime.now(timezone.utc),
-    }
 
     recipient_ids = {
         recipient["userId"]
         for recipient in service.list_verified_recipients(owner_user_id="user_a")
     }
 
-    assert "user_b" in recipient_ids
+    assert recipient_ids == set()
+
+
+def test_active_connection_makes_user_a_location_recipient() -> None:
+    service = FourUserMemoryService()
+    service._seed_connection("user_a", "user_b")
+
+    recipient_ids = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+
+    assert recipient_ids == {"user_b"}
 
 
 def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> None:
@@ -2320,3 +2373,60 @@ def test_register_recipient_key_propagates_unrelated_db_error() -> None:
             key_id="recipient-key-id-1234",
         )
     assert service.ensure_column_calls == 0
+
+
+def test_create_grant_enforce_connection_rejects_non_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert err.value.status_code == 403
+
+
+def test_create_grant_enforce_connection_allows_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+    )
+    assert grant["recipientUserId"] == "user_b"
+
+
+def test_create_grant_without_enforce_allows_non_connection() -> None:
+    # The request-approval / public-invite path must keep working.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    assert grant["recipientUserId"] == "user_b"

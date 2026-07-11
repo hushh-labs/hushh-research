@@ -94,6 +94,20 @@ export function selectSosConnectedRecipients(
   return recipients.filter((r) => connectedIds.has(r.userId));
 }
 
+/**
+ * Returns the subset of `recipients` that are ready to receive a shared
+ * location — i.e. `canReceiveLocation` is true.
+ *
+ * All five One Location quick actions (SOS, check-in, drive-to, pick-me-up,
+ * safe-arrival) use this single connection-scoped list. Recipients are already
+ * scoped to the connections graph server-side.
+ */
+export function selectShareReadyRecipients(
+  recipients: OneLocationRecipient[],
+): OneLocationRecipient[] {
+  return recipients.filter((r) => r.canReceiveLocation === true);
+}
+
 // ---------------------------------------------------------------------------
 // 4. Panic execution
 // ---------------------------------------------------------------------------

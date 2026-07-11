@@ -10,6 +10,8 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiPersonaScreen } from "@/components/kai/onboarding/KaiPersonaScreen";
 import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import {
   KaiProfileService,
   computeRiskScore,
@@ -302,6 +304,151 @@ function KaiOnboardingPageContent() {
     });
   }, [source, stage]);
 
+  const handleLaunchDashboard = async () => {
+    if (saving || !user) return;
+
+    try {
+      setSaving(true);
+      const riskScore = computeRiskScore(wizardAnswers as PreVaultOnboardingAnswers);
+
+      if (source === "vault") {
+        if (!vaultKey || !vaultOwnerToken) {
+          toast.error("Unlock your vault to continue.");
+          return;
+        }
+        const nextProfile = await KaiProfileService.setOnboardingCompleted({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+          skippedPreferences: false,
+        });
+        // Await the server pre-vault sync BEFORE navigating (same rationale
+        // as the skip path) so the One gate is authoritative server-side the
+        // instant the user leaves onboarding. Error-swallowed to stay
+        // fail-open; vault profile remains the unlocked-path source.
+        await PreVaultUserStateService.syncKaiSetupState({
+          userId: user.uid,
+          completed: true,
+          skipped: false,
+          completedAt: nextProfile.setup.completed_at,
+        }).catch((syncError) => {
+          console.warn(
+            "[OneOnboardingPage] Failed vault->remote onboarding bridge after completion:",
+            syncError
+          );
+        });
+        setProfile(nextProfile);
+      } else {
+        const completedAt = Date.now();
+        await PreVaultUserStateService.updatePreVaultState(user.uid, {
+          setupCompleted: true,
+          setupSkipped: false,
+          setupCompletedAt: completedAt,
+        });
+        await PreVaultOnboardingService.markCompleted(user.uid, {
+          skipped: false,
+          answers: wizardAnswers,
+          risk_score: riskScore,
+          risk_profile: persona,
+        }).catch(() => null);
+        setPreVaultState((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            completed: true,
+            skipped: false,
+          };
+        });
+      }
+
+      toast.success("Preferences saved. Next step: connect your portfolio or Plaid.");
+      setOnboardingRequiredCookie(false);
+      setOnboardingFlowActiveCookie(true);
+      trackEvent("onboarding_completed", {
+        action: "complete",
+        result: "success",
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "investor",
+        step: "onboarding_completed",
+        dedupeKey: "growth:investor:onboarding_completed:complete",
+        dedupeWindowMs: 5_000,
+      });
+      router.replace(buildRouteWithFrom(ROUTES.KAI_IMPORT, onboardingSelfHref));
+    } catch (error) {
+      console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
+      trackEvent("onboarding_completed", {
+        action: "complete",
+        result: "error",
+      });
+      toast.error("Couldn't complete onboarding. Please retry.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Voice parity: "launch my dashboard" drives the exact same completion
+  // flow as tapping the persona screen's Launch dashboard button. Registered
+  // unconditionally (not just while stage === "persona") to satisfy Rules of
+  // Hooks; the handler itself is a no-op unless a user session exists.
+  useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
+    if (!user) {
+      return { status: "blocked", summary: "Sign in to finish Kai setup." };
+    }
+    if (stage !== "persona") {
+      return { status: "blocked", summary: "Answer all three questions first." };
+    }
+    await handleLaunchDashboard();
+    return { status: "succeeded", summary: "Kai setup complete. Opening portfolio import." };
+  });
+
+  // Publish the screen id the generated action contract expects
+  // (kai_setup_wizard) so voice grounding and reachability checks resolve
+  // against the same screen the wizard/persona actions declare, overriding
+  // the route-derived default of "one_setup" for this sub-route.
+  usePublishVoiceSurfaceMetadata(
+    stage === "wizard" || stage === "persona"
+      ? {
+          screenId: "kai_setup_wizard",
+          title: "Kai investor preferences",
+          purpose:
+            stage === "wizard"
+              ? "Three quick questions tune Kai to your investing style."
+              : "Review your computed investor persona and launch the dashboard.",
+          actions:
+            stage === "wizard"
+              ? [
+                  {
+                    id: "answer_horizon",
+                    actionId: "kai.setup.answer_horizon",
+                    label: "Investment horizon",
+                    purpose: "Answer how long you expect to stay invested.",
+                  },
+                  {
+                    id: "answer_drawdown",
+                    actionId: "kai.setup.answer_drawdown",
+                    label: "Drawdown response",
+                    purpose: "Answer how you'd react to a 20 percent drop.",
+                  },
+                  {
+                    id: "answer_volatility",
+                    actionId: "kai.setup.answer_volatility",
+                    label: "Volatility preference",
+                    purpose: "Answer how much volatility feels comfortable.",
+                  },
+                ]
+              : [
+                  {
+                    id: "launch_dashboard",
+                    actionId: "kai.setup.launch_dashboard",
+                    label: "Launch dashboard",
+                    purpose: "Confirm the persona and open portfolio import.",
+                  },
+                ],
+        }
+      : null
+  );
+
   if (authLoading) {
     return (
       <SetupKaiStageRegion>
@@ -409,88 +556,7 @@ function KaiOnboardingPageContent() {
         <KaiPersonaScreen
           riskProfile={persona}
           onEditAnswers={() => setStage("wizard")}
-          onLaunchDashboard={async () => {
-          if (saving) return;
-
-          try {
-            setSaving(true);
-            const riskScore = computeRiskScore(wizardAnswers as PreVaultOnboardingAnswers);
-
-            if (source === "vault") {
-              if (!vaultKey || !vaultOwnerToken) {
-                toast.error("Unlock your vault to continue.");
-                return;
-              }
-              const nextProfile = await KaiProfileService.setOnboardingCompleted({
-                userId: user.uid,
-                vaultKey,
-                vaultOwnerToken,
-                skippedPreferences: false,
-              });
-              // Await the server pre-vault sync BEFORE navigating (same rationale
-              // as the skip path) so the One gate is authoritative server-side the
-              // instant the user leaves onboarding. Error-swallowed to stay
-              // fail-open; vault profile remains the unlocked-path source.
-              await PreVaultUserStateService.syncKaiSetupState({
-                userId: user.uid,
-                completed: true,
-                skipped: false,
-                completedAt: nextProfile.setup.completed_at,
-              }).catch((syncError) => {
-                console.warn(
-                  "[OneOnboardingPage] Failed vault->remote onboarding bridge after completion:",
-                  syncError
-                );
-              });
-              setProfile(nextProfile);
-            } else {
-              const completedAt = Date.now();
-              await PreVaultUserStateService.updatePreVaultState(user.uid, {
-                setupCompleted: true,
-                setupSkipped: false,
-                setupCompletedAt: completedAt,
-              });
-              await PreVaultOnboardingService.markCompleted(user.uid, {
-                skipped: false,
-                answers: wizardAnswers,
-                risk_score: riskScore,
-                risk_profile: persona,
-              }).catch(() => null);
-              setPreVaultState((current) => {
-                if (!current) return current;
-                return {
-                  ...current,
-                  completed: true,
-                  skipped: false,
-                };
-              });
-            }
-
-            toast.success("Preferences saved. Next step: connect your portfolio or Plaid.");
-            setOnboardingRequiredCookie(false);
-            setOnboardingFlowActiveCookie(true);
-            trackEvent("onboarding_completed", {
-              action: "complete",
-              result: "success",
-            });
-            trackGrowthFunnelStepCompleted({
-              journey: "investor",
-              step: "onboarding_completed",
-              dedupeKey: "growth:investor:onboarding_completed:complete",
-              dedupeWindowMs: 5_000,
-            });
-            router.replace(buildRouteWithFrom(ROUTES.KAI_IMPORT, onboardingSelfHref));
-          } catch (error) {
-            console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
-            trackEvent("onboarding_completed", {
-              action: "complete",
-              result: "error",
-            });
-            toast.error("Couldn't complete onboarding. Please retry.");
-          } finally {
-            setSaving(false);
-          }
-          }}
+          onLaunchDashboard={handleLaunchDashboard}
         />
       </>
     );

@@ -282,6 +282,44 @@ def test_remove_connection_returns_zero_when_not_member_or_missing():
     )
 
 
+def test_link_circle_invite_creates_connection_with_claim_proof():
+    svc = _svc()
+    responses = iter(
+        [
+            SimpleNamespace(data=[{"exists": 1}]),  # SELECT trusted edge (claim proof) -> found
+            SimpleNamespace(data=[{"id": "conn-7"}]),  # INSERT connections RETURNING id
+            SimpleNamespace(data=[{"id": "te-1"}]),  # _mirror_trusted_edge (caller -> peer)
+            SimpleNamespace(data=[{"id": "te-2"}]),  # _mirror_trusted_edge (peer -> caller)
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.link_circle_invite("claimant", peer_user_id="inviter")
+    assert out["status"] == "connected"
+    assert out["connectionId"] == "conn-7"
+
+
+def test_link_circle_invite_requires_claim_proof():
+    svc = _svc()
+    # No claim-sourced trusted edge exists -> reject.
+    with patch(
+        "hushh_mcp.services.connections_service.get_db",
+        _db_returning([]),
+    ):
+        with pytest.raises(ConnectionsError) as err:
+            svc.link_circle_invite("claimant", peer_user_id="stranger")
+    assert err.value.code == "CONNECTION_CIRCLE_INVITE_REQUIRED"
+    assert err.value.status_code == 403
+
+
+def test_link_circle_invite_rejects_self_peer():
+    svc = _svc()
+    with pytest.raises(ConnectionsError) as err:
+        svc.link_circle_invite("me", peer_user_id="me")
+    assert err.value.code == "CONNECTION_INVALID_PEER"
+    assert err.value.status_code == 422
+
+
 def test_remove_connection_self_heals_when_already_revoked():
     svc = _svc()
     # SELECT returns the row with status='revoked' (partial-failure state).
@@ -310,3 +348,54 @@ def test_remove_connection_self_heals_when_already_revoked():
     assert len(trusted_updates) >= 1, (
         "Trusted-edge revoke must run even when connection is already revoked"
     )
+
+
+def test_create_request_notifies_addressee_on_new_insert():
+    """A brand-new pending request nudges the addressee's client (best-effort)."""
+    svc = _svc()
+    calls = []
+    svc._notifier = lambda **kw: calls.append(kw)
+    responses = iter(
+        [
+            SimpleNamespace(data=[]),  # idempotency SELECT -> none
+            SimpleNamespace(data=[{"id": "req-1"}]),  # INSERT ... RETURNING id
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.create_request("user-a", addressee_user_id="user-b")
+    assert calls == [{"addressee_user_id": "user-b", "requester_user_id": "user-a"}]
+
+
+def test_create_request_does_not_notify_on_idempotent_existing():
+    """Re-sending an already-pending request must NOT fire a duplicate nudge."""
+    svc = _svc()
+    calls = []
+    svc._notifier = lambda **kw: calls.append(kw)
+    existing = {
+        "id": "req-9",
+        "requester_user_id": "user-b",
+        "addressee_user_id": "user-a",
+        "status": "pending",
+        "message": None,
+    }
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: SimpleNamespace(data=[existing]))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.create_request("user-a", addressee_user_id="user-b")
+    assert calls == []
+
+
+def test_create_request_notify_failure_does_not_break_write():
+    """A failing notifier is swallowed; the request is still created."""
+    svc = _svc()
+
+    def _boom(**_kw):
+        raise RuntimeError("fcm down")
+
+    svc._notifier = _boom
+    responses = iter([SimpleNamespace(data=[]), SimpleNamespace(data=[{"id": "req-2"}])])
+    db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.create_request("user-a", addressee_user_id="user-b")
+    assert out["id"] == "req-2"
+    assert out["status"] == "pending"
