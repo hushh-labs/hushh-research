@@ -9,6 +9,10 @@ import { RadioGroup } from "@/components/ui/radio-group";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
+import {
+  useLocalOnboardingActionHandler,
+  type LocalOnboardingActionResult,
+} from "@/lib/agent/local-onboarding-actions";
 import type {
   DrawdownResponse,
   HorizonAnchorChoice,
@@ -135,6 +139,67 @@ export function KaiPreferencesWizard(props: {
     setHorizonAnchorChoice("from_now");
     setHorizonDialogOpen(true);
   }
+
+  // Voice parity: answering a question by voice sets the same answer state as
+  // tapping its radio option, then advances exactly like tapping the
+  // Next/Continue button would (or completes the wizard on the last
+  // question). If voice answers a question other than the one on screen, we
+  // jump there first rather than silently skipping ahead.
+  async function answerQuestionByVoice<K extends keyof WizardAnswers>(
+    questionId: K,
+    value: WizardAnswers[K]
+  ): Promise<LocalOnboardingActionResult> {
+    const questionIndex = QUESTIONS.findIndex((q) => q.id === questionId);
+    if (questionIndex === -1) {
+      return { status: "failed", summary: "Unknown wizard question." };
+    }
+    if (questionIndex !== step) {
+      setStep(questionIndex);
+      setAnswer(questionId, value);
+      return {
+        status: "succeeded",
+        summary: `Recorded ${String(questionId).replaceAll("_", " ")}.`,
+      };
+    }
+
+    setAnswer(questionId, value);
+    if (questionIndex === total - 1) {
+      const nextAnswers: WizardAnswers = { ...answers, [questionId]: value };
+      await Promise.resolve(
+        props.onComplete({
+          ...nextAnswers,
+          horizonAnchorChoice: props.mode === "edit" ? horizonAnchorChoice : undefined,
+        })
+      );
+      return { status: "succeeded", summary: "Preferences saved." };
+    }
+    setStep((s) => Math.min(total - 1, s + 1));
+    return { status: "succeeded", summary: "Moving to the next question." };
+  }
+
+  useLocalOnboardingActionHandler("kai.setup.answer_horizon", async (slots) => {
+    const value = String(slots.answer ?? "").trim();
+    if (value !== "short_term" && value !== "medium_term" && value !== "long_term") {
+      return { status: "blocked", summary: "That's not one of the horizon options." };
+    }
+    return answerQuestionByVoice("investment_horizon", value as InvestmentHorizon);
+  });
+
+  useLocalOnboardingActionHandler("kai.setup.answer_drawdown", async (slots) => {
+    const value = String(slots.answer ?? "").trim();
+    if (value !== "reduce" && value !== "stay" && value !== "buy_more") {
+      return { status: "blocked", summary: "That's not one of the drawdown options." };
+    }
+    return answerQuestionByVoice("drawdown_response", value as DrawdownResponse);
+  });
+
+  useLocalOnboardingActionHandler("kai.setup.answer_volatility", async (slots) => {
+    const value = String(slots.answer ?? "").trim();
+    if (value !== "small" && value !== "moderate" && value !== "large") {
+      return { status: "blocked", summary: "That's not one of the volatility options." };
+    }
+    return answerQuestionByVoice("volatility_preference", value as VolatilityPreference);
+  });
 
   async function handlePrimary() {
     if (!canContinue || isSubmitting) return;

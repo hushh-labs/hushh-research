@@ -38,6 +38,7 @@ export const ROUTE_ID_VALUES = [
   "profile_gmail_oauth_return",
   "consents",
   "agent",
+  "connect",
   "marketplace",
   "marketplace_connections",
   "marketplace_connection_portfolio",
@@ -125,6 +126,7 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.CONSENTS) return "consents";
   if (pathname === ROUTES.AGENT) return "agent";
+  if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
   if (pathname === ROUTES.MARKETPLACE_CONNECTIONS) return "marketplace_connections";
   if (pathname === `${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`) {

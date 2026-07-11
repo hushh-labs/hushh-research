@@ -94,6 +94,7 @@ export function OnboardingCapabilityStep({
           actions: [
             {
               id: "primary",
+              actionId: "setup.capability_continue",
               label: ctaLabel,
               purpose: isExploreOnly
                 ? "Acknowledge and continue."

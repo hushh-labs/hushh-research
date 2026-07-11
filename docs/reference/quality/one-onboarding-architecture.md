@@ -228,3 +228,34 @@ gate, and a satisfied One gate never force‑completes a sub‑onboarding.
 6. Persist via `setup_*` / `nav_setup_*` columns and `hushh_setup_*` cookies;
    the KaiProfile blob uses `setup.*` keys (schema_version 3) with read‑compat
    for legacy `onboarding.*` / `nav_tour_*`.
+
+## 6. Voice/UI parity
+
+Every tap‑only control on the pre‑auth and setup surfaces (`/getting-started`
+→ `/login`, `/register-phone`, the `/one/setup` hub, per‑capability steps,
+the Kai preferences wizard) has a matching governed `action_id` in the
+generated gateway (`contracts/kai/kai-action-gateway.vnext.json`), authored
+via colocated `*.voice-action-contract.json` files next to each surface and
+regenerated with `npm run build:voice-gateway`. One's ADK agent tree treats
+guiding a new user through setup as an ordinary `run_app_action`/`open_screen`
+job (see [One Voice Runtime Architecture § Onboarding and Proactive
+Prompting](../one/one-voice-runtime-architecture.md#onboarding-and-proactive-prompting)
+for the full mechanism, including the new `local_handler` execution path for
+in‑place state changes like answering a wizard question).
+
+When adding a new setup screen or control:
+
+1. Author (or extend) a `*.voice-action-contract.json` next to the surface;
+   do not hand‑edit the generated gateway JSON.
+2. If the control is pure navigation, use `execution_target.path: "route"`.
+   If it changes in‑place component state (a radio answer, a form submit,
+   a master ack) with no direct route, use `"local_handler"` and register a
+   handler via `useLocalOnboardingActionHandler`
+   (`hushh-webapp/lib/agent/local-onboarding-actions.ts`).
+3. Set `reachability.screens` to BOTH the route‑derived screen id
+   (`deriveVoiceRouteScreen()` in `route-screen-derivation.ts`) and any
+   custom `screenId` the surface publishes via `usePublishVoiceSurfaceMetadata`
+   - the wire value sent to the backend as `hushh:screen` is always the
+   route‑derived one.
+4. Regenerate and verify: `npm run build:voice-gateway && npm run
+   verify:voice-gateway`.

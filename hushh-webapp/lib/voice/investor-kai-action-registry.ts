@@ -28,7 +28,7 @@ export type InvestorKaiBackendEffect = {
 export type InvestorKaiActionWiring =
   | {
       status: "wired";
-      handler: "executeKaiCommand" | "dispatchVoiceToolCall" | "router.push";
+      handler: "executeKaiCommand" | "dispatchVoiceToolCall" | "router.push" | "executeAgentGatewayAction.localHandler";
       binding:
         | {
             kind: "kai_command";
@@ -48,12 +48,17 @@ export type InvestorKaiActionWiring =
             kind: "route";
             href: string;
             params?: Record<string, unknown>;
+          }
+        | {
+            kind: "local_handler";
+            actionId: string;
+            params?: Record<string, unknown>;
           };
     }
   | {
       status: "unwired";
       reason: string;
-      intendedHandler?: "executeKaiCommand" | "dispatchVoiceToolCall" | "router.push";
+      intendedHandler?: "executeKaiCommand" | "dispatchVoiceToolCall" | "router.push" | "local_handler";
     }
   | {
       status: "dead";
@@ -169,7 +174,8 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
       intendedHandler:
         executionTarget.intended_handler === "executeKaiCommand" ||
         executionTarget.intended_handler === "dispatchVoiceToolCall" ||
-        executionTarget.intended_handler === "router.push"
+        executionTarget.intended_handler === "router.push" ||
+        executionTarget.intended_handler === "local_handler"
           ? executionTarget.intended_handler
           : undefined,
     };
@@ -209,6 +215,18 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
       binding: {
         kind: "voice_tool",
         toolName: executionTarget.target as VoiceToolCall["tool_name"],
+        params: executionTarget.params ? { ...executionTarget.params } : undefined,
+      },
+    };
+  }
+
+  if (executionTarget.path === "local_handler") {
+    return {
+      status: "wired",
+      handler: "executeAgentGatewayAction.localHandler",
+      binding: {
+        kind: "local_handler",
+        actionId: executionTarget.target,
         params: executionTarget.params ? { ...executionTarget.params } : undefined,
       },
     };
@@ -329,6 +347,15 @@ export function resolveInvestorKaiActionWiring(action: InvestorKaiActionDefiniti
       reason: KNOWN_VOICE_TOOLS.includes(binding.toolName)
         ? "resolved via dispatchVoiceToolCall"
         : "unknown voice tool binding",
+    };
+  }
+
+  if (binding.kind === "local_handler") {
+    return {
+      resolvable: binding.actionId.length > 0,
+      reason: binding.actionId.length > 0
+        ? "resolved via executeAgentGatewayAction.localHandler"
+        : "missing local handler action id",
     };
   }
 
