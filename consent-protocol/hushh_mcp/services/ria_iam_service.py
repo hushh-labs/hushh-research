@@ -3924,7 +3924,18 @@ class RIAIAMService:
         )
         effective_broker_firm_crd = self._normalize_optional_text(prepared.get("broker_firm_crd"))
 
-        verification_outcome = "verified" if verified_ok else "submitted"
+        # ria_verification_events.outcome is CHECK-constrained to
+        # ('verified','rejected','provider_unavailable','manual_override',
+        # 'bypassed','evidence_only') — it is NOT the same vocabulary as the
+        # ria_profiles status columns (which use 'submitted'). Map the pending
+        # case to a valid EVENT outcome so the event insert doesn't violate the
+        # constraint (which surfaced as a 500 on submit).
+        if verified_ok:
+            verification_outcome = "verified"
+        elif name_lookup.status == "provider_unavailable":
+            verification_outcome = "provider_unavailable"
+        else:
+            verification_outcome = "evidence_only"
         verification_result = VerificationResult(
             verified=verified_ok,
             rejected=False,
