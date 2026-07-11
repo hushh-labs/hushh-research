@@ -68,10 +68,23 @@ flowchart LR
   merge queue + `CI Status Gate`. Dev deploy adds zero human steps to that.
 - **No dev-specific CI workflow.** The existing PR Validation produces the
   `CI Status Gate` the dev deploy consumes.
-- **No auto-deploy-on-push (yet).** Dispatch stays manual-by-governed-actor so dev
-  state changes are always intentional and attributable. If cadence ever demands it,
-  auto-deploy on train pushes is a one-line trigger addition — add it when the need is
-  real, not before.
+- **No auto-deploy-on-push in the workflow itself.** Dispatch stays
+  manual-by-governed-actor so workflow-lane dev deploys are always intentional and
+  attributable. Auto-deploy exists as a separate GCP-native lane (below), added
+  2026-07 at founder request when the cadence demanded it.
+
+## GCP-native auto-deploy (Cloud Build triggers)
+
+A companion lane for "commit to `main` and dev updates itself" without any
+GitHub Actions dispatch: Cloud Build triggers in the dev project
+(`dev-backend-autodeploy`, `dev-frontend-autodeploy`) fire on `main` pushes,
+path-filtered per lane, and reuse the same shared build configs the workflow
+deploys with. Backend runs migrations + the dev schema floor first. Setup and
+gate trade-offs:
+[dev environment runbook, Phase 6c](../../../consent-protocol/docs/reference/dev-environment-setup.md).
+This lane trades the green-check assertion and verification/rollback layers
+for speed — acceptable only because dev is disposable and promotes nothing.
+UAT and production remain GitHub-Actions-only.
 
 ## Operating it
 

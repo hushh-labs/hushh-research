@@ -293,6 +293,36 @@ Ongoing schedulers to replicate (after first deploy):
 - Do NOT schedule One Email watch renewal in dev — watch ownership stays with UAT
   (see divergences above).
 
+## Phase 6c — GCP-native auto-deploy lane (Cloud Build triggers)
+
+Complementing the governed `Deploy to Dev` workflow, dev can auto-deploy on every
+push to `main` using Cloud Build triggers inside `hushh-pda-dev` — no GitHub
+Actions dispatch required. This is the "commit and it ships to dev" lane:
+
+```bash
+bash scripts/ops/setup_dev_cloudbuild_triggers.sh
+```
+
+- **One-time human prerequisite:** the Cloud Build GitHub (2nd gen) host
+  connection + repository link for `hushh-labs/hushh-research`, authorized in the
+  console (the script detects it and prints exact instructions if missing).
+- `dev-backend-autodeploy` fires on `main` pushes touching `consent-protocol/**`
+  and runs `deploy/dev.autodeploy.backend.cloudbuild.yaml`: DB migrations + the
+  `dev_minimum_schema.json` floor guard first, then the shared
+  `deploy/backend.cloudbuild.yaml` (same substitution set as the workflow),
+  then a provenance + health probe.
+- `dev-frontend-autodeploy` fires on `main` pushes touching `hushh-webapp/**`
+  and runs the shared `deploy/frontend.cloudbuild.yaml` directly with dev
+  substitutions.
+- Path filters replicate the workflow's auto-scope; `deploy-source` label is
+  `cloudbuild-trigger` so revisions remain attributable per lane.
+- **Gate honesty:** this lane keeps main-only + migrations + schema floor +
+  health probe. It does NOT replicate the Actions lane's green-check SHA
+  assertion, secret sync, parity/semantic verification, or auto-rollback. A
+  `main` commit deploys immediately — possibly before its Post-Merge Smoke
+  finishes. Dev is disposable by design; the fully-gated path remains the
+  `Deploy to Dev` workflow. Never point triggers like these at UAT/production.
+
 ## Contributor usage once dev is live
 
 ```bash

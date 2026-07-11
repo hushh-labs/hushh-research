@@ -166,6 +166,10 @@ availableSecrets:
       env: "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
 
 # Options
+# dynamicSubstitutions lets trigger-provided substitution values reference
+# built-ins (the dev auto-deploy trigger passes _IMAGE_TAG=dev-${COMMIT_SHA});
+# literal values from the GitHub Actions lanes are unaffected.
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: "E2_HIGHCPU_8"
+  dynamicSubstitutions: true
