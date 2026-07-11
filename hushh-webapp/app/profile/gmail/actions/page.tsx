@@ -1,3 +1,7 @@
-import ProfileWorkspacePage from "../../profile-workspace-page";
+import { redirect } from "next/navigation";
 
-export default ProfileWorkspacePage;
+import { ROUTES } from "@/lib/navigation/routes";
+
+export default function ProfileGmailActionsRedirectPage() {
+  redirect(ROUTES.GMAIL);
+}

@@ -133,6 +133,11 @@
     }
   },
   {
+    "route": "/connect",
+    "mode": "hidden",
+    "exemptionReason": "Standalone people-connection route intentionally bypasses the signed-in app shell while still exposing its own native test beacon."
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
@@ -455,27 +460,18 @@
   },
   {
     "route": "/profile/gmail",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail."
   },
   {
     "route": "/profile/gmail/connection",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail."
   },
   {
     "route": "/profile/gmail/actions",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail."
   },
   {
     "route": "/profile/support",
