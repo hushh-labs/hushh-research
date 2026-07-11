@@ -390,7 +390,7 @@ async function skipLocationEntryFlow() {
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
   expect(
-    await screen.findByRole("heading", { name: "One Location" }),
+    await screen.findByRole("heading", { name: "Onepoint" }),
   ).toBeTruthy();
 }
 
@@ -584,7 +584,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     expect(
-      await screen.findByRole("heading", { name: "One Location" }),
+      await screen.findByRole("heading", { name: "Onepoint" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(
@@ -729,7 +729,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(
-      await screen.findByRole("heading", { name: "One Location" }),
+      await screen.findByRole("heading", { name: "Onepoint" }),
     ).toBeTruthy();
     // Completing onboarding persists the one-time intro flag so the marketing
     // intro never shows again for this user.
@@ -761,7 +761,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Allow Location" }));
     expect(
-      await screen.findByRole("heading", { name: "One Location" }),
+      await screen.findByRole("heading", { name: "Onepoint" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     // Completing onboarding persists the one-time intro flag.
@@ -1333,7 +1333,7 @@ describe("OneLocationAgentPage", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "One Location" }),
+        screen.getByRole("heading", { name: "Onepoint" }),
       ).toBeTruthy(),
     );
   });

@@ -159,7 +159,7 @@ function agentDisplayName(agentId: string): string {
 
 function scopeDisplayName(scope: string): string {
   if (scope === "agent.nav.review") return "review your consent and privacy access";
-  if (scope === "agent.location.manage") return "manage One Location requests";
+  if (scope === "agent.location.manage") return "manage Onepoint requests";
   if (scope === "agent.one.orchestrate") return "coordinate specialist agents";
   return scope || "the required permission";
 }

@@ -433,7 +433,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <LocationHeader
-        title="One Location"
+        title="Onepoint"
         subtitle={headerSubtitle}
         trailing={
           <Button
