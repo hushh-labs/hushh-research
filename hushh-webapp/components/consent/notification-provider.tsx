@@ -49,6 +49,7 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   resolveCompactConsentSummary,
   resolveConsentRequesterLabel,
@@ -1315,6 +1316,14 @@ export function ConsentNotificationProvider({
           source: "fcm_resolved",
           requestId,
         });
+      } else if (msgType === "connection_request") {
+        // A new incoming connection request landed. Invalidate the
+        // consent-center caches (all modes) and signal a refetch so it shows up
+        // for the recipient without a manual "refresh consents".
+        if (user?.uid) {
+          CacheSyncService.onConsentMutated(user.uid);
+        }
+        dispatchConsentStateChanged({ source: "fcm_connection_request" });
       }
     };
 
