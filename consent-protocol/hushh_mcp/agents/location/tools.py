@@ -71,6 +71,7 @@ async def create_location_share(
         recipient_key_id=recipient_key_id,
         duration_hours=duration_hours,
         reason=reason,
+        enforce_connection=True,
     )
 
 

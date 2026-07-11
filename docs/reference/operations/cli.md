@@ -58,6 +58,7 @@ Use package-local commands only when you are working inside a package on purpose
 <repo-root>/bin/hushh db verify-iam-schema
 <repo-root>/bin/hushh db verify-release-contract
 <repo-root>/bin/hushh db verify-uat-schema
+<repo-root>/bin/hushh db verify-dev-schema
 <repo-root>/bin/hushh db report-prod-posture
 <repo-root>/bin/hushh compose init
 <repo-root>/bin/hushh compose up backend
@@ -78,13 +79,13 @@ Use package-local commands only when you are working inside a package on purpose
 - Do not document `make`.
 - Keep helper output and runbooks aligned with this CLI.
 - Contributor and agent onboarding should start with `./bin/hushh codex onboard`, not direct internal script paths.
-- `./bin/hushh web` defaults to `local`; use `--mode uat` or `--mode prod` only when you explicitly want a hosted backend target.
+- `./bin/hushh web` defaults to `local`; use `--mode uat`, `--mode dev`, or `--mode prod` only when you explicitly want a hosted backend target.
 - Local runtime uses three separate terminals (one component each): `./bin/hushh proxy --mode local`, `./bin/hushh backend --mode local --reload`, and `./bin/hushh web --mode local`. There is no combined `stack` command.
 - Use `./bin/hushh terminal proxy|backend|web --mode <mode>` only when you explicitly want visible OS terminal windows instead of in-session terminals.
 - Use `./bin/hushh compose ...` only for opt-in local container support. It does not replace the default frontend/backend development flow.
 - The `dev` compose profile starts backend + Redis + Mailhog. The local Postgres profile is standalone unless an operator explicitly changes backend env values.
 - Use `uv` as the canonical Python install surface for `consent-protocol`; `requirements*.txt` are generated compatibility artifacts, not contributor commands.
-- Treat `./bin/hushh db verify-release-contract`, `./bin/hushh db verify-uat-schema`, and `./bin/hushh db report-prod-posture` as the authoritative DB governance surface.
+- Treat `./bin/hushh db verify-release-contract`, `./bin/hushh db verify-uat-schema`, `./bin/hushh db verify-dev-schema`, and `./bin/hushh db report-prod-posture` as the authoritative DB governance surface.
 - Use `./bin/hushh codex data-model-audit` before treating new tables, durable caches, or runtime DB family changes as production-ready.
 - Use `./bin/hushh codex rca --surface runtime|uat|ci` as the canonical machine-readable RCA surface for core runtime, CI, and UAT release failures.
 - Use `./bin/hushh codex pre-pr` as the canonical pre-PR local mirror of `PR Validation` and `CI Status Gate`; add `--include-advisory` only when you intentionally want the wider readiness lane.

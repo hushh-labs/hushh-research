@@ -5,13 +5,13 @@ from hushh_mcp.services.voice_app_knowledge import (
 )
 
 
-def test_resolve_voice_explain_knowledge_prioritizes_control_over_section() -> None:
+def test_resolve_voice_explain_knowledge_explains_legacy_save_phrase() -> None:
     resolution = resolve_voice_explain_knowledge(
         transcript="What does Save receipts memory to PKM do?",
         screen="profile_receipts",
         pathname="/profile/receipts",
-        active_section="Receipt memory preview",
-        available_actions=["Save receipts memory to PKM", "Refresh receipt memory"],
+        active_section="Shopping summary",
+        available_actions=["Sync Gmail receipts"],
         screen_metadata={
             "connector_badge_label": "Connected",
             "receipt_count": 12,
@@ -20,9 +20,9 @@ def test_resolve_voice_explain_knowledge_prioritizes_control_over_section() -> N
         },
     )
 
-    assert resolution.tier == "control"
-    assert resolution.key == "save_receipts_memory_to_pkm"
-    assert "writes the current receipts-memory preview" in resolution.summary.lower()
+    assert resolution.tier == "global_concept"
+    assert resolution.key == "receipt_memory"
+    assert "saved automatically" in resolution.summary.lower()
 
 
 def test_resolve_voice_explain_knowledge_section_uses_receipts_metadata() -> None:
@@ -30,8 +30,8 @@ def test_resolve_voice_explain_knowledge_section_uses_receipts_metadata() -> Non
         transcript="What is on my screen?",
         screen="profile_receipts",
         pathname="/profile/receipts",
-        active_section="Receipt memory preview",
-        available_actions=["Refresh receipt memory", "Save receipts memory to PKM"],
+        active_section="Shopping summary",
+        available_actions=["Sync Gmail receipts"],
         screen_metadata={
             "connector_badge_label": "Connected",
             "receipt_count": 12,
@@ -42,7 +42,7 @@ def test_resolve_voice_explain_knowledge_section_uses_receipts_metadata() -> Non
 
     assert resolution.tier == "section"
     assert "12 stored receipts" in resolution.summary
-    assert "preview is ready" in resolution.summary.lower()
+    assert "shopping summary is ready" in resolution.summary.lower()
 
 
 def test_resolve_voice_explain_knowledge_resolves_local_concept() -> None:

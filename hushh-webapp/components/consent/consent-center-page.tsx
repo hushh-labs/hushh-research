@@ -85,6 +85,8 @@ import {
 } from "@/lib/consent/location-consent";
 import { isMarketplaceConsent } from "@/lib/consent/marketplace-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
+import { isConnectionRequestEntry } from "@/components/consent/connection-request-entry";
+import { ConnectionsService } from "@/lib/services/connections-service";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -99,6 +101,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -342,6 +345,14 @@ function consentEntryMatchesSelectedId(
         ),
     ),
   );
+}
+
+function consentEntryMatchesBundleId(
+  entry: ConsentCenterEntry,
+  bundleId: string,
+) {
+  const metadata = entry.metadata as Record<string, unknown> | undefined;
+  return Boolean(metadata && metadata.bundle_id === bundleId);
 }
 
 function consentEntryMatchesScope(entry: ConsentCenterEntry, scope: string) {
@@ -940,7 +951,8 @@ function ConsentEntryDetail({
         title="Decision"
         description="Approve or reject first. Details stay below for review before you decide."
       >
-        {entry.kind === "incoming_request" && entry.status === "pending" ? (
+        {(entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+        entry.status === "pending" ? (
           <>
             <SettingsRow
               title="Decision"
@@ -1162,8 +1174,13 @@ function ConsentEntryDetail({
         </SettingsGroup>
       ) : null}
 
-      {/* Consent handshake timeline (Issue #122) */}
+      {/* Consent handshake timeline (Issue #122). Active Access entries cover
+          a single live grant, so the full historical trail (grants, denials,
+          revocations across time) belongs on the History tab, not here -
+          showing it in Active Access read as a duplicate/unrelated "history
+          trail" attached to a currently active item. */}
       {!hasGroupedHistory &&
+      entry.kind !== "active_grant" &&
       entry.counterpart_id &&
       entry.counterpart_type !== "self" ? (
         <SettingsGroup
@@ -1211,6 +1228,9 @@ export function ConsentCenterPage() {
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const selectedId =
     searchParams.get("requestId") || searchParams.get("selected");
+  // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
+  // without a requestId). Used as a selection fallback below.
+  const selectedBundleId = searchParams.get("bundleId");
   const notificationAction = normalizeNotificationAction(
     searchParams.get("notificationAction"),
   );
@@ -1221,7 +1241,8 @@ export function ConsentCenterPage() {
   // transition so the navigation never blocks the close animation.
   const [panelCloseRequested, setPanelCloseRequested] = useState(false);
   const [, startPanelUrlSync] = useTransition();
-  const isPanelOpen = Boolean(selectedId) && !panelCloseRequested;
+  const isPanelOpen =
+    Boolean(selectedId || selectedBundleId) && !panelCloseRequested;
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
@@ -1404,6 +1425,20 @@ export function ConsentCenterPage() {
   );
   const approveEntry = useCallback(
     (entry: ConsentCenterEntry, durationHours?: number) => {
+      if (isConnectionRequestEntry(entry)) {
+        void (async () => {
+          if (!user) return;
+          try {
+            const idToken = await user.getIdToken();
+            await ConnectionsService.accept({ idToken, requestId: entry.request_id || entry.id });
+            CacheSyncService.onConsentMutated(user.uid);
+            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+          } catch (error) {
+            console.error("[ConsentCenter] Couldn't accept the connection request:", error);
+          }
+        })();
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationApprove(entry, durationHours);
         return;
@@ -1420,10 +1455,25 @@ export function ConsentCenterPage() {
       handleMarketplaceApprove,
       isLocationEntry,
       isMarketplaceEntry,
+      user,
     ],
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isConnectionRequestEntry(entry)) {
+        void (async () => {
+          if (!user) return;
+          try {
+            const idToken = await user.getIdToken();
+            await ConnectionsService.reject({ idToken, requestId: entry.request_id || entry.id });
+            CacheSyncService.onConsentMutated(user.uid);
+            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+          } catch (error) {
+            console.error("[ConsentCenter] Couldn't decline the connection request:", error);
+          }
+        })();
+        return;
+      }
       if (isLocationEntry(entry)) {
         void handleLocationDeny(entry);
         return;
@@ -1440,6 +1490,7 @@ export function ConsentCenterPage() {
       handleMarketplaceDeny,
       isLocationEntry,
       isMarketplaceEntry,
+      user,
     ],
   );
   const revokeEntry = useCallback(
@@ -1627,6 +1678,22 @@ export function ConsentCenterPage() {
       const detail =
         (event as CustomEvent<Partial<ConsentMutationDetail>>).detail || {};
       applyConfirmedConsentMutation(detail);
+      // CONSENT_STATE_CHANGED_EVENT is also dispatched for non-mutation
+      // bookkeeping (e.g. "fcm_opened" when a request is merely opened/
+      // acknowledged, "queued_pending"/"cached_pending"/"hydrated_pending"
+      // on vault unlock). Those carry no `action`, but selecting any pending
+      // or active row calls acknowledgePendingConsent() -> POST /pending/
+      // opened -> the backend inserts a NOTIFICATION_OPENED audit event,
+      // which echoes back over this same user's SSE/FCM channel as an
+      // "fcm_opened" state-changed event. Forcing a full list+summary
+      // refresh on that self-echo made every row click on Requests/Active
+      // (both surfaces list still-pending/live rows) visibly re-render with
+      // a "Refreshing..." flash. History rows are already resolved
+      // (status != REQUESTED) so the backend never inserts that event and
+      // never echoes back, which is why History never flickered. Only force
+      // a refresh for detail.action-bearing events (approve/deny/revoke/
+      // cancel), which are real state mutations.
+      if (!detail.action) return;
       setMutationTick((value) => value + 1);
     };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, handleAction);
@@ -1687,8 +1754,25 @@ export function ConsentCenterPage() {
         null
       );
     }
-    return items[0] ?? null;
-  }, [items, selectedId]);
+    // Bundle deep links carry bundleId without a requestId: select the
+    // matching bundle entry so backend-generated bundle URLs land somewhere.
+    if (selectedBundleId) {
+      return (
+        items.find((item) =>
+          consentEntryMatchesBundleId(item, selectedBundleId),
+        ) ?? null
+      );
+    }
+    // No selectedId/selectedBundleId in the URL means no entry is actually
+    // selected (the detail panel is closed - see isPanelOpen). Falling back
+    // to items[0] here made the FIRST row of every tab render as visually
+    // "selected" (accent border/surface) on every render, including right
+    // after switching tabs, with no click and no open panel. Because items
+    // differ per tab, the highlighted row appeared to jump/flicker to a
+    // different, unclicked entry every time the tab changed - the reported
+    // "acting funny" when switching from History to Active.
+    return null;
+  }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
     user?.uid &&
       selectedId &&
@@ -2008,47 +2092,56 @@ export function ConsentCenterPage() {
   ]);
   usePublishVoiceSurfaceMetadata(consentVoiceSurfaceMetadata);
 
-  const setParam = (updates: Record<string, string | null>) => {
-    const next = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if (!value) {
-        next.delete(key);
-      } else {
-        next.set(key, value);
+  // IMPORTANT: this must depend on the current searchParams/pathname/
+  // riaOutgoingCompatibilityRoute so every caller always mutates the CURRENT
+  // URL, never a stale snapshot from an earlier render. (A previous version
+  // of closeDetailPanel captured this function once via useCallback([]) and
+  // replayed page-load-time searchParams forever, which reset the active
+  // tab to "requests" every time the detail panel closed - see below.)
+  const setParam = useCallback(
+    (updates: Record<string, string | null>) => {
+      const next = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (!value) {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
       }
-    }
-    if (!riaOutgoingCompatibilityRoute && !("actor" in updates)) {
-      next.delete("actor");
-      next.delete("view");
-    }
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, {
-      scroll: false,
-    });
-  };
+      if (!riaOutgoingCompatibilityRoute && !("actor" in updates)) {
+        next.delete("actor");
+        next.delete("view");
+      }
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [pathname, riaOutgoingCompatibilityRoute, router, searchParams],
+  );
 
   // Close the detail panel instantly, then clear its URL params in a transition
-  // so the route navigation never blocks the panel's close animation.
+  // so the route navigation never blocks the panel's close animation. Only the
+  // panel-specific params are cleared; tab/page/q/actor/view are untouched, so
+  // closing never changes which tab you are viewing.
   const closeDetailPanel = useCallback(() => {
     setPanelCloseRequested(true);
     startPanelUrlSync(() => {
       setParam({
         requestId: null,
         selected: null,
+        bundleId: null,
         notificationAction: null,
       });
     });
-    // setParam intentionally excluded; it is recreated each render and only
-    // reads current searchParams/router refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startPanelUrlSync]);
+  }, [setParam, startPanelUrlSync]);
 
   // When the selected request changes (deep link, list selection, or after the
   // URL finishes clearing), drop the local close override so the panel can open
   // again and stays in sync with the URL.
   useEffect(() => {
     setPanelCloseRequested(false);
-  }, [selectedId]);
+  }, [selectedId, selectedBundleId]);
 
   const pageEyebrow = "Access / Consent";
   const pageTitle = "Access manager";
@@ -2082,9 +2175,22 @@ export function ConsentCenterPage() {
           <section className="space-y-4" data-testid="consent-manager-primary">
             <SettingsSegmentedTabs
               value={tab}
-              onValueChange={(value) =>
-                setParam({ tab: value, page: "1", requestId: null })
-              }
+              onValueChange={(value) => {
+                // Each tab has its own search placeholder ("Search requests
+                // by...", "Search connections by...") implying independent
+                // scope, but the query string carried over silently: search
+                // "macy" on Requests, click Active Access, and the list
+                // stays filtered by "macy" with no visible reason why it
+                // looks empty. Clear the search on every tab switch.
+                setSearchValue("");
+                setParam({
+                  tab: value,
+                  page: "1",
+                  requestId: null,
+                  bundleId: null,
+                  q: null,
+                });
+              }}
               options={[
                 {
                   value: "requests",
@@ -2228,8 +2334,23 @@ export function ConsentCenterPage() {
                       key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
                       entry={entry}
                       selected={
-                        selectedEntry?.id === entry.id ||
-                        selectedEntry?.request_id === entry.request_id ||
+                        // Bug: when nothing is selected, selectedEntry is null,
+                        // so selectedEntry?.id and selectedEntry?.request_id are
+                        // both undefined. Entries without their own request_id
+                        // (e.g. one_location_grant rows) also have
+                        // entry.request_id === undefined, so
+                        // "undefined === undefined" was true and falsely
+                        // highlighted that row as selected on every render -
+                        // this is the row that appeared to randomly "jump" to
+                        // a different entry on every tab switch. Require a
+                        // real selectedEntry (or a matching selectedId) before
+                        // comparing ids at all.
+                        Boolean(
+                          selectedEntry &&
+                            (selectedEntry.id === entry.id ||
+                              (selectedEntry.request_id &&
+                                selectedEntry.request_id === entry.request_id)),
+                        ) ||
                         Boolean(
                           selectedId &&
                             consentEntryMatchesSelectedId(entry, selectedId),

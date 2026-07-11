@@ -18,6 +18,7 @@ BACKEND_TEMPLATE_FILES = (
 FRONTEND_TEMPLATE_FILES = (
     Path("hushh-webapp/.env.local.local.example"),
     Path("hushh-webapp/.env.uat.local.example"),
+    Path("hushh-webapp/.env.dev.local.example"),
     Path("hushh-webapp/.env.prod.local.example"),
 )
 
@@ -28,6 +29,7 @@ BACKEND_RUNTIME_FILES = (
 FRONTEND_RUNTIME_FILES = (
     Path("hushh-webapp/.env.local.local"),
     Path("hushh-webapp/.env.uat.local"),
+    Path("hushh-webapp/.env.dev.local"),
     Path("hushh-webapp/.env.prod.local"),
 )
 

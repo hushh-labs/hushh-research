@@ -2916,9 +2916,9 @@ class VoiceIntentService:
 
         if _is_receipts_memory_intent(lowered):
             message = (
-                "Use Add receipts to memory here."
+                "Receipt memory is updated automatically after Gmail sync."
                 if current_screen == "profile_receipts"
-                else "Opening receipts. Use Add receipts to memory there."
+                else "Opening receipts. Receipt memory updates automatically after Gmail sync."
             )
             action_id_override = (
                 None if current_screen == "profile_receipts" else "route.profile_receipts"

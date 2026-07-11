@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Path, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemsError,
     get_connected_systems_service,
@@ -129,11 +129,38 @@ def _user_id(token_data: dict) -> str:
     return str(token_data.get("user_id") or "")
 
 
+async def _require_signed_in_lister(
+    background_tasks: BackgroundTasks,
+    authorization: Optional[str] = Header(
+        None, description="Bearer token: Firebase ID token or VAULT_OWNER consent token"
+    ),
+) -> str:
+    """Auth for the list endpoint: signed-in is enough, vault unlock is not required.
+
+    The listing exposes CRM registry metadata only (name, type, status,
+    transport) - no user records and no vault-protected data - so a Firebase
+    ID token is the correct boundary. VAULT_OWNER consent tokens also pass so
+    in-app agent lanes that already hold one keep working. Record-level
+    routes below still require the vault owner token.
+    """
+    raw = str(authorization or "").strip()
+    bearer = raw[7:].strip() if raw.lower().startswith("bearer ") else ""
+    if bearer.startswith("HCT:"):
+        from hushh_mcp.consent.token import validate_token_with_db
+        from hushh_mcp.types import ConsentScope
+
+        valid, _reason, token_obj = await validate_token_with_db(bearer, ConsentScope.VAULT_OWNER)
+        if valid and token_obj is not None:
+            return str(token_obj.user_id)
+        raise HTTPException(status_code=401, detail="Token validation failed.")
+    return await require_firebase_auth(background_tasks, authorization)
+
+
 @router.get("", response_model=ConnectedSystemsResponse)
 async def list_connected_systems(
-    token_data: dict = Depends(require_vault_owner_token),
+    firebase_uid: str = Depends(_require_signed_in_lister),
 ):
-    _ = _user_id(token_data)
+    _ = firebase_uid
     service = get_connected_systems_service()
     return ConnectedSystemsResponse(systems=service.list_systems())
 

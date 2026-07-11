@@ -49,7 +49,7 @@ export function toInvestorMessage(
     case "ONBOARDING_STATE_UNAVAILABLE":
       return "We could not load your onboarding progress. Please try again.";
     case "VAULT_STATUS_UNAVAILABLE":
-      return "We could not check your Vault status right now. Please try again.";
+      return "We could not reach Vault right now. Check your connection and try again.";
     case "LOCAL_BACKEND_UNAVAILABLE":
       return "Local backend data is unavailable right now. Start the local backend with the proxy-aware launcher, then try again.";
     case "VAULT_UNLOCK_FAILED":
@@ -88,6 +88,10 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     return toInvestorMessage("VAULT_PASSKEY_ENROLL_REQUIRED");
   }
 
+  if (lowered.includes("bluetooth")) {
+    return "Turn on Bluetooth to use a passkey from another device, or use your Vault Key or Recovery Key below.";
+  }
+
   if (
     lowered.includes("timed out or was not allowed") ||
     lowered.includes("privacy-considerations-client") ||
@@ -98,7 +102,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("cancelled") ||
     lowered.includes("canceled")
   ) {
-    return "Passkey unlock was cancelled or took too long. Try again, or use your passphrase instead.";
+    return "Passkey unlock did not finish. Try again, or use your Vault Key or Recovery Key below.";
   }
 
   if (
@@ -106,7 +110,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("quick unlock is not enabled") ||
     lowered.includes("not enabled on this device")
   ) {
-    return "Passkey unlock is not ready on this device yet. Use your passphrase once, then try passkey again.";
+    return "Passkey unlock is not ready on this device yet. Use your Vault Key once, then try passkey again.";
   }
 
   if (

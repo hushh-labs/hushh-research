@@ -574,3 +574,26 @@ export async function decryptLocationEnvelope(params: {
   );
   return JSON.parse(new TextDecoder().decode(plaintext)) as PlainLocationPoint;
 }
+
+/**
+ * Decrypt an envelope using an explicitly-provided recipient private JWK.
+ * Exists so cross-language parity tests can decrypt a natively-produced envelope
+ * without touching IndexedDB/Keychain. Production code should use
+ * `decryptLocationEnvelope`.
+ */
+export async function decryptLocationEnvelopeWithKey(params: {
+  privateKeyJwk: JsonWebKey;
+  envelope: OneLocationEncryptedEnvelope;
+}): Promise<PlainLocationPoint> {
+  const privateKey = await importPrivateKey(params.privateKeyJwk);
+  const senderPublicKey = await importPublicKey(
+    params.envelope.senderEphemeralPublicKeyJwk,
+  );
+  const aesKey = await deriveAesKey(privateKey, senderPublicKey, "decrypt");
+  const plaintext = await requireCrypto().subtle.decrypt(
+    { name: "AES-GCM", iv: fromBase64Url(params.envelope.iv) },
+    aesKey,
+    fromBase64Url(params.envelope.ciphertext),
+  );
+  return JSON.parse(new TextDecoder().decode(plaintext)) as PlainLocationPoint;
+}

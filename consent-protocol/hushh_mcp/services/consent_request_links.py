@@ -13,6 +13,27 @@ def frontend_origin() -> str:
     return origin or "http://localhost:3000"
 
 
+# Tab vocabulary the consent center actually understands (see
+# hushh-webapp/components/consent/consent-center-page.tsx ConsentTab +
+# normalizeTab). Links must never mint tab values outside this contract:
+# unrecognized tabs silently fall back to the requests tab, which hides
+# the drift instead of surfacing it.
+_VALID_CONSENT_TABS = {"pending", "active", "history", "connections"}
+_CONSENT_TAB_ALIASES = {
+    "requests": "pending",
+    "previous": "history",
+    "relationships": "connections",
+    # Status-like caller vocabulary: an "incoming" request is a pending one.
+    "incoming": "pending",
+}
+
+
+def normalize_consent_tab(view: str | None) -> str:
+    candidate = str(view or "").strip().lower()
+    candidate = _CONSENT_TAB_ALIASES.get(candidate, candidate)
+    return candidate if candidate in _VALID_CONSENT_TABS else "pending"
+
+
 def build_consent_request_path(
     *,
     request_id: str | None = None,
@@ -21,7 +42,7 @@ def build_consent_request_path(
     actor: str | None = None,
     manager_view: str | None = None,
 ) -> str:
-    params: dict[str, str] = {"tab": view or "pending"}
+    params: dict[str, str] = {"tab": normalize_consent_tab(view)}
     if request_id:
         params["requestId"] = request_id
     if bundle_id:

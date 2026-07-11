@@ -68,6 +68,7 @@ from mcp_modules.tools import (
     handle_request_consent,
     handle_validate_token,
 )
+from mcp_modules.transport_context import mark_local_stdio_transport
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -246,4 +247,10 @@ async def main():
 
 
 if __name__ == "__main__":
+    # This process is the local stdio subprocess (spawned by `npx @hushh/mcp`
+    # or a direct `python mcp_server.py` invocation) running on the
+    # developer's own machine with loopback access. mcp_remote.py imports
+    # `server` as a module without ever executing this block, so the remote
+    # transport never observes this flag as True.
+    mark_local_stdio_transport()
     asyncio.run(main())

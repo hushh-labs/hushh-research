@@ -1,5 +1,6 @@
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
@@ -266,6 +267,51 @@ export async function executeAgentGatewayAction(
       resultSummary: `${action.label} opened in Kai.`,
       data: { target: action.execution_target.target, goal_id: action.goal.goal_id },
     });
+  }
+
+  if (action.execution_target.path === "local_handler") {
+    const handler = resolveLocalOnboardingHandler(action.action_id);
+    if (!handler) {
+      return buildResult({
+        status: "blocked",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: `${action.label} isn't available on this screen right now.`,
+        reason: "local_handler_not_mounted",
+      });
+    }
+    try {
+      const handlerResult = await handler(input.slots || {});
+      return buildResult({
+        status:
+          handlerResult.status === "succeeded"
+            ? "succeeded"
+            : handlerResult.status === "blocked"
+              ? "blocked"
+              : "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: handlerResult.summary,
+        data: { ...(handlerResult.data || {}), goal_id: action.goal.goal_id },
+      });
+    } catch (error) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary:
+          error instanceof Error && error.message
+            ? error.message
+            : `${action.label} failed to run.`,
+        reason: "local_handler_error",
+      });
+    }
   }
 
   if (action.execution_target.path !== "kai_command") {

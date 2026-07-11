@@ -26,7 +26,7 @@ from typing import Any, Optional
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.tools import google_search
+from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.adk_bridge.contract import A2ATask
@@ -136,7 +136,18 @@ ONE_IDENTITY_INSTRUCTION = (
     "it cannot act (missing consent, locked vault, no data), relay that "
     "honestly and tell the user what would unlock it. You never execute "
     "sensitive actions directly: specialists validate consent and the app "
-    "confirms every state change."
+    "confirms every state change.\n\n"
+    "Guiding a new user through account setup is your job, the same way any "
+    "other app action is: the welcome screen, sign-in, phone verification, "
+    "the setup hub, and the Finance preferences wizard are all reachable "
+    "through run_app_action (list_app_actions first when unsure of the exact "
+    "id). While someone is still finishing setup, be proactive rather than "
+    "waiting to be asked: after you open a screen or complete a step, briefly "
+    "name ONE next thing they could do there and, if that next step needs an "
+    "answer from them (a wizard question, a phone number), ask for it "
+    "directly instead of just describing it. Never invent what setup has or "
+    "has not been completed; rely on the action result or the app state you "
+    "are given."
 )
 
 
@@ -242,7 +253,22 @@ async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
         "kind": "navigate",
         "payload": {"route": route, "screen": key},
     }
-    return {"status": "ok", "message": f"Opening {key.replace('_', ' ')}.", "route": route}
+    return {
+        "status": "ok",
+        "message": f"Opening {key.replace('_', ' ')}.",
+        "route": route,
+        # Proactive-prompting: this text becomes the tool RESULT the model
+        # reads on its next turn (there is no separate server-injected
+        # system turn for tool results, unlike the greeting/screen-change
+        # notes in adk_live.py). Nudging here means One offers a next step
+        # after every screen it opens, not only after onboarding-tagged
+        # screen changes.
+        "next_step": (
+            f"Once you land on {key.replace('_', ' ')}, briefly say what the "
+            "person can do here and, if there's an obvious next action, offer "
+            "it before waiting for them to ask."
+        ),
+    }
 
 
 async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -358,11 +384,25 @@ def _one_roster_tools() -> list:
     consult them as tools; the dispatch-backed specialists (email, location,
     connections, marketplace, connected systems, consent) are plain function
     tools that call the existing governed adk_bridge handlers.
+
+    Uses GoogleSearchTool(bypass_multi_tools_limit=True) rather than the bare
+    google_search function-tool. Binding Gemini's native google_search
+    directly alongside this many custom function/agent tools in the SAME
+    LlmAgent.tools=[...] list is unstable on google-adk 2.4.0 (verified in
+    hushh-search-console's adk_runtime.py via 15+ live trials: redundant
+    tool calls, intermittent TaskGroup errors, occasional full timeouts).
+    bypass_multi_tools_limit=True makes LlmAgent's own tool conversion wrap
+    google_search as an isolated per-call sub-agent turn (a
+    GoogleSearchAgentTool with propagate_grounding_metadata=True), which ADK
+    itself maintains and which still propagates real grounding metadata
+    (search queries + grounding chunks with real URLs) back onto One's own
+    event stream - so voice/chat answers keep real citations, not just a
+    plain summarized string.
     """
     from google.adk.tools.agent_tool import AgentTool
 
     return [
-        google_search,
+        GoogleSearchTool(bypass_multi_tools_limit=True),
         open_screen,
         run_app_action,
         list_app_actions,

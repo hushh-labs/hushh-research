@@ -87,6 +87,79 @@ Campaign/customer-experience agents should call `prepare_campaign_context` first
 5. If pending, bounded-poll `check_consent_status`; SSE waiting is disabled for this consent flow today.
 6. After approval, fetch `get_encrypted_scoped_export` and decrypt locally with the connector private key.
 
+## Local Stdio Auto-Decrypt (npm bridge / repo-local Python)
+
+The local stdio MCP process (spawned by `npx -y @hushh/mcp` or a direct
+`python mcp_server.py` invocation) runs as the developer's own trusted
+software on their own machine, with loopback network access the LLM host's
+own sandbox typically does not have. On this transport only:
+
+- `get_encrypted_scoped_export` decrypts and narrows the export locally by
+  default, returning a small `data` object directly. No ciphertext, wrapped
+  key metadata, or download step ever reaches the LLM host's context. Pass
+  `raw=true` (or `delivery='raw'`) to opt back into the raw ciphertext
+  contract if your connector wants to decrypt client-side itself.
+- `request_consent` no longer requires `connector_public_key`,
+  `connector_key_id`, or `connector_wrapping_alg`: the local server generates
+  and persists its own X25519 keypair on first use (default
+  `~/.hushh/mcp/connector_keypair.json`, override the directory with
+  `HUSHH_MCP_STATE_DIR`; file permissions `0600`). Explicit args still win if
+  you pass your own key.
+- Consent grants created before this key auto-fill self-heal on the next
+  `request_consent` call; an older grant wrapped to a discarded ephemeral key
+  falls back to the raw ciphertext contract with an explanatory
+  `delivery_note` rather than failing.
+
+The remote/hosted MCP endpoint (`/mcp`, see below) has no local trusted
+process to hold a private key, so it always requires explicit connector
+arguments and always returns raw ciphertext, exactly as before.
+
+## Partner / CRM Connectors (Salesforce Agentforce, Mulesoft-Fronted Systems)
+
+Hosted CRM platforms (for example Salesforce Agentforce/FSC via a Named
+Credential, or a Mulesoft-fronted integration) connect directly over HTTPS to
+the remote `/mcp` endpoint, without spawning any local process.
+
+- **Auth**: prefer `Authorization: Bearer <developer-token>` over the legacy
+  `?token=<developer-token>` query form shown above. Header-based auth avoids
+  leaking the token via Referer headers, access logs, or CDN/proxy logs, and
+  is directly compatible with Salesforce Named Credentials (no OAuth 2.1
+  authorization-server flow is required or supported today; a static
+  per-integration bearer token is the intended credential model).
+- **Provisioning**: issue a dedicated `partner_crm` developer app + token per
+  CRM system with `consent-protocol/scripts/ops/provision_partner_developer_app.py`:
+
+  ```bash
+  cd consent-protocol
+  python scripts/ops/provision_partner_developer_app.py \
+    --display-name "Salesforce FSC" \
+    --contact-email partners@hushh.ai \
+    [--crm-id salesforce-fsc-hushh]
+  ```
+
+  Every CRM system gets its own token so revocation, audit, and last-used
+  telemetry stay per-system. The raw token prints once on issuance; store it
+  in the partner's secret manager (Salesforce Named Credential, Mulesoft
+  connected-app config, etc.) immediately.
+- **Rate limits**: the remote endpoint enforces a per-developer-app rate
+  limit (default `120/minute`, configurable via `MCP_REMOTE_RATE_LIMIT`) and
+  a per-request timeout (default 120s, configurable via
+  `MCP_REMOTE_REQUEST_TIMEOUT_SECONDS`). Exceeding the limit returns
+  `429 RATE_LIMIT_EXCEEDED`; design integrator retries with standard
+  exponential backoff. A hung request returns `504 REQUEST_TIMEOUT`.
+- **Session model**: the remote endpoint runs in stateless streamable-HTTP
+  mode: no `Mcp-Session-Id` header is issued and there is no session
+  resumability. This is transparent for standard one-shot tool-call patterns
+  (`initialize` → `tools/call` → response per request), which is how the
+  reference test coverage (`tests/test_mcp_remote_endpoint.py`) and the
+  manual UAT smoke script (`scripts/uat_kai_regression_smoke.py --scenario
+  mcp_transport` / `mcp_consent`) exercise it. Do not design an integration
+  that depends on cross-request session state surviving between separate
+  streamable-HTTP connections.
+- The remote endpoint always returns raw ciphertext (never auto-decrypts);
+  CRM connectors decrypt and narrow client-side with their own registered
+  connector key, per the zero-knowledge contract described above.
+
 ## Contributor-Local Fallback
 
 Use repo-local Python only for contributor workflows:
@@ -123,6 +196,15 @@ The npm bridge also supports:
 - `HUSHH_MCP_PYTHON`
 - `HUSHH_MCP_SKIP_BOOTSTRAP`
 
+Local stdio auto-decrypt (this server, not the npm bridge):
+
+- `HUSHH_MCP_STATE_DIR` — overrides where the persisted connector keypair is stored (default `~/.hushh/mcp`).
+
+Remote MCP production hardening (server-side, not client-facing):
+
+- `MCP_REMOTE_RATE_LIMIT` — per-developer-app rate limit for `/mcp` (default `120/minute`).
+- `MCP_REMOTE_REQUEST_TIMEOUT_SECONDS` — per-request timeout for `/mcp` (default `120`).
+
 Repo-local fallback still relies on the normal `consent-protocol` backend/runtime env.
 
 ## Operational Notes
@@ -130,7 +212,7 @@ Repo-local fallback still relies on the normal `consent-protocol` backend/runtim
 - Public onboarding is UAT-first until production developer access is promoted.
 - The npm package is the public install surface; this repo doc should not reintroduce a second public quickstart.
 - Keep credentials machine-local. Do not commit host config files with inline developer tokens.
-- The remote MCP contract is query-token based today, so treat the full URL as secret material.
+- The remote MCP contract accepts `Authorization: Bearer <token>` (preferred) or the legacy `?token=` query form; treat either the header value or the full URL as secret material.
 - The published npm tarball should include package-local `LICENSE` and `NOTICE` files for Apache redistribution.
 
 ## Verification
@@ -139,6 +221,7 @@ For public MCP verification, the source-of-truth regressions are:
 
 - `python scripts/uat_kai_regression_smoke.py --scenario mcp_transport ...`
 - `python scripts/uat_kai_regression_smoke.py --scenario mcp_consent ...`
+- `pytest tests/test_mcp_remote_endpoint.py` — CI-gated coverage for the live `/mcp` ASGI mount (auth, rate limiting, timeout), independent of environment reachability.
 
 For package verification:
 

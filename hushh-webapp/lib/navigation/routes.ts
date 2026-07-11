@@ -44,6 +44,7 @@ export const ROUTES = {
   CONNECTED_SYSTEMS: "/one/connected-systems",
   CONSENTS: "/consents",
   AGENT: "/agent",
+  CONNECT: "/connect",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
@@ -209,10 +210,12 @@ export function isCapabilityHandoffTarget(pathname: string): boolean {
 export function buildOneSetupRoute(entries?: {
   feature?: string | null;
   from?: string | null;
+  returnTo?: string | null;
 }) {
   return withQuery(ROUTES.ONE_SETUP, {
     feature: entries?.feature,
     from: normalizeInternalRouteHref(entries?.from),
+    return_to: normalizeInternalRouteHref(entries?.returnTo),
   });
 }
 

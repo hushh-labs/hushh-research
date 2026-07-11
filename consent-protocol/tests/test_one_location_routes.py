@@ -59,6 +59,11 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     for user_id in (user_a, user_b, user_c, user_d):
         _register_key(client, current_user, user_id)
 
+    # Direct location sharing is now scoped to connections: the owner may only
+    # grant to someone they are connected with. Seed that connection so the
+    # POST /location/grants direct-share path is authorized.
+    service._seed_connection(user_a, user_b)
+
     current_user["user_id"] = user_a
     grant_b_response = client.post(
         "/api/one/location/grants",

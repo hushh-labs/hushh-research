@@ -73,6 +73,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/adk", tags=["One ADK"])
 
+# Screens where a person is actively moving through account setup. On these
+# screens a screen change is a hand-off moment (they just landed somewhere
+# new mid-flow), so the injected note instructs a concrete spoken next-step
+# question instead of staying silent - the rest of the app gets the neutral
+# silent note so One does not narrate ordinary browsing.
+_ONBOARDING_SCREENS = frozenset(
+    {
+        "getting_started",
+        "login",
+        "register_phone",
+        "one_setup",
+        "one_setup_hub",
+        "kai_setup_wizard",
+    }
+)
+
 _INPUT_MIME_DEFAULT = "audio/pcm;rate=16000"
 _OUTPUT_MIME = "audio/pcm;rate=24000"
 
@@ -256,18 +272,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     changed = clean_screen != last_injected_screen
                     last_injected_screen = clean_screen
                     if changed and not is_first:
+                        if clean_screen in _ONBOARDING_SCREENS:
+                            note_text = (
+                                "[App state update - not user speech] The user is "
+                                f"now on the '{clean_screen}' screen while finishing "
+                                "account setup. Briefly name the one next thing they "
+                                "can do here, and if it needs an answer from them "
+                                "(a question, a phone number), ask for it directly "
+                                "in the same breath."
+                            )
+                        else:
+                            note_text = (
+                                "[App state update - not user speech] The user is "
+                                f"now on the '{clean_screen}' screen. Use this "
+                                "silently."
+                            )
                         queue.send_content(
                             genai_types.Content(
                                 role="user",
-                                parts=[
-                                    genai_types.Part(
-                                        text=(
-                                            "[App state update - not user speech] The "
-                                            f"user is now on the '{clean_screen}' "
-                                            "screen. Use this silently."
-                                        )
-                                    )
-                                ],
+                                parts=[genai_types.Part(text=note_text)],
                             )
                         )
                 first_app_context_seen = True

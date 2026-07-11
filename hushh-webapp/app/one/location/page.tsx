@@ -108,12 +108,7 @@ import {
 } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
-  buildOneLocationNotificationHref,
-  buildOneLocationWorkflowHref,
-  isOneLocationGrantOpened,
   isOneLocationGrantUnwatched,
-  locationShareNotificationCopy,
-  locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
   markOneLocationGrantUnwatched,
   ONE_LOCATION_GRANT_ID_PARAM,
@@ -125,12 +120,8 @@ import {
   ONE_LOCATION_REQUEST_ID_PARAM,
   ONE_LOCATION_SECTION_PARAM,
   ONE_LOCATION_SUBMISSION_ID_PARAM,
-  oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
-  recordOneLocationShareNotification,
-  recordOneLocationWorkflowNotification,
   type OneLocationNotificationSection,
-  type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
@@ -156,7 +147,7 @@ import {
 import {
   isSosShareReadyRecipient,
   runSosPanic,
-  selectSosConnectedRecipients,
+  selectShareReadyRecipients,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 import type {
@@ -187,6 +178,13 @@ import { LocationChatPanel } from "@/components/one-location/redesign/location-c
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
+import { LiveMap } from "@/components/one-location/live-map";
+import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
+import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
+import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
+import { liveFreshness } from "@/lib/one-location/freshness";
+import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
+import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const DURATION_OPTIONS = [
@@ -198,6 +196,9 @@ const DURATION_OPTIONS = [
 ];
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+// Recipients poll faster than the owner's publish heartbeat so the shared dot
+// stays fresh; the LiveMap marker interpolates between these reads.
+const LIVE_VIEW_REFRESH_INTERVAL_MS = 5_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // True live tracking: while a share is active and the app is foregrounded, the
@@ -736,12 +737,53 @@ async function runOneLocationForegroundAttempt<T>(params: {
   }
 }
 
+// Consumer UI must never surface raw backend or database internals such as SQL
+// text, driver errors, stack traces, encrypted key blobs, or table and column
+// identifiers. Those belong in logs and developer tooling only. We only let
+// short, human-readable messages through; anything that looks like an internal
+// dump is replaced with a friendly summary. This keeps the vault and PKM data
+// boundary intact and stops raw driver errors from reaching users.
+
+const ONE_LOCATION_UNSAFE_ERROR_MARKERS = [
+  "psycopg2",
+  "sqlalchemy",
+  "sql:",
+  "select ",
+  "insert into",
+  "update ",
+  "delete from",
+  "relation ",
+  "column ",
+  "constraint",
+  "traceback",
+  "jsonb",
+  "public_key",
+  "encrypted_",
+  "jwk",
+  "background on this error",
+  "undefinedcolumn",
+];
+
+function isSafeUserFacingMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  // Long strings or multi-line payloads are almost always internal dumps.
+  if (trimmed.length > 160) return false;
+  if (/[\n\r]/.test(trimmed)) return false;
+  const lower = trimmed.toLowerCase();
+  return !ONE_LOCATION_UNSAFE_ERROR_MARKERS.some((marker) =>
+    lower.includes(marker),
+  );
+}
+
 function oneLocationErrorMessage(error: unknown, fallback: string): string {
   if (isTransientOneApiError(error)) {
     return "One is still catching up. Please refresh once, then check this page before retrying.";
   }
-  return error instanceof Error ? error.message : fallback;
+  const raw = error instanceof Error ? error.message : "";
+  return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
+
 
 function isLocationPointStale(point: PlainLocationPoint): boolean {
   const capturedAt = new Date(point.capturedAt).getTime();
@@ -781,9 +823,9 @@ function locationCoordinateQuery(point: PlainLocationPoint): string {
   ].join(",");
 }
 
-function googleMapsLocationEmbedUrl(point: PlainLocationPoint): string {
+function googleMapsLocationUrl(point: PlainLocationPoint): string {
   const query = encodeURIComponent(locationCoordinateQuery(point));
-  return `https://www.google.com/maps?q=${query}&z=16&output=embed`;
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
 function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
@@ -830,22 +872,22 @@ function LocalMapPreview({
   const captured = formatDateTime(point.capturedAt);
   const isStale = isLocationPointStale(point);
   const accuracy = locationAccuracyLabel(point);
-  const embedUrl = googleMapsLocationEmbedUrl(point);
   const directionsUrl = googleMapsDirectionsUrl(point);
-  const statusLabel = isStale ? "Last known location" : "Live location";
+  const freshness = liveFreshness(
+    point.capturedAt,
+    Date.now(),
+    LIVE_LOCATION_STALE_THRESHOLD_MS,
+  );
+  const statusLabel =
+    freshness.state === "live"
+      ? `Live · ${freshness.agoLabel}`
+      : `Paused · last seen ${freshness.agoLabel}`;
 
 
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <iframe
-          title="Live location map preview"
-          src={embedUrl}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          allowFullScreen
-          className="h-full w-full border-0"
-        />
+        <LiveMap point={point} />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
@@ -1720,6 +1762,8 @@ function OneLocationAgentPageContent() {
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  // Opt-in: keep publishing location while the app is backgrounded (native only).
+  const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
@@ -1786,6 +1830,9 @@ function OneLocationAgentPageContent() {
   const [myLocationPoint, setMyLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
+  // True once the owner taps "Show my location" — keeps their own preview
+  // streaming live (foreground) even before any share exists.
+  const [selfPreviewStreaming, setSelfPreviewStreaming] = useState(false);
   const [decryptedPoints, setDecryptedPoints] = useState<
     Record<string, PlainLocationPoint>
   >({});
@@ -1823,8 +1870,14 @@ function OneLocationAgentPageContent() {
   // geolocation watch id, the last point we actually published (to measure
   // movement), and the timestamp of that publish (to throttle bursts).
   const liveWatchIdRef = useRef<string | null>(null);
+  const selfWatchIdRef = useRef<string | null>(null);
   const lastPublishedPointRef = useRef<PlainLocationPoint | null>(null);
   const lastWatchPublishAtRef = useRef(0);
+  // Throttles updates to the owner's OWN live-preview marker so it refreshes at
+  // the same cadence a viewer sees a shared dot (LIVE_VIEW_REFRESH_INTERVAL_MS),
+  // instead of re-rendering/animating on every raw GPS fix (~1s), which needlessly
+  // burns compute. Does NOT affect GPS accuracy or the publish heartbeat.
+  const lastSelfMarkerAtRef = useRef(0);
   const driveSessionRef = useRef<{
     grantIds: Set<string>;
     destination: DriveDestination;
@@ -1921,44 +1974,33 @@ function OneLocationAgentPageContent() {
   // convenience deep-link, NOT a requirement. Shares the recipient explicitly
   // "unwatched" are hidden. Terminal (revoked/expired) grants are never listed
   // here (the backend keeps them for ~12h for history only).
+  const activeReceivedGrants = useMemo(
+    () =>
+      (state?.receivedGrants ?? []).filter(
+        (grant) => grant.status === "active",
+      ),
+    [state?.receivedGrants],
+  );
   const visibleReceivedGrants = useMemo(() => {
     void openedGrantTick;
     void unwatchedTick;
-    return (state?.receivedGrants ?? []).filter(
-      (grant) =>
-        grant.status === "active" &&
-        !isOneLocationGrantUnwatched(auth.userId, grant.id),
+    return activeReceivedGrants.filter(
+      (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
-  }, [auth.userId, openedGrantTick, unwatchedTick, state?.receivedGrants]);
+  }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
   const activeOwnerGrants = useMemo(
     () =>
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
 
-  // SOS alerts ONLY your actual One Network connections (e.g. the seeded trusted
-  // contacts), never the broad phone-verified directory that `recipients` also
-  // includes. Connection membership comes straight from networkConnections.
-  const sosTrustedRecipients = useMemo(
-    () =>
-      selectSosConnectedRecipients(
-        rankedRecipients,
-        state?.networkConnections,
-        auth.userId,
-      ),
-    [rankedRecipients, state?.networkConnections, auth.userId],
+  // All quick actions (SOS, check-in, drive-to, pick-me-up, safe-arrival) share
+  // the same recipients: your connections that are ready for private sharing.
+  // Recipients are already scoped to the connections graph server-side.
+  const sosActionRecipients = useMemo(
+    () => selectShareReadyRecipients(rankedRecipients),
+    [rankedRecipients],
   );
-
-  // Recipients shown + alerted by the SOS and Check-In quick actions. Prefer the
-  // explicit One Network (SOS-connected) circle; when the user has no active
-  // network connections yet, fall back to their share-ready trusted people (the
-  // same list the People tab shows) so "Who gets alerted?" / "Who should know?"
-  // are never empty and the SOS button stays actionable, mirroring how the
-  // original main-page panic panel surfaced trusted contacts.
-  const sosActionRecipients = useMemo(() => {
-    if (sosTrustedRecipients.length > 0) return sosTrustedRecipients;
-    return rankedRecipients.filter(isShareReadyRecipient);
-  }, [sosTrustedRecipients, rankedRecipients]);
 
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
@@ -1984,7 +2026,12 @@ function OneLocationAgentPageContent() {
     }
   }, [state, activeOwnerGrants]);
 
-  const activeVisibleReceivedGrants = visibleReceivedGrants;
+  // The redesigned Inbox keeps every active share live-refreshing even when a
+  // legacy build previously persisted an "unwatched" id. In the redesigned
+  // UX, Dismiss owns preview presentation only and never changes grant reachability.
+  const activeVisibleReceivedGrants = USE_LOCATION_REDESIGN
+    ? activeReceivedGrants
+    : visibleReceivedGrants;
   // Active shares the recipient unwatched (hidden locally). Used only to tailor
   // the empty-state copy.
   const unwatchedActiveReceivedGrantCount = useMemo(() => {
@@ -2137,147 +2184,6 @@ function OneLocationAgentPageContent() {
       active = false;
     };
   }, [activityRange, auth.userId, state, vaultOwnerToken]);
-
-  const openLocationShareFromNotification = useCallback(
-    (grantId: string) => {
-      if (!auth.userId) return;
-      markOneLocationGrantOpened(auth.userId, grantId);
-      setOpenedGrantTick((value) => value + 1);
-      router.push(buildOneLocationNotificationHref(grantId), { scroll: false });
-      focusOneLocationSection("shared");
-    },
-    [auth.userId, focusOneLocationSection, router],
-  );
-
-  const showLocationShareToast = useCallback(
-    (grant: OneLocationGrant) => {
-      if (!auth.userId) return;
-      const ownerLabel = receivedGrantOwnerLabel(grant);
-      const toastKey = `one-location-share:${grant.id}`;
-      // Kind-aware popup so the recipient instantly sees WHAT it is (SOS alert /
-      // Check-in shared with the note / Location shared) instead of the same
-      // generic line for every share.
-      const { title, description } = locationShareNotificationCopy({
-        ownerLabel,
-        shareKind: grant.shareKind,
-        shareMessage: grant.shareMessage,
-      });
-      playOneLocationNotificationSound();
-      toast(
-        <div className="flex flex-col gap-2">
-          <div className="space-y-0.5">
-            <p className="line-clamp-1 text-sm font-semibold">
-              {title}
-            </p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">
-              {description}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              toast.dismiss(toastKey);
-              openLocationShareFromNotification(grant.id);
-            }}
-            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
-          >
-            Open
-          </button>
-        </div>,
-        {
-          id: toastKey,
-          duration: 10000,
-          position: "top-center",
-        },
-      );
-    },
-    [auth.userId, openLocationShareFromNotification],
-  );
-
-  const showWorkflowToast = useCallback(
-    (params: {
-      notificationType: OneLocationWorkflowNotificationType;
-      id: string;
-      ownerLabel?: string | null;
-      requesterLabel?: string | null;
-      referringLabel?: string | null;
-      visitorLabel?: string | null;
-      grantId?: string | null;
-      requestId?: string | null;
-      referralId?: string | null;
-      submissionId?: string | null;
-      section?: OneLocationFocusTarget | null;
-      openGrant?: boolean;
-    }) => {
-      if (!auth.userId) return;
-      const section =
-        params.section ||
-        oneLocationSectionForWorkflowNotificationType(params.notificationType);
-      const copy = locationWorkflowNotificationCopy({
-        type: params.notificationType,
-        ownerLabel: params.ownerLabel,
-        requesterLabel: params.requesterLabel,
-        referringLabel: params.referringLabel,
-        visitorLabel: params.visitorLabel,
-      });
-      const routeHref = buildOneLocationWorkflowHref({
-        grantId: params.grantId,
-        requestId: params.requestId,
-        referralId: params.referralId,
-        submissionId: params.submissionId,
-        section,
-        openGrant: params.openGrant,
-      });
-      const created = recordOneLocationWorkflowNotification({
-        userId: auth.userId,
-        notificationType: params.notificationType,
-        id: params.id,
-        title: copy.title,
-        description: copy.description,
-        routeHref,
-        metadata: {
-          grantId: params.grantId || null,
-          requestId: params.requestId || null,
-          referralId: params.referralId || null,
-          submissionId: params.submissionId || null,
-          section,
-        },
-      });
-      if (!created) return;
-
-      playOneLocationNotificationSound();
-      const toastKey = `one-location-workflow:${params.notificationType}:${params.id}`;
-      toast(
-        <div className="flex flex-col gap-2">
-          <div className="space-y-0.5">
-            <p className="line-clamp-1 text-sm font-semibold">{copy.title}</p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">
-              {copy.description}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              if (params.openGrant && params.grantId) {
-                markOneLocationGrantOpened(auth.userId, params.grantId);
-                setOpenedGrantTick((value) => value + 1);
-              }
-              toast.dismiss(toastKey);
-              router.push(routeHref, { scroll: false });
-              focusOneLocationSection(section);
-            }}
-            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
-          >
-            Open
-          </button>
-        </div>,
-        {
-          id: toastKey,
-          duration: 10000,
-          position: "top-center",
-        },
-      );
-    },
-    [auth.userId, focusOneLocationSection, router],
-  );
 
   useEffect(() => {
     if (!pendingCircleInviteToken || !vaultOwnerToken) return;
@@ -2728,132 +2634,6 @@ function OneLocationAgentPageContent() {
       );
     };
   }, [auth.userId]);
-
-  useEffect(() => {
-    if (!auth.userId || !state?.receivedGrants?.length) return;
-    for (const grant of state.receivedGrants) {
-      if (grant.status !== "active") continue;
-      if (isOneLocationGrantOpened(auth.userId, grant.id)) continue;
-      const created = recordOneLocationShareNotification({
-        userId: auth.userId,
-        grantId: grant.id,
-        ownerLabel: receivedGrantOwnerLabel(grant),
-        expiresAt: grant.expiresAt,
-        durationHours: grant.durationHours,
-        shareKind: grant.shareKind,
-        shareMessage: grant.shareMessage,
-      });
-      if (created) {
-        showLocationShareToast(grant);
-      }
-    }
-  }, [
-    auth.userId,
-    openedGrantTick,
-    showLocationShareToast,
-    state?.receivedGrants,
-  ]);
-
-  useEffect(() => {
-    if (!auth.userId || !state) return;
-
-    for (const request of pendingOwnerRequests) {
-      showWorkflowToast({
-        notificationType: "location_access_request",
-        id: request.id,
-        requestId: request.id,
-        requesterLabel: requestLabel(request),
-        section: "approvals",
-      });
-    }
-
-    for (const request of requestedByMe) {
-      const ownerLabel = requestOwnerLabel(request, recipients);
-      if (request.status === "approved") {
-        showWorkflowToast({
-          notificationType: "location_access_approved",
-          id: request.approvedGrantId || request.id,
-          requestId: request.id,
-          grantId: request.approvedGrantId,
-          ownerLabel,
-          section: "shared",
-          openGrant: Boolean(request.approvedGrantId),
-        });
-      }
-      if (request.status === "denied") {
-        showWorkflowToast({
-          notificationType: "location_access_denied",
-          id: request.id,
-          requestId: request.id,
-          ownerLabel,
-          section: "my_requests",
-        });
-      }
-    }
-
-    // Owners who currently have an ACTIVE share with me. When a person re-shares
-    // their location within an existing window, the backend silently supersedes
-    // the prior grant (sets it to "revoked" with NO push), so a stale
-    // revoked/expired row sits alongside a fresh active one. We must NOT raise a
-    // "location removed" / "expired" notification in that case - it is the core
-    // source of the false "location removed by this user" spam. Only notify when
-    // the owner has genuinely stopped sharing (no active grant remains).
-    const ownersWithActiveReceivedGrant = new Set(
-      (state.receivedGrants ?? [])
-        .filter((grant) => grant.status === "active")
-        .map((grant) => String(grant.ownerUserId || "").trim())
-        .filter(Boolean),
-    );
-    for (const grant of state.receivedGrants ?? []) {
-      const ownerId = String(grant.ownerUserId || "").trim();
-      const supersededByNewerShare =
-        Boolean(ownerId) && ownersWithActiveReceivedGrant.has(ownerId);
-      // A recipient who unwatched this share does not want any follow-up noise.
-      const recipientUnwatched = isOneLocationGrantUnwatched(
-        auth.userId,
-        grant.id,
-      );
-      if (supersededByNewerShare || recipientUnwatched) continue;
-
-      if (grant.status === "revoked") {
-        showWorkflowToast({
-          notificationType: "location_share_revoked",
-          id: grant.id,
-          grantId: grant.id,
-          ownerLabel: receivedGrantOwnerLabel(grant),
-          section: "shared",
-        });
-      }
-      if (grant.status === "expired") {
-        showWorkflowToast({
-          notificationType: "location_share_expired",
-          id: grant.id,
-          grantId: grant.id,
-          ownerLabel: receivedGrantOwnerLabel(grant),
-          section: "shared",
-        });
-      }
-    }
-
-    for (const submission of publicSubmissions) {
-      if (submission.ownerUserId !== auth.userId) continue;
-      showWorkflowToast({
-        notificationType: "location_public_invite_submitted",
-        id: submission.id,
-        submissionId: submission.id,
-        visitorLabel: publicSubmissionLabel(submission),
-        section: "public_responses",
-      });
-    }
-  }, [
-    auth.userId,
-    pendingOwnerRequests,
-    publicSubmissions,
-    recipients,
-    requestedByMe,
-    showWorkflowToast,
-    state,
-  ]);
 
   const recipientForGrant = useCallback(
     (grant: OneLocationGrant) =>
@@ -3434,8 +3214,14 @@ function OneLocationAgentPageContent() {
         : Number.POSITIVE_INFINITY;
       const sincePublishMs = now - lastWatchPublishAtRef.current;
 
-      // Always reflect movement in the owner's own live preview immediately.
-      setMyLocationPoint(point);
+      // Reflect movement in the owner's own live preview, throttled to the same
+      // cadence a viewer sees a shared dot (LIVE_VIEW_REFRESH_INTERVAL_MS) so the
+      // self marker doesn't re-render/animate on every GPS fix (~1s). Publishing
+      // below still uses the raw `point`, so shared accuracy is unaffected.
+      if (now - lastSelfMarkerAtRef.current >= LIVE_VIEW_REFRESH_INTERVAL_MS) {
+        lastSelfMarkerAtRef.current = now;
+        setMyLocationPoint(point);
+      }
 
       if (
         previous &&
@@ -3505,6 +3291,78 @@ function OneLocationAgentPageContent() {
     vaultOwnerToken,
   ]);
 
+  // Live self-preview (Device readiness): once the owner taps "Show my location"
+  // we stream their own position continuously so the preview moves in real time,
+  // even before any share exists. Foreground-only (visibility-guarded). When a
+  // share IS active the publish watch above already keeps myLocationPoint fresh,
+  // so this standalone watch stands down to avoid a duplicate GPS stream.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (
+      !shouldStreamSelfPreview({
+        streaming: selfPreviewStreaming,
+        activeGrantCount: activeOwnerGrants.length,
+        permissionState: permission?.state,
+      })
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const watchId = await OneLocationService.watchCurrentPosition(
+          (point) => {
+            if (cancelled) return;
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "hidden"
+            ) {
+              return;
+            }
+            // Throttle the self-preview marker to the viewer refresh cadence
+            // (LIVE_VIEW_REFRESH_INTERVAL_MS) instead of updating on every GPS
+            // fix (~1s), which needlessly re-renders/animates and burns compute.
+            const now = Date.now();
+            if (
+              now - lastSelfMarkerAtRef.current <
+              LIVE_VIEW_REFRESH_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastSelfMarkerAtRef.current = now;
+            setMyLocationPoint(point);
+          },
+          (error) => {
+            console.warn(
+              "[OneLocationAgent] Self-preview watch error:",
+              error.message,
+            );
+          },
+        );
+        if (cancelled) {
+          void OneLocationService.clearLocationWatch(watchId).catch(() => null);
+          return;
+        }
+        selfWatchIdRef.current = watchId;
+      } catch (error) {
+        console.warn(
+          "[OneLocationAgent] Could not start self-preview watch:",
+          error,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      const watchId = selfWatchIdRef.current;
+      selfWatchIdRef.current = null;
+      if (watchId) {
+        void OneLocationService.clearLocationWatch(watchId).catch(() => null);
+      }
+    };
+  }, [selfPreviewStreaming, activeOwnerGrants.length, permission?.state]);
+
   useEffect(() => {
     if (!activeVisibleReceivedGrants.length) return;
     if (busy && busy !== "load") return;
@@ -3535,10 +3393,28 @@ function OneLocationAgentPageContent() {
     void refreshVisibleGrants();
     const interval = window.setInterval(
       () => void refreshVisibleGrants(),
-      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+      LIVE_VIEW_REFRESH_INTERVAL_MS,
     );
     return () => window.clearInterval(interval);
   }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
+
+  // Keep native background publishing in sync with the opt-in toggle + grants.
+  // Web returns { started:false } and this is a no-op there.
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    const session = buildBackgroundShareSession({
+      activeGrants: activeOwnerGrants,
+      recipients,
+      vaultOwnerToken,
+      backendBaseUrl: getApiBaseUrl(),
+      minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
+      minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+    });
+    void syncBackgroundShare({ enabled: backgroundShareEnabled, session });
+    return () => {
+      void OneLocationService.stopBackgroundShare();
+    };
+  }, [backgroundShareEnabled, activeOwnerGrants, recipients, vaultOwnerToken]);
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
@@ -4731,6 +4607,8 @@ function OneLocationAgentPageContent() {
         return;
       }
       setMyLocationPoint(result.point);
+      // Keep the preview live from here on (foreground streaming watch below).
+      setSelfPreviewStreaming(true);
       toast.success("Your live location preview is ready.");
     } catch (error) {
       const message = locationServicesErrorMessage(error);
@@ -4964,7 +4842,10 @@ function OneLocationAgentPageContent() {
     recipients: rankedRecipients,
     visibleRecipients,
     activeOwnerGrants,
-    receivedGrants: visibleReceivedGrants,
+    // The redesigned Inbox always keeps active received grants reachable.
+    // Its Dismiss action collapses only the decrypted map preview; legacy
+    // recipient-side "unwatch" state must not remove the durable row.
+    receivedGrants: activeReceivedGrants,
     pendingOwnerRequests,
     requestedByMe,
     latestActivePublicInvite,
@@ -5000,7 +4881,6 @@ function OneLocationAgentPageContent() {
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
-    onUnwatchGrant: (grant) => handleUnwatch(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
@@ -5024,6 +4904,7 @@ function OneLocationAgentPageContent() {
     renderMapPreview: (point, showNavigation) => (
       <LocalMapPreview point={point} showNavigation={showNavigation} />
     ),
+    mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
     sosRecipients: sosActionRecipients,
     sosActive: Boolean(sosIncident?.grantIds.length),
@@ -5051,15 +4932,33 @@ function OneLocationAgentPageContent() {
   };
 
 
-  if (USE_LOCATION_REDESIGN && !loadError) {
+  // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in
+  // every state — success, loading, AND error — so a load failure (e.g. the
+  // vault-owner token is missing, or a backend/schema hiccup) surfaces as a
+  // small inline banner on the current design, and NEVER drops the user back to
+  // the retired legacy page. The `!loadError` fallthrough was the root cause of
+  // the "old location UI reappears on error" bug. The legacy block below is kept
+  // only as a compile-time fallback (guarded by the `boolean`-typed flag) and is
+  // unreachable at runtime.
+  if (USE_LOCATION_REDESIGN) {
     return (
       <AppPageShell width="standard" nativeTest={nativeTestConfig}>
         <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
+          {loadError ? (
+            <div
+              role="alert"
+              className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm font-medium text-[#ff3b30] dark:text-[#ff9f9a]"
+            >
+              {loadError}
+            </div>
+          ) : null}
+
           {showInitialSkeleton ? (
             <HushhLoader variant="page" label="Loading location..." />
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
+
 
           <LocationChatPanel
             vaultOwnerToken={vaultOwnerToken ?? null}
@@ -5745,6 +5644,17 @@ function OneLocationAgentPageContent() {
                   className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("people"))}
                 >
                   {sectionLabel("People who can see me")}
+                  {activeOwnerGrants.length > 0 ? (
+                    <div className="px-1 pb-1">
+                      <BackgroundShareToggle
+                        enabled={backgroundShareEnabled}
+                        onEnabledChange={setBackgroundShareEnabled}
+                        requestAlwaysAuthorization={
+                          OneLocationService.requestAlwaysAuthorization
+                        }
+                      />
+                    </div>
+                  ) : null}
                   <div className={oneScrollablePanelClassName}>
                     {(state?.ownerGrants ?? []).length ? (
                       state?.ownerGrants.map((grant, index) => (

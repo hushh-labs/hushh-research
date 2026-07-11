@@ -7,16 +7,16 @@
  * Shows toast notifications for pending consent requests.
  * Uses FCM for all platforms (web + native).
  *
- * Architecture (pure push -- zero polling):
+ * Architecture:
  * - Initialize FCM when user logs in
  * - FCM push arrives → extract consent data from payload → show toast
  * - One-time fetch on vault unlock to catch requests that arrived while offline
- * - NO interval-based polling anywhere
+ * - One Location reconciles on resume/focus and at a low-frequency safety interval
  *
  * Product rule:
  * - Web Sonner toasts are used for live events and unreviewed catch-up requests.
  * - Hydration/offline catch-up must surface actionable approvals once per session.
- * - Native uses Capacitor/FCM notification delivery instead of in-app Sonner toasts.
+ * - iOS system banners stay authoritative; Android uses an in-app foreground toast.
  */
 
 import {
@@ -38,6 +38,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
   initializeFCM,
+  prepareFCMListeners,
   clearDeliveredConsentNotifications,
   FCM_MESSAGE_EVENT,
   type FCMInitStatus,
@@ -48,6 +49,7 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   resolveCompactConsentSummary,
   resolveConsentRequesterLabel,
@@ -69,7 +71,8 @@ import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
   dismissOneLocationShareNotification,
-  locationShareNotificationDescription,
+  isOneLocationGrantUnwatched,
+  locationShareNotificationCopy,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
   oneLocationSectionForWorkflowNotificationType,
@@ -78,6 +81,8 @@ import {
   recordOneLocationWorkflowNotification,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
+import { OneLocationService } from "@/lib/one-location/service";
+import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
 
 
 // ============================================================================
@@ -372,7 +377,8 @@ function isOneLocationWorkflowNotificationType(
     value === "location_access_request" ||
     value === "location_access_denied" ||
     value === "location_referral_invite" ||
-    value === "location_public_invite_submitted"
+    value === "location_public_invite_submitted" ||
+    value === "location_one_network_joined"
   );
 }
 
@@ -410,6 +416,15 @@ function oneLocationVisitorLabel(data: Record<string, string>): string {
   );
 }
 
+function oneLocationNetworkLabel(data: Record<string, string>): string {
+  return (
+    String(data.network_display_label || "").trim() ||
+    String(data.invitee_display_label || "").trim() ||
+    String(data.inviter_display_label || "").trim() ||
+    "A trusted person"
+  );
+}
+
 function oneLocationNotificationId(data: Record<string, string>): string {
   return (
     String(data.grant_id || "").trim() ||
@@ -417,9 +432,36 @@ function oneLocationNotificationId(data: Record<string, string>): string {
     String(data.request_id || "").trim() ||
     String(data.submission_id || "").trim() ||
     String(data.referral_id || "").trim() ||
+    String(data.connection_id || "").trim() ||
+    String(data.invite_id || "").trim() ||
     String(data.notification_tag || "").trim()
   );
 }
+
+function oneLocationPayloadRoute(
+  data: Record<string, string>,
+  fallback: string,
+): string {
+  const requestedRoute = String(data.request_url || data.deep_link || "").trim();
+  if (
+    requestedRoute === "/one/location" ||
+    requestedRoute.startsWith("/one/location?") ||
+    requestedRoute.startsWith("/one/location/")
+  ) {
+    return requestedRoute;
+  }
+  return fallback;
+}
+
+type OneLocationPresentationOptions = {
+  present?: boolean;
+  source?: "live" | "reconcile";
+};
+
+type QueuedOneLocationNotification = {
+  data: Record<string, string>;
+  present: boolean;
+};
 
 const ConsentNotificationStateContext = createContext<ConsentNotificationStateValue>({
   deliveryMode: "inbox_only",
@@ -456,6 +498,10 @@ export function ConsentNotificationProvider({
   // Track which request IDs we've already toasted this session
   const toastedIdsRef = useRef(new Set<string>());
   const reviewedIdsRef = useRef(new Set<string>());
+  const queuedOneLocationNotificationsRef = useRef<QueuedOneLocationNotification[]>([]);
+  const silentlyReconciledOneLocationIdsRef = useRef(new Set<string>());
+  const oneLocationReconcilePromiseRef = useRef<Promise<void> | null>(null);
+  const lastOneLocationReconcileWarningRef = useRef(0);
 
   // Use the centralized consent actions hook
   const { handleDeny } = useConsentActions({
@@ -606,8 +652,11 @@ export function ConsentNotificationProvider({
   );
 
   const showOneLocationShareNotification = useCallback(
-    (data: Record<string, string>) => {
-      if (!user?.uid || isNativePlatform) return;
+    (
+      data: Record<string, string>,
+      options: OneLocationPresentationOptions = {},
+    ) => {
+      if (!user?.uid) return;
       const grantId = String(data.grant_id || data.grantId || "").trim();
       if (!grantId) return;
       const ownerLabel = oneLocationOwnerLabel(data);
@@ -617,23 +666,46 @@ export function ConsentNotificationProvider({
         ownerLabel,
         expiresAt: data.expires_at,
         durationHours: data.duration_hours,
+        shareKind: data.share_kind,
+        shareMessage: data.share_message,
       });
       dispatchConsentStateChanged({
         source: "one_location_notification",
         requestId: grantId,
         notificationType: data.type || "location_share_created",
       });
-      if (!created) return;
+      const eventId = `share:${grantId}`;
+      if (created && options.present === false && options.source === "reconcile") {
+        silentlyReconciledOneLocationIdsRef.current.add(eventId);
+        return;
+      }
+      const canPresentReconciledEvent =
+        !created &&
+        options.present !== false &&
+        options.source === "live" &&
+        silentlyReconciledOneLocationIdsRef.current.delete(eventId);
+      if ((!created && !canPresentReconciledEvent) || options.present === false) return;
 
       const toastKey = `one-location-share:${grantId}`;
-      const href = buildOneLocationNotificationHref(grantId);
-      const description = locationShareNotificationDescription(ownerLabel);
+      const href = oneLocationPayloadRoute(
+        data,
+        buildOneLocationNotificationHref(grantId),
+      );
+      const generatedCopy = locationShareNotificationCopy({
+        ownerLabel,
+        shareKind: data.share_kind,
+        shareMessage: data.share_message,
+      });
+      const title =
+        String(data.notification_title || "").trim() || generatedCopy.title;
+      const description =
+        String(data.notification_body || "").trim() || generatedCopy.description;
       playOneLocationNotificationSound();
 
       toast(
         <div className="flex flex-col gap-2">
           <div className="space-y-0.5">
-            <p className="line-clamp-1 text-sm font-semibold">Location shared</p>
+            <p className="line-clamp-1 text-sm font-semibold">{title}</p>
             <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
           </div>
           <button
@@ -655,17 +727,20 @@ export function ConsentNotificationProvider({
         },
       );
     },
-    [isNativePlatform, router, user?.uid],
+    [router, user?.uid],
   );
 
   const showOneLocationWorkflowNotification = useCallback(
-    (data: Record<string, string>) => {
-      if (!user?.uid || isNativePlatform) return;
+    (
+      data: Record<string, string>,
+      options: OneLocationPresentationOptions = {},
+    ) => {
+      if (!user?.uid) return;
       const msgType = data.type;
       if (!isOneLocationWorkflowNotificationType(msgType)) return;
 
-      if (msgType === "location_share_created" || msgType === "location_access_approved") {
-        showOneLocationShareNotification(data);
+      if (msgType === "location_share_created") {
+        showOneLocationShareNotification(data, options);
         return;
       }
 
@@ -673,33 +748,52 @@ export function ConsentNotificationProvider({
       const requestId = String(data.request_id || "").trim();
       const referralId = String(data.referral_id || "").trim();
       const submissionId = String(data.submission_id || "").trim();
+      const connectionId = String(data.connection_id || "").trim();
       const id = oneLocationNotificationId(data);
       if (!id) return;
 
       if (msgType === "location_share_revoked" || msgType === "location_share_expired") {
+        if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
+          return;
+        }
         if (grantId) {
           toast.dismiss(`one-location-share:${grantId}`);
           dismissOneLocationShareNotification(grantId);
         }
       }
+      if (msgType === "location_access_approved" && grantId) {
+        toast.dismiss(`one-location-share:${grantId}`);
+        dismissOneLocationShareNotification(grantId);
+      }
 
-      const copy = locationWorkflowNotificationCopy({
+      const generatedCopy = locationWorkflowNotificationCopy({
         type: msgType,
         ownerLabel: oneLocationOwnerLabel(data),
         requesterLabel: oneLocationRequesterLabel(data),
         referringLabel: oneLocationReferringLabel(data),
         visitorLabel: oneLocationVisitorLabel(data),
+        networkLabel: oneLocationNetworkLabel(data),
       });
-      const routeHref = buildOneLocationWorkflowHref({
-        grantId,
-        requestId,
-        referralId,
-        submissionId,
-        // Land the recipient on the section that owns this event - e.g. an
-        // access request opens the Inbox "Needs your review" (approvals) section.
-        section: oneLocationSectionForWorkflowNotificationType(msgType),
-        openGrant: false,
-      });
+      const copy = {
+        title:
+          String(data.notification_title || "").trim() || generatedCopy.title,
+        description:
+          String(data.notification_body || "").trim() ||
+          generatedCopy.description,
+      };
+      const routeHref = oneLocationPayloadRoute(
+        data,
+        buildOneLocationWorkflowHref({
+          grantId,
+          requestId,
+          referralId,
+          submissionId,
+          // Land the recipient on the section that owns this event - e.g. an
+          // access request opens the Inbox "Needs your review" (approvals) section.
+          section: oneLocationSectionForWorkflowNotificationType(msgType),
+          openGrant: msgType === "location_access_approved",
+        }),
+      );
 
       const created = recordOneLocationWorkflowNotification({
         userId: user.uid,
@@ -713,14 +807,25 @@ export function ConsentNotificationProvider({
           requestId: requestId || null,
           referralId: referralId || null,
           submissionId: submissionId || null,
+          connectionId: connectionId || null,
         },
       });
       dispatchConsentStateChanged({
         source: "one_location_notification",
-        requestId: requestId || grantId || referralId || submissionId,
+        requestId: requestId || grantId || referralId || submissionId || connectionId,
         notificationType: msgType,
       });
-      if (!created) return;
+      const eventId = `${msgType}:${id}`;
+      if (created && options.present === false && options.source === "reconcile") {
+        silentlyReconciledOneLocationIdsRef.current.add(eventId);
+        return;
+      }
+      const canPresentReconciledEvent =
+        !created &&
+        options.present !== false &&
+        options.source === "live" &&
+        silentlyReconciledOneLocationIdsRef.current.delete(eventId);
+      if ((!created && !canPresentReconciledEvent) || options.present === false) return;
 
       playOneLocationNotificationSound();
       const toastKey = `one-location-workflow:${msgType}:${id}`;
@@ -733,6 +838,9 @@ export function ConsentNotificationProvider({
           <button
             type="button"
             onClick={() => {
+              if (msgType === "location_access_approved" && grantId) {
+                markOneLocationGrantOpened(user.uid, grantId);
+              }
               toast.dismiss(toastKey);
               router.push(routeHref, { scroll: false });
             }}
@@ -749,12 +857,25 @@ export function ConsentNotificationProvider({
       );
     },
     [
-      isNativePlatform,
       router,
       showOneLocationShareNotification,
       user?.uid,
     ],
   );
+
+  useEffect(() => {
+    if (!user?.uid || queuedOneLocationNotificationsRef.current.length === 0) return;
+    const queued = queuedOneLocationNotificationsRef.current;
+    queuedOneLocationNotificationsRef.current = [];
+    for (const notification of queued) {
+      const targetUserId = String(notification.data.user_id || "").trim();
+      if (targetUserId && targetUserId !== user.uid) continue;
+      showOneLocationWorkflowNotification(notification.data, {
+        present: notification.present,
+        source: "live",
+      });
+    }
+  }, [showOneLocationWorkflowNotification, user?.uid]);
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).
   // Important: use the authenticated user object from our auth context.
@@ -766,6 +887,12 @@ export function ConsentNotificationProvider({
     setIsRetryingPushRegistration(true);
     setFcmInitGeneration((current) => current + 1);
   }, [user]);
+
+  useEffect(() => {
+    void prepareFCMListeners().catch((error) => {
+      console.warn("[NotificationProvider] Push listener setup will retry:", error);
+    });
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -1051,6 +1178,14 @@ export function ConsentNotificationProvider({
 
       const msgType = data.type;
 
+      if (
+        data.user_id &&
+        user?.uid &&
+        String(data.user_id).trim() !== user.uid
+      ) {
+        return;
+      }
+
       // Dedup: skip if we've already processed this exact message
       const msgId =
         data.message_id ||
@@ -1058,13 +1193,38 @@ export function ConsentNotificationProvider({
         data.bundle_id ||
         data.grant_id ||
         data.submission_id ||
+        data.referral_id ||
+        data.connection_id ||
         "";
       const dedupKey = `${msgType}:${msgId}`;
       if (msgId && toastedIdsRef.current.has(dedupKey)) return;
       if (msgId) toastedIdsRef.current.add(dedupKey);
 
       if (isOneLocationNotificationType(msgType)) {
-        showOneLocationWorkflowNotification(data);
+        const notification = detail.notification || detail;
+        const locationData = {
+          ...data,
+          notification_title: String(notification.title || "").trim(),
+          notification_body: String(notification.body || "").trim(),
+        };
+        const shouldPresent = isNativePlatform
+          ? Capacitor.getPlatform() === "android"
+          : typeof document !== "undefined" && document.visibilityState === "visible";
+        if (!user?.uid) {
+          queuedOneLocationNotificationsRef.current = [
+            ...queuedOneLocationNotificationsRef.current.filter(
+              (notification) =>
+                `${notification.data.type}:${oneLocationNotificationId(notification.data)}` !==
+                dedupKey,
+            ),
+            { data: locationData, present: shouldPresent },
+          ].slice(-50);
+          return;
+        }
+        showOneLocationWorkflowNotification(locationData, {
+          present: shouldPresent,
+          source: "live",
+        });
         return;
       }
 
@@ -1156,12 +1316,124 @@ export function ConsentNotificationProvider({
           source: "fcm_resolved",
           requestId,
         });
+      } else if (msgType === "connection_request") {
+        // A new incoming connection request landed. Invalidate the
+        // consent-center caches (all modes) and signal a refetch so it shows up
+        // for the recipient without a manual "refresh consents".
+        if (user?.uid) {
+          CacheSyncService.onConsentMutated(user.uid);
+        }
+        dispatchConsentStateChanged({ source: "fcm_connection_request" });
       }
     };
 
     window.addEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
     return () => window.removeEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
   }, [isNativePlatform, isVaultUnlocked, showConsentToast, showOneLocationWorkflowNotification, user?.uid]);
+
+  const reconcileOneLocationNotifications = useCallback(async () => {
+    if (!user?.uid || !isVaultUnlocked || !fcmInitStatus) return;
+    if (oneLocationReconcilePromiseRef.current) {
+      return oneLocationReconcilePromiseRef.current;
+    }
+
+    const request = (async () => {
+      const vaultOwnerToken = getVaultOwnerToken();
+      if (!vaultOwnerToken) return;
+      const state = await OneLocationService.getState(vaultOwnerToken);
+      const shouldPresent =
+        deliveryMode !== "push_active" &&
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible";
+      const payloads = buildOneLocationNotificationPayloads(state, user.uid, {
+        isGrantUnwatched: (grantId) =>
+          isOneLocationGrantUnwatched(user.uid, grantId),
+      });
+      for (const payload of payloads) {
+        showOneLocationWorkflowNotification(payload, {
+          present: shouldPresent,
+          source: "reconcile",
+        });
+      }
+    })()
+      .catch((error) => {
+        const now = Date.now();
+        if (now - lastOneLocationReconcileWarningRef.current >= 60_000) {
+          lastOneLocationReconcileWarningRef.current = now;
+          console.warn("[NotificationProvider] One Location catch-up failed:", error);
+        }
+      })
+      .finally(() => {
+        if (oneLocationReconcilePromiseRef.current === request) {
+          oneLocationReconcilePromiseRef.current = null;
+        }
+      });
+
+    oneLocationReconcilePromiseRef.current = request;
+    return request;
+  }, [
+    deliveryMode,
+    fcmInitStatus,
+    getVaultOwnerToken,
+    isVaultUnlocked,
+    showOneLocationWorkflowNotification,
+    user?.uid,
+  ]);
+
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked || !fcmInitStatus) return;
+
+    let cancelled = false;
+    let nativeAppListener: { remove: () => Promise<void> } | null = null;
+    const reconcileWhenVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void reconcileOneLocationNotifications();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconcileWhenVisible();
+    };
+
+    reconcileWhenVisible();
+    window.addEventListener("focus", reconcileWhenVisible);
+    window.addEventListener("online", reconcileWhenVisible);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    if (isNativePlatform) {
+      void import("@capacitor/app")
+        .then(async ({ App }) => {
+          const listener = await App.addListener("appStateChange", ({ isActive }) => {
+            if (isActive) reconcileWhenVisible();
+          });
+          if (cancelled) {
+            await listener.remove();
+            return;
+          }
+          nativeAppListener = listener;
+        })
+        .catch((error) => {
+          console.warn("[NotificationProvider] Native resume listener unavailable:", error);
+        });
+    }
+
+    const intervalMs = deliveryMode === "push_active" ? 5 * 60_000 : 30_000;
+    const intervalId = window.setInterval(reconcileWhenVisible, intervalMs);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", reconcileWhenVisible);
+      window.removeEventListener("online", reconcileWhenVisible);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(intervalId);
+      if (nativeAppListener) void nativeAppListener.remove();
+    };
+  }, [
+    deliveryMode,
+    fcmInitStatus,
+    isNativePlatform,
+    isVaultUnlocked,
+    reconcileOneLocationNotifications,
+    user?.uid,
+  ]);
 
   // ONE-TIME fetch on vault unlock to catch requests that arrived while app was closed.
   // This is the ONLY acceptable HTTP call -- not a poll, just a catch-up.

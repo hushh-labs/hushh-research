@@ -55,6 +55,7 @@ export function isCommonBottomNavRoute(pathname: string | null | undefined): boo
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   return (
     isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE) ||
+    isBottomNavRoute(normalizedPathname, ROUTES.CONNECT) ||
     isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)
   );
 }
@@ -113,6 +114,9 @@ export function resolveOneNavSlot(
   ) {
     return "dashboard";
   }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
+    return "connect";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE)) {
     return "connect";
   }
@@ -156,6 +160,9 @@ export function resolveOneActiveNav(
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (normalizedPathname === ROUTES.AGENT) return "search";
+  if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
+    return "connect";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE)) {
     return "connect";
   }
@@ -314,7 +321,10 @@ export function resolveBottomNavAction(
     case "analysis":
       return { type: "route", href: ROUTES.KAI_ANALYSIS };
     case "connect":
-      return { type: "route", href: ROUTES.MARKETPLACE };
+      return {
+        type: "route",
+        href: scope === "one" ? ROUTES.CONNECT : ROUTES.MARKETPLACE,
+      };
     case "ria-home":
       return { type: "route", href: ROUTES.RIA_HOME };
     case "clients":

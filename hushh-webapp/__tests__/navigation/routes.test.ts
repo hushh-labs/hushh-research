@@ -55,6 +55,16 @@ describe("navigation routes", () => {
         detail: "support-compose:bug_report",
       }),
     ).toBe("/profile/support/compose?kind=bug_report");
+    expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
+    expect(
+      buildProfileRoute({
+        panel: "gmail",
+        detail: "gmail-actions",
+        searchParams: transient,
+      }),
+    ).toBe(
+      "/one/gmail?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Ftoken_123",
+    );
     expect(
       buildProfileRoute({ panel: "security", searchParams: transient }),
     ).toBe(
@@ -79,6 +89,12 @@ describe("navigation routes", () => {
         "panel=support&detail=support-routing",
       ),
     ).toBe("/profile/support/routing");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/profile",
+        "panel=gmail&detail=gmail-actions",
+      ),
+    ).toBe("/one/gmail");
   });
 
   it("preserves query parameter integrity for ria workspace tabs", () => {

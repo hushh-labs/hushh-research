@@ -50,22 +50,32 @@ import sys
 sha, branch, check_name, payload_json = sys.argv[1:]
 payload = json.loads(payload_json)
 
+# REQUIRED_CHECK_NAME accepts a comma-separated any-of list because the
+# authoritative full-CI check differs by commit kind: PR heads carry
+# "CI Status Gate", merge-queue train heads carry "Queue Validation", and
+# main merge commits carry "Main Post-Merge Smoke Gate". A single-name
+# value keeps the historical exact-match behavior.
+accepted_names = [name.strip() for name in check_name.split(",") if name.strip()]
+
 check_runs = payload.get("check_runs", [])
-matches = [run for run in check_runs if run.get("name") == check_name]
+matches = [run for run in check_runs if run.get("name") in accepted_names]
 if not matches:
     available = ", ".join(sorted({str(run.get("name")) for run in check_runs if run.get("name")})) or "<none>"
     raise SystemExit(
-        f"Refusing deploy: required check '{check_name}' not found for {sha} on {branch}. "
+        f"Refusing deploy: none of the required checks {accepted_names} found for {sha} on {branch}. "
         f"Available checks: {available}"
     )
 
 successful = [run for run in matches if run.get("conclusion") == "success"]
 if not successful:
-    conclusions = ", ".join(str(run.get("conclusion") or "unknown") for run in matches)
+    conclusions = ", ".join(
+        f"{run.get('name')}={run.get('conclusion') or 'unknown'}" for run in matches
+    )
     raise SystemExit(
-        f"Refusing deploy: required check '{check_name}' is not successful for {sha} on {branch}. "
-        f"Observed conclusions: {conclusions}"
+        f"Refusing deploy: no required check in {accepted_names} is successful for {sha} on {branch}. "
+        f"Observed: {conclusions}"
     )
 
-print(f"Deploy SHA preflight passed: {sha} is on origin/{branch} and '{check_name}' succeeded.")
+passed = sorted({str(run.get("name")) for run in successful})
+print(f"Deploy SHA preflight passed: {sha} is on origin/{branch}; successful check(s): {', '.join(passed)}.")
 PY

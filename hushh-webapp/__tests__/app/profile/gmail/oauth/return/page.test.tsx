@@ -87,7 +87,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
   });
 
-  it("redirects back to Gmail settings when the callback is replayed after a successful connection", async () => {
+  it("redirects back to Gmail receipts when the callback is replayed after a successful connection", async () => {
     mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
       new Error("OAuth state expired")
     );
@@ -107,7 +107,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/profile/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
 
     expect(screen.queryByText("Gmail connection needs attention")).toBeNull();

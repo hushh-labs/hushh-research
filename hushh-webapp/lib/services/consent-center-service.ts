@@ -28,7 +28,8 @@ export interface ConsentCenterEntry {
     | "outgoing_request"
     | "active_grant"
     | "history"
-    | "invite";
+    | "invite"
+    | "connection_request";
   status: string;
   active?: boolean;
   granted?: boolean;

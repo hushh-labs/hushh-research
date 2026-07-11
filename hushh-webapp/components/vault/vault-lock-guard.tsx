@@ -64,7 +64,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   if (isVaultUnlocked && !isSessionUnlockedOnce()) {
     markSessionUnlocked();
   }
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
@@ -94,7 +94,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     if (userId) return;
 
     if (typeof window !== "undefined") {
-      const currentPath = window.location.pathname;
+      const currentPath =
+        window.location.pathname + window.location.search + window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
   }, [authLoading, router, userId]);
@@ -238,6 +239,12 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         onSuccess={() => {
           markSessionUnlocked();
         }}
+        // Escape hatch for the HARD gate only: a user who forgot their vault
+        // password has no other way out (bottom nav + top bar are buried under
+        // this modal). signOut() fully clears the session and redirects to the
+        // welcome screen. Not passed by the dismissible top-bar unlock (there
+        // the user can just close the sheet).
+        onSignOut={() => signOut()}
       />
     </>
   );

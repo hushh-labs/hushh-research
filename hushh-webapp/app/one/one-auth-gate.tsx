@@ -1,11 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { OneOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-guard";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import { useAuth } from "@/hooks/use-auth";
 import { isPublicRoute } from "@/lib/navigation/routes";
 
 /**
@@ -31,11 +34,63 @@ import { isPublicRoute } from "@/lib/navigation/routes";
  * else redirects to /one/setup until the gate is satisfied. It sits INSIDE the
  * public-route bypass so anonymous visitors of public links are never gated.
  */
+/**
+ * Routes that stay signed-in-gated but skip the hard vault wall. The CRM
+ * systems overview lists registry metadata only (backend accepts a Firebase
+ * ID token for it), and the workspace surfaces its own inline unlock CTA for
+ * record-level actions, so forcing the full-screen vault gate here just
+ * blocks a read-only overview.
+ */
+const SOFT_VAULT_ROUTE_PREFIXES = ["/one/connected-systems"] as const;
+
+function isSoftVaultRoute(pathname: string): boolean {
+  return SOFT_VAULT_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
+/**
+ * Sign-in gate without the vault wall: VaultLockGuard normally owns the
+ * login redirect, so soft-vault routes need their own (PhoneMandateGuard
+ * renders children for anonymous users rather than redirecting).
+ */
+function SignedInGate({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading || user) return;
+    if (typeof window !== "undefined") {
+      const currentPath =
+        window.location.pathname + window.location.search + window.location.hash;
+      router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
+    }
+  }, [loading, router, user]);
+
+  if (loading) {
+    return <HushhLoader label="Checking session..." />;
+  }
+  if (!user) {
+    return <HushhLoader label="Redirecting to login..." />;
+  }
+  return <>{children}</>;
+}
+
 export function OneAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   if (isPublicRoute(pathname ?? "")) {
     return <>{children}</>;
+  }
+
+  if (isSoftVaultRoute(pathname ?? "")) {
+    return (
+      <SignedInGate>
+        <PhoneMandateGuard>
+          <OneOnboardingGuard>{children}</OneOnboardingGuard>
+        </PhoneMandateGuard>
+      </SignedInGate>
+    );
   }
 
   return (

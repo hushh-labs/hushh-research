@@ -15,6 +15,7 @@ Options:
   --backend-service <name>           Backend service name (default: consent-protocol)
   --frontend-service <name>          Frontend service name (default: hushh-webapp)
   --uat-project <project-id>         UAT project id (default: hushh-pda-uat)
+  --dev-project <project-id>         Dev project id (default: hushh-pda-dev)
   --prod-project <project-id>        Prod project id (default: hushh-pda)
   --force                            Re-copy templates before hydration
   --strict                           Exit non-zero if required cloud values are missing
@@ -25,11 +26,13 @@ Description:
     consent-protocol/.env
     hushh-webapp/.env.local.local
     hushh-webapp/.env.uat.local
+    hushh-webapp/.env.dev.local
     hushh-webapp/.env.prod.local
 
   Runtime mode model:
   - local : local frontend + local backend, backed by UAT resources
   - uat   : local frontend only, pointed at deployed UAT backend
+  - dev   : local frontend only, pointed at deployed dev backend (UAT replica)
   - prod  : local frontend only, pointed at deployed production backend
 
   Notes:
@@ -45,6 +48,7 @@ REGION="${REGION:-us-central1}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-consent-protocol}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-hushh-webapp}"
 UAT_PROJECT_ID="${UAT_PROJECT_ID:-hushh-pda-uat}"
+DEV_PROJECT_ID="${DEV_PROJECT_ID:-hushh-pda-dev}"
 PROD_PROJECT_ID="${PROD_PROJECT_ID:-hushh-pda}"
 FORCE=false
 STRICT=false
@@ -70,6 +74,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --uat-project)
       UAT_PROJECT_ID="${2:-}"
+      shift 2
+      ;;
+    --dev-project)
+      DEV_PROJECT_ID="${2:-}"
       shift 2
       ;;
     --prod-project)
@@ -1078,7 +1086,7 @@ sync_active_frontend_profile_if_present() {
   SUMMARY+=("synced hushh-webapp/.env.local from ${source_file#$REPO_ROOT/}")
 }
 
-profiles=(local uat prod)
+profiles=(local uat dev prod)
 
 copy_template_if_needed "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
 for profile in "${profiles[@]}"; do
@@ -1088,6 +1096,9 @@ done
 hydrate_backend_local_uatdb "$BACKEND_DIR/.env" "$UAT_PROJECT_ID"
 hydrate_frontend_local_uatdb "$FRONTEND_DIR/.env.local.local" "$UAT_PROJECT_ID"
 hydrate_frontend_cloud "$FRONTEND_DIR/.env.uat.local" "uat" "$UAT_PROJECT_ID" "uat"
+# dev keeps the uat runtime identity (NEXT_PUBLIC_APP_ENV=uat); it is an
+# infrastructure replica of UAT living in its own GCP project.
+hydrate_frontend_cloud "$FRONTEND_DIR/.env.dev.local" "dev" "$DEV_PROJECT_ID" "uat"
 hydrate_frontend_cloud "$FRONTEND_DIR/.env.prod.local" "prod" "$PROD_PROJECT_ID" "production"
 
 ensure_shape_from_template "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
@@ -1104,7 +1115,7 @@ for path in \
   "$BACKEND_DIR/.env" \
   "$FRONTEND_DIR/.env.local.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.prod.local" \
   "$BACKEND_DIR/.env.dev.local" "$BACKEND_DIR/.env.uat.local" "$BACKEND_DIR/.env.prod.local" \
-  "$FRONTEND_DIR/.env.dev.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.prod.local"
+  "$FRONTEND_DIR/.env.dev.local"
 do
   normalize_env_json_values "$path"
 done
@@ -1123,6 +1134,12 @@ validate_canonical_keys "uat" \
   "development" \
   "uat"
 
+validate_canonical_keys "dev" \
+  "$BACKEND_DIR/.env" \
+  "$FRONTEND_DIR/.env.dev.local" \
+  "development" \
+  "uat"
+
 validate_canonical_keys "prod" \
   "$BACKEND_DIR/.env" \
   "$FRONTEND_DIR/.env.prod.local" \
@@ -1131,7 +1148,7 @@ validate_canonical_keys "prod" \
 
 for path in \
   "$BACKEND_DIR/.env" \
-  "$FRONTEND_DIR/.env.local.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.prod.local"
+  "$FRONTEND_DIR/.env.local.local" "$FRONTEND_DIR/.env.uat.local" "$FRONTEND_DIR/.env.dev.local" "$FRONTEND_DIR/.env.prod.local"
 do
   key_count="$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$path" | wc -l | tr -d ' ')"
   SUMMARY+=("hydrated ${path#$REPO_ROOT/} (${key_count} keys)")
@@ -1173,4 +1190,4 @@ if [ -f "$REPO_ROOT/scripts/ops/verify-runtime-profile-env-shape.py" ]; then
 fi
 echo ""
 echo "Done. Use a runtime mode with:"
-echo "  bash scripts/env/use_profile.sh local|uat|prod"
+echo "  bash scripts/env/use_profile.sh local|uat|dev|prod"

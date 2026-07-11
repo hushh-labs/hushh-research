@@ -30,6 +30,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 export type OneCapabilityTone =
   | "finance"
+  | "ria"
   | "gmail"
   | "email"
   | "location"
@@ -196,21 +197,35 @@ export function getOneCapability(id: string): OneCapability | undefined {
 /**
  * Tailwind classes for a capability's icon chip, keyed by tone.
  *
- * Calm, on-palette (ink + neutral) chips — no off-palette hues — so the grouped
- * list reads like a native iOS Settings surface instead of a colorful dashboard.
- * Uniform across tones; the row label carries per-item meaning.
+ * Each tone gets its own fixed, mid-lightness brand color — the same hex in
+ * both themes, so the tile stays recognizable at a glance regardless of
+ * appearance mode. Only the glyph color flips for contrast: white in light
+ * mode (the tile reads as a solid color chip against the light page), ink
+ * (near-black) in dark mode (the same chip now reads as a lighter accent
+ * against the dark page, so a dark glyph is what stays legible).
  * Shared so the dashboard tile, the topbar/menu chip, and the onboarding
  * preview render identically.
  */
-const CAPABILITY_ICON_CHIP_NEUTRAL =
-  "bg-foreground/[0.06] text-foreground/70 dark:bg-foreground/[0.10] dark:text-foreground/80";
-
+// Class strings are written out in full (not built from a hex variable) so
+// Tailwind's static content scanner can find and generate each utility.
 export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<OneCapabilityTone, string> = {
-  finance: CAPABILITY_ICON_CHIP_NEUTRAL,
-  gmail: CAPABILITY_ICON_CHIP_NEUTRAL,
-  email: CAPABILITY_ICON_CHIP_NEUTRAL,
-  location: CAPABILITY_ICON_CHIP_NEUTRAL,
-  pkm: CAPABILITY_ICON_CHIP_NEUTRAL,
-  consent: CAPABILITY_ICON_CHIP_NEUTRAL,
-  connected: CAPABILITY_ICON_CHIP_NEUTRAL,
+  // One color guidelines — soft premium palette (see the "One — Color
+  // Guidelines" spec). Each tone maps to its named token.
+  // Finance: Lavender Mist.
+  finance: "bg-[#B85CF6] text-white dark:text-[#1d1d1f]",
+  // RIA: Sky Blue.
+  ria: "bg-[#60A5FA] text-white dark:text-[#1d1d1f]",
+  // Gmail renders its own full-color brand mark (see GmailBrandIcon) on a clean
+  // Cloud White tile, so the logo's colors read cleanly.
+  gmail: "bg-white text-[#1d1d1f]",
+  // Email: Mint Teal.
+  email: "bg-[#14B8A6] text-white dark:text-[#1d1d1f]",
+  // Location: Sage Green.
+  location: "bg-[#A7D7A1] text-white dark:text-[#1d1d1f]",
+  // Memory (saved knowledge) + Information Marketplace preview: Lavender Mist.
+  pkm: "bg-[#B85CF6] text-white dark:text-[#1d1d1f]",
+  // Consent: Warm Gold (matches the shield motif).
+  consent: "bg-[#C8923A] text-white dark:text-[#1d1d1f]",
+  // Connected Systems: Slate Blue-Gray.
+  connected: "bg-[#94A3B8] text-white dark:text-[#1d1d1f]",
 };

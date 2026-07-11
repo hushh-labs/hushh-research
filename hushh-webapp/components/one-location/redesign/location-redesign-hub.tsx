@@ -20,6 +20,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 
 import {
@@ -161,7 +162,6 @@ export type LocationHubViewModel = {
   onApprove: (request: OneLocationAccessRequest) => void;
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
-  onUnwatchGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
   onCreatePublicInvite: () => void;
   onCopyPublicInvite: () => void;
@@ -238,6 +238,7 @@ export type LocationHubViewModel = {
     point: PlainLocationPoint,
     showNavigation?: boolean,
   ) => ReactNode;
+  mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
 };
 
@@ -263,11 +264,16 @@ const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 const PEOPLE_LIST_SCROLL_CLASS =
   "max-h-[340px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
 
+const ACTIVE_SHARE_LIST_SCROLL_CLASS =
+  "max-h-[470px] overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
 
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<LocationHubTab>("now");
   const [flow, setFlow] = useState<FlowKind>("none");
+  const [collapsedGrantIds, setCollapsedGrantIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   // Deep-link routing: notification "Open" buttons land here with a `section`
   // (or requestId/grantId/submissionId) query param. The page-level tabs are
   // compose/activity, but the ACTIVE UI is this hub (now/people/links/inbox),
@@ -478,7 +484,29 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       ) : tab === "links" ? (
         <LinksHub vm={vm} onCreateTempLink={() => setFlow("temp-link")} />
       ) : (
-        <InboxHub vm={vm} />
+        <InboxHub
+          vm={vm}
+          collapsedGrantIds={collapsedGrantIds}
+          onCollapseGrant={(grantId) =>
+            setCollapsedGrantIds((current) => {
+              if (current.has(grantId)) return current;
+              const next = new Set(current);
+              next.add(grantId);
+              return next;
+            })
+          }
+          onExpandGrant={(grant) => {
+            setCollapsedGrantIds((current) => {
+              if (!current.has(grant.id)) return current;
+              const next = new Set(current);
+              next.delete(grant.id);
+              return next;
+            });
+            if (!vm.decryptedPoints[grant.id]) {
+              vm.onViewGrant(grant);
+            }
+          }}
+        />
       )}
     </div>
   );
@@ -671,17 +699,25 @@ function NowHub({
       {/* Active shares */}
       <SectionCard title="Active shares">
         {hasActiveShare ? (
-          <div className="space-y-2.5">
+          <div
+            role="list"
+            aria-label="Active shares"
+            className={cn(
+              "space-y-2.5",
+              vm.activeOwnerGrants.length > 3 &&
+                ACTIVE_SHARE_LIST_SCROLL_CLASS,
+            )}
+          >
             {vm.activeOwnerGrants.map((grant) => (
-              <ActiveShareCard
-                key={grant.id}
-                name={vm.grantRecipientLabel(grant)}
-                expiryLabel={vm.expiresCountdownLabel(grant.expiresAt)}
-                metaLabel={`Started ${vm.formatDateTime(grant.createdAt)}`}
-                onStop={() => vm.onStopGrant(grant.id)}
-                stopBusy={vm.revokingGrantId === grant.id}
-
-              />
+              <div key={grant.id} role="listitem">
+                <ActiveShareCard
+                  name={vm.grantRecipientLabel(grant)}
+                  expiryLabel={vm.expiresCountdownLabel(grant.expiresAt)}
+                  metaLabel={`Started ${vm.formatDateTime(grant.createdAt)}`}
+                  onStop={() => vm.onStopGrant(grant.id)}
+                  stopBusy={vm.revokingGrantId === grant.id}
+                />
+              </div>
             ))}
           </div>
         ) : (
@@ -747,7 +783,7 @@ function PeopleHub({
     <div className="space-y-5">
       <SectionCard
         title="Trusted Circle"
-        description="Only approved, ready people can receive private live location."
+        description="Only your connections can receive private live location."
       >
         <div className="grid grid-cols-1 gap-2">
           <Button
@@ -804,11 +840,21 @@ function PeopleHub({
         ) : (
           <div className="mt-3">
             <EmptyState
-              title={hasSearchQuery ? "No matching people" : "No ready people yet"}
+              title={hasSearchQuery ? "No matching people" : "Build your trusted circle"}
               description={
                 hasSearchQuery
                   ? "Try a different name."
-                  : "Invite someone to your Circle to start private sharing."
+                  : "Add connections so the people you trust can receive your live location."
+              }
+              action={
+                hasSearchQuery ? undefined : (
+                  <Link
+                    href="/connect"
+                    className="inline-flex h-9 items-center rounded-full bg-[#d4a574] px-4 text-sm font-semibold text-white hover:bg-[#d4a574]/90"
+                  >
+                    Add connections
+                  </Link>
+                )
               }
             />
           </div>
@@ -905,7 +951,17 @@ function LinksHub({
 /* INBOX HUB                                                            */
 /* =================================================================== */
 
-function InboxHub({ vm }: { vm: LocationHubViewModel }) {
+function InboxHub({
+  vm,
+  collapsedGrantIds,
+  onCollapseGrant,
+  onExpandGrant,
+}: {
+  vm: LocationHubViewModel;
+  collapsedGrantIds: Set<string>;
+  onCollapseGrant: (grantId: string) => void;
+  onExpandGrant: (grant: OneLocationGrant) => void;
+}) {
   const received = vm.receivedGrants;
   return (
     <div className="space-y-5">
@@ -951,6 +1007,8 @@ function InboxHub({ vm }: { vm: LocationHubViewModel }) {
           <div className="space-y-2.5">
             {received.map((grant) => {
               const point = vm.decryptedPoints[grant.id];
+              const previewExpanded =
+                Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
                 <SharedWithMeCard
                   key={grant.id}
@@ -961,12 +1019,15 @@ function InboxHub({ vm }: { vm: LocationHubViewModel }) {
                       ? `Updated ${vm.formatDateTime(point.capturedAt)}`
                       : undefined
                   }
-                  viewed={Boolean(point)}
-                  onView={() => vm.onViewGrant(grant)}
-                  onDismiss={() => vm.onUnwatchGrant(grant)}
+                  previewExpanded={previewExpanded}
+                  mapHref={point ? vm.mapLocationHref(point) : undefined}
+                  onView={() => onExpandGrant(grant)}
+                  onDismiss={() => onCollapseGrant(grant.id)}
                   viewBusy={vm.busy === "view"}
                 >
-                  {point ? vm.renderMapPreview(point, true) : null}
+                  {previewExpanded && point
+                    ? vm.renderMapPreview(point, true)
+                    : null}
                 </SharedWithMeCard>
               );
             })}

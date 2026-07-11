@@ -5,8 +5,10 @@ import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-s
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { RiaService } from "@/lib/services/ria-service";
 import {
+  buildOneSetupRoute,
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
+  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
@@ -90,6 +92,11 @@ export class PostAuthRouteService {
   }): Promise<string> {
     const hasExplicitRedirect = Boolean(params.redirectPath && params.redirectPath.trim());
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
+    const fallbackUrl = new URL(fallbackRoute, "https://one.local");
+    const isSetupHubRedirect = fallbackUrl.pathname === ROUTES.ONE_SETUP;
+    const setupReturnTo = normalizeInternalRouteHref(
+      fallbackUrl.searchParams.get("return_to"),
+    );
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
     const canOverrideWithPersona =
       !params.redirectPath ||
@@ -122,16 +129,19 @@ export class PostAuthRouteService {
         remoteState.setupCompleted === false &&
         !setupResolved
       ) {
-        return PRE_VAULT_ROUTE;
+        if (hasExplicitRedirect && isSetupHubRedirect) return fallbackRoute;
+        return hasExplicitRedirect && fallbackRoute !== PRE_VAULT_ROUTE
+          ? buildOneSetupRoute({ returnTo: fallbackRoute })
+          : PRE_VAULT_ROUTE;
       }
       if (
-        (fallbackRoute === ROUTES.ONE_SETUP ||
+        (isSetupHubRedirect ||
           fallbackRoute === ROUTES.ONE_SETUP_KAI ||
           fallbackRoute === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
           fallbackRoute === ROUTES.LEGACY_KAI_ONBOARDING) &&
         setupResolved
       ) {
-        return DEFAULT_HOME_ROUTE;
+        return setupReturnTo || DEFAULT_HOME_ROUTE;
       }
       if (
         inviteRedirectTarget &&

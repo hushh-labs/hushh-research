@@ -45,11 +45,12 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 function entrySummary(entry: ConsentCenterEntry) {
   if (isEmailHelperConsent(entry.metadata))
     return emailHelperConsentSummary(entry.metadata);
+  if (entry.kind === "connection_request") return "Wants to connect with you.";
+  if (entry.kind === "invite")
+    return "Invitation waiting for investor approval.";
   if (entry.additional_access_summary) return entry.additional_access_summary;
   if (entry.scope_description) return entry.scope_description;
   if (entry.reason) return entry.reason;
-  if (entry.kind === "invite")
-    return "Invitation waiting for investor approval.";
   return entry.scope || "Consent request";
 }
 

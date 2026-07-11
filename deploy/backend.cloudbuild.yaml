@@ -87,8 +87,16 @@ steps:
         append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
         append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
 
+        # Runtime identity may differ from deploy identity: the dev environment
+        # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
+        # ENVIRONMENT=uat so behavior gates replicate UAT exactly.
+        runtime_environment="${_RUNTIME_ENVIRONMENT}"
+        if [[ -z "${runtime_environment}" ]]; then
+          runtime_environment="${_DEPLOY_ENV}"
+        fi
+
         env_vars=(
-          "ENVIRONMENT=${_DEPLOY_ENV}"
+          "ENVIRONMENT=${runtime_environment}"
           "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
           "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
           "HUSHH_DEPLOY_SHA=${_DEPLOY_SHA}"
@@ -207,6 +215,7 @@ substitutions:
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _APP_REVIEW_MODE: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
+  _RUNTIME_ENVIRONMENT: ""
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

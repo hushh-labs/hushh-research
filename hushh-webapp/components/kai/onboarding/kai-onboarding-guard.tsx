@@ -26,6 +26,7 @@ import {
 import { isNativePlatform } from "@/lib/utils/session-storage";
 import {
   ROUTES,
+  buildOneSetupRoute,
   isCapabilityHandoffTarget,
   isOneSetupWizardRoute,
   normalizeInternalRouteHref,
@@ -82,6 +83,17 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
     })();
     const suppressWizardBounce =
       preserveOnboardingAuditRoute || wizardReentryRequested;
+    const redirectTo = (target: string) => {
+      setRedirectTarget(target);
+      router.replace(target);
+    };
+    const setupGateRedirect = () => {
+      const returnTo =
+        typeof window === "undefined"
+          ? pathname
+          : window.location.pathname + window.location.search + window.location.hash;
+      return buildOneSetupRoute({ returnTo });
+    };
     // Setup-originated entry into a hard-gated capability surface: pressing
     // "Continue" on a `/one/setup/<id>` tile forwards to the real product
     // surface tagged `?from=/one/setup` (e.g. `/one/gmail?from=/one/setup`). The
@@ -102,10 +114,6 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
         isCapabilityHandoffTarget(pathname)
       );
     })();
-    const redirectTo = (target: string) => {
-      setRedirectTarget(target);
-      router.replace(target);
-    };
 
     async function run() {
       if (authLoading) return;
@@ -199,7 +207,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             !onOnboardingRoute &&
             !setupOriginatedCapabilityEntry
           ) {
-            redirectTo(ROUTES.ONE_SETUP);
+            redirectTo(setupGateRedirect());
             return;
           }
 
@@ -240,7 +248,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
             onboardingExplicitlyIncomplete &&
             !setupOriginatedCapabilityEntry
           ) {
-            redirectTo(ROUTES.ONE_SETUP);
+            redirectTo(setupGateRedirect());
             return;
           }
           if (onboardingResolved && onOnboardingWizardRoute) {
@@ -312,7 +320,7 @@ export function OneOnboardingGuard({ children }: { children: React.ReactNode }) 
           !onOnboardingRoute &&
           !setupOriginatedCapabilityEntry
         ) {
-          redirectTo(ROUTES.ONE_SETUP);
+          redirectTo(setupGateRedirect());
           return;
         }
 

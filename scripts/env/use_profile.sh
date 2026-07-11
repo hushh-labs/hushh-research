@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/runtime_profile_lib.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/env/use_profile.sh <local|uat|prod> [--dry-run]
+  scripts/env/use_profile.sh <local|uat|dev|prod> [--dry-run]
 
 Description:
   Activates the selected frontend runtime mode by copying:
@@ -45,7 +45,7 @@ done
 
 if ! PROFILE="$(normalize_runtime_profile "$RAW_PROFILE")"; then
   echo "Invalid profile: $RAW_PROFILE" >&2
-  echo "Expected one of: local, uat, prod" >&2
+  echo "Expected one of: local, uat, dev, prod" >&2
   exit 1
 fi
 
@@ -194,6 +194,9 @@ gcp_project_for_profile() {
     local|uat)
       printf 'hushh-pda-uat'
       ;;
+    dev)
+      printf '%s' "${DEV_PROJECT_ID:-hushh-pda-dev}"
+      ;;
     prod)
       printf 'hushh-pda'
       ;;
@@ -208,14 +211,17 @@ legacy_frontend_sources_for_profile() {
     local)
       printf '%s\n%s\n' \
         "$REPO_ROOT/hushh-webapp/.env.local-uatdb.local" \
-        "$REPO_ROOT/hushh-webapp/.env.uat.local" \
-        "$REPO_ROOT/hushh-webapp/.env.dev.local"
+        "$REPO_ROOT/hushh-webapp/.env.uat.local"
       ;;
     uat)
       printf '%s\n%s\n' \
         "$REPO_ROOT/hushh-webapp/.env.uat-remote.local" \
-        "$REPO_ROOT/hushh-webapp/.env.uat.local" \
-        "$REPO_ROOT/hushh-webapp/.env.dev.local"
+        "$REPO_ROOT/hushh-webapp/.env.uat.local"
+      ;;
+    dev)
+      # dev is a first-class profile; .env.dev.local is its real source file,
+      # not a legacy alias.
+      :
       ;;
     prod)
       printf '%s\n%s\n' \
@@ -351,6 +357,9 @@ echo "Frontend source: $FRONTEND_SOURCE"
 echo "Backend runtime file: $BACKEND_TARGET"
 if [ "$PROFILE" = "prod" ]; then
   echo "WARNING: prod points the local frontend at production services."
+fi
+if [ "$PROFILE" = "dev" ]; then
+  echo "Note: dev points the local frontend at the deployed dev backend (UAT replica)."
 fi
 if [ "$DRY_RUN" = "true" ]; then
   echo "Dry run: no files were copied."

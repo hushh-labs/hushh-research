@@ -66,6 +66,17 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.8.0",
+    # Dev-only: without this, `uvicorn --reload` silently falls back to
+    # StatReload, which re-globs the ENTIRE project tree (incl. .venv) with
+    # os.stat() every reload_delay (default 0.25s), forever. On this repo
+    # that's ~11.5k .py files (94% inside .venv) re-walked 4x/second, which
+    # pins a full CPU core for the entire lifetime of any local `--reload`
+    # backend process (measured: ~12 CPU-hours accumulated over an ~19h
+    # uptime). Installing watchfiles switches uvicorn to an OS-level
+    # (kqueue/inotify) event watcher: near-zero idle CPU, no polling loop.
+    # Never used in prod (Dockerfile installs from requirements.txt without
+    # --reload), so this only belongs in the dev group.
+    "watchfiles>=0.24.0",
 ]
 
 [build-system]

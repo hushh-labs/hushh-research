@@ -19,6 +19,13 @@ type VaultUnlockDialogProps = {
   description: string;
   enableGeneratedDefault?: boolean;
   dismissible?: boolean;
+  /**
+   * When provided, VaultFlow shows a subtle "Sign out" escape on the unlock /
+   * recovery steps. Passed only by the HARD vault gate (VaultLockGuard), where a
+   * user who forgot their vault password would otherwise be trapped. Omitted by
+   * the dismissible top-bar unlock (the user can just close that sheet).
+   */
+  onSignOut?: () => void | Promise<void>;
 };
 
 export function VaultUnlockDialog({
@@ -30,6 +37,7 @@ export function VaultUnlockDialog({
   description,
   enableGeneratedDefault = false,
   dismissible = true,
+  onSignOut,
 }: VaultUnlockDialogProps) {
   // Presented as a native iOS bottom sheet (vaul Drawer): anchored to the
   // bottom, rounded top, grabber handle, slide-up, with a modal blur scrim that
@@ -57,7 +65,7 @@ export function VaultUnlockDialog({
           // surface in dark) that rises over the immersive hero — top radius
           // 34px + a deep lifted shadow. No translucency: the sheet is the calm
           // white form surface, the dark hero sits behind the scrim.
-          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] sm:max-w-md dark:bg-[#141416]",
+          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] outline-none focus:outline-none focus-visible:outline-none sm:max-w-md dark:bg-[#141416]",
         ].join(" ")}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
@@ -66,6 +74,7 @@ export function VaultUnlockDialog({
           user={user}
           enableGeneratedDefault={enableGeneratedDefault}
           onSuccess={onSuccess}
+          onSignOut={onSignOut}
         />
       </DrawerContent>
     </Drawer>

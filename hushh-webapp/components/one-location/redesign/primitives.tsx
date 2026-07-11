@@ -262,16 +262,19 @@ export function EmptyState({
   icon,
   title,
   description,
+  action,
 }: {
   icon?: ReactNode;
   title: string;
   description?: string;
+  action?: ReactNode;
 }) {
   return (
     <div className={cn(SUBCARD_SURFACE, "flex flex-col items-center gap-2 p-6 text-center")}>
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
       <p className="text-sm font-semibold text-foreground">{title}</p>
       {description ? <p className={MUTED_TEXT}>{description}</p> : null}
+      {action ? <div className="mt-1">{action}</div> : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import type { ComponentType, SVGProps } from "react";
+import type { ComponentType, CSSProperties, SVGProps } from "react";
+import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -54,7 +55,10 @@ const INTRO_FEATURES: Array<{
   {
     icon: VaultLockIcon,
     title: "Your vault, guarded by consent",
-    subtitle: "Encrypted end to end, shared only when you say yes",
+    // Kept short (parity with the other two subtitles) so it stays on one
+    // line at narrow widths (e.g. iPhone 12 Pro, 390px logical width);
+    // the longer original phrasing wrapped to two lines there.
+    subtitle: "Encrypted, shared only with consent",
   },
   {
     icon: FinanceCapabilityIcon,
@@ -130,9 +134,18 @@ export function IntroStep({
                       <feature.icon className="h-[19px] w-[19px]" />
                     </span>
                     {!last ? (
+                      // Restores the original 14a "trail" connector: a soft
+                      // faded gradient line (reworked in the current gold/
+                      // cream theme) PLUS the traveling highlight animation
+                      // it originally had (.intro-feature-connector, ported
+                      // from the once-wired but since-orphaned
+                      // .intro-feature-rail-scan system in globals.css) -
+                      // a bright pulse that scans down the connector once on
+                      // mount, staggered per row via --intro-feature-delay.
                       <span
                         aria-hidden
-                        className="w-[1.5px] flex-1 bg-[rgba(156,116,52,0.18)] dark:bg-[rgba(212,175,106,0.22)]"
+                        className="intro-feature-connector w-[2px] flex-1 bg-gradient-to-b from-transparent via-[#D4AF6A] to-transparent dark:via-[#D4AF6A]"
+                        style={{ "--intro-feature-delay": `${index * 160}ms` } as CSSProperties}
                       />
                     ) : null}
                   </div>
@@ -156,15 +169,23 @@ export function IntroStep({
           </div>
 
           {/* Primary action — "Get Started" leads into sign-in / sign-up
-              (onLogin → /login → AuthStep, which handles both new + returning). */}
+              (onLogin → /login → AuthStep, which handles both new + returning).
+              Uses the shared morphy Button (variant="none" effect="fill") so
+              this CTA carries the same Material ripple/state-layer physics as
+              every other primary action in the app, per the frontend design
+              system skill, instead of a hand-rolled <button>. */}
           <div className="mt-6">
-            <button
+            <Button
               type="button"
+              variant="none"
+              effect="fill"
+              fullWidth
+              showRipple
               onClick={onLogin}
-              className="flex h-[54px] w-full items-center justify-center rounded-full border border-[rgba(214,175,106,0.55)] bg-[#F4EAD6] text-[17px] font-bold tracking-[-0.3px] text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-transform duration-150 hover:bg-[#F4EAD6] active:scale-[0.99] motion-reduce:active:scale-100 dark:bg-[#F4EAD6] dark:text-[#17130C] dark:hover:bg-[#F4EAD6]"
+              className="h-[54px] rounded-full border border-[rgba(214,175,106,0.55)] bg-[#F4EAD6] text-[17px] font-bold tracking-[-0.3px] text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] hover:bg-[#F4EAD6] hover:text-[#17130C] dark:bg-[#F4EAD6] dark:text-[#17130C] dark:hover:bg-[#F4EAD6]"
             >
               Get Started
-            </button>
+            </Button>
           </div>
         </div>
       </div>

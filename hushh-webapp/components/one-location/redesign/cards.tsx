@@ -246,8 +246,9 @@ export function SharedWithMeCard({
   metaLine,
   onView,
   onDismiss,
+  mapHref,
   viewBusy,
-  viewed,
+  previewExpanded,
   children,
 }: {
   name: string;
@@ -255,10 +256,14 @@ export function SharedWithMeCard({
   metaLine?: string;
   onView: () => void;
   onDismiss?: () => void;
+  mapHref?: string;
   viewBusy?: boolean;
-  viewed?: boolean;
+  previewExpanded?: boolean;
   children?: ReactNode;
 }) {
+  const canOpenMap = Boolean(previewExpanded && mapHref);
+  const canDismissPreview = Boolean(previewExpanded && onDismiss);
+
   return (
     <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
       <div className="flex items-center gap-3">
@@ -273,17 +278,36 @@ export function SharedWithMeCard({
       </div>
       {metaLine ? <p className={MUTED_TEXT}>{metaLine}</p> : null}
       {children}
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          size="sm"
-          onClick={onView}
-          isLoading={viewBusy}
-          className="h-9 rounded-full text-sm"
-        >
-          <MapPin className="mr-1.5 h-3.5 w-3.5" />
-          {viewed ? "Open map" : "View"}
-        </Button>
-        {onDismiss ? (
+      <div
+        className={cn(
+          "grid gap-2",
+          canDismissPreview ? "grid-cols-2" : "grid-cols-1",
+        )}
+      >
+        {canOpenMap ? (
+          <Button asChild size="sm" className="h-9 rounded-full text-sm">
+            <a
+              href={mapHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open shared location in Google Maps"
+            >
+              <MapPin className="mr-1.5 h-3.5 w-3.5" />
+              Open map
+            </a>
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={onView}
+            isLoading={viewBusy}
+            className="h-9 rounded-full text-sm"
+          >
+            <MapPin className="mr-1.5 h-3.5 w-3.5" />
+            View location
+          </Button>
+        )}
+        {canDismissPreview ? (
           <Button
             variant="outline"
             size="sm"

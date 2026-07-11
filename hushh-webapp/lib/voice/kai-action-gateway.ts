@@ -23,7 +23,7 @@ export type KaiActionDelegateAgentId =
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
-      path: "kai_command" | "voice_tool" | "route";
+      path: "kai_command" | "voice_tool" | "route" | "local_handler";
       target: string;
       params?: Record<string, unknown>;
     }
@@ -271,7 +271,10 @@ function validateExecutionTarget(value: unknown): KaiActionExecutionTarget | nul
     const path = cleanString(value.path);
     const target = cleanString(value.target);
     if (
-      (path !== "kai_command" && path !== "voice_tool" && path !== "route") ||
+      (path !== "kai_command" &&
+        path !== "voice_tool" &&
+        path !== "route" &&
+        path !== "local_handler") ||
       !target
     ) {
       return null;

@@ -16,7 +16,7 @@ See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.
 
 - **Local:** `.env` (backend) and `.env.local` (frontend) must contain exactly the keys the application code reads. Use the repo `.env.example` files as the template; they are audited to match the code.
 - **Production:** GCP Secret Manager must hold **exactly** the secrets the code expects — no more, no less. The Cloud Build config (`deploy/*.cloudbuild.yaml`) injects only these; do not add secrets that are not read by the code, and do not remove any that are.
-- **Canonical runtime modes:** the supported frontend `local`, `uat`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`.
+- **Canonical runtime modes:** the supported frontend `local`, `uat`, `dev`, and `prod` files must share one frontend key shape. The backend contributor runtime stays local-only in `consent-protocol/.env`. The hosted `dev` environment is a UAT infrastructure replica that keeps the `uat` runtime identity; see [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md).
 
 ## Canonical 3-environment contract
 
@@ -27,7 +27,7 @@ See also: [deploy/README.md](../../../deploy/README.md), [consent-protocol/.env.
 - `NEXT_PUBLIC_ENVIRONMENT_MODE`
 4. Local runtime-mode model (non-committed):
 - backend template/source: `consent-protocol/.env.example` -> `consent-protocol/.env`
-- frontend templates: `hushh-webapp/.env.local.local.example`, `hushh-webapp/.env.uat.local.example`, `hushh-webapp/.env.prod.local.example`
+- frontend templates: `hushh-webapp/.env.local.local.example`, `hushh-webapp/.env.uat.local.example`, `hushh-webapp/.env.dev.local.example`, `hushh-webapp/.env.prod.local.example`
 - local source files are created from templates and kept uncommitted
 - active files: `consent-protocol/.env`, `hushh-webapp/.env.local`
 - PKM rehearsal toggles, maintainer smoke identities, and review/bypass overlays belong in maintainer-only overlays, not in the canonical contributor runtime files.
@@ -132,10 +132,12 @@ It checks that:
 These are not Cloud Run runtime secrets.
 
 - Required: `GCP_SA_KEY` (used by production deploy and backup posture workflows to call GCP APIs)
+- Required for dev deploys: `GCP_SA_KEY_DEV` on the `dev` GitHub environment (used by `.github/workflows/deploy-dev.yml`)
 
 Used by:
 - `.github/workflows/deploy-production.yml`
 - `.github/workflows/prod-supabase-backup-posture.yml`
+- `.github/workflows/deploy-dev.yml`
 
 ---
 
