@@ -143,11 +143,6 @@
     "exemptionReason": "Logout route is a transitional auth screen, not a standard content page."
   },
   {
-    "route": "/labs/profile-appearance",
-    "mode": "hidden",
-    "exemptionReason": "Labs route is intentionally isolated from the primary app shell."
-  },
-  {
     "route": "/consents",
     "mode": "standard",
     "shellVerification": {

@@ -568,7 +568,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/getting-started/page.voice-action-contract.json",
       "voice_action_contract_ids": [
@@ -1088,33 +1088,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/labs/profile-appearance",
-      "page_file": "app/labs/profile-appearance/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Labs route is intentionally isolated from the primary app shell.",
-        "shell_verification_file": null,
-        "shell_verification_includes": []
-      },
-      "native": {
-        "route": "/labs/profile-appearance",
-        "classification": "excluded-web-only"
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/login",
       "page_file": "app/login/page.tsx",
       "physical_page_exists": true,
@@ -1141,7 +1114,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -1335,8 +1308,14 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/marketplace/ria/page-client.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "marketplace.ria.manage_profile",
+        "marketplace.ria.open_public_disclosure",
+        "marketplace.ria.request_advisory",
+        "route.marketplace_browse_from_ria_profile",
+        "route.marketplace_ria_profile"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2974,8 +2953,11 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "profile.pkm.preview_capture",
+        "profile.pkm.save_capture"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
