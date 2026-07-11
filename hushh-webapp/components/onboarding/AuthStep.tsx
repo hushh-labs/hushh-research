@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { getRedirectResult } from "firebase/auth";
 import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
@@ -12,12 +11,6 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
-import {
-  GLASS_PRESET_DARK,
-  GLASS_PRESET_FROSTED,
-  registerGlassElement,
-  registerGlassRoot,
-} from "@/lib/glass/liquid-glass-surface";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -135,42 +128,7 @@ export function AuthStep({
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
-  // liquidglass surface: <main> is the glass root (OnboardingHeroBackground
-  // is its direct-child sibling, so the shader has live content to refract),
-  // and the action sheet is a glass element. The sheet must therefore be a
-  // DIRECT child of <main> (library requirement), which is why it is
-  // absolutely bottom-pinned below instead of living inside the flex column.
-  // Registering the root also lets the agent bar portal its greeter pill in
-  // as a second glass element on this same instance.
-  const glassRootRef = useRef<HTMLElement | null>(null);
-  const glassSheetRef = useRef<HTMLDivElement | null>(null);
-  // The auth screen renders a fullscreen loader while the session check is in
-  // flight (authLoading/user early return below), so on first mount the glass
-  // refs are null. Gate on the actual render state so registration happens on
-  // the commit where <main> and the sheet really exist.
-  const authContentVisible = !authLoading && !user;
-  useEffect(() => {
-    if (!authContentVisible) return;
-    const root = glassRootRef.current;
-    const sheet = glassSheetRef.current;
-    if (!root || !sheet) return;
-    const releaseRoot = registerGlassRoot(root);
-    const releaseSheet = registerGlassElement(sheet);
-    return () => {
-      releaseSheet();
-      releaseRoot();
-    };
-  }, [authContentVisible]);
-  // Theme awareness, same contract as the home CTA: stock demo presets only
-  // (Frosted Glass in light, Dark Glass in dark), swapped via data-config.
-  const { resolvedTheme } = useTheme();
-  useEffect(() => {
-    if (!authContentVisible) return;
-    const sheet = glassSheetRef.current;
-    if (!sheet) return;
-    const preset = resolvedTheme === "dark" ? GLASS_PRESET_DARK : GLASS_PRESET_FROSTED;
-    sheet.dataset.config = JSON.stringify({ ...preset, cornerRadius: 36 });
-  }, [authContentVisible, resolvedTheme]);
+
   const localReviewerCredentialsAvailable = useMemo(() => {
     return Boolean(
       resolveLocalReviewerCredentials(
@@ -648,8 +606,7 @@ export function AuthStep({
 
   return (
     <main
-      ref={glassRootRef}
-      className="relative flex h-[100dvh] min-h-[100svh] w-full flex-col overflow-hidden"
+      className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden"
       data-testid="auth-step-primary"
     >
       {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
@@ -687,7 +644,7 @@ export function AuthStep({
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
 
-      <div className="relative mx-auto flex w-full max-w-[440px] min-h-0 flex-1 flex-col">
+      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
         {/* Hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
           {/* Quiet mark inside a soft glass medallion (matches the welcome
@@ -713,19 +670,15 @@ export function AuthStep({
           </p>
         </div>
 
-      </div>
-
-      {/* Liquid glass action sheet. DIRECT child of <main> (the glass root):
-          the WebGL shader is the entire surface, so there is no CSS bg,
-          border, backdrop-blur, or sheen here (glass or nothing), and no
-          overflow-hidden (it would clip the injected shader canvas). The
-          sheet dips 40px below the viewport (-mb-10 + extra bottom padding)
-          so the shader's bottom rounded corners stay offscreen and the glass
-          reads as a top-rounded sheet. */}
-      <div
-        ref={glassSheetRef}
-        className="relative mx-auto -mb-10 w-full max-w-[440px] rounded-t-[36px] px-6 pt-7 pb-[calc(172px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))]"
-      >
+        {/* Frosted glass action sheet: translucent + backdrop-blurred so the
+            dark ambient hero shows through behind it, while dark-on-light
+            controls stay legible. Matches the welcome ("/") glass sheet. */}
+        <div className="relative overflow-hidden rounded-t-[36px] border-t border-white/70 bg-white/55 px-6 pt-7 pb-[calc(132px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] shadow-[0_-1px_0_rgba(255,255,255,0.6)_inset,0_-24px_60px_-24px_rgba(23,19,12,0.22)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/40 dark:border-white/10 dark:bg-[#141018]/60 dark:shadow-[0_-1px_0_rgba(255,255,255,0.06)_inset,0_-24px_60px_-24px_rgba(0,0,0,0.6)] dark:supports-[backdrop-filter]:bg-[#141018]/45">
+          {/* Glass highlight sheen along the top edge. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,transparent_100%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,transparent_100%)]"
+          />
           <div className="relative z-[1] mx-auto w-full max-w-[21.5rem] space-y-3">
             {authOptions.map((option) => (
               <AuthProviderButton
@@ -760,32 +713,31 @@ export function AuthStep({
             </p>
 
           </div>
+        </div>
+        {/* Lifted to clear the persistent agent bar (pinned above the safe
+            area, ~44px tall + gap) so the legal footnote never tucks under it. */}
+        <footer className="absolute inset-x-6 bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] flex-none">
+          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
+            By continuing, you agree to One&apos;s{" "}
+            <button
+              type="button"
+              onClick={() => openLegalDoc("terms")}
+              className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+            >
+              Terms
+            </button>{" "}
+            and{" "}
+            <button
+              type="button"
+              onClick={() => openLegalDoc("privacy")}
+              className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+            >
+              Privacy Policy
+            </button>
+            .
+          </p>
+        </footer>
       </div>
-      {/* Legal footer: direct child of <main>, absolutely lifted to clear the
-          persistent agent bar (pinned above the safe area, ~44px tall + gap)
-          so the legal footnote never tucks under it. Painted AFTER the glass
-          sheet so it stays crisp above the shader surface. */}
-      <footer className="absolute inset-x-6 bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] z-10 flex-none">
-        <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
-          By continuing, you agree to One&apos;s{" "}
-          <button
-            type="button"
-            onClick={() => openLegalDoc("terms")}
-            className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
-          >
-            Terms
-          </button>{" "}
-          and{" "}
-          <button
-            type="button"
-            onClick={() => openLegalDoc("privacy")}
-            className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
-          >
-            Privacy Policy
-          </button>
-          .
-        </p>
-      </footer>
       <AuthLegalDialog
         docType={activeLegalDoc}
         onOpenChange={(open) => {

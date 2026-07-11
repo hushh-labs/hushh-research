@@ -19,7 +19,6 @@ import React, {
   type CSSProperties,
   type MouseEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -35,12 +34,6 @@ import {
   getAgentVoiceStatusLabel,
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
-import {
-  GLASS_PRESET_DARK,
-  GLASS_PRESET_FROSTED,
-  registerGlassElement,
-  useGlassSurfaceRoot,
-} from "@/lib/glass/liquid-glass-surface";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -664,31 +657,6 @@ export function AgentBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboardingGreeterMode]);
 
-  // Pre-auth glass surface ("/" welcome, "/login"): the screen registers its
-  // <main> as a liquidglass root; the pill is portaled in as a DIRECT child
-  // of that root (a hard library requirement) so it genuinely refracts the
-  // live hero backdrop through the shared WebGL instance. Glass or nothing:
-  // until the root exists, the greeter bar renders nothing at all.
-  const glassRoot = useGlassSurfaceRoot();
-  const glassModeActive = onboardingGreeterMode && Boolean(glassRoot);
-  const glassPillRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!glassModeActive) return;
-    const el = glassPillRef.current;
-    if (!el) return;
-    return registerGlassElement(el);
-  }, [glassModeActive]);
-  // Theme awareness, same contract as the home CTA: stock demo presets only
-  // (Frosted Glass in light, Dark Glass in dark), swapped via data-config.
-  // No button mode: the pill hosts two separate buttons with own ripples.
-  useEffect(() => {
-    if (!glassModeActive) return;
-    const el = glassPillRef.current;
-    if (!el) return;
-    const preset = resolvedTheme === "dark" ? GLASS_PRESET_DARK : GLASS_PRESET_FROSTED;
-    el.dataset.config = JSON.stringify({ ...preset, cornerRadius: 24 });
-  }, [glassModeActive, resolvedTheme]);
-
   const unmountBar =
     !agentPopover ||
     // The One setup surface is a focused onboarding flow (like Apple's "Finish
@@ -733,9 +701,8 @@ export function AgentBar() {
             : voiceStatus === "error"
               ? "error"
               : "opening";
-  // Pill contents shared by both hosts (fixed frosted wrapper elsewhere,
-  // liquidglass portal on the pre-auth surfaces). Keeping one JSX source
-  // guarantees the voice/theme controls and test ids never fork.
+  // Pill contents for the frosted bar, one JSX source across all modes so
+  // the voice/theme controls and test ids never fork.
   const pillContents = conversationActive ? (
     // The ENTIRE bar is the tap target to end the conversation: tapping
     // anywhere stops it. The X icon on the left is a bare marker (no chip
@@ -873,36 +840,6 @@ export function AgentBar() {
     </>
   );
 
-  // Pre-auth surfaces are glass or nothing: the pill mounts only as a
-  // liquidglass element portaled into the screen's registered root (a hard
-  // direct-child requirement of the library). No CSS frosted fallback.
-  if (onboardingGreeterMode) {
-    if (!glassRoot) return null;
-    return createPortal(
-      <div
-        ref={glassPillRef}
-        data-testid="one-voice-agent-bar"
-        data-voice-mode={nativeVoiceMode}
-        className={cn(
-          // Direct child of the glass root, mirroring the fixed wrapper's
-          // geometry (px-4 + 392px cap, pinned above the safe area). NO
-          // backdrop-blur / gradient / ring / shadow / aurora here: the
-          // WebGL shader IS the surface. The injected canvas is this
-          // element's first child (absolute inset-0 z-index:-1), so the
-          // controls below render above the glass.
-          "pointer-events-auto absolute inset-x-6 z-20 mx-auto flex w-auto max-w-[392px] items-center gap-2",
-          "h-12 rounded-full pl-3 pr-1.5",
-          "text-[#17130C] dark:text-[#f5f5f7]",
-        )}
-        style={{
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)",
-        }}
-      >
-        {pillContents}
-      </div>,
-      glassRoot,
-    );
-  }
   return (
     <div
       className="pointer-events-none fixed inset-x-0 z-[118] flex justify-center px-4 transform-gpu"
