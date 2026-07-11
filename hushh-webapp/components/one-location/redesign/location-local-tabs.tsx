@@ -54,6 +54,11 @@ export function LocationLocalTabs({
         // scoped to the location tabs by overriding the shared segmented-tab
         // CSS vars here — the app-wide primitive stays untouched.
         "[--app-segmented-active-surface:#e6f0ff] [--app-segmented-active-foreground:#007aff] [--app-segmented-active-border:transparent]",
+        // Squarish shape per the design (container 16px, tab pills 12px) instead
+        // of the primitive's full-round. Literal px values because this app's
+        // --radius scale is large (rounded-xl ≈ 24px here). tailwind-merge lets
+        // rounded-[16px] override the primitive's rounded-full on the container.
+        "rounded-[16px] [&_button]:rounded-[12px]",
         className,
       )}
     />
