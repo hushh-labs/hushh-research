@@ -1576,6 +1576,21 @@ export class RiaService {
     return toJsonOrThrow<RiaOnboardingStatus>(response);
   }
 
+  // Self-service deletion of the caller's RIA sub-agent profile. Auto-disconnects
+  // active clients (revokes consent), deletes the RIA profile + data, and drops
+  // the 'ria' persona — the investor/One account survives.
+  static async deleteProfile(
+    idToken: string,
+  ): Promise<{ deleted: boolean; remaining_personas: string[] }> {
+    const response = await authFetch("/api/ria/profile/delete", {
+      method: "POST",
+      idToken,
+    });
+    return toJsonOrThrow<{ deleted: boolean; remaining_personas: string[] }>(
+      response,
+    );
+  }
+
   static async getHome(
     idToken: string,
     options: CachedReadOptions & { userId: string },

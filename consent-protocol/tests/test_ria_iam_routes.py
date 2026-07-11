@@ -977,3 +977,44 @@ def test_ria_client_detail_route_exposes_relationship_share_fields(monkeypatch):
     assert payload["picks_feed_status"] == "ready"
     assert payload["has_active_pick_upload"] is True
     assert payload["relationship_shares"][0]["grant_key"] == "ria_active_picks_feed_v1"
+
+
+def test_ria_profile_delete_success(monkeypatch):
+    async def _mock_delete(self, user_id: str):
+        assert user_id == "user_test_123"
+        return {"deleted": True, "remaining_personas": ["investor"]}
+
+    monkeypatch.setattr(RIAIAMService, "delete_ria_self_profile", _mock_delete)
+
+    client = TestClient(_build_app())
+    response = client.post("/api/ria/profile/delete")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["deleted"] is True
+    assert payload["remaining_personas"] == ["investor"]
+
+
+def test_ria_profile_delete_missing_profile_returns_404(monkeypatch):
+    async def _mock_delete(self, user_id: str):
+        raise RIAIAMPolicyError("RIA profile not found.", status_code=404)
+
+    monkeypatch.setattr(RIAIAMService, "delete_ria_self_profile", _mock_delete)
+
+    client = TestClient(_build_app())
+    response = client.post("/api/ria/profile/delete")
+
+    assert response.status_code == 404
+
+
+def test_ria_profile_delete_schema_not_ready_returns_503(monkeypatch):
+    async def _mock_delete(self, user_id: str):
+        raise IAMSchemaNotReadyError("IAM schema is not ready")
+
+    monkeypatch.setattr(RIAIAMService, "delete_ria_self_profile", _mock_delete)
+
+    client = TestClient(_build_app())
+    response = client.post("/api/ria/profile/delete")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "IAM_SCHEMA_NOT_READY"

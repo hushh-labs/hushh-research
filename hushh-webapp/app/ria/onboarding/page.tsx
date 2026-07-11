@@ -32,6 +32,7 @@ import {
   buildRiaScrapePrefillPatch,
 } from "@/lib/ria/ria-onboarding-prefill";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
+import { seedRiaDraftFromStatus } from "@/lib/ria/ria-profile-view-model";
 import {
   isIAMSchemaNotReadyError,
   RiaApiError,
@@ -150,17 +151,22 @@ export default function RiaOnboardingPage() {
     refreshing: personaRefreshing,
   } = usePersonaState();
 
-  // "Edit licence" from the RIA profile deep-links here with ?edit=license so an
-  // already-established advisor can re-run verification without being bounced to
-  // their profile by the guard below. A generic ?step= is also honoured.
+  // The RIA profile deep-links here for two intents, both of which must bypass
+  // the "established advisor → /ria/profile" guard below:
+  //   ?edit=license   → re-run licence verification (start at the licence step)
+  //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
+  // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
   const stepParam = searchParams?.get("step") ?? null;
+  const reinitiateIntent = (searchParams?.get("reinitiate") ?? null) === "1";
   const requestedStepId: RiaOnboardingStepId | null =
     editParam === "license"
       ? "license_number"
-      : isRiaOnboardingStepId(stepParam)
-        ? stepParam
-        : null;
+      : reinitiateIntent
+        ? "welcome"
+        : isRiaOnboardingStepId(stepParam)
+          ? stepParam
+          : null;
   const hasEditIntent = requestedStepId !== null;
 
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
@@ -193,6 +199,9 @@ export default function RiaOnboardingPage() {
   // Mirror the current edit-intent step for use inside the mount-only loader.
   const requestedStepIdRef = useRef<RiaOnboardingStepId | null>(requestedStepId);
   requestedStepIdRef.current = requestedStepId;
+  // Mirror the reinitiate intent for use inside the mount-only loader.
+  const reinitiateIntentRef = useRef(reinitiateIntent);
+  reinitiateIntentRef.current = reinitiateIntent;
 
   const advisoryVerificationStatus =
     status?.advisory_status || status?.verification_status || "draft";
@@ -289,8 +298,20 @@ export default function RiaOnboardingPage() {
           });
         }
 
-        // An explicit ?edit=license / ?step= deep-link wins over the persisted
-        // draft step so "Edit licence" from the profile lands on the right step.
+        // Re-initiate: seed the wizard from the FULL server profile (services,
+        // fees, bio, location, licence-found) so a redo starts prefilled rather
+        // than blank (the local draft was cleared on the prior submit). Keeps the
+        // contact overlay.
+        if (reinitiateIntentRef.current && nextStatus) {
+          resolvedDraft = normalizeRiaOnboardingDraft({
+            ...seedRiaDraftFromStatus(nextStatus),
+            contactEmail: seeded.contactEmail,
+            contactPhone: seeded.contactPhone,
+          });
+        }
+
+        // An explicit ?edit=license / ?step= / ?reinitiate deep-link wins over the
+        // persisted draft step so the profile CTAs land on the right step.
         const preferredStepId =
           requestedStepIdRef.current ?? localDraft?.currentStepId ?? null;
         const currentStepId = preferredStepId
@@ -661,7 +682,9 @@ export default function RiaOnboardingPage() {
   async function handleSubmit() {
     if (!user) return;
     if (submitInFlightRef.current) return;
-    if (advisoryAccessReady) {
+    // A verified advisor normally can't re-submit — but on a re-initiate they
+    // MUST, so the idempotent submitOnboarding re-runs and updates the profile.
+    if (advisoryAccessReady && !reinitiateIntent) {
       router.push(ROUTES.RIA_HOME);
       return;
     }
