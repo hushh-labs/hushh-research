@@ -2105,7 +2105,7 @@ function ProfilePageContent() {
         id: "profile_gmail",
         label: "Gmail receipts",
         purpose: "opens Gmail receipt sync and receipt-memory management.",
-        actionId: "route.profile_gmail_panel",
+        actionId: "route.profile_receipts",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
       },
@@ -3701,7 +3701,7 @@ function ProfilePageContent() {
               ? "Reconnect Gmail"
               : "Connect Gmail"
           }
-          description="Authorize Gmail read-only access for receipt sync."
+          description="Authorize read-only receipt access. Shopping summaries are saved automatically to your private PKM."
           disabled={gmailActionsBusy || gmail.status?.configured === false}
           chevron
           onClick={() => void handleConnectGmail()}
@@ -4283,6 +4283,10 @@ function ProfilePageContent() {
       </AppPageContentRegion>
     </>
   );
+
+  if (legacyProfileRedirectHref) {
+    return null;
+  }
 
   return (
     <AppPageShell

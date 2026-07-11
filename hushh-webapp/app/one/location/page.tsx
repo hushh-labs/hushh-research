@@ -108,12 +108,7 @@ import {
 } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
-  buildOneLocationNotificationHref,
-  buildOneLocationWorkflowHref,
-  isOneLocationGrantOpened,
   isOneLocationGrantUnwatched,
-  locationShareNotificationCopy,
-  locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
   markOneLocationGrantUnwatched,
   ONE_LOCATION_GRANT_ID_PARAM,
@@ -125,12 +120,8 @@ import {
   ONE_LOCATION_REQUEST_ID_PARAM,
   ONE_LOCATION_SECTION_PARAM,
   ONE_LOCATION_SUBMISSION_ID_PARAM,
-  oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
-  recordOneLocationShareNotification,
-  recordOneLocationWorkflowNotification,
   type OneLocationNotificationSection,
-  type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
@@ -2194,147 +2185,6 @@ function OneLocationAgentPageContent() {
     };
   }, [activityRange, auth.userId, state, vaultOwnerToken]);
 
-  const openLocationShareFromNotification = useCallback(
-    (grantId: string) => {
-      if (!auth.userId) return;
-      markOneLocationGrantOpened(auth.userId, grantId);
-      setOpenedGrantTick((value) => value + 1);
-      router.push(buildOneLocationNotificationHref(grantId), { scroll: false });
-      focusOneLocationSection("shared");
-    },
-    [auth.userId, focusOneLocationSection, router],
-  );
-
-  const showLocationShareToast = useCallback(
-    (grant: OneLocationGrant) => {
-      if (!auth.userId) return;
-      const ownerLabel = receivedGrantOwnerLabel(grant);
-      const toastKey = `one-location-share:${grant.id}`;
-      // Kind-aware popup so the recipient instantly sees WHAT it is (SOS alert /
-      // Check-in shared with the note / Location shared) instead of the same
-      // generic line for every share.
-      const { title, description } = locationShareNotificationCopy({
-        ownerLabel,
-        shareKind: grant.shareKind,
-        shareMessage: grant.shareMessage,
-      });
-      playOneLocationNotificationSound();
-      toast(
-        <div className="flex flex-col gap-2">
-          <div className="space-y-0.5">
-            <p className="line-clamp-1 text-sm font-semibold">
-              {title}
-            </p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">
-              {description}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              toast.dismiss(toastKey);
-              openLocationShareFromNotification(grant.id);
-            }}
-            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
-          >
-            Open
-          </button>
-        </div>,
-        {
-          id: toastKey,
-          duration: 10000,
-          position: "top-center",
-        },
-      );
-    },
-    [auth.userId, openLocationShareFromNotification],
-  );
-
-  const showWorkflowToast = useCallback(
-    (params: {
-      notificationType: OneLocationWorkflowNotificationType;
-      id: string;
-      ownerLabel?: string | null;
-      requesterLabel?: string | null;
-      referringLabel?: string | null;
-      visitorLabel?: string | null;
-      grantId?: string | null;
-      requestId?: string | null;
-      referralId?: string | null;
-      submissionId?: string | null;
-      section?: OneLocationFocusTarget | null;
-      openGrant?: boolean;
-    }) => {
-      if (!auth.userId) return;
-      const section =
-        params.section ||
-        oneLocationSectionForWorkflowNotificationType(params.notificationType);
-      const copy = locationWorkflowNotificationCopy({
-        type: params.notificationType,
-        ownerLabel: params.ownerLabel,
-        requesterLabel: params.requesterLabel,
-        referringLabel: params.referringLabel,
-        visitorLabel: params.visitorLabel,
-      });
-      const routeHref = buildOneLocationWorkflowHref({
-        grantId: params.grantId,
-        requestId: params.requestId,
-        referralId: params.referralId,
-        submissionId: params.submissionId,
-        section,
-        openGrant: params.openGrant,
-      });
-      const created = recordOneLocationWorkflowNotification({
-        userId: auth.userId,
-        notificationType: params.notificationType,
-        id: params.id,
-        title: copy.title,
-        description: copy.description,
-        routeHref,
-        metadata: {
-          grantId: params.grantId || null,
-          requestId: params.requestId || null,
-          referralId: params.referralId || null,
-          submissionId: params.submissionId || null,
-          section,
-        },
-      });
-      if (!created) return;
-
-      playOneLocationNotificationSound();
-      const toastKey = `one-location-workflow:${params.notificationType}:${params.id}`;
-      toast(
-        <div className="flex flex-col gap-2">
-          <div className="space-y-0.5">
-            <p className="line-clamp-1 text-sm font-semibold">{copy.title}</p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">
-              {copy.description}
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              if (params.openGrant && params.grantId) {
-                markOneLocationGrantOpened(auth.userId, params.grantId);
-                setOpenedGrantTick((value) => value + 1);
-              }
-              toast.dismiss(toastKey);
-              router.push(routeHref, { scroll: false });
-              focusOneLocationSection(section);
-            }}
-            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
-          >
-            Open
-          </button>
-        </div>,
-        {
-          id: toastKey,
-          duration: 10000,
-          position: "top-center",
-        },
-      );
-    },
-    [auth.userId, focusOneLocationSection, router],
-  );
-
   useEffect(() => {
     if (!pendingCircleInviteToken || !vaultOwnerToken) return;
     router.push(`/one/location/invite/${encodeURIComponent(pendingCircleInviteToken)}`);
@@ -2784,132 +2634,6 @@ function OneLocationAgentPageContent() {
       );
     };
   }, [auth.userId]);
-
-  useEffect(() => {
-    if (!auth.userId || !state?.receivedGrants?.length) return;
-    for (const grant of state.receivedGrants) {
-      if (grant.status !== "active") continue;
-      if (isOneLocationGrantOpened(auth.userId, grant.id)) continue;
-      const created = recordOneLocationShareNotification({
-        userId: auth.userId,
-        grantId: grant.id,
-        ownerLabel: receivedGrantOwnerLabel(grant),
-        expiresAt: grant.expiresAt,
-        durationHours: grant.durationHours,
-        shareKind: grant.shareKind,
-        shareMessage: grant.shareMessage,
-      });
-      if (created) {
-        showLocationShareToast(grant);
-      }
-    }
-  }, [
-    auth.userId,
-    openedGrantTick,
-    showLocationShareToast,
-    state?.receivedGrants,
-  ]);
-
-  useEffect(() => {
-    if (!auth.userId || !state) return;
-
-    for (const request of pendingOwnerRequests) {
-      showWorkflowToast({
-        notificationType: "location_access_request",
-        id: request.id,
-        requestId: request.id,
-        requesterLabel: requestLabel(request),
-        section: "approvals",
-      });
-    }
-
-    for (const request of requestedByMe) {
-      const ownerLabel = requestOwnerLabel(request, recipients);
-      if (request.status === "approved") {
-        showWorkflowToast({
-          notificationType: "location_access_approved",
-          id: request.approvedGrantId || request.id,
-          requestId: request.id,
-          grantId: request.approvedGrantId,
-          ownerLabel,
-          section: "shared",
-          openGrant: Boolean(request.approvedGrantId),
-        });
-      }
-      if (request.status === "denied") {
-        showWorkflowToast({
-          notificationType: "location_access_denied",
-          id: request.id,
-          requestId: request.id,
-          ownerLabel,
-          section: "my_requests",
-        });
-      }
-    }
-
-    // Owners who currently have an ACTIVE share with me. When a person re-shares
-    // their location within an existing window, the backend silently supersedes
-    // the prior grant (sets it to "revoked" with NO push), so a stale
-    // revoked/expired row sits alongside a fresh active one. We must NOT raise a
-    // "location removed" / "expired" notification in that case - it is the core
-    // source of the false "location removed by this user" spam. Only notify when
-    // the owner has genuinely stopped sharing (no active grant remains).
-    const ownersWithActiveReceivedGrant = new Set(
-      (state.receivedGrants ?? [])
-        .filter((grant) => grant.status === "active")
-        .map((grant) => String(grant.ownerUserId || "").trim())
-        .filter(Boolean),
-    );
-    for (const grant of state.receivedGrants ?? []) {
-      const ownerId = String(grant.ownerUserId || "").trim();
-      const supersededByNewerShare =
-        Boolean(ownerId) && ownersWithActiveReceivedGrant.has(ownerId);
-      // A recipient who unwatched this share does not want any follow-up noise.
-      const recipientUnwatched = isOneLocationGrantUnwatched(
-        auth.userId,
-        grant.id,
-      );
-      if (supersededByNewerShare || recipientUnwatched) continue;
-
-      if (grant.status === "revoked") {
-        showWorkflowToast({
-          notificationType: "location_share_revoked",
-          id: grant.id,
-          grantId: grant.id,
-          ownerLabel: receivedGrantOwnerLabel(grant),
-          section: "shared",
-        });
-      }
-      if (grant.status === "expired") {
-        showWorkflowToast({
-          notificationType: "location_share_expired",
-          id: grant.id,
-          grantId: grant.id,
-          ownerLabel: receivedGrantOwnerLabel(grant),
-          section: "shared",
-        });
-      }
-    }
-
-    for (const submission of publicSubmissions) {
-      if (submission.ownerUserId !== auth.userId) continue;
-      showWorkflowToast({
-        notificationType: "location_public_invite_submitted",
-        id: submission.id,
-        submissionId: submission.id,
-        visitorLabel: publicSubmissionLabel(submission),
-        section: "public_responses",
-      });
-    }
-  }, [
-    auth.userId,
-    pendingOwnerRequests,
-    publicSubmissions,
-    recipients,
-    requestedByMe,
-    showWorkflowToast,
-    state,
-  ]);
 
   const recipientForGrant = useCallback(
     (grant: OneLocationGrant) =>

@@ -46,11 +46,25 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    expect(screen.getByTestId("page-header")).toBeTruthy();
-    expect(screen.getByText("Good to see you, Kushal.")).toBeTruthy();
+    expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
+    expect(screen.queryByText("One")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Your apps, memory, access, and specialist agents in one place.",
+      ),
+    ).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-grid").getAttribute("style")).toContain(
-      "grid-template-columns: repeat(3, minmax(0, 1fr))",
+    expect(screen.getByTestId("one-agents-grid").style.display).toBe("grid");
+    expect(
+      screen.getByTestId("one-agents-grid").style.gridTemplateColumns,
+    ).toBe("repeat(3, minmax(0, 1fr))");
+    expect(screen.getByTestId("one-agents-grid").style.justifyItems).toBe(
+      "center",
+    );
+    const bodyText = container.textContent ?? "";
+    expect(bodyText.indexOf("Finish setup")).toBeGreaterThanOrEqual(0);
+    expect(bodyText.indexOf("Agents")).toBeGreaterThan(
+      bodyText.indexOf("Finish setup"),
     );
     expect(screen.getByText("Agents")).toBeTruthy();
 
@@ -62,9 +76,9 @@ describe("OneDashboardPage", () => {
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
     expect(financeLink.className).not.toContain("translate");
-    expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
-      "items-center",
-    );
+    expect(
+      screen.getByTestId("one-agent-tile-finance").style.width,
+    ).toBe("5.75rem");
     // Each tile's icon chip carries its own brand tone (bug fix: the icon
     // component previously ignored the tone prop entirely and rendered every
     // tile with the same neutral chip).
@@ -113,7 +127,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed
     expect(screen.getByText("Unlock to view")).toBeTruthy(); // pkm vault-gated
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
-    expect(screen.getByText("2 consents pending")).toBeTruthy(); // header badge
+    expect(screen.queryByText("2 consents pending")).toBeNull(); // top shield owns count
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("title"),
     ).toBe("Receipt sync and purchase-memory review.");
@@ -146,7 +160,8 @@ describe("OneDashboardPage", () => {
     // and reads "Explored".
     expect(screen.getAllByText("Ready")).toHaveLength(6);
     expect(screen.getByText("Explored")).toBeTruthy();
-    expect(screen.getByText("No pending consents")).toBeTruthy();
+    expect(screen.queryByText("No pending consents")).toBeNull();
+    expect(screen.queryByText("Finish setup")).toBeNull();
   });
 
   it("renders an honest fallback when status is not yet resolved", () => {

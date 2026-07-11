@@ -89,7 +89,19 @@ describe("app bottom navigation", () => {
       type: "command",
       mode: "search",
     });
-    expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
+    // Profile is scope-aware: in the RIA sub-agent it opens the RIA profile;
+    // in One / investor scopes it stays the global profile.
+    expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.RIA_PROFILE);
+    expect(resolveBottomNavHref("profile", "one")).toBe(ROUTES.PROFILE);
+    expect(resolveBottomNavHref("profile", "investor")).toBe(ROUTES.PROFILE);
+  });
+
+  it("highlights the Profile tab on the RIA profile route", () => {
+    expect(resolveRiaActiveNav(ROUTES.RIA_PROFILE)).toBe("profile");
+    // Global profile still resolves to the profile slot in RIA scope too.
+    expect(resolveRiaActiveNav(ROUTES.PROFILE)).toBe("profile");
+    // RIA home stays on its own tab.
+    expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });
 
   it("keeps One bottom navigation three-slot while naming the active agent app", () => {

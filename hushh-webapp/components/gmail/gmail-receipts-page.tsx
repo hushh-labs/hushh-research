@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Loader2, Lock, Mail, RefreshCw } from "lucide-react";
+import { Loader2, Lock, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -18,8 +17,19 @@ import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -51,6 +61,7 @@ import {
 } from "@/lib/services/gmail-receipts-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -100,42 +111,6 @@ function computeSyncProgressPercent(run: GmailSyncRun | null): number {
   return 100;
 }
 
-function buildEditableReceiptMemoryArtifact(
-  artifact: ReceiptMemoryArtifact,
-  summaryDraft: string,
-): ReceiptMemoryArtifact {
-  const nextSummary = summaryDraft.trim();
-  const currentSummary =
-    artifact.candidate_pkm_payload.receipts_memory.readable_summary.text.trim();
-
-  if (!nextSummary || nextSummary === currentSummary) {
-    return artifact;
-  }
-
-  return {
-    ...artifact,
-    enrichment: artifact.enrichment
-      ? {
-          ...artifact.enrichment,
-          readable_summary: {
-            ...artifact.enrichment.readable_summary,
-            text: nextSummary,
-          },
-        }
-      : null,
-    candidate_pkm_payload: {
-      ...artifact.candidate_pkm_payload,
-      receipts_memory: {
-        ...artifact.candidate_pkm_payload.receipts_memory,
-        readable_summary: {
-          ...artifact.candidate_pkm_payload.receipts_memory.readable_summary,
-          text: nextSummary,
-        },
-      },
-    },
-  };
-}
-
 const RECEIPT_MEMORY_DETERMINISTIC_CONFIG_VERSION = "receipt_memory_v1";
 const RECEIPT_MEMORY_INFERENCE_WINDOW_DAYS = 365;
 const RECEIPT_MEMORY_HIGHLIGHTS_WINDOW_DAYS = 90;
@@ -157,7 +132,9 @@ const receiptColumns: ColumnDef<ReceiptListItem>[] = [
     cell: ({ row }) => (
       <div className="min-w-0 space-y-1">
         <p className="truncate font-medium text-foreground">
-          {row.original.merchant_name || row.original.from_name || "Unknown merchant"}
+          {row.original.merchant_name ||
+            row.original.from_name ||
+            "Unknown merchant"}
         </p>
         <p className="truncate text-xs text-muted-foreground">
           {row.original.subject || "No subject"}
@@ -188,7 +165,9 @@ const receiptColumns: ColumnDef<ReceiptListItem>[] = [
     header: "Receipt date",
     cell: ({ row }) => (
       <span className="text-sm text-muted-foreground">
-        {formatDate(row.original.receipt_date || row.original.gmail_internal_date)}
+        {formatDate(
+          row.original.receipt_date || row.original.gmail_internal_date,
+        )}
       </span>
     ),
   },
@@ -301,7 +280,6 @@ function isReceiptMemoryWatermarkCurrent(
 }
 
 export default function ProfileReceiptsPage() {
-  const router = useRouter();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
@@ -314,16 +292,22 @@ export default function ProfileReceiptsPage() {
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
   const [receiptMemoryArtifact, setReceiptMemoryArtifact] =
     useState<ReceiptMemoryArtifact | null>(null);
-  const [receiptSummaryDraft, setReceiptSummaryDraft] = useState("");
   const [receiptMemoryLoading, setReceiptMemoryLoading] = useState(false);
-  const [receiptMemorySaving, setReceiptMemorySaving] = useState(false);
+  const [receiptMemorySaveState, setReceiptMemorySaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [receiptMemoryMessage, setReceiptMemoryMessage] = useState<
     string | null
   >(null);
+  const [gmailActionBusy, setGmailActionBusy] = useState<
+    "connect" | "disconnect" | null
+  >(null);
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const receiptsRef = useRef<ReceiptListItem[]>([]);
   const pageRef = useRef(1);
   const pendingSyncFeedbackRef = useRef(false);
   const autoReceiptSummaryKeyRef = useRef<string | null>(null);
+  const autoReceiptSaveKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     receiptsRef.current = receipts;
@@ -481,12 +465,91 @@ export default function ProfileReceiptsPage() {
 
   const syncing = gmail.refreshingStatus || gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
+  const hasKnownGmailAccount = Boolean(
+    gmail.status?.google_email ||
+      gmail.status?.connected ||
+      gmail.status?.connected_at,
+  );
   const loadingStatus = gmail.loadingStatus;
   const connectorState = gmail.presentation.state;
   const latestSyncText = gmail.presentation.latestSyncText;
   const latestSyncBadge = gmail.presentation.latestSyncBadge;
   const isPassiveBackfillState =
     connectorState === "connected_backfill_running";
+
+  const handleConnectGmail = useCallback(async () => {
+    if (!user?.uid) return;
+
+    try {
+      setGmailActionBusy("connect");
+      const idToken = await user.getIdToken();
+      const redirectUri =
+        typeof window !== "undefined"
+          ? `${window.location.origin}${ROUTES.PROFILE_GMAIL_OAUTH_RETURN}`
+          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
+      const isGoogleProvider =
+        user.providerData?.some(
+          (provider) => provider.providerId === "google.com",
+        ) ?? false;
+
+      const payload = await GmailReceiptsService.startConnect({
+        idToken,
+        userId: user.uid,
+        redirectUri,
+        loginHint: isGoogleProvider ? user.email : null,
+        includeGrantedScopes: isGoogleProvider,
+      });
+
+      if (!payload.configured || !payload.authorize_url) {
+        throw new Error("Gmail OAuth is not configured for this environment.");
+      }
+
+      assignWindowLocation(payload.authorize_url);
+    } catch (error) {
+      const message = sanitizeGmailUserMessage(error, {
+        fallback:
+          "We couldn't start Gmail connection right now. Please try again in a moment.",
+      });
+      console.error("[ProfileReceiptsPage] Failed to start Gmail OAuth:", error);
+      toast.error(message);
+    } finally {
+      setGmailActionBusy(null);
+    }
+  }, [user]);
+
+  const handleDisconnectGmail = useCallback(async () => {
+    if (!user?.uid) return;
+
+    try {
+      setGmailActionBusy("disconnect");
+      await morphyToast
+        .promise(
+          (async () => {
+            const next = await gmail.disconnectGmail();
+            if (!next) {
+              throw new Error("Gmail could not be disconnected.");
+            }
+            return next;
+          })(),
+          {
+            loading: "Disconnecting Gmail...",
+            success: "Gmail disconnected. Saved receipts stay available here.",
+            error: (error) =>
+              sanitizeGmailUserMessage(error, {
+                fallback:
+                  "We couldn't disconnect Gmail right now. Please try again in a moment.",
+              }),
+            variant: "destructive",
+          },
+        )
+        .unwrap();
+      setShowDisconnectConfirm(false);
+    } catch (error) {
+      console.error("[ProfileReceiptsPage] Failed to disconnect Gmail:", error);
+    } finally {
+      setGmailActionBusy(null);
+    }
+  }, [gmail, user?.uid]);
 
   const handleSyncNow = useCallback(async () => {
     if (!user?.uid) return;
@@ -514,11 +577,6 @@ export default function ProfileReceiptsPage() {
     }
   }, [gmail, isConnected, syncing, user?.uid]);
 
-  const showDisconnectedNotice =
-    !gmail.loadingStatus &&
-    !gmail.statusError &&
-    !isConnected &&
-    hasStoredReceipts;
   const progressPercent = useMemo(
     () => computeSyncProgressPercent(gmail.syncRun),
     [gmail.syncRun],
@@ -543,7 +601,7 @@ export default function ProfileReceiptsPage() {
   } = useVoiceSurfaceControlTracking();
   const pageTitle = useMemo(
     () =>
-      gmail.status?.google_email
+      isConnected && gmail.status?.google_email
         ? `Connected to ${gmail.status.google_email}`
         : connectorState === "connected_initial_scan_running"
           ? "Connected to your Gmail"
@@ -552,7 +610,12 @@ export default function ProfileReceiptsPage() {
             : hasStoredReceipts
               ? "Saved receipts are still available here."
               : "Sync receipt emails into One.",
-    [connectorState, gmail.status?.google_email, hasStoredReceipts],
+    [
+      connectorState,
+      gmail.status?.google_email,
+      hasStoredReceipts,
+      isConnected,
+    ],
   );
   const isSyncingState =
     connectorState === "connected_initial_scan_running" ||
@@ -563,7 +626,6 @@ export default function ProfileReceiptsPage() {
     Boolean(user?.uid) &&
     hasSealedReceiptAccess &&
     (total > 0 || hasStoredReceipts);
-  const receiptSummaryDraftTrimmed = receiptSummaryDraft.trim();
   const autoReceiptSummaryKey = useMemo(() => {
     if (!user?.uid || !isConnected || !canBuildReceiptMemoryPreview) {
       return null;
@@ -587,6 +649,30 @@ export default function ProfileReceiptsPage() {
     total,
     user?.uid,
   ]);
+  const autoReceiptSaveKey = useMemo(() => {
+    if (
+      !user?.uid ||
+      !isConnected ||
+      !receiptMemoryArtifact ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !isVaultUnlocked
+    ) {
+      return null;
+    }
+    return [
+      user.uid,
+      receiptMemoryArtifact.artifact_id,
+      receiptMemoryArtifact.candidate_pkm_payload_hash,
+    ].join(":");
+  }, [
+    isConnected,
+    isVaultUnlocked,
+    receiptMemoryArtifact,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
   const cachedReceipts = user?.uid ? getCachedGmailReceipts(user.uid) : null;
   const receiptMemoryWatermarkCurrent = useMemo(
     () =>
@@ -606,7 +692,7 @@ export default function ProfileReceiptsPage() {
     ? syncing
       ? "Syncing receipts…"
       : "Sync receipts"
-    : connectorState === "needs_reauthentication"
+    : connectorState === "needs_reauthentication" || gmail.status?.revoked
       ? "Reconnect Gmail"
       : "Connect Gmail";
   const statusToneClassName =
@@ -619,19 +705,12 @@ export default function ProfileReceiptsPage() {
           : "border-border/60 bg-background/68";
   const receiptsVoiceSurfaceMetadata = useMemo(() => {
     const visibleModules = ["Receipt status", "Receipts list"];
-    if (showDisconnectedNotice) {
-      visibleModules.push("Gmail reconnect notice");
-    }
-    if (receiptMemoryArtifact) {
+    if (isConnected && receiptMemoryArtifact) {
       visibleModules.push("Shopping summary");
-    }
-    if (canBuildReceiptMemoryPreview) {
-      visibleModules.push("Save insights");
     }
 
     const availableActions = [
-      ...(isConnected ? ["Sync receipts"] : ["Connect Gmail"]),
-      ...(receiptMemoryArtifact ? ["Save insights"] : []),
+      ...(isConnected ? ["Sync receipts"] : [primaryActionLabel]),
       ...(hasMore ? ["Load older receipts"] : []),
     ];
     const controls = [
@@ -645,28 +724,19 @@ export default function ProfileReceiptsPage() {
       },
       {
         id: "open_gmail_connector",
-        label: "Connect Gmail",
+        label: primaryActionLabel,
         purpose:
-          "opens the Gmail connector so you can connect or reconnect Gmail.",
-        actionId: "route.profile_gmail_panel",
+          "starts Gmail connection or reconnection from this receipts page.",
         role: "button",
         voiceAliases: ["connect gmail", "open gmail connector", "open gmail"],
       },
       {
-        id: "edit_receipts_summary",
-        label: "Shopping summary",
-        purpose: "edits the shopping summary before you save it.",
-        role: "textbox",
-        voiceAliases: ["edit summary", "shopping summary"],
-      },
-      {
-        id: "save_receipts_memory",
-        label: "Save insights",
+        id: "disconnect_gmail",
+        label: "Disconnect Gmail",
         purpose:
-          "saves the current shopping summary into your personal memory.",
-        actionId: "profile.receipts_memory.save",
+          "disconnects Gmail sync while keeping already saved receipts available.",
         role: "button",
-        voiceAliases: ["save insights", "save summary"],
+        voiceAliases: ["disconnect gmail", "turn off gmail sync"],
       },
       {
         id: "load_older_receipts",
@@ -680,7 +750,7 @@ export default function ProfileReceiptsPage() {
       screenId: "gmail",
       title: "Receipts",
       purpose:
-        "This page shows your Gmail receipts, lets you sync new ones, and helps you save a simple shopping summary.",
+        "This page shows your Gmail receipts, lets you sync new ones, and automatically saves a private shopping summary to memory.",
       sections: [
         {
           id: "receipt_status",
@@ -690,9 +760,9 @@ export default function ProfileReceiptsPage() {
         },
         {
           id: "receipt_insights",
-          title: "Save insights",
+          title: "Shopping summary",
           purpose:
-            "This section creates and saves a simple shopping summary from your receipts.",
+            "This section creates and automatically saves a private shopping summary from your receipts.",
         },
         {
           id: "stored_receipts",
@@ -716,10 +786,10 @@ export default function ProfileReceiptsPage() {
         },
         {
           id: "pkm",
-          label: "PKM",
+          label: "Private memory",
           explanation:
-            "PKM is your private personal memory, where Kai can save summaries for you to reuse later.",
-          aliases: ["pkm", "personal knowledge model"],
+            "Private memory is where One can save summaries for you to reuse later.",
+          aliases: ["private memory", "personal memory"],
         },
       ],
       activeControlId: activeVoiceControlId,
@@ -732,23 +802,27 @@ export default function ProfileReceiptsPage() {
 
     return {
       surfaceDefinition,
-      activeSection: receiptMemoryArtifact
-        ? "Save insights"
+      activeSection: isConnected && receiptMemoryArtifact
+        ? "Shopping summary"
         : isSyncingState
           ? "Receipt status"
           : "Stored receipts",
       visibleModules,
       focusedWidget:
         activeControl?.label ||
-        (receiptMemoryArtifact ? "Shopping summary" : "Receipts list"),
+        (isConnected && receiptMemoryArtifact
+          ? "Shopping summary"
+          : "Receipts list"),
       modalState: showVaultUnlock ? "vault_unlock" : null,
       availableActions,
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
       busyOperations: [
         ...(syncing ? ["gmail_sync"] : []),
+        ...(gmailActionBusy === "connect" ? ["gmail_connect"] : []),
+        ...(gmailActionBusy === "disconnect" ? ["gmail_disconnect"] : []),
         ...(receiptMemoryLoading ? ["receipt_memory_preview"] : []),
-        ...(receiptMemorySaving ? ["receipt_memory_save"] : []),
+        ...(receiptMemorySaveState === "saving" ? ["receipt_memory_save"] : []),
         ...(loadingReceipts ? ["receipts_list_refresh"] : []),
       ],
       screenMetadata: {
@@ -772,8 +846,9 @@ export default function ProfileReceiptsPage() {
                 },
               )
             : null,
-        preview_available: Boolean(receiptMemoryArtifact),
-        preview_summary_editable: Boolean(receiptMemoryArtifact),
+        preview_available: Boolean(isConnected && receiptMemoryArtifact),
+        preview_summary_editable: false,
+        summary_persistence_state: receiptMemorySaveState,
         preview_stale: receiptMemoryArtifact?.freshness.is_stale || false,
         preview_stale_after_days:
           receiptMemoryArtifact?.freshness.stale_after_days || null,
@@ -792,11 +867,11 @@ export default function ProfileReceiptsPage() {
       },
     };
   }, [
-    canBuildReceiptMemoryPreview,
     connectorState,
     gmail.presentation.badgeLabel,
     gmail.status?.last_sync_error,
     gmail.syncRun,
+    gmailActionBusy,
     hasMore,
     activeVoiceControlId,
     isConnected,
@@ -805,11 +880,11 @@ export default function ProfileReceiptsPage() {
     latestSyncBadge,
     latestSyncText,
     loadingReceipts,
+    primaryActionLabel,
     receiptMemoryArtifact,
     receiptMemoryLoading,
-    receiptMemorySaving,
+    receiptMemorySaveState,
     statusSummary.detail,
-    showDisconnectedNotice,
     showVaultUnlock,
     syncing,
     total,
@@ -821,7 +896,7 @@ export default function ProfileReceiptsPage() {
       return;
     }
     toast.info(
-      "Create and unlock your vault from Profile before saving receipt memory.",
+      "Create and unlock your vault from Profile before receipt summaries can be saved to memory.",
     );
   }, [hasVault]);
 
@@ -838,8 +913,9 @@ export default function ProfileReceiptsPage() {
           userId: user.uid,
           forceRefresh,
         });
+        setReceiptMemorySaveState("idle");
         setReceiptMemoryArtifact(artifact);
-        setReceiptMemoryMessage("Your shopping summary is ready to review.");
+        setReceiptMemoryMessage("Saving your shopping summary to memory...");
       } catch (error) {
         console.error(
           "[ProfileReceiptsPage] Failed to build receipt summary:",
@@ -859,17 +935,6 @@ export default function ProfileReceiptsPage() {
   );
 
   usePublishVoiceSurfaceMetadata(receiptsVoiceSurfaceMetadata);
-
-  useEffect(() => {
-    setReceiptSummaryDraft(
-      receiptMemoryArtifact?.candidate_pkm_payload.receipts_memory
-        .readable_summary.text || "",
-    );
-  }, [
-    receiptMemoryArtifact?.artifact_id,
-    receiptMemoryArtifact?.candidate_pkm_payload.receipts_memory
-      .readable_summary.text,
-  ]);
 
   useEffect(() => {
     if (
@@ -900,112 +965,114 @@ export default function ProfileReceiptsPage() {
     receiptMemoryLoading,
   ]);
 
-  const handleSaveReceiptMemory = useCallback(async () => {
-    if (!user?.uid || !receiptMemoryArtifact) return;
-    if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
-      requestVaultUnlock();
-      return;
-    }
+  const persistReceiptMemory = useCallback(
+    async (artifact: ReceiptMemoryArtifact) => {
+      if (!user?.uid) return;
+      if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
+        setReceiptMemorySaveState("error");
+        setReceiptMemoryMessage(
+          "Unlock your vault to save this summary to memory.",
+        );
+        return;
+      }
 
-    setReceiptMemorySaving(true);
-    setReceiptMemoryMessage(null);
-    try {
-      const artifactForSave = buildEditableReceiptMemoryArtifact(
-        receiptMemoryArtifact,
-        receiptSummaryDraft,
-      );
-      const existingContext =
-        await PkmDomainResourceService.prepareDomainWriteContext({
+      setReceiptMemorySaveState("saving");
+      setReceiptMemoryMessage("Saving your shopping summary to memory...");
+      try {
+        const existingContext =
+          await PkmDomainResourceService.prepareDomainWriteContext({
+            userId: user.uid,
+            domain: "shopping",
+            vaultKey,
+            vaultOwnerToken,
+          });
+        if (
+          existingContext.domainData &&
+          hasMatchingReceiptMemoryProvenance(
+            existingContext.domainData,
+            artifact,
+          )
+        ) {
+          setReceiptMemorySaveState("saved");
+          setReceiptMemoryMessage(
+            "Your shopping summary is saved to your private memory.",
+          );
+          return;
+        }
+
+        const result = await PkmWriteCoordinator.savePreparedDomain({
           userId: user.uid,
           domain: "shopping",
           vaultKey,
           vaultOwnerToken,
-        });
-      if (
-        existingContext.domainData &&
-        hasMatchingReceiptMemoryProvenance(
-          existingContext.domainData,
-          artifactForSave,
-        )
-      ) {
-        setReceiptMemoryMessage("Your saved insights are already up to date.");
-        toast.message("Your saved insights are already up to date.");
-        return;
-      }
-
-      const result = await PkmWriteCoordinator.savePreparedDomain({
-        userId: user.uid,
-        domain: "shopping",
-        vaultKey,
-        vaultOwnerToken,
-        confirmation: {
-          confirmedByUser: true,
-          surface: "web",
-          source: "gmail_receipt_memory_save_button",
-        },
-        build: async (context) => {
-          const prepared = buildShoppingReceiptMemoryPreparedDomain({
-            currentDomainData: context.currentDomainData,
-            currentManifest: context.currentManifest,
-            artifact: artifactForSave,
-          });
-          const validation =
-            await PersonalKnowledgeModelService.validatePreparedDomainStore({
-              userId: user.uid,
-              vaultKey,
-              vaultOwnerToken,
-              domain: "shopping",
-              domainData: prepared.domainData,
-              summary: prepared.summary,
-              manifest: prepared.manifest,
-              structureDecision: prepared.structureDecision,
-              baseFullBlob: context.baseFullBlob,
-              expectedDataVersion:
-                context.currentEncryptedDomain?.dataVersion ??
-                context.expectedDataVersion,
-              upgradeContext: context.upgradeContext,
+          // Required by the write-coordinator's confirmation-gated mutation
+          // contract (branch): explicit user confirmation provenance for
+          // this save action.
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "gmail_receipt_memory_save_button",
+          },
+          build: async (context) => {
+            const prepared = buildShoppingReceiptMemoryPreparedDomain({
+              currentDomainData: context.currentDomainData,
+              currentManifest: context.currentManifest,
+              artifact,
             });
-          if (!validation.success) {
-            throw new Error(
-              validation.message ||
-                "Failed to validate receipt memory for PKM.",
-            );
-          }
-          return prepared;
-        },
-      });
+            const validation =
+              await PersonalKnowledgeModelService.validatePreparedDomainStore({
+                userId: user.uid,
+                vaultKey,
+                vaultOwnerToken,
+                domain: "shopping",
+                domainData: prepared.domainData,
+                summary: prepared.summary,
+                manifest: prepared.manifest,
+                structureDecision: prepared.structureDecision,
+                baseFullBlob: context.baseFullBlob,
+                expectedDataVersion:
+                  context.currentEncryptedDomain?.dataVersion ??
+                  context.expectedDataVersion,
+                upgradeContext: context.upgradeContext,
+              });
+            if (!validation.success) {
+              throw new Error("Failed to validate receipt memory.");
+            }
+            return prepared;
+          },
+        });
 
-      if (!result.success) {
-        throw new Error(
-          result.message || "Failed to save receipt memory to PKM.",
+        if (!result.success) {
+          throw new Error("Failed to save receipt memory.");
+        }
+        setReceiptMemorySaveState("saved");
+        setReceiptMemoryMessage(
+          "Your shopping summary is saved to your private memory.",
         );
+      } catch (error) {
+        console.error(
+          "[ProfileReceiptsPage] Failed to save receipt insights:",
+          error,
+        );
+        const message = sanitizeGmailUserMessage(error, {
+          fallback:
+            "We couldn't save your shopping summary to memory. Sync receipts again to retry.",
+        });
+        setReceiptMemorySaveState("error");
+        setReceiptMemoryMessage(message);
+        toast.error(message);
       }
-      setReceiptMemoryArtifact(artifactForSave);
-      setReceiptMemoryMessage("Your shopping summary is saved.");
-      toast.success("Insights saved");
-    } catch (error) {
-      console.error(
-        "[ProfileReceiptsPage] Failed to save receipt insights:",
-        error,
-      );
-      const message = sanitizeGmailUserMessage(error, {
-        fallback:
-          "We couldn't save your insights right now. Please try again in a moment.",
-      });
-      setReceiptMemoryMessage(message);
-      toast.error(message);
-    } finally {
-      setReceiptMemorySaving(false);
-    }
-  }, [
-    isVaultUnlocked,
-    receiptMemoryArtifact,
-    receiptSummaryDraft,
-    requestVaultUnlock,
-    user,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
+    },
+    [isVaultUnlocked, user, vaultKey, vaultOwnerToken],
+  );
+
+  useEffect(() => {
+    if (!autoReceiptSaveKey || !receiptMemoryArtifact) return;
+    if (autoReceiptSaveKeyRef.current === autoReceiptSaveKey) return;
+
+    autoReceiptSaveKeyRef.current = autoReceiptSaveKey;
+    void persistReceiptMemory(receiptMemoryArtifact);
+  }, [autoReceiptSaveKey, persistReceiptMemory, receiptMemoryArtifact]);
 
   const handleLoadMore = useCallback(async () => {
     try {
@@ -1041,44 +1108,42 @@ export default function ProfileReceiptsPage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="One / Gmail"
           title="Receipts"
           description={pageTitle}
           actions={
-            <Button
-              onClick={() =>
-                isConnected
-                  ? void handleSyncNow()
-                  : router.push(ROUTES.PROFILE_GMAIL)
-              }
-              disabled={
-                isConnected ? syncing : gmail.status?.configured === false
-              }
-              className="min-w-[140px]"
-              data-voice-control-id={
-                isConnected ? "sync_gmail_receipts" : "open_gmail_connector"
-              }
-              data-voice-action-id={
-                isConnected
-                  ? "profile.gmail.sync_now"
-                  : "route.profile_gmail_panel"
-              }
-              data-voice-label={primaryActionLabel}
-              data-voice-purpose={
-                isConnected
-                  ? "starts or refreshes Gmail receipt sync."
-                  : "opens the Gmail connector so you can connect Gmail."
-              }
-            >
-              {syncing || (!isConnected && loadingStatus) ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : isConnected ? (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              ) : (
-                <Mail className="mr-2 h-4 w-4" />
-              )}
-              {primaryActionLabel}
-            </Button>
+            isConnected ? (
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Button
+                  onClick={() => void handleSyncNow()}
+                  disabled={syncing || gmailActionBusy !== null}
+                  className="min-w-[150px]"
+                  data-voice-control-id="sync_gmail_receipts"
+                  data-voice-action-id="profile.gmail.sync_now"
+                  data-voice-label={primaryActionLabel}
+                  data-voice-purpose="starts or refreshes Gmail receipt sync."
+                >
+                  {syncing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  {primaryActionLabel}
+                </Button>
+                <Button
+                  variant="destructive"
+                  effect="fade"
+                  onClick={() => setShowDisconnectConfirm(true)}
+                  disabled={syncing || gmailActionBusy !== null}
+                  className="min-w-[150px]"
+                  data-voice-control-id="disconnect_gmail"
+                  data-voice-label="Disconnect Gmail"
+                  data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Disconnect
+                </Button>
+              </div>
+            ) : null
           }
         />
       </AppPageHeaderRegion>
@@ -1124,22 +1189,64 @@ export default function ProfileReceiptsPage() {
                 behind for a bit.
               </p>
             ) : null}
+            {!isConnected && !loadingStatus ? (
+              <div className="flex flex-col items-center justify-center gap-2 pt-2 sm:flex-row">
+                <Button
+                  onClick={() => void handleConnectGmail()}
+                  disabled={gmailActionBusy !== null}
+                  className="h-12 w-full px-8 text-base shadow-lg sm:w-auto sm:min-w-[260px]"
+                  data-voice-control-id="open_gmail_connector"
+                  data-voice-label={primaryActionLabel}
+                  data-voice-purpose="starts Gmail connection or reconnection from this receipts page."
+                >
+                  {gmailActionBusy === "connect" ? (
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  ) : (
+                    <Mail className="mr-2 h-5 w-5" />
+                  )}
+                  {primaryActionLabel}
+                </Button>
+                {hasKnownGmailAccount ? (
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    onClick={() => setShowDisconnectConfirm(true)}
+                    disabled={gmailActionBusy !== null}
+                    className="h-12 w-full px-8 text-base sm:w-auto"
+                    data-voice-control-id="disconnect_gmail"
+                    data-voice-label="Disconnect Gmail"
+                    data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Disconnect
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </SurfaceInset>
 
-          {isConnected ? <GmailChatPanel vaultOwnerToken={vaultOwnerToken} /> : null}
+          {isConnected ? (
+            <GmailChatPanel vaultOwnerToken={vaultOwnerToken} />
+          ) : null}
 
-          <GmailNudgesSection
-            userId={user?.uid || null}
-            vaultOwnerToken={vaultOwnerToken}
-            isConnected={isConnected}
-            idTokenProvider={user?.getIdToken ? () => user.getIdToken() : null}
-          />
+          {isConnected ? (
+            <GmailNudgesSection
+              userId={user?.uid || null}
+              vaultOwnerToken={vaultOwnerToken}
+              isConnected
+              idTokenProvider={
+                user?.getIdToken ? () => user.getIdToken() : null
+              }
+            />
+          ) : null}
 
-          <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+          {isConnected ? (
+            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
             <div className="space-y-1">
-              <p className="font-medium text-foreground">Save insights</p>
+              <p className="font-medium text-foreground">Shopping summary</p>
               <p className="text-muted-foreground">
-                Review and edit your shopping summary before you save it.
+                Generated from your synced receipts and saved automatically to
+                your private memory.
               </p>
             </div>
 
@@ -1156,7 +1263,13 @@ export default function ProfileReceiptsPage() {
                   <Badge variant="secondary">
                     {receiptMemoryArtifact.freshness.is_stale
                       ? "Needs refresh"
-                      : "Ready to save"}
+                      : receiptMemorySaveState === "saving"
+                        ? "Saving memory"
+                        : receiptMemorySaveState === "saved"
+                          ? "Saved to memory"
+                          : receiptMemorySaveState === "error"
+                            ? "Save failed"
+                            : "Preparing"}
                   </Badge>
                   <Badge variant="outline">
                     {
@@ -1167,24 +1280,17 @@ export default function ProfileReceiptsPage() {
                   </Badge>
                 </div>
 
-                <label htmlFor="receipt-summary-draft" className="space-y-2">
-                  <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     Shopping summary
-                  </span>
-                  <textarea
-                    id="receipt-summary-draft"
-                    value={receiptSummaryDraft}
-                    onChange={(event) =>
-                      setReceiptSummaryDraft(event.target.value)
+                  </p>
+                  <p className="min-h-[96px] whitespace-pre-wrap rounded-xl border border-border/70 bg-background px-3 py-3 text-sm leading-6 text-foreground">
+                    {
+                      receiptMemoryArtifact.candidate_pkm_payload
+                        .receipts_memory.readable_summary.text
                     }
-                    rows={5}
-                    className="min-h-[128px] w-full resize-y rounded-xl border border-border/70 bg-background px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/80 focus:border-foreground/20"
-                    placeholder="Your shopping summary will appear here."
-                    data-voice-control-id="edit_receipts_summary"
-                    data-voice-label="Shopping summary"
-                    data-voice-purpose="edits the shopping summary before you save it."
-                  />
-                </label>
+                  </p>
+                </div>
 
                 {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory
                   .readable_summary.highlights.length > 0 ? (
@@ -1208,30 +1314,6 @@ export default function ProfileReceiptsPage() {
               </div>
             ) : null}
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => void handleSaveReceiptMemory()}
-                disabled={
-                  !receiptMemoryArtifact ||
-                  !receiptSummaryDraftTrimmed ||
-                  receiptMemorySaving
-                }
-                variant="none"
-                effect="fade"
-                data-voice-control-id="save_receipts_memory"
-                data-voice-action-id="profile.receipts_memory.save"
-                data-voice-label="Save insights"
-                data-voice-purpose="saves the current shopping summary into your personal memory."
-              >
-                {receiptMemorySaving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : !vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
-                  <Lock className="mr-2 h-4 w-4" />
-                ) : null}
-                Save insights
-              </Button>
-            </div>
-
             {!canBuildReceiptMemoryPreview ? (
               <p className="text-xs text-muted-foreground">
                 Sync receipts first to create a shopping summary.
@@ -1244,7 +1326,7 @@ export default function ProfileReceiptsPage() {
             ) : null}
             {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
               <p className="text-xs text-muted-foreground">
-                Unlock your vault to save this summary.
+                Unlock your vault to create and save this summary to memory.
               </p>
             ) : null}
             {receiptMemoryMessage ? (
@@ -1252,12 +1334,6 @@ export default function ProfileReceiptsPage() {
                 {receiptMemoryMessage}
               </p>
             ) : null}
-          </SurfaceInset>
-
-          {loadingStatus ? (
-            <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading Gmail connector status...
             </SurfaceInset>
           ) : null}
 
@@ -1298,19 +1374,6 @@ export default function ProfileReceiptsPage() {
             </SurfaceInset>
           ) : null}
 
-          {gmail.status?.configured === false && !loadingStatus ? (
-            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-              Gmail receipts are not configured in this environment yet.
-            </SurfaceInset>
-          ) : null}
-
-          {showDisconnectedNotice ? (
-            <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-              Gmail is currently disconnected. Your previously synced receipts
-              stay available below, but Sync now is disabled until you
-              reconnect.
-            </SurfaceInset>
-          ) : null}
           {isConnected && !hasSealedReceiptAccess && !loadingStatus ? (
             <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2 text-foreground">
@@ -1348,7 +1411,12 @@ export default function ProfileReceiptsPage() {
               columns={receiptColumns}
               data={receipts}
               searchKey="merchant_name"
-              globalSearchKeys={["merchant_name", "from_name", "subject", "order_id"]}
+              globalSearchKeys={[
+                "merchant_name",
+                "from_name",
+                "subject",
+                "order_id",
+              ]}
               searchPlaceholder="Search receipts"
               initialPageSize={8}
               pageSizeOptions={[8, 16, 24]}
@@ -1382,13 +1450,45 @@ export default function ProfileReceiptsPage() {
           open={showVaultUnlock}
           onOpenChange={setShowVaultUnlock}
           title="Unlock vault"
-          description="Unlock your vault before saving receipt memory into PKM."
+          description="Unlock your vault to create and save receipt summaries to memory."
           onSuccess={() => {
             setShowVaultUnlock(false);
             toast.success("Vault unlocked.");
           }}
         />
       ) : null}
+      <AlertDialog
+        open={showDisconnectConfirm}
+        onOpenChange={setShowDisconnectConfirm}
+      >
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops future Gmail receipt sync. Receipts already saved in
+              your account stay available on this page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel disabled={gmailActionBusy === "disconnect"}>
+              Keep connected
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={gmailActionBusy === "disconnect"}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDisconnectGmail();
+              }}
+            >
+              {gmailActionBusy === "disconnect" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Disconnect Gmail
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppPageShell>
   );
 }

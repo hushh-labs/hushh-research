@@ -358,7 +358,12 @@
       "route": "/connect",
       "page_file": "app/connect/page.tsx",
       "physical_page_exists": true,
-      "route_contract": null,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Standalone people-connection route intentionally bypasses the signed-in app shell while still exposing its own native test beacon.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/connect",
         "classification": "native-required-functional",
@@ -1480,8 +1485,6 @@
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.sync_now",
-        "profile.receipts_memory.preview",
-        "profile.receipts_memory.save",
         "route.profile_receipts"
       ],
       "api_dependencies": [],
@@ -2650,16 +2653,10 @@
       "page_file": "app/profile/gmail/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ]
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
       },
       "native": {
         "route": "/profile/gmail",
@@ -2691,16 +2688,10 @@
       "page_file": "app/profile/gmail/actions/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ]
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
       },
       "native": {
         "route": "/profile/gmail/actions",
@@ -2732,16 +2723,10 @@
       "page_file": "app/profile/gmail/connection/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ]
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
       },
       "native": {
         "route": "/profile/gmail/connection",
@@ -3678,6 +3663,40 @@
         "ria.picks.start_edit_package",
         "ria.picks.upload_csv_replace_top_picks",
         "route.ria_picks"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/profile",
+      "page_file": "app/ria/profile/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/ria/profile",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fprofile",
+        "expectedMarker": "native-route-ria-profile",
+        "expectedRoute": "/ria/profile",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],

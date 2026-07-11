@@ -142,6 +142,22 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "trusted connections",
             "who do i trust",
             "people i trust",
+            # broader conversational cues — all require a connection/request
+            # qualifier so bare "accept"/"remove"/"connect" alone can't match
+            "connect me with",
+            "connect with",
+            "add a connection",
+            "my connections",
+            "who are my connections",
+            "list my connections",
+            "remove connection",
+            "remove from my connections",
+            "connection request",
+            "connection requests",
+            "accept request",
+            "reject request",
+            "decline request",
+            "pending connection",
         ),
     ),
     (

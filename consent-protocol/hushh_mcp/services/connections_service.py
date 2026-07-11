@@ -37,13 +37,22 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     return OneLocationAgentService().list_directory_candidates(owner_user_id=owner_user_id)
 
 
+def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
+    """Best-effort real push (deferred import keeps Firebase off the import path)."""
+    from hushh_mcp.services.push_notifications import send_connection_request_push
+
+    send_connection_request_push(addressee_user_id, requester_user_id)
+
+
 class ConnectionsService:
     def __init__(
         self,
         *,
         directory_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
+        notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
+        self._notifier = notifier if notifier is not None else _default_notifier
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -138,6 +147,11 @@ class ConnectionsService:
             """,
             {"requester": requester_user_id, "addressee": target, "message": message},
         )
+        # Best-effort: nudge the addressee's client so the new request appears
+        # without a manual "refresh consents". Only on a genuinely NEW insert
+        # (the idempotent-existing path above returns before reaching here), and
+        # never blocking or failing the write.
+        self._notify_new_request(target, requester_user_id)
         return {
             "id": (row or {}).get("id"),
             "requesterUserId": requester_user_id,
@@ -150,6 +164,19 @@ class ConnectionsService:
     @staticmethod
     def _canonical_pair(x: str, y: str) -> tuple[str, str]:
         return (x, y) if x < y else (y, x)
+
+    def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
+        """Fire the (best-effort) addressee nudge. Never raises."""
+        notifier = getattr(self, "_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                addressee_user_id=addressee_user_id,
+                requester_user_id=requester_user_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_failed error=%s", exc)
 
     def _load_request(self, request_id: str) -> dict[str, Any]:
         row = self._execute_one(

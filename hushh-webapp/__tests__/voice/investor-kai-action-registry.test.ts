@@ -131,13 +131,10 @@ describe("investor-kai-action-registry", () => {
 
     expect(
       INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.preview")
-        ?.expectedEffects.backendEffects
-    ).toEqual([
-      {
-        api: "POST /api/kai/gmail/receipts-memory/preview (proxied)",
-        effect: "Builds or refreshes the receipts memory artifact preview.",
-      },
-    ]);
+    ).toBeUndefined();
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.save")
+    ).toBeUndefined();
 
     expect(
       INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.disconnect")
@@ -162,9 +159,9 @@ describe("investor-kai-action-registry", () => {
 
   it("lists surface-specific actions for Gmail and PKM routes", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
-      screen: "profile_gmail_panel",
-      href: "/profile/gmail",
-      pathname: "/profile/gmail",
+      screen: "gmail",
+      href: "/one/gmail",
+      pathname: "/one/gmail",
     }).map((action) => action.id);
 
     expect(gmailActions).toEqual(

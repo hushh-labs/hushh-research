@@ -100,7 +100,7 @@ async def test_handle_translates_delegate_selection_into_selection_result():
             "delegate_agent_id": "agent_connections",
             "kind": "selection",
             "status": "answered",
-            "selected": [{"trustedUserId": "u1", "label": "Alice Rivera", "op": "add"}],
+            "selected": [{"op": "send_request", "addresseeUserId": "u1", "label": "Alice Rivera"}],
             "display": "Alice Rivera",
         },
         authority=_authority(),
@@ -108,7 +108,7 @@ async def test_handle_translates_delegate_selection_into_selection_result():
     result = await agent.handle(task)
     assert fake.calls[-1]["selection_result"] == {
         "status": "answered",
-        "selected": [{"trustedUserId": "u1", "label": "Alice Rivera", "op": "add"}],
+        "selected": [{"op": "send_request", "addresseeUserId": "u1", "label": "Alice Rivera"}],
         "display": "Alice Rivera",
     }
     assert result.text == "Added Alice Rivera to your trusted connections."

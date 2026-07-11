@@ -15,6 +15,7 @@ export function OnboardingShell({
   isFirstStep,
   isLastStep,
   advisoryAccessReady,
+  allowInvalidPress = false,
   onBack,
   onContinue,
   children,
@@ -29,10 +30,16 @@ export function OnboardingShell({
   isFirstStep: boolean;
   isLastStep: boolean;
   advisoryAccessReady: boolean;
+  // When true the Continue button stays pressable even if the step gate is not
+  // satisfied, so the page can run field-level validation (scroll to the first
+  // missing field + inline "fill this to continue") instead of a dead, silently
+  // disabled button. The page's onContinue decides whether to advance.
+  allowInvalidPress?: boolean;
   onBack: () => void;
   onContinue: () => void;
   children: ReactNode;
 }) {
+  const continueDisabled = saving || (!canContinue && !allowInvalidPress);
   return (
     <div className="flex w-full flex-col px-4 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-3">
       <div className="mx-auto flex w-full max-w-[43rem] flex-col">
@@ -89,11 +96,11 @@ export function OnboardingShell({
         <div className="pb-[calc(var(--bottom-chrome-stack-height,var(--app-screen-footer-pad))+0.75rem)] pt-7 sm:pt-8">
           <button
             type="button"
-            disabled={!canContinue || saving}
+            disabled={continueDisabled}
             onClick={onContinue}
             className={cn(
               "inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-[17px] font-semibold text-primary-foreground shadow-[0_12px_32px_rgba(0,113,227,0.22)] transition-opacity dark:shadow-none",
-              (!canContinue || saving) && "opacity-40 cursor-not-allowed"
+              continueDisabled && "opacity-40 cursor-not-allowed"
             )}
           >
             {saving ? (

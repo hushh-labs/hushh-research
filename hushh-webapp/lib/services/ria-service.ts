@@ -162,6 +162,11 @@ export interface RiaOnboardingStatus {
   business_pin_zip?: string | null;
   business_latitude?: number | null;
   business_longitude?: number | null;
+  bio?: string | null;
+  strategy?: string | null;
+  disclosures_url?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
   latest_verification_event?: {
     outcome: string;
     checked_at: string;
@@ -1536,6 +1541,54 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow(response);
+  }
+
+  // Self-service edit of an established advisor's profile. Unlike
+  // submitOnboarding this does NOT re-run licence/CRD verification and does not
+  // COALESCE-guard fields, so self-authored fields can be edited and cleared.
+  // Regulatory/identity fields (name/CRD/regulator/firm) are not writable here.
+  static async updateProfile(
+    idToken: string,
+    payload: {
+      display_name?: string;
+      bio?: string;
+      strategy?: string;
+      services_offered?: string[];
+      fee_structure?: string[];
+      min_engagement_amount?: number | null;
+      min_engagement_currency?: string;
+      certifications?: string[];
+      contact_email?: string;
+      contact_phone?: string;
+      business_city?: string;
+      business_area?: string;
+      business_address?: string;
+      business_pin_zip?: string;
+      business_latitude?: number | null;
+      business_longitude?: number | null;
+    },
+  ): Promise<RiaOnboardingStatus> {
+    const response = await authFetch("/api/ria/profile/update", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaOnboardingStatus>(response);
+  }
+
+  // Self-service deletion of the caller's RIA sub-agent profile. Auto-disconnects
+  // active clients (revokes consent), deletes the RIA profile + data, and drops
+  // the 'ria' persona — the investor/One account survives.
+  static async deleteProfile(
+    idToken: string,
+  ): Promise<{ deleted: boolean; remaining_personas: string[] }> {
+    const response = await authFetch("/api/ria/profile/delete", {
+      method: "POST",
+      idToken,
+    });
+    return toJsonOrThrow<{ deleted: boolean; remaining_personas: string[] }>(
+      response,
+    );
   }
 
   static async getHome(

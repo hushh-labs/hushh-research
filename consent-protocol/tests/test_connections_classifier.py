@@ -34,4 +34,26 @@ def test_general_chitchat_stays_general():
 def test_resolve_delegate_target_blocks_unwired_connections():
     from api.routes.kai.agent_chat import resolve_delegate_target
 
+    # The classifier routes connection phrasings to agent_connections, but on
+    # this branch the specialist stays UNWIRED until its callers construct
+    # ingress-validated A2AAuthorityContext objects (see adk_bridge.__init__:
+    # a raw One invocation token must never reach its ambient user-id service
+    # methods). resolve_delegate_target is fail-closed, so it returns None and
+    # the central planner path runs unchanged.
     assert resolve_delegate_target("add Alice to my trusted connections") is None
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "connect me with Priya",
+        "who are my connections",
+        "accept Priya's connection request",
+        "reject Sam's connection request",
+        "remove Alex from my connections",
+        "show my pending connection requests",
+    ],
+)
+def test_connection_phrasings_route_to_connections(msg):
+    domain, target = classify_specialist_domain(msg)
+    assert target == "agent_connections"

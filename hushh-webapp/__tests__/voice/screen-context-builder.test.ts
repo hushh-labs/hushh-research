@@ -284,30 +284,30 @@ describe("buildStructuredScreenContext", () => {
       surfaceDefinition: {
         screenId: "profile_receipts",
         title: "Gmail receipts",
-        purpose: "This page manages Gmail receipt sync and receipt memory import.",
+        purpose: "This page syncs receipts and saves a private shopping summary automatically.",
         sections: [
           {
             id: "receipt_memory",
-            title: "Receipt memory",
-            purpose: "This section previews receipt memory before saving it to PKM.",
+            title: "Shopping summary",
+            purpose: "This section shows the summary saved automatically to PKM.",
           },
         ],
         actions: [
           {
-            id: "profile.receipts_memory.preview",
-            label: "Refresh receipt memory",
-            purpose: "Refreshes the current receipt memory preview.",
-            voiceAliases: ["refresh receipt memory"],
+            id: "profile.gmail.sync_now",
+            label: "Sync receipts",
+            purpose: "Syncs Gmail receipts and refreshes the shopping summary.",
+            voiceAliases: ["sync receipts"],
           },
         ],
         controls: [
           {
-            id: "save_receipts_memory",
-            label: "Save receipts memory to PKM",
-            purpose: "Saves the current receipt memory preview into PKM.",
-            actionId: "profile.receipts_memory.save",
+            id: "sync_gmail_receipts",
+            label: "Sync receipts",
+            purpose: "Syncs Gmail receipts.",
+            actionId: "profile.gmail.sync_now",
             role: "button",
-            voiceAliases: ["save receipts memory"],
+            voiceAliases: ["sync receipts"],
           },
         ],
         concepts: [
@@ -319,12 +319,12 @@ describe("buildStructuredScreenContext", () => {
           },
         ],
       },
-      activeSection: "Receipt memory preview",
-      visibleModules: ["Connector status", "Receipt memory preview"],
-      availableActions: ["Refresh receipt memory", "Save receipts memory to PKM"],
-      busyOperations: ["receipt_memory_preview"],
-      activeControlId: "save_receipts_memory",
-      lastInteractedControlId: "save_receipts_memory",
+      activeSection: "Shopping summary",
+      visibleModules: ["Connector status", "Shopping summary"],
+      availableActions: ["Sync receipts"],
+      busyOperations: [],
+      activeControlId: "sync_gmail_receipts",
+      lastInteractedControlId: "sync_gmail_receipts",
       screenMetadata: {
         connector_state: "connected",
         receipt_count: 12,
@@ -336,34 +336,32 @@ describe("buildStructuredScreenContext", () => {
       voiceContext: {},
     });
 
-    expect(context.ui.active_section).toBe("Receipt memory preview");
+    expect(context.ui.active_section).toBe("Shopping summary");
     expect(context.ui.visible_modules).toEqual(
-      expect.arrayContaining(["Connector status", "Receipt memory preview"])
+      expect.arrayContaining(["Connector status", "Shopping summary"])
     );
-    expect(context.ui.available_actions).toEqual(
-      expect.arrayContaining(["Refresh receipt memory", "Save receipts memory to PKM"])
-    );
-    expect(context.runtime.busy_operations).toContain("receipt_memory_preview");
+    expect(context.ui.available_actions).toEqual(["Sync receipts"]);
+    expect(context.runtime.busy_operations).toEqual([]);
     expect(context.surface.title).toBe("Gmail receipts");
-    expect(context.surface.purpose).toContain("receipt memory import");
+    expect(context.surface.purpose).toContain("saves a private shopping summary");
     expect(context.surface.sections).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "receipt_memory",
-          title: "Receipt memory",
+          title: "Shopping summary",
         }),
       ])
     );
     expect(context.surface.controls).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "save_receipts_memory",
-          action_id: "profile.receipts_memory.save",
+          id: "sync_gmail_receipts",
+          action_id: "profile.gmail.sync_now",
         }),
       ])
     );
-    expect(context.surface.active_control_id).toBe("save_receipts_memory");
-    expect(context.surface.last_interacted_control_id).toBe("save_receipts_memory");
+    expect(context.surface.active_control_id).toBe("sync_gmail_receipts");
+    expect(context.surface.last_interacted_control_id).toBe("sync_gmail_receipts");
     expect(context.screen_metadata).toMatchObject({
       connector_state: "connected",
       receipt_count: 12,

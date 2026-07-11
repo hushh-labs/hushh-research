@@ -1,5 +1,6 @@
 export {
   initializeFCM,
+  prepareFCMListeners,
   getFCMToken,
   deleteFCMToken,
   clearDeliveredConsentNotifications,

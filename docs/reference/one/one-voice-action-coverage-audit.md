@@ -137,8 +137,6 @@ Action inventory:
 | `route.profile_receipts` | wired route `/profile/receipts` | Can open receipts memory page. |
 | `profile.gmail.connect` | unwired | Local Gmail connect handler only; confirmation required. |
 | `profile.gmail.sync_now` | unwired | Local receipts/Profile handlers only; confirmation required. |
-| `profile.receipts_memory.preview` | unwired | Local receipts page handler only. |
-| `profile.receipts_memory.save` | unwired | Local receipts page save only; manual-only. |
 | `profile.gmail.disconnect` | unwired | No global voice/action adapter; manual-only. |
 | `route.ria_home` | wired route `/ria` plus workflow | Can ask to switch to RIA persona, then route to `/ria`. |
 | `route.ria_onboarding` | wired route `/ria/onboarding` | Can navigate to RIA setup. |
