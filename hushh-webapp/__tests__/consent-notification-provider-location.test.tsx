@@ -227,38 +227,33 @@ describe("global One Location notification provider", () => {
     expect(mocks.startTask).toHaveBeenCalledTimes(1);
   });
 
-  it("promotes a silent push-active reconciliation to one live popup without duplicating the bell", async () => {
+  it("presents a push-active reconciliation once and deduplicates a later live push", async () => {
     mocks.getState.mockResolvedValue({
       ...EMPTY_LOCATION_STATE,
-      receivedGrants: [
+      requests: [
         {
-          id: "grant-race-1",
-          ownerUserId: "owner-user",
-          recipientUserId: "recipient-user",
-          ownerDisplayName: "Alex",
-          recipientKeyId: "key-1",
-          status: "active",
-          consentScope: "one.location",
-          capabilityScopes: [],
-          durationHours: 1,
-          shareKind: "share",
+          id: "request-race-1",
+          ownerUserId: "recipient-user",
+          requesterUserId: "requester-user",
+          requesterDisplayName: "Alex",
+          status: "pending",
         },
       ],
     });
 
     renderProvider();
     await waitFor(() => expect(mocks.getState).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
-    expect(mocks.toast).not.toHaveBeenCalled();
 
     act(() => {
       window.dispatchEvent(
         new CustomEvent("fcm-message", {
           detail: {
             data: {
-              type: "location_share_created",
-              grant_id: "grant-race-1",
-              owner_display_label: "Alex",
+              type: "location_access_request",
+              request_id: "request-race-1",
+              requester_display_label: "Alex",
             },
           },
         }),
@@ -267,6 +262,54 @@ describe("global One Location notification provider", () => {
 
     expect(mocks.toast).toHaveBeenCalledTimes(1);
     expect(mocks.startTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("presents a reconciliation once after a fetch finishes while the page is hidden", async () => {
+    const locationState = {
+      ...EMPTY_LOCATION_STATE,
+      requests: [
+        {
+          id: "request-visibility-race-1",
+          ownerUserId: "recipient-user",
+          requesterUserId: "requester-user",
+          requesterDisplayName: "Alex",
+          status: "pending",
+        },
+      ],
+    };
+    let resolveFirstState!: (state: typeof locationState) => void;
+    mocks.getState
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstState = resolve;
+          }),
+      )
+      .mockResolvedValue(locationState);
+    const visibilityState = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+
+    renderProvider();
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(1));
+
+    visibilityState.mockReturnValue("hidden");
+    await act(async () => {
+      resolveFirstState(locationState);
+    });
+    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+    expect(mocks.toast).not.toHaveBeenCalled();
+
+    visibilityState.mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => expect(mocks.getState).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledTimes(1));
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+
+    visibilityState.mockRestore();
   });
 
   it("keeps approval copy and the backend deep link without creating a second share entry", async () => {

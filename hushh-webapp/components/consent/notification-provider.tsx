@@ -679,12 +679,11 @@ export function ConsentNotificationProvider({
         silentlyReconciledOneLocationIdsRef.current.add(eventId);
         return;
       }
-      const canPresentReconciledEvent =
+      const canPresentSilentlyRecordedEvent =
         !created &&
         options.present !== false &&
-        options.source === "live" &&
         silentlyReconciledOneLocationIdsRef.current.delete(eventId);
-      if ((!created && !canPresentReconciledEvent) || options.present === false) return;
+      if ((!created && !canPresentSilentlyRecordedEvent) || options.present === false) return;
 
       const toastKey = `one-location-share:${grantId}`;
       const href = oneLocationPayloadRoute(
@@ -820,12 +819,11 @@ export function ConsentNotificationProvider({
         silentlyReconciledOneLocationIdsRef.current.add(eventId);
         return;
       }
-      const canPresentReconciledEvent =
+      const canPresentSilentlyRecordedEvent =
         !created &&
         options.present !== false &&
-        options.source === "live" &&
         silentlyReconciledOneLocationIdsRef.current.delete(eventId);
-      if ((!created && !canPresentReconciledEvent) || options.present === false) return;
+      if ((!created && !canPresentSilentlyRecordedEvent) || options.present === false) return;
 
       playOneLocationNotificationSound();
       const toastKey = `one-location-workflow:${msgType}:${id}`;
@@ -1341,8 +1339,10 @@ export function ConsentNotificationProvider({
       const vaultOwnerToken = getVaultOwnerToken();
       if (!vaultOwnerToken) return;
       const state = await OneLocationService.getState(vaultOwnerToken);
+      // Reconciliation is also the fallback for foreground pushes that never
+      // reach the page. The persistent event record keeps a later live push
+      // from presenting or creating a bell item twice.
       const shouldPresent =
-        deliveryMode !== "push_active" &&
         typeof document !== "undefined" &&
         document.visibilityState === "visible";
       const payloads = buildOneLocationNotificationPayloads(state, user.uid, {
@@ -1372,7 +1372,6 @@ export function ConsentNotificationProvider({
     oneLocationReconcilePromiseRef.current = request;
     return request;
   }, [
-    deliveryMode,
     fcmInitStatus,
     getVaultOwnerToken,
     isVaultUnlocked,
