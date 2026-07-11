@@ -77,6 +77,19 @@ describe("Top app bar responsive contract", () => {
     expect(dropdown).not.toContain("ShellActionSurface");
   });
 
+  it("renders the One home brand in the left slot without replacing Agents actions", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("const showOneHomeBrand");
+    expect(source).toContain("normalizedPathname === ROUTES.ONE_HOME");
+    expect(source).toContain("!topShellBreadcrumb");
+    expect(source).toContain('data-testid="top-app-bar-one-brand"');
+    expect(source).toContain("🤫 One");
+    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(source).toContain("<ConsentInboxDropdown");
+    expect(source).toContain("<DebateTaskCenter");
+  });
+
   it("uses primary header visibility for top-bar title handoff", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 

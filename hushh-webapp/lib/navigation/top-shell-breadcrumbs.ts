@@ -193,6 +193,7 @@ export function resolveTopShellBreadcrumb(
     [ROUTES.RIA_WORKSPACE, "Workspace"],
     [ROUTES.RIA_REQUESTS, "Requests"],
     [ROUTES.RIA_SETTINGS, "Settings"],
+    [ROUTES.RIA_PROFILE, "Profile"],
   ];
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {

@@ -233,6 +233,9 @@ export function resolveRiaActiveNav(
     return "dashboard";
   }
   if (normalizedPathname === ROUTES.AGENT) return "search";
+  if (isBottomNavRoute(normalizedPathname, ROUTES.RIA_PROFILE)) {
+    return "profile";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
   }
@@ -332,7 +335,10 @@ export function resolveBottomNavAction(
     case "picks":
       return { type: "route", href: ROUTES.RIA_PICKS };
     case "profile":
-      return { type: "route", href: ROUTES.PROFILE };
+      return {
+        type: "route",
+        href: scope === "ria" ? ROUTES.RIA_PROFILE : ROUTES.PROFILE,
+      };
     default:
       return { type: "none" };
   }

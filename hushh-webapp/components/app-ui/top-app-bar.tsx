@@ -499,6 +499,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
     isAuthenticated &&
     !showOnboardingActions &&
     normalizedPathname !== ROUTES.HOME;
+  const showOneHomeBrand =
+    normalizedPathname === ROUTES.ONE_HOME &&
+    !topShellBreadcrumb &&
+    !showOnboardingActions;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -665,8 +669,8 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                 style={{ width: "var(--top-bar-side-w)" }}
               >
-                <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-                  {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
+                {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
+                  <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                     <ShellActionSurface
                       variant="icon"
                       aria-label="Go back"
@@ -716,10 +720,30 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     >
                       <ArrowLeft className="h-5 w-5" />
                     </ShellActionSurface>
-                  ) : (
-                    <div className="h-10 w-10" aria-hidden />
-                  )}
-                </div>
+                  </div>
+                ) : showOneHomeBrand ? (
+                  <div
+                    data-testid="top-app-bar-one-brand"
+                    aria-label="🤫 One"
+                    className="pointer-events-none flex h-11 min-w-0 items-center justify-start gap-1.5 overflow-visible text-foreground"
+                  >
+                    <span
+                      aria-hidden
+                      className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[21px] leading-[1.25]"
+                      style={{
+                        fontFamily:
+                          '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji',
+                      }}
+                    >
+                      🤫
+                    </span>
+                    <span className="truncate font-[family-name:var(--font-app-display)] text-[16px] font-semibold leading-[1.15] tracking-normal">
+                      One
+                    </span>
+                  </div>
+                ) : (
+                  <div className="h-10 w-10" aria-hidden />
+                )}
               </div>
 
               {/* Title sits in the normal flex flow. On most routes the right

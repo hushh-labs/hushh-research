@@ -71,6 +71,7 @@ export const ROUTES = {
   RIA_REQUESTS: "/ria/requests",
   RIA_PICKS: "/ria/picks",
   RIA_SETTINGS: "/ria/settings",
+  RIA_PROFILE: "/ria/profile",
   KAI_HOME: "/one/kai",
   KAI_SETUP: "/one/setup/kai",
   KAI_IMPORT: "/one/kai/import",

@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 80,
-  "native_required_routes": 77,
+  "total_routes": 81,
+  "native_required_routes": 78,
   "excluded_routes": 3,
   "routes": [
     {
@@ -846,6 +846,19 @@
       "initialRoute": "/login?redirect=%2Fria%2Fonboarding",
       "expectedMarker": "native-route-ria-onboarding",
       "expectedRoute": "/ria/onboarding",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/ria/profile",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fprofile",
+      "expectedMarker": "native-route-ria-profile",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
