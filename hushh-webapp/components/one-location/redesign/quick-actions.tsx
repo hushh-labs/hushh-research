@@ -106,7 +106,7 @@ export function QuickActionCard({
           ? cn(
               "cursor-pointer hover:-translate-y-0.5 hover:border-[color:var(--app-card-border-standard)] active:translate-y-0 active:scale-[0.98]",
               palette.glow,
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d4a574]/40",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40",
             )
           : "cursor-not-allowed",
         comingSoon && "opacity-70",

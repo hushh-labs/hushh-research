@@ -172,7 +172,7 @@ export function DriveToFlow({
               setDestination(null);
             }}
             placeholder="Where are you headed?"
-            className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[#d4a574]/25"
+            className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[#007aff]/25"
           />
         </div>
 
@@ -193,9 +193,9 @@ export function DriveToFlow({
                 key={recent.placeId ?? recent.label}
                 type="button"
                 onClick={() => selectRecent(recent)}
-                className={cn(SUBCARD_SURFACE, "flex w-full items-center gap-3 p-3 text-left hover:border-[#d4a574]/40")}
+                className={cn(SUBCARD_SURFACE, "flex w-full items-center gap-3 p-3 text-left hover:border-[#007aff]/40")}
               >
-                <MapPin className="h-4 w-4 shrink-0 text-[#d4a574]" />
+                <MapPin className="h-4 w-4 shrink-0 text-[#007aff]" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                   {recent.label}
                 </span>
@@ -212,9 +212,9 @@ export function DriveToFlow({
                 key={suggestion.placeId}
                 type="button"
                 onClick={() => void selectSuggestion(suggestion.placeId, suggestion.text)}
-                className={cn(SUBCARD_SURFACE, "flex w-full items-center gap-3 p-3 text-left hover:border-[#d4a574]/40")}
+                className={cn(SUBCARD_SURFACE, "flex w-full items-center gap-3 p-3 text-left hover:border-[#007aff]/40")}
               >
-                <MapPin className="h-4 w-4 shrink-0 text-[#d4a574]" />
+                <MapPin className="h-4 w-4 shrink-0 text-[#007aff]" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                   {suggestion.text}
                 </span>
@@ -239,7 +239,7 @@ export function DriveToFlow({
       {/* YOUR LOCATION */}
       <section className={cn(CARD_SURFACE, "p-4")}>
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#d4a574]/12 text-[#d4a574]">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#007aff]/12 text-[#007aff]">
             <MapPin className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
@@ -288,8 +288,8 @@ export function DriveToFlow({
                   className={cn(
                     SUBCARD_SURFACE,
                     "flex w-full items-center gap-3 p-3 text-left transition-all duration-150",
-                    ready ? "hover:border-[#d4a574]/40 active:scale-[0.99]" : "cursor-not-allowed opacity-60",
-                    checked && "border-[#d4a574]/60 ring-1 ring-[#d4a574]/30",
+                    ready ? "hover:border-[#007aff]/40 active:scale-[0.99]" : "cursor-not-allowed opacity-60",
+                    checked && "border-[#007aff]/60 ring-1 ring-[#007aff]/30",
                   )}
                 >
                   <span
@@ -312,7 +312,7 @@ export function DriveToFlow({
                   <span
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] border-2 transition-colors",
-                      checked ? "border-[#d4a574] bg-[#d4a574] text-white" : "border-border bg-background",
+                      checked ? "border-[#007aff] bg-[#007aff] text-white" : "border-border bg-background",
                     )}
                   >
                     {checked ? <Check className="h-4 w-4" strokeWidth={3} /> : null}
@@ -345,8 +345,8 @@ export function DriveToFlow({
                 className={cn(
                   "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
                   active
-                    ? "border-[#d4a574] bg-[#d4a574] text-white"
-                    : "border-border/70 bg-background text-foreground hover:border-[#d4a574]/40",
+                    ? "border-[#007aff] bg-[#007aff] text-white"
+                    : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
                 )}
               >
                 {option.label}

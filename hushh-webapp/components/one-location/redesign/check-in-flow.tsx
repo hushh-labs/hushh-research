@@ -100,9 +100,9 @@ function ContactRow({
         SUBCARD_SURFACE,
         "flex w-full items-center gap-3 p-3 text-left transition-all duration-150",
         ready
-          ? "hover:border-[#d4a574]/40 active:scale-[0.99]"
+          ? "hover:border-[#007aff]/40 active:scale-[0.99]"
           : "cursor-not-allowed opacity-60",
-        checked && "border-[#d4a574]/60 ring-1 ring-[#d4a574]/30",
+        checked && "border-[#007aff]/60 ring-1 ring-[#007aff]/30",
       )}
     >
       <span
@@ -126,7 +126,7 @@ function ContactRow({
         className={cn(
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] border-2 transition-colors",
           checked
-            ? "border-[#d4a574] bg-[#d4a574] text-white"
+            ? "border-[#007aff] bg-[#007aff] text-white"
             : "border-border bg-background",
         )}
       >
@@ -205,7 +205,7 @@ export function CheckInFlow({
       {/* YOUR LOCATION */}
       <section className={cn(CARD_SURFACE, "p-4")}>
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#d4a574]/12 text-[#d4a574]">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#007aff]/12 text-[#007aff]">
             <MapPin className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
@@ -320,8 +320,8 @@ export function CheckInFlow({
                 className={cn(
                   "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
                   active
-                    ? "border-[#d4a574] bg-[#d4a574] text-white"
-                    : "border-border/70 bg-background text-foreground hover:border-[#d4a574]/40",
+                    ? "border-[#007aff] bg-[#007aff] text-white"
+                    : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
                 )}
               >
                 {option.label}
@@ -335,14 +335,14 @@ export function CheckInFlow({
           className={cn(
             "mt-3 flex w-full items-center gap-2 rounded-[12px] border px-3 py-2.5 text-left text-sm font-medium transition-colors",
             untilStop
-              ? "border-[#d4a574]/50 bg-[#d4a574]/10 text-foreground"
-              : "border-border/70 bg-background text-foreground hover:border-[#d4a574]/40",
+              ? "border-[#007aff]/50 bg-[#007aff]/10 text-foreground"
+              : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
           )}
         >
           <span
             className={cn(
               "flex h-5 w-5 items-center justify-center rounded-full border-2",
-              untilStop ? "border-[#d4a574] bg-[#d4a574]" : "border-border",
+              untilStop ? "border-[#007aff] bg-[#007aff]" : "border-border",
             )}
           >
             {untilStop ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
@@ -373,7 +373,7 @@ export function CheckInFlow({
           }
           rows={2}
           placeholder={DEFAULT_CHECK_IN_MESSAGE}
-          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none transition-shadow focus:ring-2 focus:ring-[#d4a574]/25"
+          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none transition-shadow focus:ring-2 focus:ring-[#007aff]/25"
         />
         <p className={cn(MUTED_TEXT, "mt-2")}>
           They&apos;ll see this with your name in the notification, so they know
