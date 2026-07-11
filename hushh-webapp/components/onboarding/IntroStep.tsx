@@ -47,8 +47,12 @@ export function IntroStep({
             Your personal agent
           </span>
 
+          {/* Sizing lives on h1.one-hero-title in globals.css: the global
+              foundation h1 lock uses !important in @layer base, which beats
+              Tailwind utilities AND inline styles, so the hero needs a
+              same-layer higher-specificity override. */}
           <h1
-            className="one-reveal mt-4 select-none font-[family-name:var(--font-app-display)] text-[clamp(64px,20vw,88px)] font-bold leading-[0.9] tracking-[-3.5px]"
+            className="one-hero-title one-reveal mt-4 select-none font-[family-name:var(--font-app-display)]"
             style={{ ["--seq-delay" as string]: "320ms" }}
           >
             <span className="one-molten font-[family-name:var(--font-app-display)]">
@@ -56,11 +60,13 @@ export function IntroStep({
             </span>
           </h1>
 
+          {/* Approved durable product line (docs/vision/agent-ontology.md
+              Founder Copy Rules; brand punchline). Not ad-hoc copy. */}
           <p
-            className="one-reveal mt-6 max-w-[20rem] text-[17px] leading-[1.45] text-[color:var(--foundation-ink)] dark:text-[#F7F3EA]"
+            className="one-reveal mt-6 max-w-[20rem] text-[19px] font-medium leading-[1.4] tracking-[-0.2px] text-[color:var(--foundation-ink)] dark:text-[#F7F3EA]"
             style={{ ["--seq-delay" as string]: "420ms" }}
           >
-            One agent for everything you own online, that answers only to you.
+            Your agents. Yours to own.
           </p>
 
           {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
@@ -99,10 +105,14 @@ export function IntroStep({
             fullWidth
             showRipple
             onClick={onLogin}
-            className="type-headline h-[56px] rounded-full border-0 bg-[color:var(--foundation-ink)] text-[16px] font-semibold text-[#FAF6EE] shadow-[0_12px_30px_-12px_rgba(23,19,12,0.45)] transition-[background,transform] hover:bg-[color:var(--foundation-ink)]/92 active:scale-[0.99] dark:bg-[#F7F3EA] dark:text-[#17130C] dark:shadow-[0_12px_30px_-12px_rgba(0,0,0,0.6)] dark:hover:bg-white"
+            // Theme-matching surface (same contract as the login provider
+            // buttons): light button in light mode, dark button in dark
+            // mode, definition from a hairline border + soft shadow instead
+            // of an inverted slab.
+            className="type-headline h-[56px] rounded-full border border-black/10 bg-white text-[16px] font-semibold text-[#17130C] shadow-[0_12px_30px_-12px_rgba(23,19,12,0.35)] transition-[background,transform] hover:bg-black/[0.03] active:scale-[0.99] dark:border-white/10 dark:bg-[#1c1c1e] dark:text-[#F7F3EA] dark:shadow-[0_12px_30px_-12px_rgba(0,0,0,0.6)] dark:hover:bg-[#26262a]"
           >
             <span className="inline-flex items-center gap-2">
-              Open your vault
+              Claim your One
               <span aria-hidden>&rarr;</span>
             </span>
           </Button>

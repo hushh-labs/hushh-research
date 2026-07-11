@@ -20,7 +20,7 @@ import React, {
   type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, Moon, Sun, X } from "lucide-react";
+import { AudioLines, MessageCircle, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
@@ -793,18 +793,31 @@ export function AgentBar() {
       </button>
     </>
   ) : (
+    // Signed-in: same anatomy as the onboarding greeter (voice-first row on
+    // the left, one quiet action chip on the right) so the bar reads as ONE
+    // canonical control across the app. The right slot swaps by lifecycle:
+    // theme toggle during onboarding, agent-chat message icon once onboarded.
     <>
       <button
         type="button"
-        data-testid="one-voice-agent-bar-start"
-        onClick={openAgentChat}
-        aria-label={`Open Agent Chat. ${hint}`}
-        title="Open Agent Chat"
+        data-native-voice-control-id="one_voice_agent_bar_start"
+        data-testid="one-voice-agent-bar-start-icon"
+        onClick={handleVoiceStartClick}
+        aria-label="Start conversation"
+        title="Start conversation"
         className={cn(
-          "relative flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-full pl-1 text-left",
+          "relative flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-full pl-2 text-left",
           "transition-colors duration-200",
         )}
       >
+        <span
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong",
+            onDashboard && "text-accent-strong",
+          )}
+        >
+          <AudioLines className="h-[18px] w-[18px]" />
+        </span>
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-[14px] font-medium",
@@ -817,22 +830,17 @@ export function AgentBar() {
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
+      {/* Agent chat, right-aligned chip in the same slot the theme toggle
+          occupies during onboarding. */}
       <button
         type="button"
-        data-native-voice-control-id="one_voice_agent_bar_start"
-        data-testid="one-voice-agent-bar-start-icon"
-        onClick={handleVoiceStartClick}
-        aria-label="Start conversation"
-        title="Start conversation"
-        className={cn(
-          "relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full",
-          "bg-black/[0.05] text-accent-strong ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
-          onDashboard && "text-accent-strong",
-          "transition-[background-color] duration-200",
-          "hover:bg-black/[0.08] dark:hover:bg-white/[0.1]",
-        )}
+        data-testid="one-voice-agent-bar-start"
+        onClick={openAgentChat}
+        aria-label={`Open Agent Chat. ${hint}`}
+        title="Open Agent Chat"
+        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
       >
-        <AudioLines className="h-[18px] w-[18px]" />
+        <MessageCircle className="h-[17px] w-[17px]" />
         <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
@@ -895,29 +903,27 @@ export function AgentBar() {
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // Refined frosted pill: a soft top-lit surface (not a flat white
-          // slab), a hairline ring, a faint inner highlight, and layered
-          // elevation so it feels like a crafted control sitting on glass.
-          "backdrop-blur-xl backdrop-saturate-150",
-          "bg-[linear-gradient(180deg,rgba(255,255,255,0.92)_0%,rgba(255,255,255,0.8)_100%)] text-[#17130C] ring-1 ring-black/[0.06]",
-          "shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_10px_30px_-10px_rgba(23,19,12,0.35)]",
-          "dark:bg-[linear-gradient(180deg,rgba(40,40,44,0.94)_0%,rgba(28,28,30,0.9)_100%)] dark:text-[#f5f5f7] dark:ring-white/[0.1]",
-          "dark:shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_30px_-10px_rgba(0,0,0,0.6)]",
+          // CANONICAL agent surface: the exact material of the opened agent
+          // window (agent-popover-provider shell: white/95 + blur-xl +
+          // shadow-2xl, dark #1c1c1e/95), so bar and window read as one
+          // continuous object. No idle glow.
+          "backdrop-blur-xl",
+          "bg-white/95 text-[#1d1d1f] shadow-2xl",
+          "dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
         )}
       >
-        {/* Edge glow behind the pill: a STILL soft gold rim at rest; it only
-            breathes to life while a live conversation is active, so motion
-            always means something (no idle spinning). */}
-        <span
-          aria-hidden
-          className={cn(
-            "one-bar-aurora -z-10 transition-opacity duration-500",
-            conversationActive && "one-bar-aurora--active",
-          )}
-        />
+        {/* Aurora rim only while a live conversation is active, so motion
+            always means something. No resting glow: at rest the bar is the
+            same quiet material as the agent window. */}
+        {conversationActive ? (
+          <span
+            aria-hidden
+            className="one-bar-aurora one-bar-aurora--active -z-10 transition-opacity duration-500"
+          />
+        ) : null}
         {pillContents}
       </div>
     </div>

@@ -1434,16 +1434,22 @@ html.native-ios {
 }
 
 /* ── Molten-gold foil text ── clipped liquid-metal sheen, slowly panned.
-   NOTE: display:inline-block + generous line-height + tiny vertical padding so
-   background-clip:text never crops tall glyphs at tight tracking. */
+   NOTE: display:inline-block + generous line-height + real padding so
+   background-clip:text never crops glyphs at tight tracking; the negative
+   right margin compensates the extra advance the padding adds so the word
+   still centers optically.
+   Light-mode gradient stays MID-TONE ONLY: on the near-white pearl hero any
+   near-white highlight stop makes the panning sheen vanish entirely, so the
+   brightest stop is capped at a readable gold. */
 .one-molten {
   display: inline-block;
-  line-height: 1.16;
-  padding: 0.06em 0.04em;
+  line-height: 1.24;
+  padding: 0.1em 0.08em;
+  margin: -0.06em -0.04em;
   background-image: linear-gradient(
     98deg,
-    #7a4d1c 0%, #a9702f 12%, #d9a94e 26%, #f6dc9c 40%,
-    #fff6e0 50%, #f6dc9c 60%, #d9a94e 74%, #a9702f 88%, #7a4d1c 100%
+    #6d431a 0%, #96622a 12%, #c08b3e 26%, #dcae59 40%,
+    #eccb7f 50%, #dcae59 60%, #c08b3e 74%, #96622a 88%, #6d431a 100%
   );
   background-size: 300% 100%;
   background-position: 0% 50%;
@@ -1976,6 +1982,19 @@ html.native-ios {
     line-height: var(--foundation-title1-line) !important;
     font-weight: var(--foundation-title1-weight) !important;
     letter-spacing: var(--foundation-title1-tracking);
+  }
+
+  /* Onboarding hero "One": the single sanctioned display-scale exception to
+     the foundation h1 lock above. Same layer + higher specificity + important
+     so it deterministically wins over the base h1 rule (which also beats
+     Tailwind arbitrary utilities and inline styles). Generous line-height:
+     the word is painted by .one-molten's background-clip:text, which crops
+     glyphs when the line box is tight at -3.5px tracking. */
+  h1.one-hero-title {
+    font-size: clamp(64px, 20vw, 88px) !important;
+    line-height: 1.1 !important;
+    font-weight: 700 !important;
+    letter-spacing: -3.5px;
   }
 
   h2 {

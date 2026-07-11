@@ -43,14 +43,15 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/user-cancelled",
 ]);
 
-// Provider-button treatments follow the theme variants: in light mode Apple is
-// black-on-white text and Google is a bordered white; in dark mode both invert
-// to a white surface with black text so they read on the dark hero. Reviewer
-// stays a quiet outlined tertiary in both themes.
+// Provider-button treatments MATCH the theme (light surfaces in light mode,
+// dark surfaces in dark mode) so the sheet reads as one coherent material:
+// Apple/Google are white cards with ink text on the light sheet, and deep
+// charcoal cards with light text on the dark sheet. Reviewer stays a quiet
+// outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-[#0A0908] !text-[#FAF6EE] shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:!bg-black dark:!bg-white dark:!text-[#0A0908] dark:ring-1 dark:ring-white/10";
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-white dark:!text-[#17130C] dark:border-white/15";
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
@@ -647,14 +648,12 @@ export function AuthStep({
       <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
         {/* Hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          {/* Quiet mark inside a soft glass medallion (matches the welcome
-              constellation center) with a gentle accent glow. */}
+          {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
+              chrome (badge circle removed by design). */}
           <div className="relative flex h-[92px] w-[92px] items-center justify-center" aria-hidden="true">
             <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-            <span className="relative grid h-[84px] w-[84px] place-items-center rounded-full border border-white/70 bg-white/70 shadow-[0_12px_34px_-12px_rgba(23,19,12,0.4)] backdrop-blur-md dark:border-white/10 dark:bg-white/[0.08]">
-              <span className="select-none text-[42px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
-                🤫
-              </span>
+            <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+              🤫
             </span>
           </div>
           <h1
