@@ -2,15 +2,10 @@
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "gmail",
   "surface_title": "Gmail",
-  "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
-  ],
+  "docs_references": ["docs/reference/kai/kai-action-gateway-vnext.md"],
   "defaults": {
     "reachability": {
-      "active_personas": [
-        "investor",
-        "ria"
-      ]
+      "active_personas": ["investor", "ria"]
     }
   },
   "actions": [
@@ -18,21 +13,11 @@
       "action_id": "route.profile_receipts",
       "label": "Open Receipts Page",
       "meaning": "Navigates directly to receipts page from any investor surface.",
-      "aliases": [
-        "open receipts",
-        "open gmail receipts"
-      ],
-      "search_keywords": [
-        "receipts",
-        "gmail receipts"
-      ],
+      "aliases": ["open receipts", "open gmail receipts"],
+      "search_keywords": ["receipts", "gmail receipts"],
       "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
+        "routes": ["/one/gmail"],
+        "screens": ["gmail"],
         "hidden_navigable": true,
         "navigation_prerequisites": [
           "navigate to Gmail surface if route is currently outside Gmail scope"
@@ -46,12 +31,11 @@
         "path": "route",
         "target": "/one/gmail"
       },
-      "control_ids": [
-        "top_agent_section_gmail"
-      ],
+      "control_ids": ["top_agent_section_gmail"],
       "state_exposure": [],
       "docs_references": [
-        "app/gmail/page.tsx"
+        "app/one/gmail/page.tsx",
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "expected_effects": {
         "backend_effects": [
@@ -71,42 +55,25 @@
       "action_id": "profile.gmail.connect",
       "label": "Connect Gmail",
       "meaning": "Starts OAuth flow for Gmail receipts connector.",
-      "aliases": [
-        "connect gmail",
-        "link gmail"
-      ],
-      "search_keywords": [
-        "gmail connect",
-        "gmail"
-      ],
+      "aliases": ["connect gmail", "link gmail"],
+      "search_keywords": ["gmail connect", "gmail"],
       "reachability": {
-        "routes": [
-          "/profile",
-          "/profile/gmail"
-        ],
-        "screens": [
-          "profile_gmail_panel"
-        ],
+        "routes": ["/one/gmail"],
+        "screens": ["gmail"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": [
-        "gmail_configured"
-      ],
+      "guard_ids": ["gmail_configured"],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
         "status": "unwired",
-        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
-        "intended_handler": "router.push"
+        "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
+        "intended_handler": "handleConnectGmail"
       },
-      "control_ids": [
-        "open_gmail_connector"
-      ],
+      "control_ids": ["open_gmail_connector"],
       "state_exposure": [],
-      "docs_references": [
-        "app/profile/profile-workspace-page.tsx"
-      ],
+      "docs_references": ["components/gmail/gmail-receipts-page.tsx"],
       "expected_effects": {
         "backend_effects": [
           {
@@ -121,29 +88,15 @@
       "action_id": "profile.gmail.sync_now",
       "label": "Sync Gmail Receipts Now",
       "meaning": "Queues and polls Gmail receipt sync run.",
-      "aliases": [
-        "sync gmail receipts",
-        "refresh gmail receipts"
-      ],
-      "search_keywords": [
-        "gmail sync",
-        "refresh receipts"
-      ],
+      "aliases": ["sync gmail receipts", "refresh gmail receipts"],
+      "search_keywords": ["gmail sync", "refresh receipts"],
       "reachability": {
-        "routes": [
-          "/one/gmail",
-          "/profile/gmail"
-        ],
-        "screens": [
-          "gmail",
-          "profile_gmail_panel"
-        ],
+        "routes": ["/one/gmail"],
+        "screens": ["gmail"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": [
-        "gmail_connected"
-      ],
+      "guard_ids": ["gmail_connected"],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
@@ -151,14 +104,9 @@
         "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
         "intended_handler": "dispatchVoiceToolCall"
       },
-      "control_ids": [
-        "sync_gmail_receipts"
-      ],
+      "control_ids": ["sync_gmail_receipts"],
       "state_exposure": [],
-      "docs_references": [
-        "app/profile/profile-workspace-page.tsx",
-        "app/gmail/page.tsx"
-      ],
+      "docs_references": ["components/gmail/gmail-receipts-page.tsx"],
       "expected_effects": {
         "backend_effects": [
           {
@@ -174,132 +122,28 @@
       "speaker_persona": "one"
     },
     {
-      "action_id": "profile.receipts_memory.preview",
-      "label": "Build receipts memory preview",
-      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
-      "aliases": [
-        "preview receipts memory",
-        "generate receipts memory preview"
-      ],
-      "search_keywords": [
-        "receipts memory",
-        "preview receipts"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [],
-      "risk_level": "medium",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [
-        "edit_receipts_summary"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "app/gmail/page.tsx"
-      ],
-      "expected_effects": {
-        "backend_effects": [
-          {
-            "api": "POST /api/kai/gmail/receipts-memory/preview (proxied)",
-            "effect": "Builds or refreshes the receipts memory artifact preview."
-          }
-        ]
-      },
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.receipts_memory.save",
-      "label": "Save receipts memory to PKM",
-      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
-      "aliases": [
-        "save receipts memory",
-        "save receipts to memory"
-      ],
-      "search_keywords": [
-        "save receipts memory"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "receipt memory preview must exist before save"
-        ]
-      },
-      "guard_ids": [
-        "vault_unlocked",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Save to PKM is currently implemented only inside the receipts page.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [
-        "save_receipts_memory"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "app/gmail/page.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
       "action_id": "profile.gmail.disconnect",
       "label": "Disconnect Gmail",
       "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
-      "aliases": [
-        "disconnect gmail",
-        "unlink gmail"
-      ],
-      "search_keywords": [
-        "disconnect gmail"
-      ],
+      "aliases": ["disconnect gmail", "unlink gmail"],
+      "search_keywords": ["disconnect gmail"],
       "reachability": {
-        "routes": [
-          "/profile/gmail"
-        ],
-        "screens": [
-          "profile_gmail_panel"
-        ],
+        "routes": ["/one/gmail"],
+        "screens": ["gmail"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": [
-        "gmail_connected",
-        "manual_user_execution"
-      ],
+      "guard_ids": ["gmail_connected", "manual_user_execution"],
       "risk_level": "high",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
-        "reason": "No global action dispatcher for Gmail disconnect yet.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
+        "intended_handler": "handleDisconnectGmail"
       },
-      "control_ids": [],
+      "control_ids": ["disconnect_gmail"],
       "state_exposure": [],
-      "docs_references": [
-        "app/profile/profile-workspace-page.tsx"
-      ],
+      "docs_references": ["components/gmail/gmail-receipts-page.tsx"],
       "expected_effects": {
         "backend_effects": [
           {
