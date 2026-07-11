@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { getRedirectResult } from "firebase/auth";
 import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
@@ -11,6 +11,13 @@ import { auth } from "@/lib/firebase/config";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import {
+  GLASS_PRESET_DARK,
+  GLASS_PRESET_FROSTED,
+  registerGlassElement,
+  registerGlassRoot,
+} from "@/lib/glass/liquid-glass-surface";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -43,14 +50,16 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/user-cancelled",
 ]);
 
-// 9a provider-button treatments: Apple black, Google white-with-border,
-// Reviewer indigo-tint (design.md §5.9). Passed to AuthProviderButton className.
+// Provider-button treatments follow the theme variants: in light mode Apple is
+// black-on-white text and Google is a bordered white; in dark mode both invert
+// to a white surface with black text so they read on the dark hero. Reviewer
+// stays a quiet outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-[#0A0908] !text-[#FAF6EE] shadow-[0_8px_20px_rgba(0,0,0,0.16)] hover:!bg-black dark:!bg-[#0A0908] dark:ring-1 dark:ring-white/10";
+  "!bg-[#0A0908] !text-[#FAF6EE] shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:!bg-black dark:!bg-white dark:!text-[#0A0908] dark:ring-1 dark:ring-white/10";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-[rgba(214,175,106,0.55)] shadow-sm hover:!bg-black/[0.02]";
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-white dark:!text-[#17130C] dark:border-white/15";
 const REVIEWER_BTN_CLASS =
-  "!bg-[rgba(156,116,52,0.12)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.18)] dark:!bg-[rgba(212,175,106,0.16)] dark:!text-[#D4AF6A]";
+  "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
 function isAuthCancel(error: unknown): boolean {
   const code =
@@ -126,6 +135,42 @@ export function AuthStep({
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
+  // liquidglass surface: <main> is the glass root (OnboardingHeroBackground
+  // is its direct-child sibling, so the shader has live content to refract),
+  // and the action sheet is a glass element. The sheet must therefore be a
+  // DIRECT child of <main> (library requirement), which is why it is
+  // absolutely bottom-pinned below instead of living inside the flex column.
+  // Registering the root also lets the agent bar portal its greeter pill in
+  // as a second glass element on this same instance.
+  const glassRootRef = useRef<HTMLElement | null>(null);
+  const glassSheetRef = useRef<HTMLDivElement | null>(null);
+  // The auth screen renders a fullscreen loader while the session check is in
+  // flight (authLoading/user early return below), so on first mount the glass
+  // refs are null. Gate on the actual render state so registration happens on
+  // the commit where <main> and the sheet really exist.
+  const authContentVisible = !authLoading && !user;
+  useEffect(() => {
+    if (!authContentVisible) return;
+    const root = glassRootRef.current;
+    const sheet = glassSheetRef.current;
+    if (!root || !sheet) return;
+    const releaseRoot = registerGlassRoot(root);
+    const releaseSheet = registerGlassElement(sheet);
+    return () => {
+      releaseSheet();
+      releaseRoot();
+    };
+  }, [authContentVisible]);
+  // Theme awareness, same contract as the home CTA: stock demo presets only
+  // (Frosted Glass in light, Dark Glass in dark), swapped via data-config.
+  const { resolvedTheme } = useTheme();
+  useEffect(() => {
+    if (!authContentVisible) return;
+    const sheet = glassSheetRef.current;
+    if (!sheet) return;
+    const preset = resolvedTheme === "dark" ? GLASS_PRESET_DARK : GLASS_PRESET_FROSTED;
+    sheet.dataset.config = JSON.stringify({ ...preset, cornerRadius: 36 });
+  }, [authContentVisible, resolvedTheme]);
   const localReviewerCredentialsAvailable = useMemo(() => {
     return Boolean(
       resolveLocalReviewerCredentials(
@@ -603,9 +648,12 @@ export function AuthStep({
 
   return (
     <main
-      className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908]"
+      ref={glassRootRef}
+      className="relative flex h-[100dvh] min-h-[100svh] w-full flex-col overflow-hidden"
       data-testid="auth-step-primary"
     >
+      {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
+      <OnboardingHeroBackground />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -630,58 +678,55 @@ export function AuthStep({
         }
       />
 
-      {/* Immersive hero glows */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[58%]">
-        <span
-          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(95px)" }}
-        />
-        <span
-          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
-        />
-      </div>
-
       <button
         type="button"
         onClick={handleBack}
         aria-label="Go back"
-        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem)+0.5rem)] z-50 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
       >
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
 
-      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
-        {/* Dark hero */}
+      <div className="relative mx-auto flex w-full max-w-[440px] min-h-0 flex-1 flex-col">
+        {/* Hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
-            <Image
-              src="/one-quiet-emoji.png"
-              alt="One"
-              width={762}
-              height={766}
-              priority
-              unoptimized
-              draggable={false}
-              className="h-11 w-11 object-contain [filter:drop-shadow(0_4px_10px_rgba(0,0,0,0.35))]"
-            />
+          {/* Quiet mark inside a soft glass medallion (matches the welcome
+              constellation center) with a gentle accent glow. */}
+          <div className="relative flex h-[92px] w-[92px] items-center justify-center" aria-hidden="true">
+            <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
+            <span className="relative grid h-[84px] w-[84px] place-items-center rounded-full border border-white/70 bg-white/70 shadow-[0_12px_34px_-12px_rgba(23,19,12,0.4)] backdrop-blur-md dark:border-white/10 dark:bg-white/[0.08]">
+              <span className="select-none text-[42px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+                🤫
+              </span>
+            </span>
           </div>
           <h1
             role="heading"
             aria-level={1}
-            aria-label="Sign in to One"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[36px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#FAF6EE]"
+            aria-label="Welcome to One"
+            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
           >
-            Sign in to One<span style={{ color: "#D4AF6A" }}>.</span>
+            Welcome to One<span style={{ color: "#D4AF6A" }}>.</span>
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.4] text-[rgba(250,246,238,0.62)]">
-            Sign in to open your private vault, only you can.
+          <p className="mt-3 max-w-[19rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
+            Sign in to open your private vault. It unlocks with you, and only you.
           </p>
         </div>
 
-        {/* White action sheet */}
-        <div className="relative rounded-t-[34px] bg-white px-6 pt-7 pb-[calc(76px+var(--app-screen-footer-pad))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
-          <div className="mx-auto w-full max-w-[21.5rem] space-y-3">
+      </div>
+
+      {/* Liquid glass action sheet. DIRECT child of <main> (the glass root):
+          the WebGL shader is the entire surface, so there is no CSS bg,
+          border, backdrop-blur, or sheen here (glass or nothing), and no
+          overflow-hidden (it would clip the injected shader canvas). The
+          sheet dips 40px below the viewport (-mb-10 + extra bottom padding)
+          so the shader's bottom rounded corners stay offscreen and the glass
+          reads as a top-rounded sheet. */}
+      <div
+        ref={glassSheetRef}
+        className="relative mx-auto -mb-10 w-full max-w-[440px] rounded-t-[36px] px-6 pt-7 pb-[calc(172px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))]"
+      >
+          <div className="relative z-[1] mx-auto w-full max-w-[21.5rem] space-y-3">
             {authOptions.map((option) => (
               <AuthProviderButton
                 key={option.id}
@@ -702,34 +747,45 @@ export function AuthStep({
               />
             ) : null}
 
-            <p className="type-footnote mx-auto max-w-[18.75rem] pt-1 text-center text-[#86868b] dark:text-white/45">
+            {/* Consent-first reassurance chip. */}
+            <div className="mx-auto mt-1 flex w-fit items-center gap-1.5 rounded-full bg-[rgba(156,116,52,0.10)] px-3 py-1.5 dark:bg-white/[0.06]">
+              <Icon icon={Shield} size="sm" className="text-[#9C7434] dark:text-[#D4AF6A]" />
+              <span className="type-footnote text-[#8a6a2f] dark:text-[#D4AF6A]">
+                Consent-first. Nothing moves without your yes.
+              </span>
+            </div>
+
+            <p className="type-footnote mx-auto max-w-[18.75rem] text-center text-[#86868b] dark:text-white/45">
               A verified phone number is required before you continue.
             </p>
 
           </div>
-        </div>
-        <footer className="absolute inset-x-6 bottom-[calc(20px+var(--app-screen-footer-pad))] flex-none">
-          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
-            By continuing, you agree to One&apos;s{" "}
-            <button
-              type="button"
-              onClick={() => openLegalDoc("terms")}
-              className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
-            >
-              Terms
-            </button>{" "}
-            and{" "}
-            <button
-              type="button"
-              onClick={() => openLegalDoc("privacy")}
-              className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
-            >
-              Privacy Policy
-            </button>
-            .
-          </p>
-        </footer>
       </div>
+      {/* Legal footer: direct child of <main>, absolutely lifted to clear the
+          persistent agent bar (pinned above the safe area, ~44px tall + gap)
+          so the legal footnote never tucks under it. Painted AFTER the glass
+          sheet so it stays crisp above the shader surface. */}
+      <footer className="absolute inset-x-6 bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] z-10 flex-none">
+        <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
+          By continuing, you agree to One&apos;s{" "}
+          <button
+            type="button"
+            onClick={() => openLegalDoc("terms")}
+            className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+          >
+            Terms
+          </button>{" "}
+          and{" "}
+          <button
+            type="button"
+            onClick={() => openLegalDoc("privacy")}
+            className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+          >
+            Privacy Policy
+          </button>
+          .
+        </p>
+      </footer>
       <AuthLegalDialog
         docType={activeLegalDoc}
         onOpenChange={(open) => {
