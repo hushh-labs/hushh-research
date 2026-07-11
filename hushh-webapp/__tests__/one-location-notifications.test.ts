@@ -40,6 +40,7 @@ import {
   oneLocationSectionForWorkflowNotificationType,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
+  resolveOneLocationNotificationHref,
 } from "@/lib/one-location/notifications";
 
 
@@ -173,6 +174,48 @@ describe("One-Location workflow deep-link sections", () => {
     expect(oneLocationSectionForWorkflowNotificationType("location_access_denied")).toBe("my_requests");
     expect(oneLocationSectionForWorkflowNotificationType("location_public_invite_submitted")).toBe("public_responses");
     expect(oneLocationSectionForWorkflowNotificationType("location_one_network_joined")).toBe("people");
+  });
+});
+
+describe("One-Location native notification routing", () => {
+  it("keeps a relative request URL and all routing parameters", () => {
+    expect(
+      resolveOneLocationNotificationHref({
+        request_url:
+          "/one/location?grantId=grant_1&section=shared&notification=open",
+      }),
+    ).toBe(
+      "/one/location?grantId=grant_1&section=shared&notification=open",
+    );
+  });
+
+  it("normalizes an absolute app URL into an internal native route", () => {
+    expect(
+      resolveOneLocationNotificationHref({
+        request_url:
+          "https://uat.kai.hushh.ai/one/location?requestId=req_1&section=approvals",
+      }),
+    ).toBe("/one/location?requestId=req_1&section=approvals");
+  });
+
+  it("falls back to a valid deep link when request_url is unrelated", () => {
+    expect(
+      resolveOneLocationNotificationHref({
+        request_url: "https://example.com/account",
+        deep_link: "/one/location?submissionId=sub_1&section=public_responses",
+      }),
+    ).toBe(
+      "/one/location?submissionId=sub_1&section=public_responses",
+    );
+  });
+
+  it("uses the Location hub for malformed or unsafe payload URLs", () => {
+    expect(
+      resolveOneLocationNotificationHref({
+        request_url: "javascript:alert(1)",
+        deep_link: "//example.com/one/location",
+      }),
+    ).toBe("/one/location");
   });
 });
 

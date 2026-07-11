@@ -330,6 +330,36 @@ export function buildOneLocationNotificationHref(grantId: string): string {
   return `/one/location?${params.toString()}`;
 }
 
+function normalizeOneLocationHref(value: unknown): string | null {
+  const href = typeof value === "string" ? value.trim() : "";
+  if (!href || /[\r\n]/.test(href)) return null;
+
+  try {
+    const parsed = href.startsWith("/")
+      ? new URL(href, "https://hushh.local")
+      : new URL(href);
+    if (
+      parsed.pathname !== "/one/location" &&
+      !parsed.pathname.startsWith("/one/location/")
+    ) {
+      return null;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveOneLocationNotificationHref(
+  data: Record<string, unknown> | null | undefined,
+): string {
+  return (
+    normalizeOneLocationHref(data?.request_url) ||
+    normalizeOneLocationHref(data?.deep_link) ||
+    "/one/location"
+  );
+}
+
 export function buildOneLocationWorkflowHref(params: {
   grantId?: string | null;
   requestId?: string | null;

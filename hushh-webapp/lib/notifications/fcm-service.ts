@@ -16,6 +16,7 @@ import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
+import { resolveOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import {
   assignWindowLocation,
   requestInternalAppNavigation,
@@ -868,16 +869,8 @@ function setupNativeListeners(): Promise<void> {
             // redesign hub reads those params to open the correct tab
             // (inbox / links / people). Fall back to `deep_link` or the hub
             // root so a tap always lands on One Location, never Home.
-            const locationHref =
-              (typeof data.request_url === "string" && data.request_url.trim()
-                ? data.request_url.trim()
-                : "") ||
-              (typeof data.deep_link === "string" && data.deep_link.trim()
-                ? data.deep_link.trim()
-                : "") ||
-              "/one/location";
             requestInternalAppNavigation({
-              href: locationHref,
+              href: resolveOneLocationNotificationHref(data),
               scroll: false,
             });
           } else {
