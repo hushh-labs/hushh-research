@@ -8,6 +8,20 @@
 
 ---
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  bar["Agent One chat bar"] --> stream["POST /api/kai/agent/chat/stream"]
+  stream --> classify["classify_specialist_domain"]
+  classify --> conn["agent_connections (A2A)"]
+  conn --> chat["ConnectionsChatService"]
+  chat --> svc["ConnectionsService + /api/one/connections routes"]
+  loc["Location / Gmail specialists"] -.->|reference pattern| conn
+```
+
+---
+
 ## TL;DR
 
 - The connections capability is **already registered and routed as a peer subagent** (`agent_connections`) — in fact it is wired *more* completely than Gmail, which the keyword classifier can't even reach.
@@ -60,9 +74,9 @@ app/providers.tsx
 - (`app/api/one/[...path]/route.ts:36` is the JSON proxy for *other* One routes; chat streaming uses the `kai` proxy.)
 
 **Backend runtime dispatch:**
-- Entry: `consent-protocol/api/routes/kai/agent_chat.py:301` `@router.post("/agent/chat/stream")` → `stream_agent_chat(...)` (lives under the `kai` route module but is the Agent One runtime). A non-streaming sibling path also lands in this module (`resolve_delegate_target` at `agent_chat.py:143`).
+- Entry: `consent-protocol/api/routes/kai/agent_chat.py` (line 301) `@router.post("/agent/chat/stream")` → `stream_agent_chat(...)` (lives under the `kai` route module but is the Agent One runtime). A non-streaming sibling path also lands in this module (`resolve_delegate_target` at `agent_chat.py:143`).
 - Delegate selection precedence (`agent_chat.py:312-329`): (1) explicit `delegate_result` `:321`; (2) explicit `delegate_agent_id` `:324`; (3) keyword classifier `:326-327` → `resolve_delegate_target` (`:143`) → `classify_specialist_domain` (`:150`) → gate on `is_wired_specialist` (`:160`, fail-closed).
-- **The router** is a keyword table: `consent-protocol/hushh_mcp/agents/orchestrator/tools.py:150` `classify_specialist_domain`, driven by `_SPECIALIST_ROUTES` (`tools.py:31-190`).
+- **The router** is a keyword table: `consent-protocol/hushh_mcp/agents/orchestrator/tools.py` (line 150) `classify_specialist_domain`, driven by `_SPECIALIST_ROUTES` (`tools.py:31-190`).
 - **Dispatch seam:** `a2a_dispatch(delegate_agent_id, task)` (`agent_chat.py:400`), streamed back via `specialist_result_to_frames` (`:163`, `:448`). Registry: `adk_bridge/dispatch.py:26` `dispatch()` over `_REGISTRY` (`:15`); `is_wired_specialist` (`:22`). Contract: `adk_bridge/contract.py` (`A2ATask:14`, `SpecialistTurnResult:36`).
 - Fallback when no specialist matches: Gemini planner path (`agent_chat.py:491-782`).
 

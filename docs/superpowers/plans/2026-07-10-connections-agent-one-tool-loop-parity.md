@@ -29,9 +29,20 @@
 
 ---
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  msg["User message"] --> loop["ConnectionsChatService LLM tool-loop"]
+  loop -->|read tools| svc["ConnectionsService: list / find / requests"]
+  loop -->|propose_* / disambiguate| prompt["clientPrompt (select = confirm)"]
+  prompt --> pick["user confirms -> selection_result"]
+  pick --> complete["_complete_action -> ConnectionsService write"]
+```
+
 ## File Structure
 
-- **Modify (major rewrite):** `consent-protocol/hushh_mcp/services/connections_chat_service.py` — becomes the tool-loop service. Keeps `handle_turn(...)` signature-compatible with `ConnectionsAgentA2A` (`consent-protocol/hushh_mcp/adk_bridge/connections_agent.py:43-49`).
+- **Modify (major rewrite):** `consent-protocol/hushh_mcp/services/connections_chat_service.py` — becomes the tool-loop service. Keeps `handle_turn(...)` signature-compatible with `ConnectionsAgentA2A` (`consent-protocol/hushh_mcp/adk_bridge/connections_agent.py` (lines 43-49)).
 - **Modify:** `consent-protocol/hushh_mcp/agents/orchestrator/tools.py` — broaden the `agent_connections` classifier cues (`_SPECIALIST_ROUTES`, connections entry at ~`:137-146`) so natural phrasings reach the agent.
 - **Create:** `consent-protocol/hushh_mcp/agents/connections/agent.yaml` + `consent-protocol/hushh_mcp/agents/connections/__init__.py` — declarative manifest (parity artifact + system-prompt source).
 - **Rewrite/expand tests:** `consent-protocol/tests/services/test_connections_chat_service.py` (tool-loop behavior), `consent-protocol/tests/test_connections_classifier.py` (new cues), and a new `consent-protocol/tests/services/test_connections_manifest_sync.py`.
@@ -39,7 +50,7 @@
 
 **Reference files (read, do not modify):**
 - `consent-protocol/hushh_mcp/services/gmail_chat_service.py` — the clean tool-loop template (constructor model seam, `_run_tool_loop`, `_build_tools`, `_finish`).
-- `consent-protocol/hushh_mcp/services/location_chat_service.py:509-723` — the loop that collects `prompts` from tools and surfaces `clientPrompt`; `_selection_seed_text`/`_selection_display_text` for reference.
+- `consent-protocol/hushh_mcp/services/location_chat_service.py` (lines 509-723) — the loop that collects `prompts` from tools and surfaces `clientPrompt`; `_selection_seed_text`/`_selection_display_text` for reference.
 - `consent-protocol/tests/test_gmail_chat_service.py` — the fake-store + scripted-model test harness this plan copies.
 
 ---
@@ -1142,7 +1153,7 @@ Use the `verify` skill / run the app to drive the real flow through Agent One ch
 - "keep working phrasings green" → superseded by intended behavior change (send now confirms first); covered by Task 3's send tests + Task 5 phrasing routing. Documented as a deliberate change.
 - Classifier reachability for new phrasings → Task 5.
 
-**Placeholder scan:** No TBD/TODO. Every code step shows full code. The `_prompt_from_tool` stub in Task 2 is intentional (returns `None`) and is fully implemented in Tasks 3–4.
+**Placeholder scan:** No unresolved placeholder markers. Every code step shows full code. The `_prompt_from_tool` stub in Task 2 is intentional (returns `None`) and is fully implemented in Tasks 3–4.
 
 **Type consistency:** `_complete_action` (T1) reads refs with keys `op`, `addresseeUserId`/`requestId`/`connectionId`, `label` — exactly what the `propose_*` proposals (T3) and `request_person_choice` options (T4) produce. `handle_turn` signature stays compatible with `ConnectionsAgentA2A.handle` (`connections_agent.py:43-49`), which passes `user_id`, `message`, `consent_token`, `conversation_id`, `selection_result`. Read-tool return shapes (`{"items": [...]}`) match what `list_connections`/`list_requests` return and what `search_directory` returns (`{"items","page","hasMore"}`).
 
