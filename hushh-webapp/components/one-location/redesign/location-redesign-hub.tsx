@@ -32,6 +32,7 @@ import {
   Inbox as InboxIcon,
   Link as LinkIcon,
   MapPin,
+  Navigation,
   Plus,
   Send,
   ShieldAlert,
@@ -59,13 +60,13 @@ import {
 import {
   EmptyState,
   LocationHeader,
-  PrivacyStatusCard,
   QuickPathRow,
   SectionCard,
   TaskFlowHeader,
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
+import { SharingStatusCard } from "./sharing-status-card";
 import {
   ActiveShareCard,
   ActivityReceiptCard,
@@ -570,9 +571,8 @@ function NowHub({
           {vm.myLocationError}
         </p>
       ) : null}
-      {vm.myLocationPoint ? (
-        <div className="mt-3">{vm.renderMapPreview(vm.myLocationPoint, false)}</div>
-      ) : null}
+      {/* The live map now lives in the SharingStatusCard hero above; the
+          readiness card keeps only the device status + refresh controls. */}
     </SectionCard>
   );
 
@@ -580,31 +580,50 @@ function NowHub({
     <div className="space-y-5">
       {readinessBlocked ? deviceReadinessCard : null}
 
-      <PrivacyStatusCard
+      <SharingStatusCard
         isSharing={hasActiveShare}
-        headline={hasActiveShare ? "Sharing in progress" : "Private right now"}
-        lines={
+        title={hasActiveShare ? "Sharing in progress" : "Private right now"}
+        subtitle={
           hasActiveShare
-            ? ["You are sharing live only for the time you chose."]
-            : ["No one can see your location.", "You share only after review."]
+            ? "Sharing live for the time you chose."
+            : "No one can see your location. You share only after review."
         }
+        endsLabel={
+          hasActiveShare && vm.activeOwnerGrants[0]
+            ? vm.expiresCountdownLabel(vm.activeOwnerGrants[0].expiresAt)
+            : null
+        }
+        startedLabel={
+          hasActiveShare && vm.activeOwnerGrants[0]
+            ? `Started ${vm.formatDateTime(vm.activeOwnerGrants[0].createdAt)}`
+            : null
+        }
+        people={
+          hasActiveShare
+            ? vm.activeOwnerGrants
+                .slice(0, 3)
+                .map((g) => ({ id: g.id, name: vm.grantRecipientLabel(g) }))
+            : []
+        }
+        point={vm.myLocationPoint}
+        onTapShare={onStartShare}
       />
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-[1.25fr_1fr] gap-3">
 
         <Button
           onClick={onStartShare}
-          className="h-12 whitespace-normal rounded-2xl bg-[#007aff] px-2 text-center text-[13px] font-semibold leading-tight text-white hover:bg-[#007aff]/90 sm:text-base"
+          className="h-12 whitespace-nowrap rounded-2xl bg-[#007aff] px-3 text-center text-[13px] font-semibold text-white hover:bg-[#007aff]/90 sm:text-base"
         >
-          <MapPin className="mr-1.5 h-4 w-4 shrink-0" />
+          <Navigation className="mr-1.5 h-4 w-4 shrink-0" />
           Share my location
         </Button>
         <Button
           variant="outline"
           onClick={onAsk}
-          className="h-12 whitespace-normal rounded-2xl px-2 text-center text-[13px] font-semibold leading-tight sm:text-base"
+          className="h-12 whitespace-nowrap rounded-2xl border-[#007aff] px-3 text-center text-[13px] font-semibold text-[#007aff] hover:bg-[#007aff]/10 sm:text-base"
         >
-          <Send className="mr-1.5 h-4 w-4 shrink-0" />
+          <UsersRound className="mr-1.5 h-4 w-4 shrink-0" />
           Ask someone
         </Button>
       </div>
