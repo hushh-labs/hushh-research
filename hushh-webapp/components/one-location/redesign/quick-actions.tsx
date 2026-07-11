@@ -1,67 +1,48 @@
 "use client";
 
 /**
- * One Location redesign — Quick Actions grid (Now tab).
+ * Onepoint redesign — Quick Actions grid (Now tab).
  *
  * PRESENTATION ONLY. A single reusable `QuickActionCard` renders every tile in
- * the "Quick actions" block so the six location shortcuts (Check-In, SOS,
+ * the "Quick actions" block so the six location shortcuts (Check-In, Alert,
  * Drive To, Pick Me Up, Meeting, Safe Arrival) stay visually identical and
- * behaviourally consistent. Cards are prop-driven: they render an icon tile,
- * title + subtitle, an optional "Coming soon" state, and delegate taps to the
- * handler passed in by the hub. No business logic, no data fetching here.
+ * behaviourally consistent. Each card is a 44px tinted icon circle + bold title
+ * + a footer row (subtitle + circular chevron), on a 3-column grid, matching the
+ * Apple Blue v2 design. Cards are prop-driven and delegate taps to the hub.
  */
 
 import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { SECTION_HEADING } from "./tokens";
 
-export type QuickActionTone =
-  | "green"
-  | "red"
-  | "blue"
-  | "amber"
-  | "violet"
-  | "slate";
+export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
 /**
- * Per-tone palette for the icon tile. Uses soft tinted surfaces + a saturated
- * foreground so each action reads instantly while still matching the app-wide
- * calm, premium aesthetic (no harsh full-bleed colours).
+ * Per-tone icon-circle palette, using the design's exact soft tints + saturated
+ * foregrounds (with sensible dark-mode fallbacks).
  */
-const TONE_STYLES: Record<
-  QuickActionTone,
-  { tile: string; icon: string; glow: string }
-> = {
+const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
   green: {
-    tile: "bg-emerald-500/12 dark:bg-emerald-400/15",
-    icon: "text-emerald-600 dark:text-emerald-300",
-    glow: "group-hover:shadow-[0_10px_30px_-12px_rgba(16,185,129,0.55)]",
+    tile: "bg-[#e5f4ea] dark:bg-emerald-400/15",
+    icon: "text-[#2ea44f] dark:text-emerald-300",
   },
   red: {
-    tile: "bg-red-500/12 dark:bg-red-400/15",
-    icon: "text-red-600 dark:text-red-300",
-    glow: "group-hover:shadow-[0_10px_30px_-12px_rgba(239,68,68,0.55)]",
+    tile: "bg-[#fdeeec] dark:bg-red-400/15",
+    icon: "text-[#e0342c] dark:text-red-300",
   },
   blue: {
-    tile: "bg-sky-500/12 dark:bg-sky-400/15",
-    icon: "text-sky-600 dark:text-sky-300",
-    glow: "group-hover:shadow-[0_10px_30px_-12px_rgba(14,165,233,0.5)]",
-  },
-  amber: {
-    tile: "bg-amber-500/14 dark:bg-amber-400/15",
-    icon: "text-amber-600 dark:text-amber-300",
-    glow: "group-hover:shadow-[0_10px_30px_-12px_rgba(245,158,11,0.5)]",
+    tile: "bg-[#e7f0fd] dark:bg-sky-400/15",
+    icon: "text-[#2f7cf6] dark:text-sky-300",
   },
   violet: {
-    tile: "bg-violet-500/12 dark:bg-violet-400/15",
-    icon: "text-violet-600 dark:text-violet-300",
-    glow: "group-hover:shadow-[0_10px_30px_-12px_rgba(139,92,246,0.5)]",
+    tile: "bg-[#efeafc] dark:bg-violet-400/15",
+    icon: "text-[#7b5cf0] dark:text-violet-300",
   },
   slate: {
-    tile: "bg-slate-500/10 dark:bg-white/10",
-    icon: "text-slate-600 dark:text-slate-300",
-    glow: "group-hover:shadow-[0_10px_30px_-12px_rgba(100,116,139,0.45)]",
+    tile: "bg-[#eeeef2] dark:bg-white/10",
+    icon: "text-[#6b6b76] dark:text-slate-300",
   },
 };
 
@@ -71,12 +52,10 @@ export type QuickActionCardProps = {
   subtitle: string;
   tone?: QuickActionTone;
   onClick?: () => void;
-  /** Renders the muted, non-interactive "Coming soon" treatment. */
+  /** Non-interactive treatment for actions that aren't wired up yet. */
   comingSoon?: boolean;
-  /** Disable interaction without the coming-soon styling (e.g. temporary). */
+  /** Disable interaction without the coming-soon semantics. */
   disabled?: boolean;
-  /** Optional accent badge in the top-right corner (e.g. "Ready"). */
-  badge?: ReactNode;
 };
 
 export function QuickActionCard({
@@ -87,7 +66,6 @@ export function QuickActionCard({
   onClick,
   comingSoon = false,
   disabled = false,
-  badge,
 }: QuickActionCardProps) {
   const palette = TONE_STYLES[tone];
   const interactive = !comingSoon && !disabled;
@@ -99,46 +77,34 @@ export function QuickActionCard({
       disabled={!interactive}
       aria-disabled={!interactive}
       className={cn(
-        "group relative flex min-h-[128px] w-full flex-col justify-between overflow-hidden rounded-[20px] border p-4 text-left transition-all duration-200",
-        "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
-        "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_24px_-16px_rgba(15,23,42,0.28)]",
+        "group flex h-full w-full min-w-0 flex-col gap-3 rounded-2xl bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
-          ? cn(
-              "cursor-pointer hover:-translate-y-0.5 hover:border-[color:var(--app-card-border-standard)] active:translate-y-0 active:scale-[0.98]",
-              palette.glow,
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40",
-            )
+          ? "cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40"
           : "cursor-not-allowed",
-        comingSoon && "opacity-70",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span
-          className={cn(
-            "flex h-12 w-12 items-center justify-center rounded-[16px] transition-transform duration-200",
-            palette.tile,
-            palette.icon,
-            interactive && "group-hover:scale-105",
-          )}
-        >
-          {icon}
-        </span>
-        {badge ? <span className="shrink-0">{badge}</span> : null}
-      </div>
+      <span
+        className={cn(
+          "flex h-11 w-11 items-center justify-center rounded-full",
+          palette.tile,
+          palette.icon,
+        )}
+      >
+        {icon}
+      </span>
 
-      <div className="mt-3 min-w-0">
-        <p className="truncate text-[15px] font-semibold leading-tight text-foreground">
+      <div className="mt-auto min-w-0">
+        <p className="truncate text-[15px] font-bold leading-tight text-[#1c1c2e] dark:text-foreground">
           {title}
         </p>
-        {comingSoon ? (
-          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Coming soon
-          </span>
-        ) : (
-          <p className="mt-0.5 truncate text-[13px] font-medium text-muted-foreground">
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
+          <span className="truncate text-xs text-black/50 dark:text-muted-foreground">
             {subtitle}
-          </p>
-        )}
+          </span>
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
+            <ChevronRight className="h-3 w-3 text-black/40 dark:text-muted-foreground" />
+          </span>
+        </div>
       </div>
     </button>
   );
@@ -155,8 +121,14 @@ export function QuickActionsSection({
     <section className="space-y-3">
       <div className="flex items-center justify-between px-1">
         <h2 className={SECTION_HEADING}>{title}</h2>
+        <span className="inline-flex items-center gap-[7px] rounded-full bg-[#eef2f8] px-3 py-1.5 dark:bg-white/10">
+          <span className="h-2 w-2 rounded-full bg-[#007aff]" />
+          <span className="text-[13px] font-semibold text-black/55 dark:text-muted-foreground">
+            Live features
+          </span>
+        </span>
       </div>
-      <div className="grid grid-cols-2 gap-3">{children}</div>
+      <div className="grid auto-rows-fr grid-cols-3 gap-2.5">{children}</div>
     </section>
   );
 }

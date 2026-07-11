@@ -24,18 +24,19 @@ import Link from "next/link";
 
 
 import {
-  CalendarClock,
+  Calendar,
   Car,
-  CheckCircle2,
+  ChevronRight,
   Hand,
-  Home,
   Inbox as InboxIcon,
   Link as LinkIcon,
+  Lock,
   MapPin,
   Navigation,
   Plus,
   Send,
-  ShieldAlert,
+  Shield,
+  ShieldCheck,
   UserPlus,
   UsersRound,
 } from "lucide-react";
@@ -628,64 +629,52 @@ function NowHub({
         </Button>
       </div>
 
-      {/* Quick actions — six reusable location shortcuts. Five are live
-          (Check-In, SOS, Drive To, Pick Me Up, Safe Arrival); only "Meeting"
-          remains "Coming soon". When SOS is already active, its card reflects
-          the live state and reopens the panel to stop sharing. */}
+      {/* Quick actions — six location shortcuts on a 3-col grid. Five are live
+          (Check-In, Alert, Drive To, Pick Me Up, Safe Arrival); only "Meeting"
+          remains coming soon. "Alert" opens the SOS/notify-circle panel. */}
       <QuickActionsSection title="Quick actions">
 
         <QuickActionCard
           tone="green"
-          icon={<CheckCircle2 className="h-6 w-6" />}
+          icon={<ShieldCheck className="h-5 w-5" />}
           title="Check-In"
           subtitle="Share now"
           onClick={onCheckIn}
         />
         <QuickActionCard
           tone="red"
-          icon={<ShieldAlert className="h-6 w-6" />}
-          title="SOS"
-          subtitle={vm.sosActive ? "Live now" : "Emergency"}
+          icon={<Shield className="h-5 w-5" />}
+          title="Alert"
+          subtitle={vm.sosActive ? "Live now" : "Notify circle"}
           onClick={onSos}
-          badge={
-            vm.sosActive ? (
-              <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600 dark:text-red-300">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
-                </span>
-                Live
-              </span>
-            ) : undefined
-          }
         />
         <QuickActionCard
           tone="blue"
-          icon={<Car className="h-6 w-6" />}
+          icon={<Car className="h-5 w-5" />}
           title="Drive To"
           subtitle="Share route + ETA"
           onClick={onDriveTo}
         />
         <QuickActionCard
-          tone="amber"
-          icon={<Hand className="h-6 w-6" />}
+          tone="blue"
+          icon={<Hand className="h-5 w-5" />}
           title="Pick Me Up"
-          subtitle="Come get me"
+          subtitle="Let someone come"
           onClick={onPickMeUp}
         />
         <QuickActionCard
-          tone="green"
-          icon={<Home className="h-6 w-6" />}
-          title="Safe Arrival"
-          subtitle="Watch me home"
-          onClick={onSafeArrival}
+          tone="violet"
+          icon={<Calendar className="h-5 w-5" />}
+          title="Meeting"
+          subtitle="Set a time & place"
+          comingSoon
         />
         <QuickActionCard
-          tone="violet"
-          icon={<CalendarClock className="h-6 w-6" />}
-          title="Meeting"
-          subtitle="Venue"
-          comingSoon
+          tone="slate"
+          icon={<ShieldCheck className="h-5 w-5" />}
+          title="Safe Arrival"
+          subtitle="Get notified"
+          onClick={onSafeArrival}
         />
 
       </QuickActionsSection>
@@ -776,6 +765,20 @@ function NowHub({
           />
         </div>
       </SectionCard>
+
+      {/* Privacy — links to the consent/privacy centre (Apple Blue v2 design). */}
+      <Link
+        href="/consents"
+        className="flex items-center gap-3.5 rounded-2xl bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+      >
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
+          <Lock className="h-[18px] w-[18px] text-[#007aff]" />
+        </span>
+        <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+          Privacy
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
+      </Link>
     </div>
   );
 }
