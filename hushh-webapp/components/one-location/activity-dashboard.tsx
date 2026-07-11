@@ -187,7 +187,7 @@ export function OneLocationActivityDashboard({
 
         {activity.buckets.length ? (
           <div
-            aria-label={`One Location activity chart for ${activityRangeLabel(
+            aria-label={`Onepoint activity chart for ${activityRangeLabel(
               range,
             )}`}
             className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]"

@@ -566,7 +566,7 @@ export function recordOneLocationShareNotification(params: {
     description,
     routeHref: buildOneLocationNotificationHref(grantId),
     visibility: "primary",
-    groupLabel: "One Location",
+    groupLabel: "Onepoint",
     autoClearAfterMs: 0,
     metadata: {
       grantId,
@@ -617,7 +617,7 @@ export function recordOneLocationWorkflowNotification(params: {
     description: params.description,
     routeHref: params.routeHref || "/one/location",
     visibility: "primary",
-    groupLabel: "One Location",
+    groupLabel: "Onepoint",
     autoClearAfterMs: 0,
     metadata: {
       notificationType: params.notificationType,

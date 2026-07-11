@@ -226,7 +226,7 @@ const REQUEST_MESSAGE_MAX_LENGTH = 80;
 
 
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
-const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
+const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my Onepoint circle";
 const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;

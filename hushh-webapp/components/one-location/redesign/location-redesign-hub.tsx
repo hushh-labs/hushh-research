@@ -1121,7 +1121,7 @@ function SosFlow({
         onClick={onClose}
         className="h-11 w-full rounded-2xl text-sm text-muted-foreground"
       >
-        Back to One Location
+        Back to Onepoint
       </Button>
     </div>
   );
