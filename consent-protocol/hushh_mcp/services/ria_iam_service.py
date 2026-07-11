@@ -4604,8 +4604,10 @@ class RIAIAMService:
             if set_parts:
                 set_parts.append("updated_at = NOW()")
                 params.append(user_id)
+                # SET fragments are selected from fixed column allowlists above;
+                # user-provided values remain parameterized.
                 await conn.execute(
-                    f"UPDATE ria_profiles SET {', '.join(set_parts)} "
+                    f"UPDATE ria_profiles SET {', '.join(set_parts)} "  # nosec B608
                     f"WHERE user_id = ${len(params)}",
                     *params,
                 )
@@ -4620,8 +4622,10 @@ class RIAIAMService:
                 placeholders = ", ".join(f"${i + 1}" for i in range(len(values)))
                 assignments = ", ".join(f"{col} = EXCLUDED.{col}" for col, _ in present_contacts)
                 try:
+                    # Contact columns are selected from a fixed allowlist above;
+                    # user-provided values remain parameterized.
                     await conn.execute(
-                        f"INSERT INTO ria_business_contacts ({', '.join(cols)}) "
+                        f"INSERT INTO ria_business_contacts ({', '.join(cols)}) "  # nosec B608
                         f"VALUES ({placeholders}) "
                         f"ON CONFLICT (user_id) DO UPDATE SET {assignments}, "
                         f"updated_at = NOW()",

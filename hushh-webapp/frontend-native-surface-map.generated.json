@@ -3687,6 +3687,40 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/ria/profile",
+      "page_file": "app/ria/profile/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/ria/profile",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fprofile",
+        "expectedMarker": "native-route-ria-profile",
+        "expectedRoute": "/ria/profile",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/ria/requests",
       "page_file": "app/ria/requests/page.tsx",
       "physical_page_exists": true,
