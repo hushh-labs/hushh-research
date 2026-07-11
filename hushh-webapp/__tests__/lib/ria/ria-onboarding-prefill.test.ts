@@ -42,6 +42,43 @@ describe("ria-onboarding-prefill", () => {
     expect(patch.individualCrd).toBe("7413463");
   });
 
+  it("canonicalizes provider services/fees to the fixed UI labels and drops off-list values", () => {
+    const draft = createEmptyRiaOnboardingDraft();
+    const result: RiaLicenseVerificationResult = {
+      status: "found",
+      advisor_name: "Jane Doe",
+      firm_name: "Doe Advisory",
+      crd_number: "1111111",
+      provider: "ria_intelligence_combined",
+      // Mixed canonical + off-list values from the provider.
+      services_offered: ["Portfolio Management", "Cryptocurrency Advisory"],
+      fee_structure: ["AUM %", "Subscription"],
+    };
+
+    const patch = buildRiaLicensePrefillPatch(draft, result, "1111111");
+
+    // Off-list "Cryptocurrency Advisory" / "Subscription" are dropped so gate
+    // state and the 4-button/4-pill selection can never desync.
+    expect(patch.servicesOffered).toEqual(["Portfolio Management"]);
+    expect(patch.feeStructure).toEqual(["AUM %"]);
+  });
+
+  it("drops a purely off-list provider service instead of passing it through", () => {
+    const draft = createEmptyRiaOnboardingDraft();
+    const result: RiaLicenseVerificationResult = {
+      status: "found",
+      advisor_name: "Jane Doe",
+      crd_number: "2222222",
+      provider: "ria_intelligence_combined",
+      services_offered: ["Cryptocurrency Advisory"],
+    };
+
+    const patch = buildRiaLicensePrefillPatch(draft, result, "2222222");
+
+    // No canonical match and no inferable evidence → empty, not the raw value.
+    expect(patch.servicesOffered).toEqual([]);
+  });
+
   it("prepopulates official PDF-backed location from the license verification response", () => {
     const draft = createEmptyRiaOnboardingDraft();
     const result: RiaLicenseVerificationResult = {

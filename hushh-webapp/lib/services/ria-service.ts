@@ -162,6 +162,11 @@ export interface RiaOnboardingStatus {
   business_pin_zip?: string | null;
   business_latitude?: number | null;
   business_longitude?: number | null;
+  bio?: string | null;
+  strategy?: string | null;
+  disclosures_url?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
   latest_verification_event?: {
     outcome: string;
     checked_at: string;
@@ -1536,6 +1541,39 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow(response);
+  }
+
+  // Self-service edit of an established advisor's profile. Unlike
+  // submitOnboarding this does NOT re-run licence/CRD verification and does not
+  // COALESCE-guard fields, so self-authored fields can be edited and cleared.
+  // Regulatory/identity fields (name/CRD/regulator/firm) are not writable here.
+  static async updateProfile(
+    idToken: string,
+    payload: {
+      display_name?: string;
+      bio?: string;
+      strategy?: string;
+      services_offered?: string[];
+      fee_structure?: string[];
+      min_engagement_amount?: number | null;
+      min_engagement_currency?: string;
+      certifications?: string[];
+      contact_email?: string;
+      contact_phone?: string;
+      business_city?: string;
+      business_area?: string;
+      business_address?: string;
+      business_pin_zip?: string;
+      business_latitude?: number | null;
+      business_longitude?: number | null;
+    },
+  ): Promise<RiaOnboardingStatus> {
+    const response = await authFetch("/api/ria/profile/update", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaOnboardingStatus>(response);
   }
 
   static async getHome(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -19,6 +19,7 @@ import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
   getRiaOnboardingStepIndex,
+  isRiaOnboardingStepId,
   normalizeRiaOnboardingDraft,
   resolveRiaOnboardingStepId,
   type RiaOnboardingDraft,
@@ -140,8 +141,27 @@ function buildVerifiedLicensePrefillPatch(
 
 export default function RiaOnboardingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
-  const { refresh: refreshPersonaState } = usePersonaState();
+  const {
+    refresh: refreshPersonaState,
+    riaCapability,
+    loading: personaLoading,
+    refreshing: personaRefreshing,
+  } = usePersonaState();
+
+  // "Edit licence" from the RIA profile deep-links here with ?edit=license so an
+  // already-established advisor can re-run verification without being bounced to
+  // their profile by the guard below. A generic ?step= is also honoured.
+  const editParam = searchParams?.get("edit") ?? null;
+  const stepParam = searchParams?.get("step") ?? null;
+  const requestedStepId: RiaOnboardingStepId | null =
+    editParam === "license"
+      ? "license_number"
+      : isRiaOnboardingStepId(stepParam)
+        ? stepParam
+        : null;
+  const hasEditIntent = requestedStepId !== null;
 
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
   const [draft, setDraft] = useState<RiaOnboardingDraft>(
@@ -155,6 +175,10 @@ export default function RiaOnboardingPage() {
   const [shouldPersistDraft, setShouldPersistDraft] = useState(false);
   const [localVerificationBypassEnabled, setLocalVerificationBypassEnabled] =
     useState(false);
+  // Bumped each time the user taps Continue on the services step while a
+  // required field (services / fees) is empty. The services step reacts by
+  // scrolling to the first missing field and surfacing an inline hint.
+  const [servicesValidateTick, setServicesValidateTick] = useState(0);
 
   const verificationAbortRef = useRef<AbortController | null>(null);
   const scrapePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -163,6 +187,12 @@ export default function RiaOnboardingPage() {
     lastKey: string | null;
   }>({ inFlight: false, lastKey: null });
   const submitInFlightRef = useRef(false);
+  // Guards the one-time entry redirect for already-established advisors so a
+  // fresh advisor who completes onboarding in-session is not hijacked mid-flow.
+  const onboardingEntryHandledRef = useRef(false);
+  // Mirror the current edit-intent step for use inside the mount-only loader.
+  const requestedStepIdRef = useRef<RiaOnboardingStepId | null>(requestedStepId);
+  requestedStepIdRef.current = requestedStepId;
 
   const advisoryVerificationStatus =
     status?.advisory_status || status?.verification_status || "draft";
@@ -259,16 +289,16 @@ export default function RiaOnboardingPage() {
           });
         }
 
-        const currentStepId = localDraft?.currentStepId
-          ? resolveRiaOnboardingStepId(
-              resolvedDraft,
-              localDraft.currentStepId,
-              {
-                licenseVerificationSatisfied:
-                  alreadyVerified ||
-                  resolvedDraft.licenseVerificationStatus === "found",
-              },
-            )
+        // An explicit ?edit=license / ?step= deep-link wins over the persisted
+        // draft step so "Edit licence" from the profile lands on the right step.
+        const preferredStepId =
+          requestedStepIdRef.current ?? localDraft?.currentStepId ?? null;
+        const currentStepId = preferredStepId
+          ? resolveRiaOnboardingStepId(resolvedDraft, preferredStepId, {
+              licenseVerificationSatisfied:
+                alreadyVerified ||
+                resolvedDraft.licenseVerificationStatus === "found",
+            })
           : "welcome";
 
         setStatus(nextStatus);
@@ -299,6 +329,28 @@ export default function RiaOnboardingPage() {
       cancelled = true;
     };
   }, [phoneNumber, user]);
+
+  // Already-established advisors (riaCapability "switch" = RIA persona provisioned
+  // / profile built) don't belong in the onboarding wizard — route them to their
+  // RIA profile to view/edit. Captured once on entry so a fresh advisor who
+  // finishes onboarding in-session (capability flips to "switch" after submit) is
+  // not hijacked out of the review step. Skipped for an explicit edit intent
+  // (e.g. re-verifying a licence from the profile).
+  useEffect(() => {
+    if (personaLoading || personaRefreshing) return;
+    if (onboardingEntryHandledRef.current) return;
+    onboardingEntryHandledRef.current = true;
+    if (hasEditIntent) return;
+    if (riaCapability === "switch") {
+      router.replace(ROUTES.RIA_PROFILE);
+    }
+  }, [
+    hasEditIntent,
+    personaLoading,
+    personaRefreshing,
+    riaCapability,
+    router,
+  ]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -369,7 +421,15 @@ export default function RiaOnboardingPage() {
   }
 
   function handleContinue() {
-    if (!canContinue || saving) return;
+    if (saving) return;
+    if (!canContinue) {
+      // The services step keeps Continue pressable (allowInvalidPress) so we can
+      // run field-level validation instead of a silently disabled button.
+      if (currentStep.id === "services") {
+        setServicesValidateTick((tick) => tick + 1);
+      }
+      return;
+    }
     if (currentStep.id === "review") {
       void handleSubmit();
       return;
@@ -686,8 +746,13 @@ export default function RiaOnboardingPage() {
         });
         setError(result.verification_message || "Verification was rejected.");
       } else {
-        toast.info("Verification submitted", {
-          description: "Your profile is pending verification.",
+        // Onboarding is complete; the verified badge is a separate layer that
+        // unlocks after live/manual verification succeeds. Do not block here.
+        await RiaOnboardingDraftLocalService.clear(user.uid);
+        setShouldPersistDraft(false);
+        toast.success("Profile created", {
+          description:
+            "Your RIA profile is live as pending verification. The verified badge unlocks once your licence is confirmed.",
         });
       }
 
@@ -705,7 +770,12 @@ export default function RiaOnboardingPage() {
           result.advisory_firm_iapd_number || undefined,
       }));
 
-      moveToStep("review");
+      if (advisoryOutcome === "rejected") {
+        moveToStep("review");
+      } else {
+        // Onboarding is complete — leave the wizard for the advisor's profile.
+        router.replace(ROUTES.RIA_PROFILE);
+      }
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {
         setIamUnavailable(true);
@@ -876,6 +946,7 @@ export default function RiaOnboardingPage() {
             }
             onPinZipChange={(value: string) => updateDraft({ pinZip: value })}
             onDraftBio={handleDraftBio}
+            validateTick={servicesValidateTick}
           />
         );
       case "review":
@@ -927,6 +998,7 @@ export default function RiaOnboardingPage() {
           isFirstStep={currentStepIndex === 0}
           isLastStep={currentStep.id === "review"}
           advisoryAccessReady={advisoryAccessReady}
+          allowInvalidPress={currentStep.id === "services"}
           onBack={handleBack}
           onContinue={handleContinue}
         >

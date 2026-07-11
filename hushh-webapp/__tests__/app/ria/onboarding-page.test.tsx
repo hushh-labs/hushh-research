@@ -20,6 +20,8 @@ const MockRiaApiError = vi.hoisted(() => {
 
 const mocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
+  routerReplace: vi.fn(),
+  useSearchParams: vi.fn(),
   useAuth: vi.fn(),
   usePersonaState: vi.fn(),
   toast: {
@@ -47,7 +49,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.routerPush }),
+  useRouter: () => ({ push: mocks.routerPush, replace: mocks.routerReplace }),
+  useSearchParams: () => mocks.useSearchParams(),
 }));
 
 vi.mock("lucide-react", () => ({
@@ -85,6 +88,7 @@ vi.mock("@/components/ria/onboarding/onboarding-shell", () => ({
     saving,
     eyebrow,
     title,
+    allowInvalidPress = false,
   }: {
     children: React.ReactNode;
     onBack: () => void;
@@ -93,6 +97,7 @@ vi.mock("@/components/ria/onboarding/onboarding-shell", () => ({
     saving: boolean;
     eyebrow: string;
     title: string;
+    allowInvalidPress?: boolean;
   }) => (
     <div data-testid="onboarding-shell">
       <span data-testid="shell-eyebrow">{eyebrow}</span>
@@ -103,7 +108,7 @@ vi.mock("@/components/ria/onboarding/onboarding-shell", () => ({
       <button
         data-testid="continue-btn"
         onClick={onContinue}
-        disabled={!canContinue || saving}
+        disabled={saving || (!canContinue && !allowInvalidPress)}
       >
         Continue
       </button>
@@ -261,7 +266,11 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { RIA_HOME: "/ria" },
+  ROUTES: {
+    RIA_HOME: "/ria",
+    RIA_PROFILE: "/ria/profile",
+    RIA_ONBOARDING: "/ria/onboarding",
+  },
 }));
 
 vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
@@ -308,7 +317,12 @@ describe("RiaOnboardingPage", () => {
     });
     mocks.usePersonaState.mockReturnValue({
       refresh: mocks.refreshPersonaState,
+      riaCapability: "setup",
+      loading: false,
+      refreshing: false,
+      riaOnboardingStatus: null,
     });
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams(""));
     mocks.draftService.load.mockResolvedValue(null);
     mocks.draftService.save.mockResolvedValue(undefined);
     mocks.draftService.clear.mockResolvedValue(undefined);
@@ -1012,5 +1026,128 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
     });
+  });
+
+  it("redirects an established (switch) advisor out of the wizard to their RIA profile", async () => {
+    mocks.usePersonaState.mockReturnValue({
+      refresh: mocks.refreshPersonaState,
+      riaCapability: "switch",
+      loading: false,
+      refreshing: false,
+      riaOnboardingStatus: {
+        exists: true,
+        advisory_status: "verified",
+        verification_status: "verified",
+      },
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/profile");
+    });
+  });
+
+  it("keeps a switch advisor in the wizard when re-verifying via ?edit=license", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("edit=license"));
+    mocks.usePersonaState.mockReturnValue({
+      refresh: mocks.refreshPersonaState,
+      riaCapability: "switch",
+      loading: false,
+      refreshing: false,
+      riaOnboardingStatus: {
+        exists: true,
+        advisory_status: "verified",
+        verification_status: "verified",
+      },
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeTruthy();
+    });
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("keeps the user on the services step when Continue is pressed with empty required fields", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "services",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      // Matches buildVerifiedPrefillKey (regulator defaults to "auto") so the
+      // stale-prefill repair effect does not fire a verify call.
+      verifiedLicensePrefillKey: "auto:7265726",
+      servicesOffered: [],
+      feeStructure: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+
+    const continueBtn = screen.getByTestId("continue-btn") as HTMLButtonElement;
+    // Tappable (validation-on-continue) rather than a dead disabled button.
+    expect(continueBtn.disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(continueBtn);
+    });
+
+    // Did not advance — still on services, review not reached, no submit.
+    expect(screen.getByTestId("step-services")).toBeTruthy();
+    expect(screen.queryByTestId("step-review")).toBeNull();
+    expect(mocks.riaService.submitOnboarding).not.toHaveBeenCalled();
+  });
+
+  it("completes onboarding and routes to the RIA profile when verification is pending", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulator: "SEC",
+      regulatorStatus: "ACTIVE",
+      crdNumber: "7265726",
+      individualCrd: "7265726",
+      verifiedLicensePrefillKey: "sec:7265726",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+      contactEmail: "ria-e2e@example.invalid",
+    });
+    // Backend no longer blocks: pending verification returns "submitted".
+    mocks.riaService.submitOnboarding.mockResolvedValue({
+      requested_capabilities: ["advisory"],
+      verification_status: "submitted",
+      advisory_status: "submitted",
+      individual_legal_name: "Ria Ashley Sen",
+      individual_crd: "7265726",
+    });
+    mocks.riaService.setRiaMarketplaceDiscoverability.mockResolvedValue({
+      enabled: false,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-review")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    // Onboarding completes → routed to the RIA profile, no error, draft cleared.
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/profile");
+    });
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+    expect(mocks.draftService.clear).toHaveBeenCalledWith("user-ria-1");
   });
 });

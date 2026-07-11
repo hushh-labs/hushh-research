@@ -3870,50 +3870,74 @@ class RIAIAMService:
                 crd_number=submitted_individual_crd,
                 use_cache=not force_live_verification,
             )
-        if name_lookup.status == "provider_unavailable":
-            raise RIAIAMPolicyError(
-                name_lookup.reason or "RIA name verification provider unavailable.",
-                status_code=503,
-            )
-        if name_lookup.status != "verified" or not self._normalize_optional_text(
-            name_lookup.crd_number
-        ):
-            raise RIAIAMPolicyError(
-                name_lookup.reason
-                or "Advisor name could not be verified against a CRD-backed registration.",
-                status_code=400,
-            )
-        if submitted_individual_crd and (
-            self._normalize_crd_text(name_lookup.crd_number)
+        # Live/name verification is an ADDITIVE trust layer, not an onboarding
+        # gate. Onboarding always completes so the advisor gets a working profile
+        # (persona provisioned + profile persisted). If the lookup cannot confirm
+        # a CRD-backed registration right now — provider unavailable, no confident
+        # match, or a CRD mismatch — the profile onboards as "submitted" (pending
+        # verification, no verified badge); it does NOT block. Investor-data
+        # access stays gated on advisory_status in ('verified','active') below and
+        # in require_ria_verified, so a pending advisor is provisioned but not
+        # granted access until verification succeeds (live or manual review).
+        verified_ok = name_lookup.status == "verified" and bool(
+            self._normalize_optional_text(name_lookup.crd_number)
+        )
+        if (
+            verified_ok
+            and submitted_individual_crd
+            and self._normalize_crd_text(name_lookup.crd_number)
             != self._normalize_crd_text(submitted_individual_crd)
         ):
-            raise RIAIAMPolicyError(
-                "The verified CRD did not match the CRD you entered. Check the CRD or remove it and verify by name.",
-                status_code=400,
-            )
+            # Entered CRD disagrees with the matched CRD — withhold the badge but
+            # still onboard; the advisor can correct the CRD later.
+            verified_ok = False
 
-        effective_legal_name = (
-            self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
-        )
-        effective_finra_crd = self._normalize_optional_text(name_lookup.crd_number)
-        effective_sec_iard = self._normalize_optional_text(
-            name_lookup.sec_number
-        ) or self._normalize_optional_text(prepared.get("advisory_firm_iapd_number"))
-        effective_primary_firm_name = (
-            self._normalize_optional_text(name_lookup.current_firm)
-            or self._normalize_optional_text(prepared.get("advisory_firm_legal_name"))
-            or self._normalize_optional_text(primary_firm_name)
-        )
+        if verified_ok:
+            effective_legal_name = (
+                self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
+            )
+            effective_finra_crd = self._normalize_optional_text(name_lookup.crd_number)
+            effective_sec_iard = self._normalize_optional_text(
+                name_lookup.sec_number
+            ) or self._normalize_optional_text(prepared.get("advisory_firm_iapd_number"))
+            effective_primary_firm_name = (
+                self._normalize_optional_text(name_lookup.current_firm)
+                or self._normalize_optional_text(prepared.get("advisory_firm_legal_name"))
+                or self._normalize_optional_text(primary_firm_name)
+            )
+        else:
+            # Pending: keep the advisor-submitted identity as-is.
+            effective_legal_name = (
+                self._normalize_optional_text(name_lookup.matched_name) or normalized_display_name
+            )
+            effective_finra_crd = submitted_individual_crd or self._normalize_optional_text(
+                name_lookup.crd_number
+            )
+            effective_sec_iard = self._normalize_optional_text(
+                prepared.get("advisory_firm_iapd_number")
+            )
+            effective_primary_firm_name = self._normalize_optional_text(
+                prepared.get("advisory_firm_legal_name")
+            ) or self._normalize_optional_text(primary_firm_name)
         effective_broker_firm_name = self._normalize_optional_text(
             prepared.get("broker_firm_legal_name")
         )
         effective_broker_firm_crd = self._normalize_optional_text(prepared.get("broker_firm_crd"))
+
+        verification_outcome = "verified" if verified_ok else "submitted"
         verification_result = VerificationResult(
-            verified=True,
+            verified=verified_ok,
             rejected=False,
-            outcome="verified",
-            message="RIA verification succeeded from the Stage 1 name lookup.",
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            outcome=verification_outcome,
+            message=(
+                "RIA verification succeeded from the Stage 1 name lookup."
+                if verified_ok
+                else (
+                    name_lookup.reason
+                    or "Onboarding complete. Verification is pending review; the verified badge unlocks once confirmed."
+                )
+            ),
+            expires_at=(datetime.now(timezone.utc) + timedelta(days=30)) if verified_ok else None,
             metadata={
                 "provider": name_lookup.provider,
                 "matched_name": name_lookup.matched_name,
@@ -3922,11 +3946,13 @@ class RIAIAMService:
                 "sec_number": name_lookup.sec_number,
                 "reason_code": name_lookup.reason_code,
                 "suggested_names": list(name_lookup.suggested_names or []),
+                "verification_deferred": not verified_ok,
                 **dict(name_lookup.metadata or {}),
             },
         )
         verification_provider = self._verification_provider_label(verification_result)
-        next_status = "verified"
+        next_status = "verified" if verified_ok else "submitted"
+        advisory_status_value = "verified" if verified_ok else "submitted"
 
         conn = await self._conn()
         try:
@@ -4089,7 +4115,7 @@ class RIAIAMService:
                         effective_sec_iard or "",
                         effective_broker_firm_name or "",
                         effective_broker_firm_crd or "",
-                        "verified",
+                        advisory_status_value,
                         "draft",
                         verification_provider,
                         None,
@@ -4243,9 +4269,9 @@ class RIAIAMService:
                             "ria_business_contacts table unavailable; skipping contact fields"
                         )
 
-                advisory_status = "verified"
+                advisory_status = advisory_status_value
                 brokerage_status = "draft"
-                professional_access_granted = True
+                professional_access_granted = verified_ok
                 brokerage_outcome = (
                     "not_requested"
                     if "brokerage" not in normalized_requested_capabilities
@@ -4395,7 +4421,10 @@ class RIAIAMService:
                       services_offered,
                       fee_structure,
                       min_engagement_amount,
-                      min_engagement_currency
+                      min_engagement_currency,
+                      bio,
+                      strategy,
+                      disclosures_url
                     FROM ria_profiles
                     WHERE id = $1
                     """,
@@ -4415,7 +4444,9 @@ class RIAIAMService:
                       full_street_address,
                       pin_zip,
                       latitude,
-                      longitude
+                      longitude,
+                      email,
+                      phone
                     FROM ria_business_contacts
                     WHERE user_id = $1
                     """,
@@ -4496,12 +4527,116 @@ class RIAIAMService:
                 "business_pin_zip": business_contact.get("pin_zip"),
                 "business_latitude": business_contact.get("latitude"),
                 "business_longitude": business_contact.get("longitude"),
+                "contact_email": business_contact.get("email"),
+                "contact_phone": business_contact.get("phone"),
+                "bio": v2_profile.get("bio"),
+                "strategy": v2_profile.get("strategy"),
+                "disclosures_url": v2_profile.get("disclosures_url"),
                 "latest_verification_event": event,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
+
+    async def update_ria_self_profile(
+        self, user_id: str, updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Self-service edit of an established advisor's own profile.
+
+        Unlike submit_ria_onboarding this does NOT re-run licence/CRD
+        verification and writes provided fields with a direct SET (no COALESCE
+        guards) so self-authored fields can be edited *and cleared*. Only keys
+        present in ``updates`` are touched; regulatory/identity fields
+        (name/CRD/regulator/firm) are not writable here. Returns the refreshed
+        onboarding status.
+        """
+        # Columns on ria_profiles the advisor may self-edit.
+        profile_columns = {
+            "display_name": "display_name",
+            "bio": "bio",
+            "strategy": "strategy",
+            "services_offered": "services_offered",
+            "fee_structure": "fee_structure",
+            "min_engagement_amount": "min_engagement_amount",
+            "min_engagement_currency": "min_engagement_currency",
+            "certifications": "certifications",
+        }
+        # Payload-key -> ria_business_contacts column.
+        contact_columns = {
+            "contact_email": "email",
+            "contact_phone": "phone",
+            "business_city": "city",
+            "business_area": "area_locality",
+            "business_address": "full_street_address",
+            "business_pin_zip": "pin_zip",
+            "business_latitude": "latitude",
+            "business_longitude": "longitude",
+        }
+
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            await self._ensure_vault_user_row(conn, user_id)
+            await self._ensure_actor_profile_row(conn, user_id)
+
+            profile_row = await conn.fetchrow(
+                "SELECT id FROM ria_profiles WHERE user_id = $1", user_id
+            )
+            if profile_row is None:
+                raise RIAIAMPolicyError(
+                    "RIA profile not found. Complete onboarding before editing.",
+                    status_code=404,
+                )
+
+            # ria_profiles partial update (direct SET → clearing is allowed).
+            set_parts: list[str] = []
+            params: list[Any] = []
+            for key, col in profile_columns.items():
+                if key not in updates:
+                    continue
+                value = updates[key]
+                # Never blank the display name (it is NOT NULL / identity-facing).
+                if key == "display_name" and not str(value or "").strip():
+                    continue
+                params.append(value)
+                set_parts.append(f"{col} = ${len(params)}")
+            if set_parts:
+                set_parts.append("updated_at = NOW()")
+                params.append(user_id)
+                await conn.execute(
+                    f"UPDATE ria_profiles SET {', '.join(set_parts)} "
+                    f"WHERE user_id = ${len(params)}",
+                    *params,
+                )
+
+            # ria_business_contacts upsert for provided contact/location fields.
+            present_contacts = [
+                (col, updates[key]) for key, col in contact_columns.items() if key in updates
+            ]
+            if present_contacts:
+                cols = ["user_id"] + [col for col, _ in present_contacts]
+                values = [user_id] + [value for _, value in present_contacts]
+                placeholders = ", ".join(f"${i + 1}" for i in range(len(values)))
+                assignments = ", ".join(f"{col} = EXCLUDED.{col}" for col, _ in present_contacts)
+                try:
+                    await conn.execute(
+                        f"INSERT INTO ria_business_contacts ({', '.join(cols)}) "
+                        f"VALUES ({placeholders}) "
+                        f"ON CONFLICT (user_id) DO UPDATE SET {assignments}, "
+                        f"updated_at = NOW()",
+                        *values,
+                    )
+                except asyncpg.exceptions.UndefinedTableError:
+                    logger.warning(
+                        "ria_business_contacts table unavailable; skipping contact update"
+                    )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        return await self.get_ria_onboarding_status(user_id)
 
     async def list_ria_firms(self, user_id: str) -> list[dict[str, Any]]:
         conn = await self._conn()
