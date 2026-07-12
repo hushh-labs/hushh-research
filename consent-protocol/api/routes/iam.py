@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -35,10 +35,16 @@ def _iam_schema_not_ready_response() -> JSONResponse:
 
 
 @router.get("/persona")
-async def get_persona(firebase_uid: str = Depends(require_firebase_auth)):
+async def get_persona(
+    firebase_uid: str = Depends(require_firebase_auth),
+    force: bool = Query(
+        default=False,
+        description="Bypass the server persona cache (used after a persona mutation).",
+    ),
+):
     service = RIAIAMService()
     try:
-        return await service.get_persona_state(firebase_uid)
+        return await service.get_persona_state(firebase_uid, force=force)
     except IAMSchemaNotReadyError:
         return {
             "user_id": firebase_uid,

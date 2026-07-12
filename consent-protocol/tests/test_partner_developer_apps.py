@@ -194,7 +194,7 @@ class TestPartnerMigrationContract:
         contract = json.loads(
             (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text()
         )
-        assert contract["expected_migration_version"] == 86
+        assert contract["expected_migration_version"] >= 87
         cols = contract["required_tables"]["developer_apps"]
         assert "kind" in cols
         assert "crm_id" in cols

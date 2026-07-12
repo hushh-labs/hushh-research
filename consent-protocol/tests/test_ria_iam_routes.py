@@ -27,7 +27,7 @@ def _build_app() -> FastAPI:
 
 
 def test_iam_persona_returns_actor_state(monkeypatch):
-    async def _mock_get_persona_state(self, user_id: str):
+    async def _mock_get_persona_state(self, user_id: str, *, force: bool = False):
         assert user_id == "user_test_123"
         return {
             "user_id": user_id,
@@ -48,7 +48,7 @@ def test_iam_persona_returns_actor_state(monkeypatch):
 
 
 def test_iam_persona_schema_not_ready_returns_compat_payload(monkeypatch):
-    async def _mock_get_persona_state(self, user_id: str):
+    async def _mock_get_persona_state(self, user_id: str, *, force: bool = False):
         assert user_id == "user_test_123"
         raise IAMSchemaNotReadyError("IAM schema is not ready")
 
@@ -1018,3 +1018,25 @@ def test_ria_profile_delete_schema_not_ready_returns_503(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["code"] == "IAM_SCHEMA_NOT_READY"
+
+
+def test_iam_persona_force_param_bypasses_cache(monkeypatch):
+    seen: dict[str, bool] = {}
+
+    async def _mock_get_persona_state(self, user_id: str, *, force: bool = False):
+        seen["force"] = force
+        return {
+            "user_id": user_id,
+            "personas": ["investor"],
+            "last_active_persona": "investor",
+            "investor_marketplace_opt_in": False,
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_persona_state", _mock_get_persona_state)
+    client = TestClient(_build_app())
+
+    assert client.get("/api/iam/persona?force=1").status_code == 200
+    assert seen["force"] is True
+
+    assert client.get("/api/iam/persona").status_code == 200
+    assert seen["force"] is False

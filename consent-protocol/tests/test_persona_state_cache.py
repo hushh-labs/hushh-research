@@ -347,7 +347,7 @@ class TestPersonaStateCacheHTTPReachability:
         }
         _PERSONA_STATE_CACHE.set(uid, stored)
 
-        async def _stubbed_get_persona_state(self, user_id: str):
+        async def _stubbed_get_persona_state(self, user_id: str, *, force: bool = False):
             cached = RIAIAMService._read_cached_persona_state(user_id)
             if cached is not None:
                 return cached
@@ -376,7 +376,7 @@ class TestPersonaStateCacheHTTPResponse:
         _PERSONA_STATE_CACHE.invalidate(uid)
         assert _PERSONA_STATE_CACHE.get(uid, _PERSONA_STATE_CACHE_TTL) is None
 
-        async def _stubbed_get_persona_state(self, user_id: str):
+        async def _stubbed_get_persona_state(self, user_id: str, *, force: bool = False):
             return {
                 "user_id": user_id,
                 "personas": ["investor"],
