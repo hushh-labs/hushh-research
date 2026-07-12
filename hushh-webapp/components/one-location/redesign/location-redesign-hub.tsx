@@ -473,7 +473,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         <NowHub
           vm={vm}
           hasActiveShare={hasActiveShare}
-          inboxCount={inboxCount}
           onStartShare={() => {
             setShareStep("person");
             setFlow("share");
@@ -484,7 +483,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           onPickMeUp={() => setFlow("pick-me-up")}
           onSafeArrival={() => setFlow("safe-arrival")}
           onSos={() => setFlow("sos")}
-          onGoTab={setTab}
           onOpenPrivacy={() => setFlow("privacy")}
         />
 
@@ -536,7 +534,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 function NowHub({
   vm,
   hasActiveShare,
-  inboxCount,
   onStartShare,
   onAsk,
   onCheckIn,
@@ -544,12 +541,10 @@ function NowHub({
   onPickMeUp,
   onSafeArrival,
   onSos,
-  onGoTab,
   onOpenPrivacy,
 }: {
   vm: LocationHubViewModel;
   hasActiveShare: boolean;
-  inboxCount: number;
   onStartShare: () => void;
   onAsk: () => void;
   onCheckIn: () => void;
@@ -557,7 +552,6 @@ function NowHub({
   onPickMeUp: () => void;
   onSafeArrival: () => void;
   onSos: () => void;
-  onGoTab: (tab: LocationHubTab) => void;
   onOpenPrivacy: () => void;
 }) {
 

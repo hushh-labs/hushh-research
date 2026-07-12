@@ -170,10 +170,7 @@ import {
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
-import {
-  CONSENT_STATE_CHANGED_EVENT,
-  dispatchConsentStateChanged,
-} from "@/lib/consent/consent-events";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
