@@ -64,12 +64,26 @@ async def test_place_details_parses_location(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_route_eta_parses_duration_seconds(monkeypatch):
+async def test_route_eta_parses_duration_and_traffic(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert "routes.duration" in request.headers["X-Goog-FieldMask"]
+        field_mask = request.headers["X-Goog-FieldMask"]
+        assert "routes.duration" in field_mask
+        assert "routes.staticDuration" in field_mask
+        import json as _json
+
+        body = _json.loads(request.content)
+        assert body["routingPreference"] == "TRAFFIC_AWARE"
         return httpx.Response(
             200,
-            json={"routes": [{"duration": "2398s", "distanceMeters": 56902}]},
+            json={
+                "routes": [
+                    {
+                        "duration": "2398s",
+                        "staticDuration": "2000s",
+                        "distanceMeters": 56902,
+                    }
+                ]
+            },
         )
 
     monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
@@ -78,7 +92,22 @@ async def test_route_eta_parses_duration_seconds(monkeypatch):
     out = await svc.route_eta(
         origin_lat=37.77, origin_lng=-122.41, dest_lat=37.42, dest_lng=-122.08
     )
-    assert out == {"etaSeconds": 2398, "distanceMeters": 56902}
+    # 2398 / 2000 = 1.199 -> moderate
+    assert out == {
+        "etaSeconds": 2398,
+        "distanceMeters": 56902,
+        "trafficLevel": "moderate",
+    }
+
+
+def test_classify_traffic_boundaries():
+    assert gms._classify_traffic(100, 100) == "light"  # ratio 1.0
+    assert gms._classify_traffic(114, 100) == "light"  # ratio 1.14
+    assert gms._classify_traffic(115, 100) == "moderate"  # ratio 1.15
+    assert gms._classify_traffic(139, 100) == "moderate"  # ratio 1.39
+    assert gms._classify_traffic(140, 100) == "heavy"  # ratio 1.40
+    assert gms._classify_traffic(300, 0) is None  # no baseline
+    assert gms._classify_traffic(0, 100) is None  # no eta
 
 
 @pytest.mark.asyncio

@@ -54,6 +54,18 @@ def _parse_duration_seconds(value: Any) -> int:
         return 0
 
 
+def _classify_traffic(eta_seconds: int, static_seconds: int) -> str | None:
+    """Classify congestion from the traffic-aware vs free-flow duration ratio."""
+    if static_seconds <= 0 or eta_seconds <= 0:
+        return None
+    ratio = eta_seconds / static_seconds
+    if ratio < 1.15:
+        return "light"
+    if ratio < 1.40:
+        return "moderate"
+    return "heavy"
+
+
 class GoogleMapsService:
     async def autocomplete(
         self, input_text: str, *, session_token: str | None = None
@@ -130,6 +142,7 @@ class GoogleMapsService:
             "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
             "destination": {"location": {"latLng": {"latitude": dest_lat, "longitude": dest_lng}}},
             "travelMode": "DRIVE",
+            "routingPreference": "TRAFFIC_AWARE",
         }
         async with _async_client() as client:
             try:
@@ -138,7 +151,7 @@ class GoogleMapsService:
                     headers={
                         "Content-Type": "application/json",
                         "X-Goog-Api-Key": key,
-                        "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
+                        "X-Goog-FieldMask": "routes.duration,routes.staticDuration,routes.distanceMeters",
                     },
                     json=body,
                 )
@@ -151,7 +164,10 @@ class GoogleMapsService:
         if not routes:
             raise GoogleMapsError("No route found.", status_code=502)
         route = routes[0]
+        eta_seconds = _parse_duration_seconds(route.get("duration"))
+        static_seconds = _parse_duration_seconds(route.get("staticDuration"))
         return {
-            "etaSeconds": _parse_duration_seconds(route.get("duration")),
+            "etaSeconds": eta_seconds,
             "distanceMeters": int(route.get("distanceMeters", 0) or 0),
+            "trafficLevel": _classify_traffic(eta_seconds, static_seconds),
         }
