@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import {
   googleMapsDirectionsUrl,
+  googleMapsDirectionsEmbedUrl,
   googleMapsLocationEmbedUrl,
   locationCoordinateQuery,
   locationLatLng,
@@ -33,5 +34,17 @@ describe("maps-urls", () => {
     const url = googleMapsDirectionsUrl(point);
     expect(url).toContain("dir/?api=1");
     expect(url).toContain("travelmode=driving");
+  });
+});
+
+describe("googleMapsDirectionsEmbedUrl", () => {
+  it("builds a keyless directions embed with saddr and daddr", () => {
+    const url = googleMapsDirectionsEmbedUrl(
+      { lat: 12.9716, lng: 77.5946 },
+      { lat: 28.5562, lng: 77.1 },
+    );
+    expect(url).toContain("output=embed");
+    expect(url).toContain(`saddr=${encodeURIComponent("12.971600,77.594600")}`);
+    expect(url).toContain(`daddr=${encodeURIComponent("28.556200,77.100000")}`);
   });
 });

@@ -25,3 +25,16 @@ export function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
   const destination = encodeURIComponent(locationCoordinateQuery(point));
   return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
 }
+
+export function googleMapsDirectionsEmbedUrl(
+  origin: LatLngLiteral,
+  destination: LatLngLiteral,
+): string {
+  const saddr = encodeURIComponent(
+    `${formatCoordinate(origin.lat)},${formatCoordinate(origin.lng)}`,
+  );
+  const daddr = encodeURIComponent(
+    `${formatCoordinate(destination.lat)},${formatCoordinate(destination.lng)}`,
+  );
+  return `https://www.google.com/maps?saddr=${saddr}&daddr=${daddr}&output=embed`;
+}
