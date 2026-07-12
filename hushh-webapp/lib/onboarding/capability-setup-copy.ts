@@ -111,12 +111,12 @@ const SETUP_COPY_BY_ID: Record<
   consent: {
     setupTitle: "Review who has access",
     setupBlurb:
-      "See every request to use your data, approve what you trust, and pull access back any time.",
+      "See every request to use your personal information, approve what you trust, and pull access back any time.",
     exploreTitle: "Here's your access center",
     exploreBlurb:
-      "Nothing to set up. This is where you see and control who can use your data.",
+      "Nothing to set up. This is where you see and control who can use your personal information.",
     exploreBullets: [
-      "Every request to use your data shows up here.",
+      "Every request to use your personal information shows up here.",
       "Approve what you trust, decline the rest.",
       "Pull access back at any time, instantly.",
     ],

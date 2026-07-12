@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://hushh.ai"),
   title: "Hussh One | Your Personal Agent",
   description:
-    "Personal AI agents with consent at the core. Your data, your control.",
+    "Personal AI agents with consent at the core. Your information, your control.",
   keywords: ["AI agents", "personal AI", "Hussh One", "consent-first", "privacy"],
   authors: [{ name: "Hussh Labs" }],
   icons: {

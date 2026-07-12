@@ -53,6 +53,7 @@ Non-owned surfaces:
 3. `docs/project_context_map.md`
 4. `docs/reference/iam/agent-delegation-boundary.md`
 5. `consent-protocol/docs/reference/consent-protocol.md`
+6. `.codex/skills/security-audit/references/anti-rationalization.md`
 
 ## Workflow
 

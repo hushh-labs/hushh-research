@@ -134,10 +134,10 @@ export function AgentBar() {
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Last SCREEN pushed into the live session. Deduping on snapshot_id was a
   // bug: snapshot_id churns with every voice state transition (voiceRevision
-  // = transitionSeq), so each listening/speaking flip re-pushed app_context,
-  // and each push preempted One's active model turn (speech cut mid-sentence,
-  // greetings cancelled). Navigation continuity only needs the screen.
-  const lastPushedScreenRef = useRef<string | null>(null);
+  // Keep action availability and onboarding progress current without pushing
+  // on every voice-state transition. The relay persists same-screen updates
+  // silently; only a changed screen becomes model-visible content.
+  const lastPushedContextRef = useRef<string | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -273,6 +273,10 @@ export function AgentBar() {
             ? event.directive.payload.actionId
             : null;
         if (actionId) {
+          const directiveId =
+            typeof event.directive.payload?.directiveId === "string"
+              ? event.directive.payload.directiveId
+              : null;
           const slots =
             event.directive.payload?.slots &&
             typeof event.directive.payload.slots === "object"
@@ -292,21 +296,57 @@ export function AgentBar() {
             return;
           }
           const runtimeState = runtime?.appRuntimeState;
-          if (!runtimeState) return;
-          void executeAgentGatewayAction({
-            actionId,
-            slots,
-            userId: user?.uid ?? "",
-            router,
-            appRuntimeState: runtimeState,
-            surfaceMetadata: getVoiceSurfaceMetadata(),
-            hasPortfolioData:
-              runtimeState.portfolio.has_portfolio_data ||
-              runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-            busyOperations,
-            setAnalysisParams,
-            switchPersona,
-          });
+          if (!runtimeState) {
+            if (directiveId) {
+              liveClientRef.current?.reportActionSettlement?.({
+                directiveId,
+                actionId,
+                status: "failed",
+                summary: "The app was not ready to run that action.",
+                reason: "missing_runtime_state",
+              });
+            }
+            return;
+          }
+          void (async () => {
+            try {
+              const result = await executeAgentGatewayAction({
+                actionId,
+                slots,
+                userId: user?.uid ?? "",
+                router,
+                appRuntimeState: runtimeState,
+                surfaceMetadata: getVoiceSurfaceMetadata(),
+                hasPortfolioData:
+                  runtimeState.portfolio.has_portfolio_data ||
+                  runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+                busyOperations,
+                setAnalysisParams,
+                switchPersona,
+              });
+              if (directiveId) {
+                liveClientRef.current?.reportActionSettlement?.({
+                  directiveId,
+                  actionId,
+                  status: result.status,
+                  summary: result.resultSummary,
+                  reason: result.reason,
+                  routeAfter: result.routeAfter,
+                  screenAfter: result.screenAfter,
+                });
+              }
+            } catch {
+              if (directiveId) {
+                liveClientRef.current?.reportActionSettlement?.({
+                  directiveId,
+                  actionId,
+                  status: "failed",
+                  summary: "The app could not complete that action.",
+                  reason: "client_execution_failed",
+                });
+              }
+            }
+          })();
           return;
         }
         // Specialist directive (location share/check-in/SOS, device
@@ -429,7 +469,9 @@ export function AgentBar() {
     });
     liveClientRef.current = client;
     // The client pushes the starting snapshot as app_context on setupComplete.
-    lastPushedScreenRef.current = context?.route.screen ?? null;
+    lastPushedContextRef.current = context
+      ? `${context.revisions.route}:${context.revisions.ui}:${JSON.stringify(context.onboarding)}`
+      : null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -455,18 +497,16 @@ export function AgentBar() {
   // the relay lets One proactively offer the next step after a screen change.
   useEffect(() => {
     if (!conversationActive) {
-      lastPushedScreenRef.current = null;
+      lastPushedContextRef.current = null;
       return;
     }
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    // Only a real screen change warrants a push; anything finer-grained
-    // (voice transitions, cache freshness ticks) preempts One's active
-    // model turn on the Live API and audibly cuts speech.
-    if (lastPushedScreenRef.current === context.route.screen) return;
+    const contextKey = `${context.revisions.route}:${context.revisions.ui}:${JSON.stringify(context.onboarding)}`;
+    if (lastPushedContextRef.current === contextKey) return;
     if (client.updateContext(context)) {
-      lastPushedScreenRef.current = context.route.screen;
+      lastPushedContextRef.current = contextKey;
     }
   }, [conversationActive, runtime?.oneVoiceContextSnapshot]);
 

@@ -89,7 +89,7 @@ function PreviewEntityRow({
 
   function handleDelete() {
     if (!onDeleteEntity) return;
-    const confirmed = window.confirm(`Remove "${entity.title}" from your personal data?`);
+    const confirmed = window.confirm(`Remove "${entity.title}" from your saved details?`);
     if (!confirmed) return;
     onDeleteEntity(entity);
   }

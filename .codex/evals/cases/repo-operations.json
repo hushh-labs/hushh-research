@@ -1,0 +1,33 @@
+{
+  "skill_name": "repo-operations",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "the merge queue is stuck and branch protection is blocking everything",
+        "top_k": 3
+      },
+      {
+        "prompt": "check Cloud Build and Cloud Run state for the production rollout",
+        "top_k": 3
+      },
+      {
+        "prompt": "CI on main is red, triage the GitHub Actions incident",
+        "top_k": 3
+      },
+      {
+        "prompt": "verify env and secret parity between UAT and production",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "review the incoming contributor pull request for hidden regressions",
+        "owner": "pr-governance-review"
+      },
+      {
+        "prompt": "run a scoped frontend-only UAT deploy with timing proof",
+        "owner": "uat-scoped-deploy"
+      }
+    ]
+  }
+}

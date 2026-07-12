@@ -1,0 +1,29 @@
+{
+  "skill_name": "quality-contracts",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "where should contract tests live for this cross-surface change",
+        "top_k": 3
+      },
+      {
+        "prompt": "define the quality gates and test selection for frontend and backend",
+        "top_k": 3
+      },
+      {
+        "prompt": "our verification policy across surfaces is inconsistent, fix the contract-test placement",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "the CI pipeline itself is broken on GitHub Actions",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "review this PR for trust-boundary regressions before merge",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

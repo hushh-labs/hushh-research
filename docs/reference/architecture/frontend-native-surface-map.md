@@ -32,6 +32,7 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
 - Generator: `hushh-webapp/scripts/architecture/generate-surface-map.mjs`
 - Check command: `cd hushh-webapp && npm run verify:surface-map`
 - Cache posture companion: `hushh-webapp/cache-coherence-screen-manifest.generated.json`
+- One route-orchestration index: `contracts/kai/one-route-orchestration-index.v1.json`
 
 ## Rules
 
@@ -45,6 +46,9 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
    Capacitor plugin method.
 5. Voice/action ids belong in each route's checked-in
    `page.voice-action-contract.json`; the surface map only indexes them.
+6. The route-orchestration index joins every physical route with generated
+   action reachability and the One specialist-admission policy. It is
+   descriptive metadata, never consent or a TrustLink input.
 
 ## Current KYC Contract
 

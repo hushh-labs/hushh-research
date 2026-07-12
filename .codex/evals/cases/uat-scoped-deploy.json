@@ -1,0 +1,29 @@
+{
+  "skill_name": "uat-scoped-deploy",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "run a frontend-only scoped UAT deploy and prove the Cloud Build timing",
+        "top_k": 3
+      },
+      {
+        "prompt": "verify which Cloud Run region and service revision the UAT deploy landed on",
+        "top_k": 3
+      },
+      {
+        "prompt": "backend-only deploy to UAT with service provenance evidence",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "production rollout incident triage and merge queue repair",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "review whether the deploy PR is safe to merge",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

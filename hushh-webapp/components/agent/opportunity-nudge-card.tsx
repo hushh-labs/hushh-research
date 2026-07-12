@@ -331,7 +331,7 @@ export function OpportunityNudgeStack({
           true,
         );
         if (!previousManifest) {
-          throw new Error("Couldn't load your data to publish this section.");
+          throw new Error("Couldn't load your saved details to publish this section.");
         }
         await publishPublicProfileForPermission({
           userId,

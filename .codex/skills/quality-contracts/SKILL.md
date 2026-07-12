@@ -46,6 +46,7 @@ Non-owned surfaces:
 2. `docs/reference/quality/pr-impact-checklist.md`
 3. `docs/reference/kai/kai-runtime-smoke-checklist.md`
 4. `.codex/skills/quality-contracts/references/browser-verification-contract.md`
+5. `docs/reference/quality/definition-of-done.md`
 
 ## Workflow
 

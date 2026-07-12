@@ -48,6 +48,7 @@ Non-owned surfaces:
 3. `deploy/frontend.cloudbuild.yaml`
 4. `deploy/backend.cloudbuild.yaml`
 5. `.codex/skills/uat-scoped-deploy/references/deploy-proof.md`
+6. `.codex/skills/uat-scoped-deploy/references/anti-rationalization.md`
 
 ## Workflow
 

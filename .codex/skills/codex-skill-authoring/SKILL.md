@@ -77,7 +77,8 @@ python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 python3 .codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py --text
+python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py --text
 python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run
 ./bin/hushh codex audit
-python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py
+python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py .codex/skills/codex-skill-authoring/scripts/trigger_evals.py .codex/skills/codex-skill-authoring/scripts/test_trigger_evals.py
 ```

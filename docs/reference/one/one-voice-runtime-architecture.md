@@ -11,9 +11,11 @@ flowchart TD
   context["OneVoiceContextSnapshot<br/>redacted active state"]
   transport["RealtimeVoiceTransport<br/>provider adapter seam"]
   gemini["GeminiLiveClient<br/>audio pump + wire envelope"]
+  settlement["Correlated action settlement<br/>browser-observed outcome"]
   relay["/api/one/adk/live<br/>ADK live relay"]
   runner["ADK Runner (run_live)<br/>single ordered event stream"]
   one["One root LlmAgent<br/>gemini-live model"]
+  onboarding["agent_onboarding<br/>deterministic, redacted goal resolver"]
   search["google_search<br/>web grounding"]
   nav["open_screen<br/>governed navigation allowlist"]
   agenttools["AgentTool specialists<br/>Finance, RIA"]
@@ -27,14 +29,34 @@ flowchart TD
   gemini -- "relay ticket ws" --> relay
   relay --> runner
   runner --> one
+  one --> onboarding
   one --> search
   one --> nav
   one --> agenttools
   one --> fntools
   fntools --> a2a
+  shell --> settlement
+  settlement --> relay
 ```
 
 ## Current Truth
+
+### Route orchestration index
+
+`contracts/kai/one-route-orchestration-index.v1.json` is generated from the
+complete frontend/native surface map and the generated action gateway. Every
+physical route has exactly one bounded descriptor: route class, stable
+instruction identifier, context publication policy, action coverage, and
+specialist-admission policy. Interactive pages may author an `orchestration`
+block next to their local voice-action contract; routes without an action
+contract receive a generated minimal descriptor.
+
+The index is not a second router, prompt bundle, consent grant, or TrustLink
+input. `deriveVoiceRouteScreen` remains the browser's canonical screen mapper,
+and the action gateway remains the only executable-action authority. Before
+One dispatches an internal A2A specialist, the backend checks the redacted
+current route against this index; scoped consent remains the authority gate,
+and TrustLink validation remains separate for delegation paths that use it.
 
 One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
 browser is an audio pump and directive executor; every decision (conversation
@@ -48,8 +70,8 @@ What shipped:
   `AGENT_ONE_ADK_MODEL`; the native-audio Live model is served regionally on
   Vertex, so the live client pins `AGENT_ONE_ADK_LOCATION`, default
   `us-central1`) with the full roster wired as tools: `google_search`,
-  `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and six
-  dispatch-backed specialist turn functions.
+  `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and specialist-turn
+  function wrappers.
 - `consent-protocol/api/routes/one/adk_live.py` is the only voice relay:
   `POST /api/one/adk/relay-session` mints a signed one-time ticket
   (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
@@ -66,9 +88,20 @@ Voice responder contract (who makes LLM calls, who speaks):
 - `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
   `run_async` call on the specialist model inside the live turn; the root
   model folds the result into its spoken answer.
-- The six `ask_*` specialist turn tools and `open_screen` make ZERO extra
+- The deterministic `ask_*` specialist turn tools and `open_screen` make ZERO extra
   LLM calls: they are deterministic handlers (A2A dispatch / directive
   parking) whose structured results return to the root model.
+- `resolve_onboarding_goal` is likewise deterministic but intentionally is not
+  A2A: anonymous sign-in cannot require vault or consent authority. It sees
+  only redacted journey state and returns permitted next actions; One retains
+  conversational ownership. See [One Voice Onboarding Journey](./one-voice-onboarding-journey.md).
+
+Current delegation limit: only Location, Nav, and Personal Information are
+registered for a Live turn today. Email, Gmail, Connections, and Connected
+Systems wrappers intentionally return `unavailable` until their callers can
+mint an ingress-validated `A2AAuthorityContext`; the live relay must not pass
+its raw vault-owner token into those ambient-user service paths. This is a
+known capability gap, not a permission bypass.
 
 Why this fixes the "random commands" class of bugs by construction:
 
@@ -88,7 +121,8 @@ Browser to relay:
 | Frame | Meaning |
 | --- | --- |
 | `{"realtimeInput": {"audio": {"data": b64, "mimeType"}}}` | 16 kHz mono PCM16 mic audio |
-| `{"type": "app_context", "appContext": {...}}` | redacted screen context + governed `consent_token` + `timezone` |
+| `{"type": "app_context", "appContext": {...}}` | redacted screen context + governed `consent_token` (explicit `null` clears it) + `timezone` |
+| `{"type": "action_settled", "actionSettlement": {...}}` | correlated browser-observed outcome of an action directive |
 | `{"type": "app_speech", "text"}` | app-composed response for One to speak verbatim |
 | `{"type": "user_text", "text"}` | typed user turn (chat parity / accessibility) |
 | `{"type": "interrupt"}` | stop talking, close the activity window |
@@ -112,6 +146,9 @@ Relay to browser:
 - The vault owner consent token rides in the post-connect `app_context` frame
   and lands in ADK session state (`hussh:consent_token`). It is read by
   specialist turn tools only; it never reaches the model prompt.
+- Locking the vault or revoking consent sends `consent_token: null`, which
+  clears the token from the active ADK session before any later specialist
+  call. A live session never retains its former authority after that update.
 - Specialist tools fail closed: without `hussh:user_id` + consent token in
   session state they return `needs_auth` instead of calling the specialist.
 - Session state writes go through `session_service.append_event` with a
@@ -134,6 +171,22 @@ loaded via `hushh_mcp.services.voice_action_manifest`) and parks the same
 kind of client directive, or redirects to a specialist's `ask_*` tool when
 the action is delegate-owned, or refuses `manual_only` actions with
 where-to-do-it guidance.
+
+### Action settlement
+
+An action directive has two distinct stages: **proposal** and **settlement**.
+The relay attaches a random `directiveId` to each direct `actionId` directive
+and retains that correlation only for the current authenticated WebSocket.
+The browser runs the action through `executeAgentGatewayAction`, then returns
+its `succeeded`, `started`, `blocked`, `invalid`, `failed`, or `noop` result
+with the same id. The relay rejects unmatched, replayed, or malformed reports.
+Only a matched result becomes an `[App action settlement - not user speech]`
+turn for One. One must describe that reported outcome, never assume an action
+completed merely because it emitted a directive.
+
+This closes the live chain as:
+
+`One plan → governed directive → browser guard/execution → correlated settlement → grounded next turn`.
 
 ## Onboarding and Proactive Prompting
 
@@ -210,8 +263,12 @@ fork a second agent tree for chat.
   documents, and raw cache keys
 
 The client pushes it (plus consent token + timezone) as `app_context` on
-`setupComplete` and again on every screen change while a session is live.
-Screen changes surface to the model as bracketed non-speech user content.
+`setupComplete` and again on every screen change while a session is live. The
+relay keeps a bounded allowlist of this redacted state in ADK session state for
+tools only: `run_app_action` and `list_app_actions` use the supplied action ids
+to avoid proposing controls that are not available on the current surface.
+Raw snapshot fields never enter a model prompt. Screen changes alone surface to
+the model as bracketed non-speech user content.
 
 ## Verification
 

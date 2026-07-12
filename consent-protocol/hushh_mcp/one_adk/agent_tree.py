@@ -31,7 +31,14 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
+from hushh_mcp.agents.onboarding.agent import (
+    OnboardingJourneyContext,
+)
+from hushh_mcp.agents.onboarding.agent import (
+    resolve_onboarding_goal as _resolve_onboarding_goal,
+)
 from hushh_mcp.one_adk.action_tools import list_app_actions, run_app_action
+from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +53,10 @@ STATE_CONVERSATION_ID = "hussh:conversation_id"
 STATE_TIMEZONE = "hussh:timezone"
 # Current app screen id (from app_context frames); used to rank action search.
 STATE_SCREEN = "hussh:screen"
+# Redacted browser state used by action tools to avoid proposing controls the
+# current surface did not declare available. It never contains vault content,
+# credentials, or raw page text.
+STATE_VOICE_CONTEXT = "hussh:voice_context"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
@@ -78,6 +89,22 @@ _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").stri
 _SPECIALIST_MODEL = (os.getenv("AGENT_ONE_SPECIALIST_MODEL") or "gemini-3.5-flash").strip()
 
 
+def _onboarding_goals_enabled(user_id: str) -> bool:
+    """Apply the deterministic-goal kill switch and optional user allowlist."""
+    if (os.getenv("HUSHH_ONBOARDING_GOALS_DISABLED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return False
+    allowlist = {
+        value.strip()
+        for value in (os.getenv("HUSHH_ONBOARDING_GOALS_ALLOWLIST") or "").split(",")
+        if value.strip()
+    }
+    return not allowlist or user_id in allowlist
+
+
 def _build_one_live_model():
     """Live model for One's voice head.
 
@@ -104,6 +131,12 @@ ONE_IDENTITY_INSTRUCTION = (
     'simply: "I\'m One." Never call yourself Kai, Gemini, or any other name. '
     "You hold the relationship layer: speak warmly, concisely, and in plain "
     "English.\n\n"
+    "Conversation comes before workflow. Treat short follow-ups such as 'so what?', "
+    "'why?', 'how?', 'tell me more', or 'what do you mean?' as replies to "
+    "your immediately preceding statement. Answer their underlying question "
+    "directly in one or two concrete sentences before offering any setup step, "
+    "tool, or specialist. Never treat a conversational challenge as missing "
+    "onboarding input, silence, or an instruction to repeat your introduction.\n\n"
     "Your specialist agents (your arms) and what they own:\n"
     "- Finance: markets, portfolio, stock analysis and debates (internally "
     "the Kai runtime). Its subagents: RIA (the advisor workspace with "
@@ -114,10 +147,9 @@ ONE_IDENTITY_INSTRUCTION = (
     "- Email: approval drafts and client request workflows.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: saved knowledge the user can review (PKM).\n"
-    "- Consent (Nav): what the user has shared and with whom, approvals, "
-    "revocations, and the user's trusted connections. The Connections "
-    "specialist handles the trusted-people graph itself; both surface in "
-    "the consent center (Connections tab).\n"
+    "- Consent Center (Nav): what the user has shared and with whom, approvals, "
+    "and revocations. Its Connections subagent handles the trusted-people "
+    "graph itself; both surface in the Consent Center.\n"
     "- Information Marketplace: governed data-slice requests and delivery.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
     "Delegate naturally: when a request belongs to a specialist's domain, call "
@@ -142,8 +174,13 @@ ONE_IDENTITY_INSTRUCTION = (
     "other app action is: setup steps (welcome, sign-in, phone verification, "
     "the setup hub, and the Finance preferences wizard) are reachable through "
     "run_app_action. These steps live on DIFFERENT screens and are not all "
-    "available at once. Only ever offer what is reachable on the user's "
-    "CURRENT screen: call list_app_actions first (it returns only actions "
+    "available at once. Call resolve_onboarding_goal before guiding a new "
+    "user or advancing setup; it returns the bounded next step and never "
+    "takes over the conversation. Only ever offer what is reachable on the user's "
+    "CURRENT screen. If resolve_onboarding_goal returns selected_action_id, call "
+    "run_app_action with that exact id immediately; never turn an explicit Apple "
+    "or Google request back into a generic provider question. Call "
+    "list_app_actions first (it returns only actions "
     "valid for the current screen) and pick from that, rather than naming a "
     "step from another screen. For example, do not bring up phone "
     "verification unless the user is actually on the phone screen. While "
@@ -154,6 +191,60 @@ ONE_IDENTITY_INSTRUCTION = (
     "setup has or has not been completed; rely on the action result or the "
     "app state you are given."
 )
+
+
+async def resolve_onboarding_goal(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Resolve the next redacted onboarding goal without invoking a specialist.
+
+    Anonymous sign-in guidance must not pass through consent-gated A2A. This
+    pure deterministic tool reads only the bounded live context and returns a
+    goal that One can explain; browser and gateway guards still execute it.
+    """
+    voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
+    if not isinstance(voice_context, dict):
+        voice_context = {}
+    onboarding = voice_context.get("onboarding")
+    if not isinstance(onboarding, dict):
+        onboarding = {}
+    user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
+    if not _onboarding_goals_enabled(user_id):
+        return {
+            "status": "disabled",
+            "message": "Onboarding goals are not enabled for this session.",
+        }
+    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    phase = str(onboarding.get("phase") or "anonymous_auth")
+    request_lower = str(request or "").lower()
+    requested_provider = (
+        "apple"
+        if "apple" in request_lower and "google" not in request_lower
+        else "google"
+        if "google" in request_lower and "apple" not in request_lower
+        else None
+    )
+    context_payload = {
+        "phase": phase,
+        "authenticated": bool(user_id),
+        "phone_verified": onboarding.get("phone_verified"),
+        "vault_state": "unlocked" if consent_token else ("locked" if user_id else "absent"),
+        "active_capability": onboarding.get("active_capability"),
+        "root_resolved": onboarding.get("root_resolved") is True,
+        "return_route": onboarding.get("return_route") or "/one/setup",
+        "callback_state": onboarding.get("callback_state") or "none",
+        "available_action_ids": voice_context.get("available_action_ids") or [],
+        "setup_capability_ids": onboarding.get("setup_capability_ids") or [],
+        "screen": str(tool_context.state.get(STATE_SCREEN) or "unknown"),
+        "requested_provider": requested_provider,
+    }
+    try:
+        context = OnboardingJourneyContext.model_validate(context_payload)
+    except ValueError:
+        return {
+            "status": "invalid_context",
+            "message": "The app has not supplied a usable onboarding state yet.",
+        }
+    goal = _resolve_onboarding_goal(context)
+    return {"status": "ok", "goal": goal.model_dump()}
 
 
 def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2ATask]:
@@ -189,6 +280,22 @@ async def _specialist_turn(
         return {
             "status": "unavailable",
             "message": f"The {agent_id} specialist is not available right now.",
+        }
+    voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
+    route_family = (
+        str(voice_context.get("route_family") or "").strip()
+        if isinstance(voice_context, dict)
+        else ""
+    )
+    admission = is_one_delegate_admitted(route_family, agent_id)
+    if admission is False:
+        return {
+            "status": "route_not_admitted",
+            "message": (
+                "That specialist is not available from the current route. "
+                "Open its declared workspace first; consent and TrustLink "
+                "checks still apply after route admission."
+            ),
         }
     task = _task_from_context(tool_context, request)
     if task is None:
@@ -293,11 +400,6 @@ async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[st
     return await _specialist_turn("agent_location", request, tool_context)
 
 
-async def ask_connections_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Connections specialist about the user's trusted people and connection requests."""
-    return await _specialist_turn("agent_connections", request, tool_context)
-
-
 async def ask_marketplace_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Information Marketplace specialist about data-slice subscriptions, requests, and approvals."""
     return await _specialist_turn("agent_personal_information", request, tool_context)
@@ -309,7 +411,7 @@ async def ask_connected_systems_agent(request: str, tool_context: ToolContext) -
 
 
 async def ask_consent_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Consent specialist (Nav) what the user has shared, with whom, and how to revoke it."""
+    """Ask the Consent Center; Nav delegates trusted-people work to Connections."""
     return await _specialist_turn("agent_nav", request, tool_context)
 
 
@@ -411,13 +513,13 @@ def _one_roster_tools() -> list:
     return [
         GoogleSearchTool(bypass_multi_tools_limit=True),
         open_screen,
+        resolve_onboarding_goal,
         run_app_action,
         list_app_actions,
         AgentTool(agent=_build_finance_agent()),
         ask_email_agent,
         ask_gmail_agent,
         ask_location_agent,
-        ask_connections_agent,
         ask_marketplace_agent,
         ask_connected_systems_agent,
         ask_consent_agent,

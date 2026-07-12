@@ -18,17 +18,20 @@
   ],
   "required_commands": [
     "./bin/hushh codex route-task skill-authoring",
-    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py --text"
   ],
   "verification_bundle": {
     "id": "skill-authoring",
     "commands": [
       "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
       "./bin/hushh codex audit",
       "./bin/hushh docs verify"
     ],
     "tests": [
       "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
       "./bin/hushh codex audit"
     ]
   },

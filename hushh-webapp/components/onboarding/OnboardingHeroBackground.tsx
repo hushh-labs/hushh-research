@@ -71,8 +71,6 @@ export function OnboardingHeroBackground() {
         }
       />
 
-      {/* Thin luminous horizon line under the glow (Vercel-style seam). */}
-      <div className="absolute left-1/2 top-[42%] h-px w-[130%] -translate-x-1/2 bg-[linear-gradient(90deg,transparent,rgba(184,137,77,0.35),transparent)] dark:bg-[linear-gradient(90deg,transparent,rgba(231,192,120,0.28),transparent)]" />
 
       {/* Drifting motes: a whisper of life. */}
       <div className="absolute inset-0 text-[#B8894D] dark:text-[#E7C078]">

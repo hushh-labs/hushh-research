@@ -201,7 +201,7 @@ export function ConsentDialog({
 
         {/* Security Note */}
         <div className="text-xs text-muted-foreground bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
-          🔐 Your data will be encrypted end-to-end. Only you can decrypt it.
+          🔐 Your information will be encrypted end-to-end. Only you can decrypt it.
         </div>
 
         <DialogFooter className="flex gap-2 sm:gap-2">

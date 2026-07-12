@@ -1819,7 +1819,7 @@ export class PersonalKnowledgeModelService {
   /**
    * Store domain data (NEW blob-based architecture).
    *
-   * This is the NEW method for storing user data following BYOK principles.
+   * This is the NEW method for storing user information following BYOK principles.
    * Client encrypts entire domain object and backend stores only ciphertext.
    *
    * @param params.userId - User's ID

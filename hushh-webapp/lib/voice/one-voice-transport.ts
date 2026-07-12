@@ -97,6 +97,17 @@ export type OneVoiceTransportStartOptions = {
   signal?: AbortSignal;
 };
 
+/** Browser-observed outcome for an action directive issued by One. */
+export type OneVoiceActionSettlement = {
+  directiveId: string;
+  actionId: string;
+  status: "succeeded" | "started" | "blocked" | "invalid" | "failed" | "noop";
+  summary: string;
+  reason?: string | null;
+  routeAfter?: string | null;
+  screenAfter?: string | null;
+};
+
 export interface RealtimeVoiceTransport {
   readonly provider: OneVoiceProvider;
   start(options?: OneVoiceTransportStartOptions): Promise<void>;
@@ -121,6 +132,11 @@ export interface RealtimeVoiceTransport {
    * when no live session can accept the update.
    */
   updateConsentToken?(consentToken: string | null): boolean;
+  /**
+   * Return the browser-observed result of a One-issued action. The relay
+   * correlates this with the directive before it becomes model context.
+   */
+  reportActionSettlement?(settlement: OneVoiceActionSettlement): boolean;
   interrupt?(): void;
   stop(): void;
 }

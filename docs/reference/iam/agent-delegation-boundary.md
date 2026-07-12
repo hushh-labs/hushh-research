@@ -57,6 +57,11 @@ Current implementation:
 
 A TrustLink is not a vault key, not a consent token, and not an encrypted export. It should be paired with the relevant scoped consent or export boundary before any private data leaves the current trust boundary.
 
+One Voice adds a preceding, generated route-admission check for its own
+generated actions and A2A specialist turns. The route index can refuse a
+specialist outside its declared workspace, but it neither signs nor verifies a
+TrustLink and never replaces scoped consent, export, or TrustLink validation.
+
 Evolution note: TrustLinks are the reserved delegation-provenance primitive. When specialist dispatch crosses a process or network boundary, per-hop delegation rides ADK's Task API with TrustLink-shaped provenance attached (see the Agent Architecture Doctrine); until then in-process dispatch relies on scoped consent tokens with DB-backed revocation at the specialist gates.
 
 ## External MCP Agent Boundary

@@ -62,10 +62,16 @@ export function IntroStep({
             </span>
           </h1>
 
+          <div
+            aria-hidden
+            className="one-reveal mt-8 h-px w-screen bg-[linear-gradient(90deg,transparent,rgba(184,137,77,0.35),transparent)] dark:bg-[linear-gradient(90deg,transparent,rgba(231,192,120,0.28),transparent)]"
+            style={{ ["--seq-delay" as string]: "370ms" }}
+          />
+
           {/* Approved durable product line (docs/vision/agent-ontology.md
               Founder Copy Rules; brand punchline). Not ad-hoc copy. */}
           <p
-            className="one-reveal mt-6 max-w-[20rem] text-[19px] font-medium leading-[1.4] tracking-[-0.2px] text-[color:var(--foundation-ink)] dark:text-[#F7F3EA]"
+            className="one-reveal mt-8 max-w-[20rem] text-[19px] font-medium leading-[1.4] tracking-[-0.2px] text-[color:var(--foundation-ink)] dark:text-[#F7F3EA]"
             style={{ ["--seq-delay" as string]: "420ms" }}
           >
             Your agents. Yours to own.

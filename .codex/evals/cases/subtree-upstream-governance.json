@@ -1,0 +1,29 @@
+{
+  "skill_name": "subtree-upstream-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "sync the consent-protocol subtree with upstream, maintainer-only",
+        "top_k": 3
+      },
+      {
+        "prompt": "the upstream-first coordination policy between the repos needs updating",
+        "top_k": 3
+      },
+      {
+        "prompt": "how do we keep the subtree sync policy consistent between consent-protocol and hushh-research",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "fix branch protection rules on main",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "review the incoming subtree PR for merge readiness",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

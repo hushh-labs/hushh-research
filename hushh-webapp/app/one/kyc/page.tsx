@@ -1492,7 +1492,7 @@ function OneKycWorkspace() {
         <PageHeader
           eyebrow="One"
           title="Email"
-          description="Review emails that ask for your data, choose what to share, and send replies only after you approve."
+          description="Review emails that ask for your personal information, choose what to share, and send replies only after you approve."
           icon={ShieldCheck}
           accent="neutral"
           actions={

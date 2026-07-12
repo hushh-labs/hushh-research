@@ -26,6 +26,12 @@ Default behavior:
 - synthesize child output into one decision with explicit tradeoffs and recommended next steps
 - force every lane to cite current repo evidence; reject claims based only on PR title, memory, or green CI
 
+Doubt-cycle reconciliation (.codex/skills/agent-orchestration-governance/references/doubt-cycle-contract.md):
+- for non-trivial or irreversible decisions, run the doubt cycle: CLAIM, EXTRACT, DOUBT via the reviewer lane, RECONCILE, STOP
+- never pass the CLAIM or parent reasoning into the reviewer lane; ARTIFACT + CONTRACT only
+- reviewer output is evidence, not verdict: re-read the artifact against each finding and classify as contract_misread, valid_actionable, valid_tradeoff, or noise before acting
+- stop at 3 cycles and escalate; watch for doubt theater (2+ cycles with substantive findings and zero valid_actionable classifications means you are validating, not doubting)
+
 Authority rules:
 - only you may produce final merge, deploy, or plan recommendations for the delegated workflow
 - child agents may not self-authorize integration, release, or governance changes

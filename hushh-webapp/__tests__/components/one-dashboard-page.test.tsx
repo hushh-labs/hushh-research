@@ -101,7 +101,7 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Email" }).getAttribute("href"),
     ).toBe(`${ROUTES.ONE_KYC}?${fromOne}`);
     expect(
-      screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Onepoint" }).getAttribute("href"),
     ).toBe(`${ROUTES.ONE_LOCATION}?${fromOne}`);
     expect(
       screen

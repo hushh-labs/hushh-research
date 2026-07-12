@@ -16,7 +16,9 @@ import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
   isOnboardingFlowActiveCookieEnabled,
@@ -92,6 +94,7 @@ export function AuthStep({
   const { user, loading: authLoading, setNativeUser } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
+  const redirectResultHandledRef = useRef(false);
   const autoReviewerLoginStartedRef = useRef(false);
   const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
     nativeTestConfig.autoReviewerLogin
@@ -192,6 +195,19 @@ export function AuthStep({
           resolvedPath === ROUTES.KAI_HOME && isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
+        // This runs only after Firebase's redirect callback has produced a
+        // user. The provider launch itself remains a `started` settlement;
+        // the durable journey is never advanced merely because a redirect was
+        // opened or a popup was requested.
+        await PreVaultUserStateService.syncOnboardingJourney({
+          userId,
+          phase: nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
+          callbackState: "succeeded",
+        }).catch((journeyError) => {
+          // The existing post-auth route remains the rollback path while the
+          // additive journey migration rolls out.
+          console.warn("[AuthStep] Failed to persist onboarding journey:", journeyError);
+        });
         setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
         router.push(nextPath);
@@ -244,11 +260,14 @@ export function AuthStep({
     if (authLoading) return;
     completeStep();
 
-    getRedirectResult(auth)
+    if (!redirectResultHandledRef.current) {
+      redirectResultHandledRef.current = true;
+      getRedirectResult(auth)
       .then(async (result) => {
         if (result?.user) {
+          const voiceAttempt = AuthService.clearVoiceRedirectAttempt();
           trackEvent("auth_succeeded", {
-            action: "redirect",
+            action: voiceAttempt?.provider || "redirect",
             result: "success",
           });
           if (growthJourney) {
@@ -271,8 +290,23 @@ export function AuthStep({
         }
       })
       .catch((err) => {
+        const voiceAttempt = AuthService.clearVoiceRedirectAttempt();
         debugError("[AuthStep] Redirect auth error", err);
+        trackEvent("auth_failed", {
+          action: voiceAttempt?.provider || "redirect",
+          result: "error",
+          error_class:
+            err && typeof err === "object" && "code" in err
+              ? String((err as { code?: unknown }).code || "redirect_failed")
+              : "redirect_failed",
+        });
+        if (voiceAttempt && !isAuthCancel(err)) {
+          morphyToast.error(`Could not complete ${voiceAttempt.provider === "apple" ? "Apple" : "Google"} sign-in.`, {
+            description: "Use the provider button to retry, then return to One.",
+          });
+        }
       });
+    }
 
     if (user) {
       if (growthJourney) {
@@ -443,10 +477,6 @@ export function AuthStep({
     user,
   ]);
 
-  if (authLoading || user) {
-    return <HushhLoader label="Checking session..." variant="fullscreen" />;
-  }
-
   const handleGoogleLogin = async () => {
     if (pendingProvider) return;
     setPendingProvider("google");
@@ -568,6 +598,66 @@ export function AuthStep({
       setPendingProvider(null);
     }
   };
+
+  const startVoiceProviderLogin = async (provider: "google" | "apple") => {
+    if (pendingProvider) {
+      return { status: "blocked" as const, summary: "A sign-in window is already open." };
+    }
+    setPendingProvider(provider);
+    trackEvent("auth_started", { action: provider });
+    try {
+      const authResult =
+        provider === "google"
+          ? await AuthService.startGoogleSignInForVoice()
+          : await AuthService.startAppleSignInForVoice();
+
+      // Browser redirect starts navigation and settles through getRedirectResult
+      // on return. Native sign-in completes in-process and can use the same
+      // post-auth route resolution as the visible provider buttons.
+      if (!authResult?.user) {
+        return {
+          status: "started" as const,
+          summary: `Opening ${provider === "google" ? "Google" : "Apple"} sign-in.`,
+        };
+      }
+      setNativeUser(authResult.user);
+      await resolveAndNavigate(
+        authResult.user.uid,
+        authResult.idToken || (await authResult.user.getIdToken()),
+        authResult.user.phoneNumber
+      );
+      return {
+        status: "succeeded" as const,
+        summary: "Sign-in completed. Continuing your setup.",
+      };
+    } catch (error) {
+      trackEvent("auth_failed", {
+        action: provider,
+        result: "error",
+        error_class: "auth_failed",
+      });
+      return {
+        status: "failed" as const,
+        summary:
+          error instanceof Error && error.message
+            ? error.message
+            : `Could not start ${provider === "google" ? "Google" : "Apple"} sign-in.`,
+      };
+    } finally {
+      setPendingProvider(null);
+    }
+  };
+
+  useLocalOnboardingActionHandler("auth.sign_in_google", async () =>
+    startVoiceProviderLogin("google")
+  );
+  useLocalOnboardingActionHandler("auth.sign_in_apple", async () =>
+    startVoiceProviderLogin("apple")
+  );
+
+  if (authLoading || user) {
+    return <HushhLoader label="Checking session..." variant="fullscreen" />;
+  }
 
   const authOptions = isAndroid()
     ? [

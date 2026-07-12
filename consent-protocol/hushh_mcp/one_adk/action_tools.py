@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # avoid a circular import; guarded by a test asserting equality).
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_SCREEN = "hussh:screen"
+_STATE_VOICE_CONTEXT = "hussh:voice_context"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -46,7 +47,7 @@ _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
     "agent_gmail": "ask_gmail_agent",
     "agent_location": "ask_location_agent",
-    "agent_connections": "ask_connections_agent",
+    "agent_connections": "ask_consent_agent",
     "agent_personal_information": "ask_marketplace_agent",
     "agent_connected_systems": "ask_connected_systems_agent",
     "agent_nav": "ask_consent_agent",
@@ -54,6 +55,23 @@ _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
 
 _MAX_SUGGESTIONS = 5
 _MAX_LIST_RESULTS = 10
+
+
+def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
+    """Return the browser-declared executable ids when live context exists.
+
+    The browser may publish arbitrary descriptive metadata, but action ids are
+    filtered against the generated gateway before reaching this state. An
+    absent context preserves compatibility for non-live callers; a present but
+    empty list deliberately means no executable controls are available.
+    """
+    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    if not isinstance(context, dict) or "available_action_ids" not in context:
+        return None
+    ids = context.get("available_action_ids")
+    if not isinstance(ids, list):
+        return set()
+    return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
 
 
 def _suggest_action_ids(query: str) -> list[dict[str, str]]:
@@ -99,6 +117,16 @@ async def run_app_action(
             "status": "unknown_action",
             "message": f"'{clean_id}' is not a known app action.",
             "suggestions": _suggest_action_ids(clean_id),
+        }
+
+    available_action_ids = _available_action_ids(tool_context)
+    if available_action_ids is not None and clean_id not in available_action_ids:
+        return {
+            "status": "action_unavailable",
+            "message": (
+                f"'{clean_id}' is not available in the current app state. "
+                "Call list_app_actions for the controls currently available."
+            ),
         }
 
     delegate_id = str(entry.get("delegate_agent_id") or "").strip()
@@ -201,6 +229,9 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         transcript=str(query or "").strip() or None,
         limit=_MAX_LIST_RESULTS,
     )
+    available_action_ids = _available_action_ids(tool_context)
+    if available_action_ids is not None:
+        ranked = [entry for entry in ranked if entry["action_id"] in available_action_ids]
     results = []
     for entry in ranked:
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))

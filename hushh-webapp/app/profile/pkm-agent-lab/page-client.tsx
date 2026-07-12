@@ -1097,7 +1097,7 @@ export default function PkmAgentLabPageClient() {
       />
       <PkmSettingsShell
         eyebrow="Profile / Privacy"
-        title="Your data"
+        title="Your saved details"
         description="See what Kai knows, manage permissions, and explore your encrypted Personal Knowledge Model."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">

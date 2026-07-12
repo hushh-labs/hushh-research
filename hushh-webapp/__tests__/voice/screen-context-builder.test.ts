@@ -918,6 +918,32 @@ describe("buildStructuredScreenContext", () => {
     expect(JSON.stringify(snapshot)).not.toContain("portfolio_data_user_1");
   });
 
+  it("carries only bounded onboarding progress into the live snapshot", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/setup/kai", "one_setup"),
+      onboarding: {
+        phase: "capability_setup",
+        activeCapability: "finance",
+        rootResolved: false,
+        returnRoute: "/one/setup?unsafe=ignored",
+        phoneVerified: true,
+        callbackState: "succeeded",
+        setupCapabilityIds: ["finance", "finance"],
+      },
+    });
+
+    expect(snapshot.onboarding).toEqual({
+      phase: "capability_setup",
+      active_capability: "finance",
+      root_resolved: false,
+      return_route: "/one/setup",
+      phone_verified: true,
+      callback_state: "succeeded",
+      setup_capability_ids: ["finance"],
+    });
+    expect(JSON.stringify(snapshot.onboarding)).not.toContain("unsafe");
+  });
+
   it("keeps structured context shape while attaching One Voice metadata", () => {
     const context = buildOneVoiceStructuredScreenContext({
       appRuntimeState: makeRuntimeState("/one", "one_agents"),

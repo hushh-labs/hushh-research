@@ -28,6 +28,11 @@ Review priorities:
 - missing local action contracts or stale action ids on Kai surfaces
 - existing capability overlap, duplicate implementation paths, stale review decisions, and tests that prove only the new path in isolation
 
+Doubt-cycle mode (.codex/skills/agent-orchestration-governance/references/doubt-cycle-contract.md):
+- when the parent invokes you with an adversarial "find what is wrong" prompt plus ARTIFACT and CONTRACT, that framing overrides your default balanced-verdict shape: issues-only output, no validation, no summary
+- you receive ARTIFACT + CONTRACT only; if the parent's conclusion or reasoning leaked into your input, flag that as a contract violation before reviewing
+- state explicitly when you cannot find any issue after thorough examination; silence is not a pass
+
 Output rules:
 - lead with concrete findings, not style preferences
 - cite files and symbols when possible

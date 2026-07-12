@@ -3,6 +3,7 @@
   "generator": "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
   "source_contracts": [
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
+    "hushh-webapp/app/login/page.voice-action-contract.json",
     "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
@@ -50,6 +51,36 @@
           ]
         },
         "speaker_persona": "one"
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "login",
+      "surface_title": "One sign in",
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/login/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -67,6 +98,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -84,6 +121,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -100,6 +143,12 @@
             "investor"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -129,6 +178,12 @@
         },
         "speaker_persona": "kyc",
         "delegate_agent_id": "agent_kyc"
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -146,6 +201,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -164,6 +225,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": "route.one.home",
+        "context_policy": "publish",
+        "trust_boundary": "consent",
+        "delegation_policy": "one_action_gate"
       }
     },
     {
@@ -186,6 +253,12 @@
         "guard_ids": [
           "auth_signed_in"
         ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -207,6 +280,12 @@
         "guard_ids": [
           "auth_signed_in"
         ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -224,6 +303,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -241,6 +326,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -263,6 +354,12 @@
         "guard_ids": [
           "auth_signed_in"
         ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -279,6 +376,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -295,6 +398,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -311,6 +420,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -327,6 +442,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -343,6 +464,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -359,6 +486,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -375,6 +508,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -391,6 +530,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -421,6 +566,12 @@
             "signed-in vault-owner token is required before private specialist turns"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -438,6 +589,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -455,6 +612,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -471,6 +634,12 @@
             "investor"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -487,6 +656,12 @@
             "investor"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -509,6 +684,12 @@
         "guard_ids": [
           "auth_signed_in"
         ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -525,6 +706,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -541,6 +728,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -557,6 +750,12 @@
             "ria"
           ]
         }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     }
   ],
@@ -796,7 +995,6 @@
         ],
         "screens": [
           "getting_started",
-          "login",
           "one_agents"
         ],
         "hidden_navigable": true,
@@ -962,6 +1160,208 @@
             "settlement_target": {
               "route": "/one/setup",
               "screen": "getting_started"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "auth.sign_in_google",
+      "surface_id": "login",
+      "label": "Continue with Google",
+      "aliases": [
+        "sign in with google",
+        "continue with google",
+        "google sign in"
+      ],
+      "search_keywords": [
+        "google",
+        "sign in",
+        "login",
+        "authenticate"
+      ],
+      "meaning": "Starts Google sign-in for the person already on the One sign-in screen.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_google"
+      },
+      "control_ids": [
+        "auth_google"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /login"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.auth.sign_in_google",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_google",
+            "label": "Continue with Google",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "auth.sign_in_apple",
+      "surface_id": "login",
+      "label": "Continue with Apple",
+      "aliases": [
+        "sign in with apple",
+        "continue with apple",
+        "apple sign in"
+      ],
+      "search_keywords": [
+        "apple",
+        "sign in",
+        "login",
+        "authenticate"
+      ],
+      "meaning": "Starts Apple sign-in for the person already on the One sign-in screen.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_apple"
+      },
+      "control_ids": [
+        "auth_apple"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /login"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.auth.sign_in_apple",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_apple",
+            "label": "Continue with Apple",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
             }
           }
         ],
@@ -8407,7 +8807,7 @@
       "execution_policy": "allow_direct",
       "execution_target": {
         "status": "wired",
-        "path": "in_page",
+        "path": "local_handler",
         "target": "ria_profile_edit_panel"
       },
       "control_ids": [
@@ -9129,7 +9529,7 @@
         "remove from my connections",
         "from my connections"
       ],
-      "meaning": "Delegates trusted-connection questions and write proposals to the Connections specialist under One.",
+      "meaning": "Delegates trusted-connection questions and write proposals to Nav's Connections subagent through the Consent Center.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_connections",
       "reachability": {

@@ -238,6 +238,12 @@ CREATE TABLE IF NOT EXISTS "vault_keys" (
   "setup_capability_ids" TEXT,
   "setup_capabilities_updated_at" INTEGER,
   "setup_state_updated_at" INTEGER,
+  "onboarding_journey_version" INTEGER,
+  "onboarding_phase" TEXT,
+  "onboarding_active_capability" TEXT,
+  "onboarding_resume_route" TEXT,
+  "onboarding_callback_state" TEXT,
+  "onboarding_journey_updated_at" INTEGER,
   "created_at" INTEGER NOT NULL,
   "updated_at" INTEGER NOT NULL,
   "user_email" TEXT

@@ -49,6 +49,7 @@ Non-owned surfaces:
 3. `docs/reference/iam/consent-scope-catalog.md`
 4. `docs/reference/iam/agent-delegation-boundary.md`
 5. `docs/reference/iam/validation-checklist.md`
+6. `.codex/skills/iam-consent-governance/references/anti-rationalization.md`
 
 ## Workflow
 

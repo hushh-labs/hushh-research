@@ -26,6 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { RiaService } from "@/lib/services/ria-service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -167,6 +168,22 @@ export default function RiaProfilePage() {
     // Re-run the whole wizard from step 1 (bypasses the switch→profile guard).
     router.push(`${ROUTES.RIA_ONBOARDING}?reinitiate=1`);
   }, [router]);
+
+  const handleOpenEditServices = useCallback(() => {
+    if (saving || deleting) {
+      return {
+        status: "blocked" as const,
+        summary: "The RIA profile is busy. Try again when the current update finishes.",
+      };
+    }
+    setEditOpen(true);
+    return {
+      status: "succeeded" as const,
+      summary: "The RIA profile editor is open.",
+    };
+  }, [deleting, saving]);
+
+  useLocalOnboardingActionHandler("ria.profile.edit_services", handleOpenEditServices);
 
   const handleDeleteProfile = useCallback(async () => {
     if (!user || deleting) return;

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 91,
+  "expected_migration_version": 92,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -23,6 +23,12 @@
       "recovery_encrypted_vault_key",
       "recovery_salt",
       "recovery_iv",
+      "onboarding_journey_version",
+      "onboarding_phase",
+      "onboarding_active_capability",
+      "onboarding_resume_route",
+      "onboarding_callback_state",
+      "onboarding_journey_updated_at",
       "created_at",
       "updated_at"
     ],

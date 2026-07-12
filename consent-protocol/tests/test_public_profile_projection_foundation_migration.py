@@ -20,11 +20,11 @@ def test_public_profile_foundation_is_release_registered() -> None:
     contract = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
     manifest = json.loads((ROOT / "db/release_migration_manifest.json").read_text())
     columns = contract["required_tables"]["pkm_default_available_projections"]
-    assert contract["expected_migration_version"] == 91
+    assert contract["expected_migration_version"] >= 91
     assert {"public_profile_handle", "publication_provenance", "publication_confirmed_at"} <= set(
         columns
     )
-    assert manifest["ordered_migrations"][-1] == "091_public_profile_projection_cutover.sql"
+    assert "091_public_profile_projection_cutover.sql" in manifest["ordered_migrations"]
 
 
 def test_public_profile_cutover_removes_default_available_scope_posture() -> None:

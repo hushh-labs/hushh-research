@@ -44,7 +44,7 @@ export function resolveProfileVaultSettingsRow(
     return {
       action: "create",
       title: "Create your vault",
-      description: "Set up a passphrase to secure your personal data.",
+      description: "Set up a passphrase to secure your saved details.",
       disabled: false,
       chevron: true,
       voiceLabel: "Create your vault",

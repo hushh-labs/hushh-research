@@ -25,10 +25,16 @@ function LoginContent() {
       "This is the sign-in screen. Welcome the person in and help them sign in with Apple or Google so they can open their private vault. A verified phone number is required afterward.",
     actions: [
       {
-        id: "auth.sign_in_open",
-        actionId: "auth.sign_in_open",
-        label: "Sign in",
-        purpose: "Sign in with Apple or Google.",
+        id: "auth.sign_in_google",
+        actionId: "auth.sign_in_google",
+        label: "Continue with Google",
+        purpose: "Open Google sign-in.",
+      },
+      {
+        id: "auth.sign_in_apple",
+        actionId: "auth.sign_in_apple",
+        label: "Continue with Apple",
+        purpose: "Open Apple sign-in.",
       },
       {
         id: "route.getting_started",

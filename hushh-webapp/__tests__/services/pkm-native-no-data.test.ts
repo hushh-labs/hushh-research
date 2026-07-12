@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * with a message that STARTS with `HTTP Error 404: …`. The web branches already
  * treat a 404 as an empty state (metadata -> emptyMetadata, data/domain -> null);
  * these tests lock in that the NATIVE branches now do the same instead of
- * surfacing a raw error banner ("HTTP Error 404: …") on the Personal Data screen.
+ * surfacing a raw error banner ("HTTP Error 404: …") on the saved-details screen.
  *
  * Critically, ONLY a 404 is treated as empty — auth/server/network errors must
  * keep propagating so real failures stay visible.
