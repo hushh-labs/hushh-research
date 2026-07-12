@@ -22,7 +22,7 @@ remaining grounded in repo truth.
 4. Put source-detail inventory in references, not the narrative body.
 5. State unimplemented items in a dedicated honesty section.
 6. Preserve Hussh / One / Kai / Nav ontology: Hussh is platform and trust
-   infrastructure, One is personal agent, Kai is finance specialist, Nav is
+   infrastructure, One is private agent, Kai is finance specialist, Nav is
    privacy and consent guardian.
 
 ## Presentation

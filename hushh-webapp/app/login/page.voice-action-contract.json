@@ -32,6 +32,13 @@
         "path": "local_handler",
         "target": "auth.sign_in_google"
       },
+      "external_callback": {
+        "provider": "google",
+        "starts": "external_redirect_started",
+        "settlement": "firebase_redirect_callback",
+        "failure_behavior": "retain_goal_and_retry",
+        "return_to": "/one/setup"
+      },
       "control_ids": ["auth_google"],
       "state_exposure": [],
       "docs_references": []
@@ -55,6 +62,13 @@
         "status": "wired",
         "path": "local_handler",
         "target": "auth.sign_in_apple"
+      },
+      "external_callback": {
+        "provider": "apple",
+        "starts": "external_redirect_started",
+        "settlement": "firebase_redirect_callback",
+        "failure_behavior": "retain_goal_and_retry",
+        "return_to": "/one/setup"
       },
       "control_ids": ["auth_apple"],
       "state_exposure": [],

@@ -2308,7 +2308,7 @@ export function ConsentCenterPage() {
                   {showCompactRetryState ? (
                     <ApiRetryState
                       variant="compact"
-                      title="Showing saved consent data"
+                      title="Showing saved consent information"
                       description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
                       onRetry={retryConsentCenter}
                       showRetryAction={false}

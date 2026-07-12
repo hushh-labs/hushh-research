@@ -41,6 +41,40 @@
       "native_surface_id": "native-route-agent"
     },
     {
+      "route_pattern": "/blog",
+      "page_file": "app/blog/page.tsx",
+      "route_mode": "unclassified",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.blog",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/blog/[slug]",
+      "page_file": "app/blog/[slug]/page.tsx",
+      "route_mode": "unclassified",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.blog.slug.",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/connect",
       "page_file": "app/connect/page.tsx",
       "route_mode": "hidden",
@@ -146,6 +180,7 @@
       "context_policy": "suppress",
       "voice_contract_file": "app/getting-started/page.voice-action-contract.json",
       "action_ids": [
+        "auth.sign_in_open",
         "onboarding.continue",
         "route.getting_started"
       ],
@@ -388,8 +423,7 @@
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
         "auth.sign_in_apple",
-        "auth.sign_in_google",
-        "auth.sign_in_open"
+        "auth.sign_in_google"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -1435,6 +1469,40 @@
       },
       "trust_boundary": "auth",
       "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/research",
+      "page_file": "app/research/page.tsx",
+      "route_mode": "unclassified",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.research",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/research/protocol",
+      "page_file": "app/research/protocol/page.tsx",
+      "route_mode": "unclassified",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.research.protocol",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/ria",

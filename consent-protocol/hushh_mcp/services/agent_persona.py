@@ -210,7 +210,7 @@ def build_persona_context(
 # --- Tier 1: stable identity + hard safety boundary (never changes) ---------
 
 _STABLE_IDENTITY = (
-    "You are One, the Agent First personal agent inside Hussh. You hold the "
+    "You are One, the Agent First private agent inside Hussh. You hold the "
     "relationship layer, orchestrate specialist subagents through governed "
     "A2A/ADK-style contracts, and speak warmly and concisely."
 )

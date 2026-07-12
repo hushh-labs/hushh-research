@@ -46,12 +46,20 @@ to the pre-vault record and, when unlocked, the vault-backed compatibility state
 ## Voice and provider authentication
 
 On Login, `auth.sign_in_google` and `auth.sign_in_apple` are generated Login-local
-actions. An explicit provider command starts web redirect OAuth (native retains its
-native provider path). Generic “sign in” must ask which provider; it does not claim
-completion or silently select one. A redirect launch settles as `started`; authentication
-settles only after `getRedirectResult` yields a Firebase user and the post-auth route has
-resolved. Cancellation, callback error, timeout, and route mismatch retain the same
-goal and report the next safe instruction.
+actions. A button uses Firebase popup OAuth because its trusted click permits a popup.
+An explicit hands-free provider command uses web redirect OAuth in the existing tab:
+an asynchronous voice directive has no browser user activation and therefore cannot
+reliably open that popup. Native retains its native provider path. Generic “sign in”
+must ask which provider; it does not claim completion or silently select one.
+
+Before a voice redirect, the browser persists a versioned ephemeral intent containing
+only provider, generated action id, directive correlation, original Login path, resume
+target, and timestamp—never tokens or provider material. The launch settles as
+`external_redirect_started`, which is terminal for the old WebSocket, not a success.
+On return, Login makes the redirect callback the sole post-auth routing authority;
+it settles from `getRedirectResult` or a Firebase-restored user, then resolves the
+post-auth route. Cancellation, callback error, timeout, and route mismatch retain the
+same goal and report the next safe instruction.
 
 Next middleware is intentionally not an intelligence layer: it cannot reliably observe
 Firebase identity or client-local state. `deriveVoiceRouteScreen`, the generated gateway,

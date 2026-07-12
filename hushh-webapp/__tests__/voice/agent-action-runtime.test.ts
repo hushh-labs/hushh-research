@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
+import {
+  registerLocalOnboardingHandler,
+  unregisterLocalOnboardingHandler,
+} from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
@@ -118,5 +122,35 @@ describe("executeAgentGatewayAction", () => {
       routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
       screenAfter: "kai_analysis",
     });
+  });
+
+  it("forwards directive correlation to provider local handlers without placing it in slots", async () => {
+    const router = { push: vi.fn() };
+    const handler = vi.fn().mockResolvedValue({
+      status: "started",
+      summary: "Google sign-in is opening.",
+    });
+    registerLocalOnboardingHandler("auth.sign_in_google", handler);
+
+    try {
+      const result = await executeAgentGatewayAction({
+        actionId: "auth.sign_in_google",
+        slots: {},
+        executionContext: { directiveId: "directive-123" },
+        userId: "user_1",
+        router,
+        appRuntimeState: runtimeState({
+          route: { pathname: "/login", screen: "login", subview: null },
+        }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+
+      expect(handler).toHaveBeenCalledWith({}, { directiveId: "directive-123" });
+      expect(result).toMatchObject({ status: "started", actionId: "auth.sign_in_google" });
+    } finally {
+      unregisterLocalOnboardingHandler("auth.sign_in_google", handler);
+    }
   });
 });

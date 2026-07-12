@@ -14,10 +14,24 @@ describe("One Voice Login onboarding contracts", () => {
     expect(actions.get("auth.sign_in_google")).toMatchObject({
       execution_target: { path: "local_handler", target: "auth.sign_in_google" },
       reachability: { screens: ["login"] },
+      external_callback: {
+        provider: "google",
+        starts: "external_redirect_started",
+        settlement: "firebase_redirect_callback",
+        failure_behavior: "retain_goal_and_retry",
+        return_to: "/one/setup",
+      },
     });
     expect(actions.get("auth.sign_in_apple")).toMatchObject({
       execution_target: { path: "local_handler", target: "auth.sign_in_apple" },
       reachability: { screens: ["login"] },
+      external_callback: {
+        provider: "apple",
+        starts: "external_redirect_started",
+        settlement: "firebase_redirect_callback",
+        failure_behavior: "retain_goal_and_retry",
+        return_to: "/one/setup",
+      },
     });
   });
 

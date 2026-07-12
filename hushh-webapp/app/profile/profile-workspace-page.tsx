@@ -2080,14 +2080,14 @@ function ProfilePageContent() {
               id: "profile_ria_regulatory",
               label: "Regulatory profile",
               purpose:
-                "updates official RIA license, CRD, firm, certification, and business location data.",
+                "updates official RIA license, CRD, firm, certification, and business location information.",
               actionId: "ria.profile.refresh_license",
               role: "card",
               voiceAliases: [
                 "update my RIA license",
                 "refresh regulatory profile",
-                "sync CRD data",
-                "update license data",
+                "sync CRD information",
+                "update license information",
                 "regulatory profile",
               ],
             },
@@ -2247,7 +2247,7 @@ function ProfilePageContent() {
                       "Open Account",
                       vaultSettingsRow.title,
                       ...(shouldShowRiaRegulatoryRow
-                        ? ["Update license data"]
+                        ? ["Update license information"]
                         : []),
                       "Open Support",
                     ];
@@ -2516,7 +2516,7 @@ function ProfilePageContent() {
           result.message ||
           "The regulator did not return a verified profile. No fields were changed.";
         setRegulatoryRefreshMessage(message);
-        toast.error("Official RIA data was not updated.", {
+        toast.error("Official RIA information was not updated.", {
           description: message,
         });
         return;
@@ -2535,15 +2535,15 @@ function ProfilePageContent() {
         );
       }
       await refreshPersonaState({ force: true });
-      toast.success("Official RIA data updated.");
+      toast.success("Official RIA information updated.");
       setShowRegulatoryRefresh(false);
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : "Couldn't update official RIA data.";
+          : "Couldn't update official RIA information.";
       setRegulatoryRefreshMessage(message);
-      toast.error("Couldn't update official RIA data.", {
+      toast.error("Couldn't update official RIA information.", {
         description: message,
       });
     } finally {
@@ -3063,7 +3063,7 @@ function ProfilePageContent() {
       icon: LifeBuoy,
       label: "Get support",
       description:
-        "Need help with onboarding, portfolio data, or account setup.",
+        "Need help with onboarding, portfolio information, or account setup.",
     },
     {
       kind: "developer_reachout",
@@ -4221,7 +4221,7 @@ function ProfilePageContent() {
                   voiceControlId="profile_ria_regulatory"
                   voiceActionId="ria.profile.refresh_license"
                   voiceLabel="Regulatory profile"
-                  voicePurpose="Update official RIA license and CRD data from the regulator."
+                  voicePurpose="Update official RIA license and CRD information from the regulator."
                   onClick={() => void openRegulatoryProfileRow()}
                 />
               ) : null}
@@ -4464,7 +4464,7 @@ function ProfilePageContent() {
                     Updating...
                   </>
                 ) : (
-                  "Update official data"
+                  "Update official information"
                 )}
               </Button>
             </div>

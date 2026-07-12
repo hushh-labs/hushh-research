@@ -72,7 +72,7 @@ Use the canonical product boundary:
 
 | Name | Role | Guardrail |
 | --- | --- | --- |
-| Hussh | platform and trust infrastructure | Do not describe Hussh as the user's personal agent. |
+| Hussh | platform and trust infrastructure | Do not describe Hussh as the user's private agent. |
 | One | top-level personal operating layer | Do not claim full runtime migration until repo proof exists. |
 | Kai | finance and investor specialist | Do not make Kai the whole One relationship layer. |
 | Nav | privacy, consent, and access guardian | Do not use Nav as ordinary route navigation. |

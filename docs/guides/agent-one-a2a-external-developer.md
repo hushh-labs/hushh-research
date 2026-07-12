@@ -46,7 +46,7 @@ HUSHH_ONE_CONSENT_TOKEN="<user-approved-HCT-token-for-agent.one.orchestrate>"
 
 ## What Agent One Exposes
 
-Agent One is the top personal-agent coordination surface. External systems call Agent One with the user's approved request. Agent One may answer directly or route the request internally, but internal routing names are not part of the external integration contract.
+Agent One is the top private-agent coordination surface. External systems call Agent One with the user's approved request. Agent One may answer directly or route the request internally, but internal routing names are not part of the external integration contract.
 
 The external caller should send the user's natural-language task to Agent One and let One classify the request. Do not build direct internal-agent routing in a partner system.
 
@@ -229,7 +229,7 @@ Direct One response shape:
   "agentId": "agent_one",
   "conversationId": "sf-case-500xx0000012345",
   "userId": "user-one",
-  "response": "Hi, I'm One, your personal agent in Hussh...",
+  "response": "Hi, I'm One, your private agent in Hussh...",
   "delegation": null,
   "consent": null,
   "isComplete": true

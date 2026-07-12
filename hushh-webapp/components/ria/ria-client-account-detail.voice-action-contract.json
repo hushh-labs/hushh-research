@@ -72,7 +72,7 @@
     },
     {
       "action_id": "ria.client_account.open_workspace_fallback",
-      "label": "Return To Client Data Explorer",
+      "label": "Return To Client Information Explorer",
       "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
       "aliases": [
         "return to client workspace",

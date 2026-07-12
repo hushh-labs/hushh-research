@@ -22,7 +22,7 @@ flowchart TD
   root --> ontology
 ```
 
-One is the personal agent and relationship layer. Current-state One reference
+One is the private agent and relationship layer. Current-state One reference
 docs live here when they describe One-owned product contracts rather than a
 finance-specialist implementation detail.
 

@@ -1424,7 +1424,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Top personal agent that frames user intent and delegates specialist work.",
+      "description": "Top private agent that frames user intent and delegates specialist work.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -1488,7 +1488,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "544aeb9590140ea4571a512a4b06a2c564933ca233aa7a6942f07afa3135d6b9",
+      "system_instruction_sha256": "7d0b2f3bdcd8fc656828bfabaf54f2dbd9f94a06458abc4b54ed56757a009982",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

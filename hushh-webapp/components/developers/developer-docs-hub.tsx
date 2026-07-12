@@ -872,7 +872,7 @@ function MobileSectionsFab({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div className="fixed right-4 z-[160] md:hidden" style={{ bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + 1rem)" }}>
         <MorphyButton
-          variant="blue-gradient"
+          variant="yellow-gradient"
           effect="fill"
           size="sm"
           className="rounded-full px-4 shadow-[0_18px_60px_var(--morphy-cta-shadow)]"
@@ -1184,7 +1184,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   title="Connect to Hussh with Remote MCP"
                   description="Use the UAT streamable MCP endpoint to discover user-specific scopes, request consent inside Kai, and read only approved encrypted exports through one small contract."
                   icon={Code2}
-                  accent="developers"
+                  accent="consent"
                   actions={
                     <>
                       <Badge variant="outline">{runtime.environmentLabel}</Badge>
@@ -1485,7 +1485,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   title="Remote MCP when possible, npm bridge when needed"
                   description="Hosts that support HTTP MCP can connect directly. Everyone else can still use the npm launcher with the same developer token."
                   icon={Cable}
-                  accent="rose"
+                  accent="consent"
                 />
               }
             >

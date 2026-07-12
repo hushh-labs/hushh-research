@@ -750,7 +750,7 @@
     {
       "action_id": "marketplace.information.chat.turn",
       "label": "Ask Information Marketplace",
-      "meaning": "Delegates read-only Information Marketplace questions about published data slices, listings, demand, and potential earnings.",
+      "meaning": "Delegates read-only Information Marketplace questions about published information slices, listings, demand, and potential earnings.",
       "aliases": [
         "how many subscriptions have i put available on marketplace",
         "how many listings have i put available on marketplace",
@@ -781,7 +781,7 @@
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "marketplace data requires vault and marketplace readiness"
+          "marketplace information requires vault and marketplace readiness"
         ]
       },
       "guard_ids": [

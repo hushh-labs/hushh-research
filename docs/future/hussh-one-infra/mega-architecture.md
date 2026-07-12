@@ -35,7 +35,7 @@ flowchart TD
 
 ## Architecture Thesis
 
-Hussh is the platform and trust infrastructure. One is the user's top-level personal agent. Kai, Nav, and KYC are specialists below One. Salesforce, MuleSoft, Agentforce, Mac Mini, OpenClaw, MLX, App Intents, and BYOA are integration or compute lanes that must consume Hussh trust contracts instead of creating parallel authority.
+Hussh is the platform and trust infrastructure. One is the user's top-level private agent. Kai, Nav, and KYC are specialists below One. Salesforce, MuleSoft, Agentforce, Mac Mini, OpenClaw, MLX, App Intents, and BYOA are integration or compute lanes that must consume Hussh trust contracts instead of creating parallel authority.
 
 The practical design goal is to let One coordinate user-approved outcomes while keeping consent, identity, PKM, audit, and vault boundaries explicit.
 
@@ -44,7 +44,7 @@ The practical design goal is to let One coordinate user-approved outcomes while 
 | Claim | Classification | Evidence Boundary |
 | --- | --- | --- |
 | Hussh has active consent, API, MCP, PKM, KYC, and frontend surfaces. | `already_exists` | Existing backend, frontend, docs, and generated contracts. |
-| One is the long-term personal-agent product frame. | `partially_exists` / `future_state_only` | Approved docs direction, but runtime is not fully migrated. |
+| One is the long-term private-agent product frame. | `partially_exists` / `future_state_only` | Approved docs direction, but runtime is not fully migrated. |
 | Kai is the current shipped finance-oriented specialist surface. | `already_exists` | Runtime and docs still use Kai-era compatibility identifiers in several finance and action flows. |
 | Nav is a privacy and consent guardian. | `partially_exists` | Must not be confused with route/page navigation. |
 | Salesforce, MuleSoft, Agentforce, and Flex Gateway are implemented integrations. | `missing` | Planning and partner-brief only until scoped code lands. |

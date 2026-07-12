@@ -7,7 +7,7 @@
 ```mermaid
 flowchart TD
   root["Hussh"]
-  one["One<br/>top personal agent"]
+  one["One<br/>top private agent"]
   kai["Kai<br/>finance specialist"]
   nav["Nav<br/>privacy guardian"]
   trust["Consent + scoped access"]
@@ -57,7 +57,7 @@ The founder metaphor is:
 
 ## What Hussh Is
 
-Hussh is a platform for personal agents and agent-assisted workflows where:
+Hussh is a platform for private agents and agent-assisted workflows where:
 
 - identity says who is acting
 - the vault defines the encrypted data boundary
@@ -71,7 +71,7 @@ The canonical product ontology is:
 | Name | Role | Current-state boundary |
 | --- | --- | --- |
 | **Hussh** | Platform, trust model, infrastructure | Owns consent, scoped access, BYOK, zero-knowledge, PKM, developer access, and audit boundaries. Hussh has values, not a character voice. |
-| **One** | Top-level personal agent and relationship layer | Approved north-star layer for shell greetings, memory, notifications, cross-domain help, and specialist handoff framing. One Voice is now the direct voice surface; many action/planner identifiers remain Kai-era compatibility until the wider migration lands. |
+| **One** | Top-level private agent and relationship layer | Approved north-star layer for shell greetings, memory, notifications, cross-domain help, and specialist handoff framing. One Voice is now the direct voice surface; many action/planner identifiers remain Kai-era compatibility until the wider migration lands. |
 | **Kai** | Finance specialist summoned by One | Current shipped investor/RIA finance assistant, voice/search/action gateway, portfolio analysis, market intelligence, and receipts-backed decisions. |
 | **Nav** | Privacy and consent guardian summoned by One | Approved direction for consent, scope review, vault, deletion, privacy, and trust-friction copy. Nav is not yet a separate runtime. |
 
@@ -79,7 +79,7 @@ See [agent-ontology.md](./agent-ontology.md) for the maintained role, tone, copy
 
 ## One Product Model
 
-One is the personal agent the user owns. Its durable product model is four motions:
+One is the private agent the user owns. Its durable product model is four motions:
 
 | Motion | Meaning | Current-state boundary |
 | --- | --- | --- |

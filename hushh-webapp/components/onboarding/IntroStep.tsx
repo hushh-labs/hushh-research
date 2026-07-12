@@ -7,14 +7,10 @@ import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 
 /* ────────────────────────────────────────────────────────────
- * Welcome ("/"). A living, theme-safe canvas (OnboardingHeroBackground:
- * breathing gold + violet mesh glow, drifting motes, grain) carries the
- * whole screen. Typography: eyebrow, one molten "One", one honest
- * declarative sentence, and a quiet tracked-out rhythm line that hints at
- * One's four motions (Listens / Remembers / Decides / Acts) without ever
- * labeling them as UI or naming internal specialists. Morphy mechanics
- * throughout: the CTA is a Morphy Button (gradient ripple, ink surface),
- * and the staggered one-reveal entrance is back. No WebGL.
+ * Welcome ("/"). A restrained, Foundation-warm canvas carries one centered
+ * brand anchor, one "One" moment, and one clear next action. The public
+ * destinations below the CTA are a real navigation group with equal targets,
+ * not footer text that happens to be clickable.
  * ──────────────────────────────────────────────────────────── */
 
 // One's four motions, shown as a quiet typographic rhythm — never as chips,
@@ -30,23 +26,24 @@ export function IntroStep({
     <main className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden">
       <OnboardingHeroBackground />
 
-      <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-[420px] flex-col items-center justify-between px-7 py-8 text-center">
-        {/* ── Top row: wordmark left, quiet-mark right (no box). ── */}
+      <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-[34rem] flex-col items-center justify-between px-6 py-7 text-center sm:px-8 sm:py-8">
+        {/* One centered brand anchor keeps the page calm on both compact and
+            wide surfaces; the old wordmark/emoji pair read as two competing
+            logos rather than one header. */}
         <div
-          className="one-reveal flex w-full items-center justify-between pt-[var(--app-safe-area-top-effective,0px)]"
+          className="one-reveal flex w-full items-center justify-center pt-[var(--app-safe-area-top-effective,0px)]"
           style={{ ["--seq-delay" as string]: "80ms" }}
         >
-          <HushhWordmark className="h-9" />
-          <span className="select-none text-[32px] leading-none">🤫</span>
+          <HushhWordmark className="h-8 sm:h-9" />
         </div>
 
         {/* ── Typography-led hero. No cards, no fake metrics. ── */}
-        <div className="flex flex-1 flex-col items-center justify-center">
+        <div className="flex w-full max-w-[30rem] flex-1 flex-col items-center justify-center">
           <span
             className="one-reveal type-caption text-[color:var(--foundation-dim)]"
             style={{ ["--seq-delay" as string]: "220ms" }}
           >
-            Your personal agent
+            Your private agent
           </span>
 
           {/* Sizing lives on h1.one-hero-title in globals.css: the global
@@ -64,7 +61,7 @@ export function IntroStep({
 
           <div
             aria-hidden
-            className="one-reveal mt-8 h-px w-screen bg-[linear-gradient(90deg,transparent,rgba(184,137,77,0.35),transparent)] dark:bg-[linear-gradient(90deg,transparent,rgba(231,192,120,0.28),transparent)]"
+            className="one-reveal mt-8 h-px w-full bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--foundation-gold-deep)_34%,transparent),transparent)] dark:bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--foundation-gold-accent)_30%,transparent),transparent)]"
             style={{ ["--seq-delay" as string]: "370ms" }}
           />
 
@@ -91,7 +88,7 @@ export function IntroStep({
           </div>
 
           <p
-            className="one-reveal mt-6 max-w-[18rem] text-[13px] leading-[1.5] text-[color:var(--foundation-dim)]"
+            className="one-reveal mt-6 max-w-[19rem] text-[13px] leading-[1.5] text-[color:var(--foundation-dim)]"
             style={{ ["--seq-delay" as string]: "580ms" }}
           >
             Everything stays encrypted in your vault. Nothing moves without your consent.
@@ -102,7 +99,7 @@ export function IntroStep({
               flex column normally (no absolute anchoring needed without the
               glass root constraint). Bottom padding clears the agent bar. ── */}
         <div
-          className="one-reveal w-full pb-[calc(102px+var(--app-safe-area-bottom-effective,0px))]"
+          className="one-reveal w-full max-w-[30rem] pb-[calc(102px+var(--app-safe-area-bottom-effective,0px))]"
           style={{ ["--seq-delay" as string]: "680ms" }}
         >
           <Button
@@ -125,21 +122,30 @@ export function IntroStep({
             </span>
           </Button>
 
-          {/* Public content surfaces — quiet footer links, foundation tokens */}
+          {/* Public destinations share the CTA width and use equal hit areas.
+              That preserves discoverable navigation on small screens without
+              letting the longest label push its siblings out of rhythm. */}
           <nav
             aria-label="Explore Hushh"
-            className="one-reveal mt-4 flex items-center justify-center gap-3 text-[12px] font-medium text-[color:var(--foundation-dim)]"
+            className="one-reveal mt-3 grid w-full grid-cols-3 divide-x divide-[color:var(--foundation-hairline)] border-t border-[color:var(--foundation-hairline)] pt-3 text-[12px] font-medium text-[color:var(--foundation-dim)] dark:divide-white/10 dark:border-white/10"
             style={{ ["--seq-delay" as string]: "760ms" }}
           >
-            <Link href={ROUTES.RESEARCH} className="transition-opacity hover:opacity-70">
-              Research &amp; Papers
+            <Link
+              href={ROUTES.RESEARCH}
+              className="flex min-h-11 items-center justify-center px-2 text-center leading-tight transition-colors hover:text-[color:var(--foundation-ink)] dark:hover:text-[#F7F3EA]"
+            >
+              Research
             </Link>
-            <span aria-hidden className="opacity-40">&middot;</span>
-            <Link href={ROUTES.BLOG} className="transition-opacity hover:opacity-70">
+            <Link
+              href={ROUTES.BLOG}
+              className="flex min-h-11 items-center justify-center px-2 text-center leading-tight transition-colors hover:text-[color:var(--foundation-ink)] dark:hover:text-[#F7F3EA]"
+            >
               Blog
             </Link>
-            <span aria-hidden className="opacity-40">&middot;</span>
-            <Link href={ROUTES.DEVELOPERS} className="transition-opacity hover:opacity-70">
+            <Link
+              href={ROUTES.DEVELOPERS}
+              className="flex min-h-11 items-center justify-center px-2 text-center leading-tight transition-colors hover:text-[color:var(--foundation-ink)] dark:hover:text-[#F7F3EA]"
+            >
               Developers
             </Link>
           </nav>

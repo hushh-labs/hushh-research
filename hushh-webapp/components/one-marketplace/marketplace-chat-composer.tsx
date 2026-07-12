@@ -29,7 +29,7 @@ export function MarketplaceChatComposer(props: {
             onSend();
           }
         }}
-        placeholder="Ask about your published data…"
+        placeholder="Ask about your published information…"
         aria-label="Ask the marketplace assistant"
         className={cn(
           "max-h-32 min-h-10 flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-sm",

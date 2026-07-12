@@ -402,7 +402,7 @@ export async function generatePortfolioReportPdf(payloadInput: unknown): Promise
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);
-    doc.text("No holdings data available.", left, y + 4);
+    doc.text("No holdings information available.", left, y + 4);
     y += 18;
   } else {
     holdings.forEach((holding) => {

@@ -28,7 +28,7 @@ function describeJob(job: ConsentExportRefreshJob): string {
     .replace(/^attr\./, "")
     .replace(/\.\*$/, "")
     .replace(/\*$/, "")
-    .replace(/^pkm\.read$/, "your saved data")
+    .replace(/^pkm\.read$/, "your saved information")
     .replace(/[._-]+/g, " ")
     .trim();
   return `Refreshing approved sharing for ${scopeLabel}.`;

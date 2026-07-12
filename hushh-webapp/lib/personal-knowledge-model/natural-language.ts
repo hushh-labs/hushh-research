@@ -290,7 +290,7 @@ function describeScopeForDomain(
 
   if (normalizedScope === "pkm.read") {
     return {
-      label: "Can access all of your saved data.",
+      label: "Can access all of your saved information.",
       coverageKind: "broad",
     };
   }
@@ -310,7 +310,7 @@ function describeScopeForDomain(
 
   if (!remainder || remainder === "*") {
     return {
-      label: `Can access all ${domain.displayName} data.`,
+      label: `Can access all ${domain.displayName} information.`,
       coverageKind: "broad",
     };
   }

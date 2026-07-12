@@ -269,13 +269,13 @@ export function PkmExplorerPanel() {
         {!user ? (
           <div className="flex items-center gap-2 text-sm text-amber-700">
             <ShieldAlert className="h-4 w-4" />
-            Sign in first to inspect saved PKM data.
+            Sign in first to inspect saved PKM information.
           </div>
         ) : null}
         {user && !isVaultUnlocked ? (
           <div className="flex items-center gap-2 text-sm text-amber-700">
             <Vault className="h-4 w-4" />
-            Unlock your vault above to load saved PKM data.
+            Unlock your vault above to load saved PKM information.
           </div>
         ) : null}
         {bootstrapError ? (
@@ -374,7 +374,7 @@ export function PkmExplorerPanel() {
                 <SurfaceCard>
                   <SurfaceCardContent className="space-y-1">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Data version
+                      Information version
                     </p>
                     <p className="text-sm font-semibold">
                       {domainState.encrypted?.dataVersion ?? "Unavailable"}
@@ -434,7 +434,7 @@ export function PkmExplorerPanel() {
               <SurfaceInset className="space-y-4 px-4 py-4">
                 <SectionHeader
                   eyebrow="Explorer"
-                  title="Nested saved-data explorer"
+                  title="Nested saved-information explorer"
                   description="Expand only the pieces you need instead of scrolling through a long flat dump."
                   icon={FolderTree}
                   accent="amber"

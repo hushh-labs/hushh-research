@@ -42,7 +42,7 @@ This governance contract also owns the repo-wide dual-label terminology rule:
 5. When a doc introduces a new architecture-heavy term, reconcile it against the founder-language matrix in the same PR.
 6. Treat Hussh / One / Kai / Nav / KYC as a role contract, not interchangeable voice labels:
    - Hussh is platform, trust model, and infrastructure.
-   - One is the personal agent and relationship layer.
+   - One is the private agent and relationship layer.
    - Kai is the finance specialist.
    - Nav is the privacy, consent, vault, deletion, and scope-review guardian.
    - KYC is the identity and verification workflow specialist.

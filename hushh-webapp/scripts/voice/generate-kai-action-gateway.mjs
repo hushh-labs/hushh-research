@@ -440,6 +440,36 @@ function normalizeExpectedEffects(raw) {
   };
 }
 
+function normalizeExternalCallback(raw, actionId) {
+  if (!isPlainObject(raw)) return null;
+  const provider = cleanString(raw.provider);
+  const starts = cleanString(raw.starts);
+  const settlement = cleanString(raw.settlement);
+  const failureBehavior = cleanString(raw.failure_behavior);
+  const returnTo = cleanString(raw.return_to);
+  if (!provider || !starts || !settlement || !failureBehavior || !returnTo) {
+    throw new Error(
+      `${actionId}: external_callback requires provider, starts, settlement, failure_behavior, and return_to`
+    );
+  }
+  if (!['google', 'apple'].includes(provider)) {
+    throw new Error(`${actionId}: external_callback.provider must be google or apple`);
+  }
+  if (starts !== 'external_redirect_started' || settlement !== 'firebase_redirect_callback') {
+    throw new Error(`${actionId}: unsupported external callback lifecycle`);
+  }
+  if (failureBehavior !== 'retain_goal_and_retry') {
+    throw new Error(`${actionId}: external_callback.failure_behavior must retain_goal_and_retry`);
+  }
+  return {
+    provider,
+    starts,
+    settlement,
+    failure_behavior: failureBehavior,
+    return_to: returnTo,
+  };
+}
+
 function deriveDefaultStateChanges(action) {
   if (action.expected_effects.state_changes.length > 0) {
     return action.expected_effects.state_changes;
@@ -507,6 +537,7 @@ function normalizeAction(surface, action) {
     state_exposure: uniqueStrings(action.state_exposure),
     docs_references: docsReferences,
     workflow: normalizeWorkflow(action.workflow, actionId),
+    external_callback: normalizeExternalCallback(action.external_callback, actionId),
     expected_effects: normalizeExpectedEffects(action.expected_effects),
     trigger: DEFAULT_TRIGGER,
   };
@@ -601,6 +632,7 @@ function toLegacyManifestAction(action) {
     risk_level: action.risk_level,
     execution_policy: action.execution_policy,
     execution_hint: action.execution_target,
+    external_callback: action.external_callback,
     goal: action.goal,
     map_references: action.docs_references,
   };

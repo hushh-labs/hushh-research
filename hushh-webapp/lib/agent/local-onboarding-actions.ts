@@ -25,8 +25,18 @@ export type LocalOnboardingActionResult = {
   data?: Record<string, unknown>;
 };
 
+/**
+ * Execution-only gateway context. This is deliberately separate from
+ * model-resolved slots: it carries correlation metadata, never owner
+ * information or provider credentials.
+ */
+export type LocalOnboardingActionContext = {
+  directiveId?: string | null;
+};
+
 export type LocalOnboardingActionHandler = (
-  slots: Record<string, unknown>
+  slots: Record<string, unknown>,
+  context?: LocalOnboardingActionContext
 ) => LocalOnboardingActionResult | Promise<LocalOnboardingActionResult>;
 
 const handlers = new Map<string, LocalOnboardingActionHandler>();
@@ -94,8 +104,8 @@ export function useLocalOnboardingActionHandler(
   });
 
   useEffect(() => {
-    const stableHandler: LocalOnboardingActionHandler = (slots) =>
-      handlerRef.current(slots);
+    const stableHandler: LocalOnboardingActionHandler = (slots, context) =>
+      handlerRef.current(slots, context);
     registerLocalOnboardingHandler(actionId, stableHandler);
     return () => {
       unregisterLocalOnboardingHandler(actionId, stableHandler);

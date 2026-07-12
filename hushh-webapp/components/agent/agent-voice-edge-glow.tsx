@@ -139,21 +139,22 @@ export function AgentVoiceEdgeGlow() {
     };
   }, []);
 
+  const showEdgeGlow = active;
   const mix = STATUS_MIX[status] ?? DEFAULT_MIX;
 
   // Presence: subtle and vivid. Kept restrained so the rim never competes with
   // on-screen content; energy adds a little lift, not a wash.
-  const poolsAlpha = active ? Math.min(0.9, 0.6 + smoothLevel * 0.3) : 0;
+  const poolsAlpha = showEdgeGlow ? Math.min(0.9, 0.6 + smoothLevel * 0.3) : 0;
   const poolBlur = 30 - smoothLevel * 8; // px
   // Saturation keeps the colours vivid so even a thin rim reads as a spectrum.
-  const poolPunch = `saturate(1.55) brightness(1.15)`;
+  const poolPunch = "saturate(1.55) brightness(1.15)";
 
   // Edge mask: reveal the pools only in a NARROW band at the perimeter and
   // feather quickly to transparent, so only a tight rim shows and the whole body
   // stays clear. Two linear masks (top/bottom + left/right) unioned so all four
   // edges show; the band grows only slightly with energy. Anchored to the true
   // edges (0%), so the rim reaches end-to-end.
-  const depth = 5 + smoothLevel * 3; // % of the screen the rim reaches in (very subtle)
+  const depth = 5 + smoothLevel * 3; // % of the screen the rim reaches in
   const maskStyle = useMemo<CSSProperties>(() => {
     const vert = `linear-gradient(to bottom, #000 0%, transparent ${depth}%, transparent ${100 - depth}%, #000 100%)`;
     const horiz = `linear-gradient(to right, #000 0%, transparent ${depth}%, transparent ${100 - depth}%, #000 100%)`;
@@ -173,7 +174,7 @@ export function AgentVoiceEdgeGlow() {
       className={cn(
         "pointer-events-none fixed inset-0 z-[117] overflow-hidden",
         "transition-opacity ease-[var(--motion-overlay-enter-ease)]",
-        active
+        showEdgeGlow
           ? "opacity-100 duration-[var(--motion-overlay-enter-duration)]"
           : "opacity-0 duration-[var(--motion-overlay-exit-duration)]",
       )}

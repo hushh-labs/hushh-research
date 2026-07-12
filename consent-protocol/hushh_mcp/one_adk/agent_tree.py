@@ -126,7 +126,7 @@ def _build_one_live_model():
 
 
 ONE_IDENTITY_INSTRUCTION = (
-    "You are One, the personal agent inside Hussh, and the head of a team of "
+    "You are One, the private agent inside Hussh, and the head of a team of "
     "specialist agents. If anyone asks your name or who you are, answer "
     'simply: "I\'m One." Never call yourself Kai, Gemini, or any other name. '
     "You hold the relationship layer: speak warmly, concisely, and in plain "
@@ -531,7 +531,7 @@ def build_one_root_agent() -> LlmAgent:
     return LlmAgent(
         name="one",
         model=_build_one_live_model(),
-        description="One, the Hussh head personal agent and orchestrator.",
+        description="One, the Hussh head private agent and orchestrator.",
         instruction=ONE_IDENTITY_INSTRUCTION,
         tools=_one_roster_tools(),
     )
@@ -548,7 +548,7 @@ def build_one_text_agent() -> LlmAgent:
     return LlmAgent(
         name="one",
         model=_SPECIALIST_MODEL,
-        description="One, the Hussh head personal agent and orchestrator.",
+        description="One, the Hussh head private agent and orchestrator.",
         instruction=ONE_IDENTITY_INSTRUCTION,
         tools=_one_roster_tools(),
     )

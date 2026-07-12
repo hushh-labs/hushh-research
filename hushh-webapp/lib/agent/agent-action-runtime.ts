@@ -1,6 +1,9 @@
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
-import { waitForLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import {
+  waitForLocalOnboardingHandler,
+  type LocalOnboardingActionContext,
+} from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
@@ -39,6 +42,7 @@ export type ExecuteAgentGatewayActionInput = {
   busyOperations: Record<string, boolean>;
   setAnalysisParams: (params: AnalysisParams | null) => void;
   switchPersona?: (target: Persona) => Promise<unknown>;
+  executionContext?: LocalOnboardingActionContext;
 };
 
 function readString(value: unknown): string | null {
@@ -283,7 +287,7 @@ export async function executeAgentGatewayAction(
       });
     }
     try {
-      const handlerResult = await handler(input.slots || {});
+      const handlerResult = await handler(input.slots || {}, input.executionContext);
       return buildResult({
         status:
           handlerResult.status === "started"

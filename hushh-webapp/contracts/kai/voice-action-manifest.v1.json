@@ -38,6 +38,7 @@
         "path": "route",
         "target": "/getting-started"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.getting_started",
         "required_inputs": [],
@@ -110,6 +111,7 @@
         "path": "route",
         "target": "/login"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.onboarding.continue",
         "required_inputs": [],
@@ -166,7 +168,7 @@
       ],
       "scope": {
         "routes": [
-          "/login"
+          "/getting-started"
         ],
         "screens": [
           "getting_started",
@@ -185,6 +187,7 @@
         "path": "route",
         "target": "/login"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.auth.sign_in_open",
         "required_inputs": [],
@@ -264,6 +267,7 @@
         "path": "route",
         "target": "/one/setup"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.vault.setup_open",
         "required_inputs": [],
@@ -334,6 +338,13 @@
         "path": "local_handler",
         "target": "auth.sign_in_google"
       },
+      "external_callback": {
+        "provider": "google",
+        "starts": "external_redirect_started",
+        "settlement": "firebase_redirect_callback",
+        "failure_behavior": "retain_goal_and_retry",
+        "return_to": "/one/setup"
+      },
       "goal": {
         "goal_id": "goal.auth.sign_in_google",
         "required_inputs": [],
@@ -402,6 +413,13 @@
         "status": "wired",
         "path": "local_handler",
         "target": "auth.sign_in_apple"
+      },
+      "external_callback": {
+        "provider": "apple",
+        "starts": "external_redirect_started",
+        "settlement": "firebase_redirect_callback",
+        "failure_behavior": "retain_goal_and_retry",
+        "return_to": "/one/setup"
       },
       "goal": {
         "goal_id": "goal.auth.sign_in_apple",
@@ -480,6 +498,7 @@
           "optional_ria_id": true
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.marketplace_ria_profile",
         "required_inputs": [],
@@ -561,6 +580,7 @@
         "reason": "Creating an investor-to-RIA consent request must stay user-triggered on the marketplace profile.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.ria.request_advisory",
         "required_inputs": [],
@@ -638,6 +658,7 @@
         "path": "route",
         "target": "/ria/settings"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.ria.manage_profile",
         "required_inputs": [],
@@ -709,6 +730,7 @@
         "path": "route",
         "target": "/marketplace"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.marketplace_browse_from_ria_profile",
         "required_inputs": [],
@@ -784,6 +806,7 @@
         "reason": "External disclosure URLs are dynamic profile state and should be opened manually.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.ria.open_public_disclosure",
         "required_inputs": [],
@@ -855,6 +878,7 @@
         "path": "route",
         "target": "/one/gmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_receipts",
         "required_inputs": [],
@@ -927,6 +951,7 @@
         "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
         "intended_handler": "handleConnectGmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.gmail.connect",
         "required_inputs": [],
@@ -998,6 +1023,7 @@
         "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.gmail.sync_now",
         "required_inputs": [],
@@ -1070,6 +1096,7 @@
         "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
         "intended_handler": "handleDisconnectGmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.gmail.disconnect",
         "required_inputs": [],
@@ -1139,6 +1166,7 @@
         "path": "route",
         "target": "/one/kai/analysis"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_analysis",
         "required_inputs": [],
@@ -1209,6 +1237,7 @@
         "path": "kai_command",
         "target": "history"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.analysis_history",
         "required_inputs": [],
@@ -1284,6 +1313,7 @@
           "requires_symbol": true
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.start_debate",
         "required_inputs": [
@@ -1398,6 +1428,7 @@
         "path": "voice_tool",
         "target": "resume_active_analysis"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.resume_active",
         "required_inputs": [],
@@ -1473,6 +1504,7 @@
         "path": "voice_tool",
         "target": "cancel_active_analysis"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.cancel_active",
         "required_inputs": [],
@@ -1543,6 +1575,7 @@
         "status": "dead",
         "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.open_transcript_tab_legacy",
         "required_inputs": [],
@@ -1619,6 +1652,7 @@
         "path": "route",
         "target": "/one/kyc"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_kyc",
         "required_inputs": [],
@@ -1693,6 +1727,7 @@
         "status": "unwired",
         "reason": "Requires opening the local verified email panel in /one/kyc."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.aliases.manage",
         "required_inputs": [],
@@ -1766,6 +1801,7 @@
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.workflow.sync_status",
         "required_inputs": [],
@@ -1839,6 +1875,7 @@
         "status": "unwired",
         "reason": "Requires selected workflow context and user-visible draft state."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.review",
         "required_inputs": [],
@@ -1912,6 +1949,7 @@
         "status": "unwired",
         "reason": "Requires selected workflow context and captured redraft instructions."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.request_redraft",
         "required_inputs": [],
@@ -1986,6 +2024,7 @@
         "status": "unwired",
         "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.approve_send",
         "required_inputs": [],
@@ -2059,6 +2098,7 @@
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.reject",
         "required_inputs": [],
@@ -2135,6 +2175,7 @@
         "path": "route",
         "target": "/one/marketplace"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_marketplace",
         "required_inputs": [],
@@ -2208,6 +2249,7 @@
         "path": "route",
         "target": "/one"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_agents",
         "required_inputs": [],
@@ -2279,6 +2321,7 @@
         "path": "route",
         "target": "/one/location"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_location",
         "required_inputs": [],
@@ -2351,6 +2394,7 @@
         "path": "route",
         "target": "/one/pkm"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_pkm",
         "required_inputs": [],
@@ -2437,6 +2481,7 @@
         "path": "local_handler",
         "target": "setup.capability_continue"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.capability_continue",
         "required_inputs": [],
@@ -2511,6 +2556,7 @@
         "path": "local_handler",
         "target": "kai.setup.answer_horizon"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.answer_horizon",
         "required_inputs": [
@@ -2599,6 +2645,7 @@
         "path": "local_handler",
         "target": "kai.setup.answer_drawdown"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.answer_drawdown",
         "required_inputs": [
@@ -2687,6 +2734,7 @@
         "path": "local_handler",
         "target": "kai.setup.answer_volatility"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.answer_volatility",
         "required_inputs": [
@@ -2775,6 +2823,7 @@
         "path": "local_handler",
         "target": "kai.setup.launch_dashboard"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.launch_dashboard",
         "required_inputs": [],
@@ -2847,6 +2896,7 @@
         "path": "kai_command",
         "target": "profile"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile",
         "required_inputs": [],
@@ -2919,6 +2969,7 @@
         "path": "route",
         "target": "/one/gmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_gmail_panel",
         "required_inputs": [],
@@ -2992,6 +3043,7 @@
         "path": "route",
         "target": "/one/connected-systems"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_connected_systems",
         "required_inputs": [],
@@ -3064,6 +3116,7 @@
         "path": "route",
         "target": "/profile/support"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_support_panel",
         "required_inputs": [],
@@ -3136,6 +3189,7 @@
         "path": "route",
         "target": "/profile/security"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_security_panel",
         "required_inputs": [],
@@ -3208,6 +3262,7 @@
         "path": "route",
         "target": "/one/pkm"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_pkm_agent_lab",
         "required_inputs": [],
@@ -3279,6 +3334,7 @@
         "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.support.submit_message",
         "required_inputs": [],
@@ -3351,6 +3407,7 @@
         "reason": "Only handled by local Switch in ProfilePage.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.marketplace_visibility.toggle",
         "required_inputs": [],
@@ -3422,6 +3479,7 @@
         "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.sign_out",
         "required_inputs": [],
@@ -3496,6 +3554,7 @@
         "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.delete_account",
         "required_inputs": [],
@@ -3570,6 +3629,7 @@
           "mode": "preview"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.pkm.preview_capture",
         "required_inputs": [],
@@ -3644,6 +3704,7 @@
         "status": "unwired",
         "reason": "Voice may prepare the preview only. PKM persistence requires the visible review card and an owner-confirmed PkmMutationPlanV2."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.pkm.save_capture",
         "required_inputs": [],
@@ -3718,6 +3779,7 @@
         "path": "local_handler",
         "target": "phone_mandate.submit_number"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.phone_mandate.submit_number",
         "required_inputs": [
@@ -3803,6 +3865,7 @@
         "reason": "Completing phone verification changes account security state and must stay user-triggered from the visible code field.",
         "intended_handler": "local_handler"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.phone_mandate.submit_code",
         "required_inputs": [],
@@ -3879,6 +3942,7 @@
         "path": "route",
         "target": "/ria/clients"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_clients",
         "required_inputs": [],
@@ -3956,6 +4020,7 @@
         "reason": "Client workspace routes require a dynamic investor user id from the clicked row.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.clients.open_client_workspace",
         "required_inputs": [],
@@ -4030,6 +4095,7 @@
         "path": "route",
         "target": "/marketplace"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_marketplace_connect",
         "required_inputs": [],
@@ -4106,6 +4172,7 @@
         "path": "route",
         "target": "/ria/onboarding"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_onboarding",
         "required_inputs": [],
@@ -4184,6 +4251,7 @@
         "reason": "Advisor name verification depends on current form state and must be triggered from the visible onboarding control.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.onboarding.verify_name",
         "required_inputs": [],
@@ -4263,6 +4331,7 @@
         "reason": "RIA verification submission changes persona/profile state and must remain user-triggered on the review screen.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.onboarding.submit_verification",
         "required_inputs": [],
@@ -4342,6 +4411,7 @@
         "reason": "Development-only RIA activation must be clicked intentionally in the onboarding UI.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.onboarding.dev_bypass_verification",
         "required_inputs": [],
@@ -4417,6 +4487,7 @@
         "path": "route",
         "target": "/ria"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_home",
         "required_inputs": [],
@@ -4494,6 +4565,7 @@
         "reason": "Priority queue item URLs are dynamic screen state and are not safe to execute from the static gateway yet.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.home.open_priority_item",
         "required_inputs": [],
@@ -4569,6 +4641,7 @@
         "path": "route",
         "target": "/ria/picks"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_picks",
         "required_inputs": [],
@@ -4643,6 +4716,7 @@
         "path": "route",
         "target": "/ria/picks?source=kai"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_source_kai",
         "required_inputs": [],
@@ -4716,6 +4790,7 @@
         "path": "route",
         "target": "/ria/picks?source=my"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_source_my",
         "required_inputs": [],
@@ -4789,6 +4864,7 @@
         "path": "route",
         "target": "/ria/picks?category=top-picks"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_category_top_picks",
         "required_inputs": [],
@@ -4862,6 +4938,7 @@
         "path": "route",
         "target": "/ria/picks?category=avoid"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_category_avoid",
         "required_inputs": [],
@@ -4935,6 +5012,7 @@
         "path": "route",
         "target": "/ria/picks?category=screening"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_category_screening",
         "required_inputs": [],
@@ -5013,6 +5091,7 @@
         "reason": "The advisor package editor mutates local draft state and is not exposed as a voice tool.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.start_edit_package",
         "required_inputs": [],
@@ -5092,6 +5171,7 @@
         "reason": "Saving advisor picks writes vault-backed PKM and API state and must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.save_package",
         "required_inputs": [],
@@ -5172,6 +5252,7 @@
         "reason": "CSV file selection and replacement are browser/file-system interactions and must stay manual.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.upload_csv_replace_top_picks",
         "required_inputs": [],
@@ -5251,6 +5332,7 @@
         "reason": "Copying the Kai package replaces local advisor draft state and must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.copy_from_kai",
         "required_inputs": [],
@@ -5327,6 +5409,7 @@
         "reason": "Discarding draft changes must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.discard_package_changes",
         "required_inputs": [],
@@ -5407,6 +5490,7 @@
         "reason": "Row-level editing requires structured manual input inside the picks editor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.edit_rows_manual",
         "required_inputs": [],
@@ -5480,6 +5564,7 @@
         "path": "route",
         "target": "/templates/ria-picks-template.csv"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.download_template",
         "required_inputs": [],
@@ -5555,6 +5640,7 @@
         "path": "route",
         "target": "/ria/profile"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_profile",
         "required_inputs": [],
@@ -5628,6 +5714,7 @@
         "path": "local_handler",
         "target": "ria_profile_edit_panel"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.profile.edit_services",
         "required_inputs": [],
@@ -5705,6 +5792,7 @@
         "path": "route",
         "target": "/ria/requests"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_requests_compat",
         "required_inputs": [],
@@ -5781,6 +5869,7 @@
         "path": "route",
         "target": "/ria/settings"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_settings_compat",
         "required_inputs": [],
@@ -5863,6 +5952,7 @@
           "fallback_target": "/ria/clients"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_workspace_compat",
         "required_inputs": [],
@@ -5948,6 +6038,7 @@
           "delegate_agent_id": "agent_email"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.email.chat.turn",
         "required_inputs": [
@@ -6054,6 +6145,7 @@
           "delegate_agent_id": "agent_location"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.location.chat.turn",
         "required_inputs": [
@@ -6169,6 +6261,7 @@
           "delegate_agent_id": "agent_connections"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.connections.chat.turn",
         "required_inputs": [
@@ -6272,6 +6365,7 @@
           "delegate_agent_id": "agent_gmail"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.gmail.chat.turn",
         "required_inputs": [
@@ -6375,6 +6469,7 @@
           "delegate_agent_id": "agent_nav"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.consent.chat.turn",
         "required_inputs": [
@@ -6476,6 +6571,7 @@
           "delegate_agent_id": "agent_connected_systems"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.connected_systems.chat.turn",
         "required_inputs": [
@@ -6539,7 +6635,7 @@
     {
       "id": "marketplace.information.chat.turn",
       "label": "Ask Information Marketplace",
-      "meaning": "Delegates read-only Information Marketplace questions about published data slices, listings, demand, and potential earnings.",
+      "meaning": "Delegates read-only Information Marketplace questions about published information slices, listings, demand, and potential earnings.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_personal_information",
       "aliases": [
@@ -6561,7 +6657,7 @@
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "marketplace data requires vault and marketplace readiness"
+          "marketplace information requires vault and marketplace readiness"
         ]
       },
       "guard_ids": [
@@ -6578,6 +6674,7 @@
           "delegate_agent_id": "agent_personal_information"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.information.chat.turn",
         "required_inputs": [
@@ -6681,6 +6778,7 @@
           "delegate_agent_id": "agent_personal_information"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.information.requests.turn",
         "required_inputs": [
@@ -6770,6 +6868,7 @@
         "path": "kai_command",
         "target": "consent"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.consents",
         "required_inputs": [],
@@ -6846,6 +6945,7 @@
         "path": "voice_tool",
         "target": "navigate_back"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.back",
         "required_inputs": [],
@@ -6916,6 +7016,7 @@
         "path": "kai_command",
         "target": "dashboard"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_dashboard",
         "required_inputs": [],
@@ -6985,6 +7086,7 @@
         "path": "kai_command",
         "target": "import"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_import",
         "required_inputs": [],
@@ -7058,6 +7160,7 @@
         "path": "route",
         "target": "/one/kai/investments"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_investments",
         "required_inputs": [],
@@ -7129,6 +7232,7 @@
         "path": "route",
         "target": "/one/kai/optimize"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_optimize",
         "required_inputs": [],
@@ -7200,6 +7304,7 @@
         "path": "kai_command",
         "target": "home"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_home",
         "required_inputs": [],
@@ -7273,6 +7378,7 @@
         "path": "route",
         "target": "/one/setup/finance"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_finance",
         "required_inputs": [],
@@ -7346,6 +7452,7 @@
         "path": "route",
         "target": "/one/setup/gmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_gmail",
         "required_inputs": [],
@@ -7418,6 +7525,7 @@
         "path": "route",
         "target": "/one/setup/email"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_email",
         "required_inputs": [],
@@ -7491,6 +7599,7 @@
         "path": "route",
         "target": "/one/setup/location"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_location",
         "required_inputs": [],
@@ -7541,7 +7650,7 @@
       "aliases": [
         "set up memory",
         "open memory setup",
-        "set up personal data"
+        "set up personal information"
       ],
       "scope": {
         "routes": [
@@ -7564,6 +7673,7 @@
         "path": "route",
         "target": "/one/setup/pkm"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_personal_data",
         "required_inputs": [],
@@ -7637,6 +7747,7 @@
         "path": "route",
         "target": "/one/setup/consent"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_consent",
         "required_inputs": [],
@@ -7710,6 +7821,7 @@
         "path": "route",
         "target": "/one/setup/connected-systems"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_connected_systems",
         "required_inputs": [],
@@ -7785,6 +7897,7 @@
         "path": "local_handler",
         "target": "setup.hub_master_ack"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.hub_master_ack",
         "required_inputs": [],
@@ -7865,6 +7978,7 @@
         "reason": "Opening a specific account detail requires a dynamic account id selected from the workspace.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_client_account_detail",
         "required_inputs": [],
@@ -7909,7 +8023,7 @@
     },
     {
       "id": "ria.client_account.open_workspace_fallback",
-      "label": "Return To Client Data Explorer",
+      "label": "Return To Client Information Explorer",
       "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
@@ -7948,6 +8062,7 @@
           "tab": "explorer"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_account.open_workspace_fallback",
         "required_inputs": [],
@@ -7957,7 +8072,7 @@
           {
             "type": "action",
             "action_id": "ria.client_account.open_workspace_fallback",
-            "label": "Return To Client Data Explorer",
+            "label": "Return To Client Information Explorer",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/ria/clients/[userId]?tab=explorer",
@@ -8027,6 +8142,7 @@
         "reason": "Opening a specific request detail requires a dynamic request id selected from workspace history.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_client_request_detail",
         "required_inputs": [],
@@ -8110,6 +8226,7 @@
           "tab": "access"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_request.open_access_fallback",
         "required_inputs": [],
@@ -8191,6 +8308,7 @@
           "requires_client_id": true
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_client_workspace",
         "required_inputs": [],
@@ -8275,6 +8393,7 @@
           "tab": "overview"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_overview_tab",
         "required_inputs": [],
@@ -8357,6 +8476,7 @@
           "tab": "access"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_access_tab",
         "required_inputs": [],
@@ -8441,6 +8561,7 @@
           "tab": "kai"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_portfolio_tab",
         "required_inputs": [],
@@ -8484,8 +8605,8 @@
     },
     {
       "id": "ria.client_workspace.open_explorer_tab",
-      "label": "Show Client Data Explorer",
-      "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
+      "label": "Show Client Information Explorer",
+      "meaning": "Switches the client workspace to the information explorer tab when client information access is ready.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "aliases": [
@@ -8504,7 +8625,7 @@
         "hidden_navigable": false,
         "navigation_prerequisites": [
           "Client identifier must be known.",
-          "Explorer may be locked until consent approval and data readiness."
+          "Explorer may be locked until consent approval and information readiness."
         ]
       },
       "guard_ids": [
@@ -8525,6 +8646,7 @@
           "tab": "explorer"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_explorer_tab",
         "required_inputs": [],
@@ -8534,7 +8656,7 @@
           {
             "type": "action",
             "action_id": "ria.client_workspace.open_explorer_tab",
-            "label": "Show Client Data Explorer",
+            "label": "Show Client Information Explorer",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/ria/clients/[userId]?tab=explorer",
@@ -8610,6 +8732,7 @@
         "reason": "Opening a specific account detail requires the clicked account branch id from visible row state.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_account_detail",
         "required_inputs": [],
@@ -8689,6 +8812,7 @@
         "path": "route",
         "target": "/consents?tab=pending"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_access_manager",
         "required_inputs": [],
@@ -8774,6 +8898,7 @@
         "reason": "Sending an access request uses selected scopes, account ids, and client-visible note state and must remain user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.request_access",
         "required_inputs": [],
@@ -8856,6 +8981,7 @@
         "reason": "Disconnecting a client relationship is destructive and must remain user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.disconnect_relationship",
         "required_inputs": [],

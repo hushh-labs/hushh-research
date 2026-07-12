@@ -143,7 +143,7 @@ class OrchestratorAgent(HushhAgent):
         normalized = normalize_persona(persona)
         practice = "your practice" if normalized == "ria" else "your money"
         return (
-            "Hi, I'm One, your personal agent in Hussh. I can bring in finance (Kai) "
+            "Hi, I'm One, your private agent in Hussh. I can bring in finance (Kai) "
             f"for {practice}, privacy and consent (Nav), or identity (KYC) specialists "
             "when you need them. What would you like to do?"
         )

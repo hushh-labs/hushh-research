@@ -1326,6 +1326,15 @@ html.native-ios {
   );
   animation: one-bar-breathe 3.4s ease-in-out infinite;
 }
+.one-bar-aurora--onboarding {
+  background: radial-gradient(
+    120% 160% at 50% 120%,
+    rgba(212, 175, 106, 0.42),
+    rgba(212, 175, 106, 0.08) 58%,
+    transparent 74%
+  );
+  animation: none;
+}
 @keyframes one-bar-breathe {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 0.9; }
@@ -1406,7 +1415,7 @@ html.native-ios {
 }
 
 .glow-mesh-active {
-  animation: gold-mesh-pulse 12s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  animation: gold-mesh-pulse 20s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
 }
 
 /* ── Interactive Web-Tap Ripple ──
@@ -1476,13 +1485,13 @@ html.native-ios {
 /* ── The hero glow ── one large soft orb that slowly breathes + drifts. */
 .one-hero-glow {
   filter: blur(8px);
-  opacity: 0.9;
-  animation: one-glow-breathe 11s ease-in-out infinite;
+  opacity: 0.62;
+  animation: one-glow-breathe 18s ease-in-out infinite;
   will-change: transform, opacity;
 }
 .one-hero-glow--alt {
-  opacity: 0.7;
-  animation: one-glow-breathe-alt 15s ease-in-out infinite;
+  opacity: 0.35;
+  animation: one-glow-breathe-alt 22s ease-in-out infinite;
 }
 @keyframes one-glow-breathe {
   0%   { transform: translate(-50%, 0) scale(1);     opacity: 0.82; }
@@ -1516,7 +1525,7 @@ html.native-ios {
 /* ── Film grain ── fine static tooth so the canvas never looks flat CSS. */
 .one-grain {
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.035;
   background-image: radial-gradient(rgba(0, 0, 0, 0.9) 0.5px, transparent 0.6px);
   background-size: 3px 3px;
 }

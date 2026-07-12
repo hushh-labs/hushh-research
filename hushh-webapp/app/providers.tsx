@@ -35,6 +35,7 @@ import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider"
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
+import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
@@ -330,6 +331,7 @@ function AppShellFrame({ children }: ProvidersProps) {
             <NativeTestRouter />
             <NativeTestBootstrap />
             <NativeTestRouteStatus />
+            <FoundationPublicAmbient />
             {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.
                 Inside the boundary it would remount whenever a navigation

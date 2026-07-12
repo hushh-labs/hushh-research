@@ -253,7 +253,7 @@ type AgentChatWorkspaceProps = {
 };
 
 const AGENT_GREETING =
-  "Hi, I'm One \u2014 your personal agent. Ask me about your markets, portfolio, memories, or consent workflows.";
+  "Hi, I'm One \u2014 your private agent. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
 const AGENT_WELCOME_PROMPTS = [
   "Review my portfolio",
@@ -4279,7 +4279,7 @@ export function AgentChatWorkspace({
                   One
                 </div>
                 <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                  Your personal agent
+                  Your private agent
                 </p>
               </div>
             </div>

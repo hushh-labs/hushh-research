@@ -139,7 +139,7 @@ export function runDomainUpgrade(params: {
     return {
       domainData: cloneRecord(params.domainData),
       notes: [
-        `Rebuilt ${titleize(params.domain)} into the current Personal Knowledge Model contract from legacy or unversioned data.`,
+        `Rebuilt ${titleize(params.domain)} into the current Personal Knowledge Model contract from legacy or unversioned information.`,
       ],
       newDomainContractVersion: targetVersion,
       pkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,

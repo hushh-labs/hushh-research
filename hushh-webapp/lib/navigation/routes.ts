@@ -414,6 +414,22 @@ export function isPublicRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * Public editorial routes that share One's Foundation ambient presentation and
+ * voice-only controls. Keep this narrower than isPublicRoute: auth, profile,
+ * phone, and public invite routes have their own security/UI contracts.
+ */
+export function isFoundationPublicRoute(pathname: string): boolean {
+  return (
+    pathname === ROUTES.HOME ||
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    pathname === ROUTES.BLOG ||
+    pathname.startsWith(`${ROUTES.BLOG}/`)
+  );
+}
+
 export function isRiaRoute(pathname: string): boolean {
   return pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
 }

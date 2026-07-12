@@ -36,6 +36,41 @@ def load_route_orchestration_index() -> dict[str, dict[str, Any]]:
     }
 
 
+def resolve_route_orchestration_entry(route_family: str | None) -> dict[str, Any] | None:
+    """Resolve a canonical browser route against the generated route index.
+
+    Route patterns are authored by Next.js and may contain ``[param]``
+    segments.  Live browser context always contains a concrete path, so an
+    exact dictionary lookup silently dropped policy for dynamic routes such as
+    ``/one/setup/finance``.  Match only whole path segments and prefer an
+    exact entry; this is descriptive route policy, never a route executor.
+    """
+    route = str(route_family or "").strip().split("?", 1)[0]
+    if not route.startswith("/"):
+        return None
+    route = route.rstrip("/") or "/"
+    index = load_route_orchestration_index()
+    exact = index.get(route)
+    if exact is not None:
+        return exact
+
+    route_segments = route.strip("/").split("/") if route != "/" else []
+    for pattern, entry in index.items():
+        pattern_segments = pattern.strip("/").split("/") if pattern != "/" else []
+        if len(pattern_segments) != len(route_segments):
+            continue
+        if all(
+            pattern_segment.startswith("[")
+            and pattern_segment.endswith("]")
+            or pattern_segment == route_segment
+            for pattern_segment, route_segment in zip(
+                pattern_segments, route_segments, strict=False
+            )
+        ):
+            return entry
+    return None
+
+
 def is_one_delegate_admitted(route_family: str | None, agent_id: str) -> bool | None:
     """Return route admission; None preserves non-live compatibility.
 
@@ -45,7 +80,7 @@ def is_one_delegate_admitted(route_family: str | None, agent_id: str) -> bool | 
     route = str(route_family or "").strip()
     if not route:
         return None
-    entry = load_route_orchestration_index().get(route)
+    entry = resolve_route_orchestration_entry(route)
     if entry is None:
         return False
     policy = entry.get("delegation_policy")

@@ -1519,7 +1519,7 @@ export default function PkmAgentLabPageClient() {
             >
               <SettingsRow
                 title="Open explorer"
-                description="Use the advanced explorer accordion on the main page to inspect raw manifests, ciphertext shape, and decrypted domain data."
+                description="Use the advanced explorer accordion on the main page to inspect raw manifests, ciphertext shape, and decrypted domain information."
                 leading={<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />}
               />
             </SettingsGroup>

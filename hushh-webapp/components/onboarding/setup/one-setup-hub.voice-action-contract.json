@@ -98,8 +98,8 @@
       "action_id": "setup.open_personal_data",
       "label": "Set Up Memory",
       "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
-      "aliases": ["set up memory", "open memory setup", "set up personal data"],
-      "search_keywords": ["memory", "pkm", "setup", "personal data"],
+      "aliases": ["set up memory", "open memory setup", "set up personal information"],
+      "search_keywords": ["memory", "pkm", "setup", "personal information"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],

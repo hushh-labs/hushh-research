@@ -50,5 +50,5 @@ Use this when reviewing One Voice, Kai compatibility runtime, or typed-search ch
 - `npm run build:voice-gateway`
 - `npm run verify:voice-gateway`
 - targeted voice tests
-- One intelligence eval cases for proposals, chained goals, memory candidates, and sensitive-data rejection
+- One intelligence eval cases for proposals, chained goals, memory candidates, and sensitive-information rejection
 - backend voice contract test when shared semantics changed

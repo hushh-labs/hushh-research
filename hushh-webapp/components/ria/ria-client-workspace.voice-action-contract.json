@@ -254,8 +254,8 @@
     },
     {
       "action_id": "ria.client_workspace.open_explorer_tab",
-      "label": "Show Client Data Explorer",
-      "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
+      "label": "Show Client Information Explorer",
+      "meaning": "Switches the client workspace to the information explorer tab when client information access is ready.",
       "aliases": [
         "show client data",
         "open explorer tab",
@@ -278,7 +278,7 @@
         "hidden_navigable": false,
         "navigation_prerequisites": [
           "Client identifier must be known.",
-          "Explorer may be locked until consent approval and data readiness."
+          "Explorer may be locked until consent approval and information readiness."
         ],
         "active_personas": [
           "ria"
@@ -308,7 +308,7 @@
       ],
       "state_exposure": [
         "selected client identifier",
-        "available data domains"
+        "available information domains"
       ],
       "docs_references": [
         "hushh-webapp/components/ria/ria-client-workspace.tsx"
@@ -499,7 +499,7 @@
       "expected_effects": {
         "state_changes": [
           "client access request is created",
-          "workspace data refreshes"
+          "workspace information refreshes"
         ],
         "backend_effects": [
           {
